@@ -1,5 +1,5 @@
 // Preload of web tab sessions, for extension service workers and frames. It
-// does nothing in websites' frames: only chrome-extension:// pages and workers
+// does nothing in websites' frames (or Chromium's PDF viewer): only chrome-extension:// pages and workers
 // get the missing chrome.* APIs (see shim.ts), talking to the main process
 // over IPC.
 import { contextBridge, ipcRenderer } from "electron";
@@ -18,8 +18,10 @@ function href(): string {
 }
 
 const id = extensionIdOf(href());
+/** Chromium's PDF viewer, a component extension: Electron gives it its own APIs, which the shim would break. */
+const PDF_VIEWER = "mhjfbmdgcfjbbpaeojofohoefgiehjai";
 
-if (id) {
+if (id && id !== PDF_VIEWER) {
   const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
   const bridge: ShimBridge = {
     // The main process hooks a worker's IPC as it starts: early calls may come before that.

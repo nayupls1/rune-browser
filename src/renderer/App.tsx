@@ -22,7 +22,9 @@ import { startWindowChrome } from "./lib/windowChrome";
 import { startShortcuts } from "./lib/shortcuts";
 import { loadSettings } from "./lib/settings";
 import { Icon } from "./components/Icon";
+import { dropTarget, hasFiles, openDropped, setDropTarget } from "./lib/drops";
 import {
+  appById,
   currentWorkspace,
   HISTORY_VIEW,
   isSettingsView,
@@ -66,8 +68,32 @@ export default function App() {
 
   const split = () => !!visibleSplit();
 
+  // Files dropped on the window (not on a page, which takes them itself) open in new tabs; on a
+  // blank web tab, the first opens there. Fields and the composer handle their own drops.
+  const blankTab = () => {
+    const tab = appById(selectedId());
+    return tab?.kind === "web" && !tab.url ? tab.id : undefined;
+  };
+  const onDragOver = (e: DragEvent) => {
+    if (e.defaultPrevented || !hasFiles(e.dataTransfer)) return;
+    e.preventDefault();
+    e.dataTransfer!.dropEffect = "copy";
+    setDropTarget({ kind: "window", tabId: blankTab() });
+  };
+  const onDrop = (e: DragEvent) => {
+    if (e.defaultPrevented || !hasFiles(e.dataTransfer)) return;
+    e.preventDefault();
+    const target = dropTarget();
+    setDropTarget(null);
+    openDropped(e.dataTransfer!, target?.kind === "window" ? { tabId: target.tabId } : {});
+  };
+  const windowDrop = () => {
+    const target = dropTarget();
+    return target?.kind === "window" ? target : null;
+  };
+
   return (
-    <div {...stylex.attrs(styles.root)} data-app-root>
+    <div {...stylex.attrs(styles.root)} onDragOver={onDragOver} onDrop={onDrop} data-app-root>
       <Sidebar />
       <ConfirmHost />
       <AuthHost />
@@ -144,6 +170,23 @@ export default function App() {
           </For>
           <SplitChrome />
           <SplitDropZones />
+          <Show when={windowDrop()}>
+            {(target) => (
+              <div {...stylex.attrs(styles.dropOverlay)} data-drop-overlay>
+                <div {...stylex.attrs(styles.dropCard)}>
+                  <span {...stylex.attrs(styles.dropIcon)}>
+                    <Icon name="file-down" size={22} />
+                  </span>
+                  <span {...stylex.attrs(styles.dropTitle)}>
+                    {target().tabId ? "Drop to open it here" : "Drop to open in a new tab"}
+                  </span>
+                  <span {...stylex.attrs(styles.dropHint)}>
+                    PDFs, images, video, audio and text open in Rune; other files are downloaded.
+                  </span>
+                </div>
+              </div>
+            )}
+          </Show>
         </div>
       </div>
       <AgentSidebar />
@@ -225,6 +268,46 @@ const styles = stylex.create({
   pane: { boxShadow: `0 0 0 1px ${colors.border}, 0 1px 3px rgb(0 0 0 / 0.06)` },
   // Not display:none: webviews must keep their size to stay rendered.
   hidden: { visibility: "hidden", pointerEvents: "none", zIndex: 0 },
+  // Where dropped files open: over the page area, never in the way of the drop itself.
+  dropOverlay: {
+    position: "absolute",
+    inset: space.sm,
+    zIndex: 60,
+    display: "grid",
+    placeItems: "center",
+    borderRadius: radius.md,
+    borderWidth: 2,
+    borderStyle: "dashed",
+    borderColor: colors.accent,
+    backgroundColor: `color-mix(in srgb, ${colors.bg} 60%, transparent)`,
+    backdropFilter: "blur(2px)",
+    pointerEvents: "none",
+  },
+  dropCard: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: 6,
+    maxWidth: 320,
+    paddingBlock: space.lg,
+    paddingInline: space.xl,
+    borderRadius: radius.lg,
+    backgroundColor: colors.surface,
+    boxShadow: `0 0 0 1px ${colors.border}, 0 12px 32px rgb(0 0 0 / 0.18)`,
+    textAlign: "center",
+  },
+  dropIcon: {
+    display: "grid",
+    placeItems: "center",
+    width: 44,
+    height: 44,
+    marginBottom: 4,
+    borderRadius: 999,
+    backgroundColor: colors.accentSoft,
+    color: colors.accent,
+  },
+  dropTitle: { fontSize: font.md, fontWeight: 600, color: colors.text },
+  dropHint: { fontSize: font.sm, color: colors.muted, lineHeight: 1.4 },
   emptyActions: { display: "flex", gap: space.sm },
   empty: {
     display: "flex",

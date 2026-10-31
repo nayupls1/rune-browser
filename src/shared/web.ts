@@ -32,15 +32,42 @@ export function hostOf(url: string | null | undefined) {
   }
 }
 
+/** A local file's file:// URL ("C:\\x\\y.pdf" → "file:///C:/x/y.pdf"). */
+export function fileUrl(path: string) {
+  const slashed = path.replace(/\\/g, "/");
+  const absolute = slashed.startsWith("/") ? slashed : `/${slashed}`;
+  return `file://${encodeURI(absolute).replace(/[?#]/g, encodeURIComponent)}`;
+}
+
+/** A file's name from its path or file:// URL. */
+export const fileNameOf = (path: string) => {
+  const last = path.replace(/\\/g, "/").split("/").pop() ?? path;
+  try {
+    return decodeURIComponent(last);
+  } catch {
+    return last;
+  }
+};
+
+const VIEWABLE_EXTENSIONS =
+  /\.(pdf|png|jpe?g|gif|webp|avif|bmp|ico|svg|mp4|webm|ogv|mov|m4v|mp3|wav|ogg|oga|flac|m4a|aac|opus|txt|text|log|md|markdown|csv|tsv|json|xml|ya?ml|toml|ini|html?|xhtml|css|js|mjs|ts|tsx|jsx|py|rb|go|rs|java|c|h|cpp|sh|sql)$/i;
+
+/** Whether a browser tab can show a file (PDFs, images, video, audio, text, pages); others are downloaded. */
+export const isViewableFile = (name: string, mime = "") =>
+  /^(image|video|audio|text)\//.test(mime) ||
+  /^application\/(pdf|json|xml|xhtml\+xml|javascript)$/.test(mime) ||
+  VIEWABLE_EXTENSIONS.test(name);
+
 /**
  * Turns address bar input into a URL: URLs stay as they are, things that look
- * like a domain get https:// (http:// for local addresses), anything else is
- * searched for.
+ * like a domain get https:// (http:// for local addresses), local paths become
+ * file:// URLs, anything else is searched for.
  */
 export function normalizeUrl(input: string, engine: Settings["web"]["searchEngine"] = "duckduckgo") {
   const text = input.trim();
   if (!text) return "";
-  if (/^(https?:\/\/|about:)/i.test(text)) return text;
+  if (/^(https?:\/\/|about:|file:\/\/)/i.test(text)) return text;
+  if (/^(\/[^/\s]|[a-z]:[\\/])/i.test(text)) return fileUrl(text);
   const local = /^(localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)(:\d+)?(\/|$)/i.test(text);
   if (local) return `http://${text}`;
   const looksLikeHost =

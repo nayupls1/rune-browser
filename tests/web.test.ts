@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Socket, type TopicMessage } from "../src/shared/hub";
 import type { AppSummary, PageContext, SiteOverride } from "../src/shared/api";
-import { hostOf, normalizeUrl, overrideScript } from "../src/shared/web";
+import { fileNameOf, fileUrl, hostOf, isViewableFile, normalizeUrl, overrideScript } from "../src/shared/web";
 import { contextSummary, withPageContext } from "../src/server/agent/prompts";
 import { startServer } from "./lib/server";
 
@@ -15,6 +15,18 @@ describe("address bar input", () => {
     expect(normalizeUrl("how do magnets work")).toBe("https://duckduckgo.com/?q=how%20do%20magnets%20work");
     expect(normalizeUrl("solid.js signals", "google")).toBe("https://www.google.com/search?q=solid.js%20signals");
     expect(normalizeUrl("   ")).toBe("");
+  });
+
+  test("local files: paths and file:// URLs open as files", () => {
+    expect(normalizeUrl("file:///tmp/a.pdf")).toBe("file:///tmp/a.pdf");
+    expect(normalizeUrl("/home/me/My Report #2.pdf")).toBe("file:///home/me/My%20Report%20%232.pdf");
+    expect(normalizeUrl("C:\\Users\\me\\a.png")).toBe("file:///C:/Users/me/a.png");
+    expect(fileUrl("/tmp/what?.txt")).toBe("file:///tmp/what%3F.txt");
+    expect(fileNameOf("file:///tmp/My%20Report.pdf")).toBe("My Report.pdf");
+    for (const name of ["a.pdf", "b.PNG", "c.mp4", "d.txt", "e.html", "f.svg", "g.md"])
+      expect(isViewableFile(name)).toBe(true);
+    for (const name of ["a.zip", "b.exe", "c.docx", "d"]) expect(isViewableFile(name)).toBe(false);
+    expect(isViewableFile("photo", "image/heic")).toBe(true);
   });
 
   test("hostOf", () => {
@@ -116,9 +128,14 @@ describe("web tab routes", () => {
     await expect(server.api(`/api/apps/${app.id}/page`, { method: "PATCH", json: { title: "x" } })).rejects.toThrow(
       "404",
     );
-    await expect(
-      server.api("/api/apps", { method: "POST", json: { kind: "web", url: "file:///etc/passwd" } }),
-    ).rejects.toThrow("400");
+    // Local files the user opens (dropped on Rune Browser, from a chat) are web tabs; other schemes aren't.
+    const file = await server.api<AppSummary>("/api/apps", {
+      method: "POST",
+      json: { kind: "web", url: "file:///tmp/report.pdf" },
+    });
+    expect(file.url).toBe("file:///tmp/report.pdf");
+    for (const url of ["javascript:alert(1)", "data:text/html,hi", "file://host/share"])
+      await expect(server.api("/api/apps", { method: "POST", json: { kind: "web", url } })).rejects.toThrow("400");
   });
 
   test("site customizations are stored per host and broadcast", async () => {

@@ -46,6 +46,7 @@ import {
   toggleSidebar,
 } from "../lib/layout";
 import { canUnload, unloadTab } from "../lib/unload";
+import { dropTarget, hasDroppable, openDropped, setDropTarget } from "../lib/drops";
 import { fullAccess } from "../lib/access";
 import {
   evenSplit,
@@ -91,6 +92,10 @@ const entries = () => {
 const isTile = (tab: AppSummary) => tab.pinned && !splitOf(tab.id) && !isSidebarCollapsed();
 const tiles = () => workspaceTabs().filter(isTile);
 
+/** Text fields take dropped text themselves. */
+const isField = (target: EventTarget | null) =>
+  target instanceof HTMLElement && !!target.closest("input, textarea, [contenteditable]");
+
 /** Width of the collapsed sidebar: icons only. */
 const RAIL_WIDTH = 52;
 
@@ -122,6 +127,19 @@ export function Sidebar() {
         {...stylex.attrs(styles.root, compact() && styles.rootCompact)}
         style={{ width: `${compact() ? RAIL_WIDTH : sidebarWidth()}px` }}
         data-sidebar={compact() ? "collapsed" : "expanded"}
+        // Files, links and text dropped on the tab bar open in new tabs (not on fields: they take the text).
+        onDragOver={(e) => {
+          if (isField(e.target) || !hasDroppable(e.dataTransfer)) return;
+          e.preventDefault();
+          e.dataTransfer!.dropEffect = "copy";
+          setDropTarget({ kind: "list" });
+        }}
+        onDrop={(e) => {
+          if (isField(e.target) || !hasDroppable(e.dataTransfer)) return;
+          e.preventDefault();
+          setDropTarget(null);
+          openDropped(e.dataTransfer!);
+        }}
       >
         {/* The tab on screen: its navigation, address and tools (components/TopBar.tsx). */}
         <div {...stylex.attrs(styles.chrome)} data-tab-chrome={selectedId() ?? ""}>
@@ -147,6 +165,12 @@ export function Sidebar() {
               </Show>
             )}
           </For>
+          <Show when={dropTarget()?.kind === "list"}>
+            <li {...stylex.attrs(styles.dropSlot, compact() && styles.dropSlotCompact)} data-drop-slot>
+              <Icon name="plus" size={15} />
+              <Show when={!compact()}>Open in a new tab</Show>
+            </li>
+          </Show>
         </ul>
         <Button
           onClick={(e) => {
@@ -601,6 +625,11 @@ function Item(props: { app: AppSummary; tile?: boolean }) {
     return id && id !== props.app.id && appById(id)?.workspaceId === props.app.workspaceId ? appById(id) : undefined;
   };
   const isDragged = () => draggedTab() === props.app.id;
+  // A file or link dragged in would open in this tab.
+  const dropInto = () => {
+    const target = dropTarget();
+    return target?.kind === "tab" && target.id === props.app.id;
+  };
   const neighbour = (offset: number) => {
     const tabs = workspaceTabs();
     return tabs[tabs.findIndex((t) => t.id === props.app.id) + offset];
@@ -718,6 +747,7 @@ function Item(props: { app: AppSummary; tile?: boolean }) {
         isDragged() && styles.dragging,
         dropBefore() && styles.dropBefore,
         dropAfter() && styles.dropAfter,
+        dropInto() && styles.dropInto,
       )}
       title={
         isSidebarCollapsed() || props.tile
@@ -753,7 +783,15 @@ function Item(props: { app: AppSummary; tile?: boolean }) {
         setDropAt(null);
       }}
       onDragOver={(e) => {
-        if (!draggedTab() && !draggedSplit()) return;
+        if (!draggedTab() && !draggedSplit()) {
+          // A file, link or text from outside: a web tab opens it, an app tab leaves it to a new tab.
+          if (!hasDroppable(e.dataTransfer)) return;
+          e.preventDefault();
+          e.stopPropagation();
+          e.dataTransfer!.dropEffect = "copy";
+          setDropTarget(props.app.kind === "web" ? { kind: "tab", id: props.app.id } : { kind: "list" });
+          return;
+        }
         e.preventDefault();
         e.dataTransfer!.dropEffect = "move";
         const r = e.currentTarget.getBoundingClientRect();
@@ -765,6 +803,15 @@ function Item(props: { app: AppSummary; tile?: boolean }) {
       onDrop={(e) => {
         const id = draggedTab();
         const group = draggedSplit();
+        if (!id && !group) {
+          if (!hasDroppable(e.dataTransfer)) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const target = dropTarget();
+          setDropTarget(null);
+          openDropped(e.dataTransfer!, target?.kind === "tab" ? { tabId: target.id } : {});
+          return;
+        }
         const at = dropAt();
         setDraggedTab(null);
         setDraggedSplit(null);
@@ -912,6 +959,29 @@ const styles = stylex.create({
   // A line where the dragged tab would land (the list has a 2px gap).
   dropBefore: { boxShadow: `0 -2px 0 0 ${colors.accent}` },
   dropAfter: { boxShadow: `0 2px 0 0 ${colors.accent}` },
+  // A file or link dragged in opens in this tab.
+  dropInto: {
+    backgroundColor: { default: colors.accentSoft, ":hover": colors.accentSoft },
+    boxShadow: `inset 0 0 0 1.5px ${colors.accent}`,
+  },
+  // Where a file or link dragged in opens in a new tab: a slot at the end of the list.
+  dropSlot: {
+    display: "flex",
+    alignItems: "center",
+    gap: space.sm,
+    height: 34,
+    paddingInline: 10,
+    borderRadius: radius.md,
+    borderWidth: 1.5,
+    borderStyle: "dashed",
+    borderColor: colors.accent,
+    backgroundColor: colors.accentSoft,
+    color: colors.accent,
+    fontSize: font.sm,
+    fontWeight: 500,
+    pointerEvents: "none",
+  },
+  dropSlotCompact: { justifyContent: "center", paddingInline: 0 },
   dotCompact: { position: "absolute", top: 5, right: 5 },
   dotFull: { backgroundColor: colors.danger },
   workspaceRename: { height: 30, fontSize: font.md },

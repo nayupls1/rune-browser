@@ -72,6 +72,25 @@ describe("timeline rows", () => {
     ]);
   });
 
+  test("files the agent showed stay in view, before its reply", () => {
+    const rows = buildRows(
+      [
+        msg("user", "Go", 0),
+        tool("screenshot", "Took a screenshot", 1),
+        msg("files", "[]", 2),
+        msg("assistant", "Here", 3),
+      ],
+      false,
+      true,
+    );
+    expect(rows.map((r) => (r.type === "message" ? r.message.role : r.type))).toEqual([
+      "user",
+      "turn-end",
+      "files",
+      "assistant",
+    ]);
+  });
+
   test("context and attachments open the next turn", () => {
     const rows = buildRows(
       [msg("user", "One", 0), msg("assistant", "A", 2), msg("context", "{}", 3), msg("user", "Two", 3)],

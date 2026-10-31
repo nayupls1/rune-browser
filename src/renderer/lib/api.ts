@@ -4,6 +4,7 @@ import type { Settings } from "../../shared/settings";
 import type { Endpoint, EndpointHost } from "../../shared/endpoints";
 import type { GalleryResult, InstalledMod, Mod, ModExtension, ModReview } from "../../shared/mods";
 import type {
+  ChatFile,
   TabSplit,
   AppActionInfo,
   AppActionResult,
@@ -137,6 +138,7 @@ export const api = {
     post<{ project: ProjectInfo | null }>(`/api/apps/${id}/import`, source),
   uploadAttachment: (id: string, file: { name: string; mime: string; data: string }) =>
     post<Attachment>(`/api/apps/${id}/attachments`, file),
+  chatFiles: (id: string) => request<{ dir: string; files: ChatFile[] }>(`/api/apps/${id}/files`),
   sources: (id: string) => request<ContextSource[]>(`/api/apps/${id}/sources`),
   addSource: (id: string, source: { folder: string } | { git: string; branch?: string }) =>
     post<ContextSource>(`/api/apps/${id}/sources`, source),

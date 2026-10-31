@@ -23,6 +23,9 @@ const opensTurn = (m: ChatMessage) => m.role === "user" || m.role === "context" 
 
 const STOPPED = "Stopped.";
 
+/** What isn't folded into a finished turn's steps: requests for a secret, and files the agent showed. */
+const staysInView = (r: Row) => r.type === "message" && (r.message.role === "secret" || r.message.role === "files");
+
 /** Messages as rows, consecutive tool calls grouped. */
 function plainRows(messages: readonly ChatMessage[], showTools: boolean): Row[] {
   const rows: Row[] = [];
@@ -44,7 +47,7 @@ function plainRows(messages: readonly ChatMessage[], showTools: boolean): Row[] 
 /**
  * The timeline's rows. A finished turn shows your message, "Worked for …"
  * (its steps folded into it) and its outcome: the final reply and what came
- * after it (errors). Requests for a secret stay in view. The turn still
+ * after it (errors). Requests for a secret and files the agent showed stay in view. The turn still
  * running shows everything as it happens.
  */
 export function buildRows(messages: readonly ChatMessage[], running: boolean, showTools: boolean): Row[] {
@@ -78,9 +81,9 @@ export function buildRows(messages: readonly ChatMessage[], running: boolean, sh
         id: user.id,
         ms: Date.parse(last.createdAt) - Date.parse(user.createdAt),
         stopped: turn.body.some((m) => m.role === "error" && m.content === STOPPED),
-        steps: steps.filter((r) => !(r.type === "message" && r.message.role === "secret")),
+        steps: steps.filter((r) => !staysInView(r)),
       },
-      ...steps.filter((r) => r.type === "message" && r.message.role === "secret"),
+      ...steps.filter(staysInView),
       ...body.slice(from),
     );
   });

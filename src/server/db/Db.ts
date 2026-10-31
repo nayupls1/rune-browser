@@ -234,6 +234,8 @@ const migrate = Effect.gen(function* () {
     ["pinned", "INTEGER NOT NULL DEFAULT 0"],
     // Closed app tabs are kept (the library of saved apps) until they're deleted.
     ["closed_at", "TEXT"],
+    // The current chat's folder (agent/ChatFiles.ts), made on first use.
+    ["chat_folder", "TEXT"],
   ];
   for (const [name, type] of added) {
     if (!columns.has(name)) yield* sql.unsafe(`ALTER TABLE apps ADD COLUMN ${name} ${type}`);
@@ -251,6 +253,8 @@ const migrate = Effect.gen(function* () {
       updated_at       TEXT NOT NULL
     )`);
   yield* sql.unsafe("CREATE INDEX IF NOT EXISTS chats_app ON chats (app_id, id)");
+  // An earlier chat's folder of files (agent/ChatFiles.ts) goes with it.
+  if (!(yield* columnsOf("chats")).has("folder")) yield* sql.unsafe("ALTER TABLE chats ADD COLUMN folder TEXT");
   if (!(yield* columnsOf("messages")).has("chat_id"))
     yield* sql.unsafe("ALTER TABLE messages ADD COLUMN chat_id INTEGER REFERENCES chats(id) ON DELETE CASCADE");
   // The mod a page change came with (mods/Mods.ts), removed with it.

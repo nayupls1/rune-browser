@@ -60,6 +60,7 @@ import { Runtime } from "./workspace/Runtime";
 import { Sandbox } from "./workspace/Sandbox";
 import { SourceError, Sources } from "./workspace/Sources";
 import { Attachments, IMAGE_TYPES, MAX_ATTACHMENT } from "./agent/Attachments";
+import { ChatFiles } from "./agent/ChatFiles";
 import { cancelImport, Workspace } from "./workspace/Workspace";
 
 class HttpFail extends Data.TaggedError("HttpFail")<{ readonly status: number; readonly message: string }> {}
@@ -260,21 +261,60 @@ const attachmentRoutes = HttpRouter.addAll([
       Effect.gen(function* () {
         const file = yield* (yield* Attachments).get(yield* param("id"), yield* param("attachment"));
         if (!file) return yield* fail(404, "Not found");
-        const bytes = yield* Effect.promise(() => Bun.file(file.path).bytes());
-        // Only images are shown inline; anything else downloads, so a page can't run from here.
-        const inline = IMAGE_TYPES.has(file.mime);
-        return HttpServerResponse.uint8Array(bytes, {
-          status: 200,
-          contentType: inline ? file.mime : "application/octet-stream",
-          headers: {
-            "Content-Disposition": `${inline ? "inline" : "attachment"}; filename="${file.name.replace(/"/g, "")}"`,
-            "X-Content-Type-Options": "nosniff",
-          },
-        });
+        return yield* serveChatFile(file);
+      }),
+    ),
+  ),
+
+  // The chat's folder (agent/ChatFiles.ts): what the user attached and the agent made.
+  HttpRouter.route(
+    "GET",
+    "/api/apps/:id/files",
+    handle(
+      Effect.gen(function* () {
+        const id = yield* param("id");
+        if (!(yield* (yield* Apps).get(id))) return yield* fail(404, "Not found");
+        return json(
+          yield* (yield* ChatFiles).list(id).pipe(Effect.catchTag("ChatFileError", (e) => fail(400, e.message))),
+        );
+      }),
+    ),
+  ),
+  // A file of one of the tab's chats, by its absolute path (thumbnails in the chat).
+  HttpRouter.route(
+    "GET",
+    "/api/apps/:id/files/raw",
+    handle(
+      Effect.gen(function* () {
+        const path = new URL((yield* HttpServerRequest.HttpServerRequest).url, "http://localhost").searchParams.get(
+          "path",
+        );
+        const file = path ? yield* (yield* ChatFiles).find(yield* param("id"), path) : null;
+        if (!file) return yield* fail(404, "Not found");
+        return yield* serveChatFile(file);
       }),
     ),
   ),
 ]);
+
+/** A chat's file for the renderer: only images inline; anything else downloads, so a page can't run from here. */
+const serveChatFile = (file: { path: string; name: string; mime: string }) =>
+  Effect.gen(function* () {
+    const bytes = yield* Effect.promise(() => Bun.file(file.path).bytes());
+    const inline = IMAGE_TYPES.has(file.mime);
+    const name = file.name
+      .split("/")
+      .pop()!
+      .replace(/[^\w.\- ()]+/g, "_");
+    return HttpServerResponse.uint8Array(bytes, {
+      status: 200,
+      contentType: inline ? file.mime : "application/octet-stream",
+      headers: {
+        "Content-Disposition": `${inline ? "inline" : "attachment"}; filename="${name}"`,
+        "X-Content-Type-Options": "nosniff",
+      },
+    });
+  });
 
 // Code attached to a tab for its agent: folders of yours and Git repositories (workspace/Sources.ts).
 const sourceFail = <A, R>(effect: Effect.Effect<A, SourceError, R>) =>
@@ -426,10 +466,10 @@ const appRoutes = HttpRouter.addAll([
         const input = yield* decodeBody(
           Schema.Struct({
             kind: Schema.optionalKey(Schema.Literals(["app", "web"])),
-            // Extension pages (options, tabs extensions open) are web tabs too.
+            // Extension pages (options, tabs extensions open) and local files the user opens are web tabs too.
             url: Schema.optionalKey(
               str(8000).check(
-                Schema.isPattern(/^(https?:\/\/|chrome-extension:\/\/[a-p]{32}\/)/i, {
+                Schema.isPattern(/^(https?:\/\/|chrome-extension:\/\/[a-p]{32}\/|file:\/\/\/)/i, {
                   message: "url must be an http(s) URL",
                 }),
               ),
@@ -631,7 +671,7 @@ const appRoutes = HttpRouter.addAll([
         const id = yield* param("id");
         if (!(yield* apps.get(id))) return yield* fail(404, "Not found");
         if (yield* agent.isRunning(id)) return yield* fail(409, "Stop the agent before clearing the chat");
-        yield* apps.clearMessages(id);
+        yield* (yield* ChatFiles).forget(id, yield* apps.clearMessages(id));
         return noContent;
       }),
     ),
@@ -686,7 +726,9 @@ const appRoutes = HttpRouter.addAll([
       Effect.gen(function* () {
         const apps = yield* Apps;
         const id = yield* param("id");
-        if (!(yield* apps.deleteChat(id, Number(yield* param("chatId"))))) return yield* fail(404, "No such chat");
+        const deleted = yield* apps.deleteChat(id, Number(yield* param("chatId")));
+        if (!deleted) return yield* fail(404, "No such chat");
+        yield* (yield* ChatFiles).forget(id, deleted.folder);
         yield* youDid(id, "chat.delete", null);
         return noContent;
       }),

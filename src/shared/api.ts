@@ -91,6 +91,10 @@ export interface RuneBridge {
     capture: (webContentsId: number) => Promise<string>;
     /** Opens a URL in the system browser. */
     openExternal: (url: string) => void;
+    /** Where a dropped or picked file is on disk ("" for files that aren't on disk). */
+    pathForFile: (file: File) => string;
+    /** Downloads a URL (a local file the browser can't show) in a workspace's session, like Chrome does. */
+    download: (workspaceId: string, url: string) => void;
     /** DevTools for the agents on a page (web tab or app preview): see main/devtools.ts. */
     devtools: (webContentsId: number, command: DevtoolsCommand, params?: object) => Promise<unknown>;
     /** The traffic of web tabs and app previews (see main/network.ts). Agents only ever get it with reveal off. */
@@ -527,7 +531,16 @@ export interface ContextSource {
 
 /** What the agents' DevTools can do on a page (main/devtools.ts). */
 export type DevtoolsCommand =
-  "console" | "metrics" | "trace" | "accessibility" | "styles" | "storage" | "coverage" | "emulate" | "screenshot";
+  | "console"
+  | "metrics"
+  | "trace"
+  | "accessibility"
+  | "styles"
+  | "storage"
+  | "coverage"
+  | "emulate"
+  | "screenshot"
+  | "upload";
 
 /** A shell app commands can run in (Settings → Apps). path: null for Bun's built-in shell. */
 export interface ShellInfo {
@@ -584,6 +597,19 @@ export interface Attachment {
   name: string;
   mime: string;
   size: number;
+  /** Where it is: in the chat's folder (attachments/), to open it in a tab. */
+  path: string;
+}
+
+/** A file in a chat's folder (server: agent/ChatFiles.ts): what the user attached and what the agent made. */
+export interface ChatFile {
+  /** Its path in the chat's folder ("notes.md", "screenshots/home.jpg"). */
+  name: string;
+  /** Its absolute path, to open it in a tab. */
+  path: string;
+  mime: string;
+  size: number;
+  modifiedAt: string;
 }
 
 /** Another tab shared with a message: mentioned (@name), or one of its agent's replies handed over. */
@@ -647,8 +673,9 @@ export interface ChatMessage {
    * context: what the user pointed at (picked elements) with their message.
    * secret: the agent asks the user for a secret (JSON: { name, description }).
    * attachments: files sent with the next message (JSON: Attachment[]).
+   * files: files of the chat's folder the agent shows the user (JSON: ChatFile[]).
    */
-  role: "user" | "assistant" | "tool" | "error" | "context" | "secret" | "attachments";
+  role: "user" | "assistant" | "tool" | "error" | "context" | "secret" | "attachments" | "files";
   content: string;
   createdAt: string;
 }
@@ -687,6 +714,8 @@ export interface ToolActivity {
   /** More, shown when the row is opened: the whole command, the arguments. */
   detail?: string;
   failed?: boolean;
+  /** Files it saved in the chat's folder (a screenshot, a script's result). */
+  files?: ChatFile[];
 }
 
 /** A `tool` message's activity (a plain line if it isn't JSON). */

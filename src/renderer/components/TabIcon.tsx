@@ -11,11 +11,17 @@ import { colors, font, radius, space } from "../theme.stylex";
 import { Icon, iconFor, iconTags } from "./Icon";
 import { toast } from "./Toast";
 
-export function TabIcon(props: { tab: Pick<AppSummary, "kind" | "icon" | "favicon">; size?: number }) {
+export function TabIcon(props: {
+  tab: Pick<AppSummary, "kind" | "icon" | "favicon"> & Partial<Pick<AppSummary, "url">>;
+  size?: number;
+}) {
   const size = () => props.size ?? 16;
+  const isFile = () => /^file:/i.test(props.tab.url ?? "");
   const fallback = () =>
     props.tab.kind === "web" ? (
-      <Favicon url={props.tab.favicon} size={size()} />
+      <Show when={!isFile()} fallback={<Icon name="file" size={size()} {...stylex.attrs(styles.icon)} />}>
+        <Favicon url={props.tab.favicon} size={size()} />
+      </Show>
     ) : (
       <Icon name="app-window" size={size()} {...stylex.attrs(styles.icon)} />
     );

@@ -21,6 +21,8 @@ import { Runtime } from "../workspace/Runtime";
 import { Workspace } from "../workspace/Workspace";
 import { Permissions, WEBSITE_AGENT } from "../security/Permissions";
 import { Secrets } from "../security/Secrets";
+import { ChatFiles } from "./ChatFiles";
+import { saveOutput } from "./fileTools";
 import { NoArgs, text, tool } from "./Mcp";
 import { sharedContext, shareRefusal } from "./sharedTabs";
 import { topics } from "../../shared/hub";
@@ -29,6 +31,7 @@ import {
   isReservedSecretName,
   SECRET_NAME_PATTERN,
   type AppTool,
+  type ChatFile,
   type ChatMessage,
   type PageChange,
   type PageChangeSpec,
@@ -91,12 +94,15 @@ export interface ToolEnv {
   readonly message: (role: ChatMessage["role"], content: string) => Effect.Effect<void>;
   /** Who the agent is, for the audit log ("App builder · Claude (haiku)"). */
   readonly label: string;
+  /** A file the tool call saved in the chat's folder: the chat shows it with the call. */
+  readonly saved?: (file: ChatFile) => Effect.Effect<void>;
 }
 
 // --- Page tools ------------------------------------------------------------------------
 
 export const pageTools = Effect.fn(function* (env: ToolEnv, options: { site: boolean }) {
   const hub = yield* Hub;
+  const chatFiles = yield* ChatFiles;
   const call = <T>(method: string, params: object = {}, timeoutMs?: number) =>
     hub.rpc<T>(method, { tabId: env.tabId, ...params }, timeoutMs);
   const evalIn = <T>(code: string) => call<T>("page.eval", { code });
@@ -146,51 +152,70 @@ export const pageTools = Effect.fn(function* (env: ToolEnv, options: { site: boo
         options.site
           ? " Changes made this way are lost on reload; use set_site_override to keep them."
           : " Good for checking behavior; change the source files for real changes."
-      }`,
-      Schema.Struct({ code: Schema.String }),
-      ({ code }) =>
-        evalIn<string>(`(async () => {
+      } With save_as, the whole result goes into a file in the chat's folder instead (data you collected or fetched, an export), and you get only its size.`,
+      Schema.Struct({
+        code: Schema.String,
+        save_as: Schema.optionalKey(
+          Schema.String.annotate({ description: "A path in the chat's folder for the result, e.g. data/prices.json" }),
+        ),
+      }),
+      ({ code, save_as }) =>
+        Effect.gen(function* () {
+          const limit = save_as ? 5_000_000 : 20_000;
+          const result = yield* evalIn<string>(`(async () => {
           const __result = await (async () => {
 ${code}
           })();
           if (__result === undefined) return "undefined";
+          if (typeof __result === "string" && ${save_as ? "true" : "false"}) return __result.length > ${limit} ? __result.slice(0, ${limit}) : __result;
           try {
             const s = JSON.stringify(__result, null, 1);
-            return s === undefined ? String(__result) : s.length > 20000 ? s.slice(0, 20000) + "…" : s;
+            return s === undefined ? String(__result) : s.length > ${limit} ? s.slice(0, ${limit}) + "…" : s;
           } catch {
             return String(__result);
           }
-        })()`),
+        })()`);
+          if (!save_as) return result;
+          const file = yield* saveOutput(chatFiles, env, save_as, result);
+          return `Saved the result in ${file.name} (${result.length} characters). read_file reads it.`;
+        }),
     ),
 
     tool(
       "screenshot",
-      `See ${where}: a screenshot as the user sees it right now. With selector, just that element (and what's around it), even if it's scrolled out of view; with full_page, the whole page from top to bottom. Use it to check how things look, not only what the DOM says.`,
+      `See ${where}: a screenshot as the user sees it right now. With selector, just that element (and what's around it), even if it's scrolled out of view; with full_page, the whole page from top to bottom. Use it to check how things look, not only what the DOM says. With save_as, it's saved as a file in the chat's folder instead of shown to you (to upload it, show it to the user or keep it for later; read_file shows it to you).`,
       Schema.Struct({
         selector: Schema.optionalKey(Schema.String.annotate({ description: "Only this element" })),
         full_page: Schema.optionalKey(
           Schema.Boolean.annotate({ description: "The whole page, not only what's on screen" }),
         ),
+        save_as: Schema.optionalKey(
+          Schema.String.annotate({ description: "A path in the chat's folder, e.g. screenshots/home.jpg" }),
+        ),
       }),
-      ({ selector, full_page }) =>
-        selector || full_page
-          ? call<{ data: string; width: number; height: number; truncated: boolean }>(
-              "devtools",
-              { command: "screenshot", params: { selector, fullPage: full_page } },
-              45_000,
-            ).pipe(
-              Effect.map((shot) => ({
-                content: [
-                  { type: "image" as const, data: shot.data, mimeType: "image/jpeg" },
-                  ...(shot.truncated
-                    ? [{ type: "text" as const, text: "The page is very long: this shows its first 12000 pixels." }]
-                    : []),
-                ],
-              })),
-            )
-          : call<string>("page.capture").pipe(
-              Effect.map((data) => ({ content: [{ type: "image" as const, data, mimeType: "image/jpeg" }] })),
-            ),
+      ({ selector, full_page, save_as }) =>
+        Effect.gen(function* () {
+          // Saved ones go through DevTools too: it paints the page's background (a capture can be transparent).
+          const shot =
+            selector || full_page || save_as
+              ? yield* call<{ data: string; width: number; height: number; truncated: boolean }>(
+                  "devtools",
+                  { command: "screenshot", params: { selector, fullPage: full_page } },
+                  45_000,
+                )
+              : { data: yield* call<string>("page.capture"), truncated: false };
+          const note = shot.truncated
+            ? [{ type: "text" as const, text: "The page is very long: this shows its first 12000 pixels." }]
+            : [];
+          if (save_as) {
+            const name = /\.jpe?g$/i.test(save_as) ? save_as : `${save_as.replace(/\.\w+$/, "")}.jpg`;
+            const file = yield* saveOutput(chatFiles, env, name, Buffer.from(shot.data, "base64"), { unique: true });
+            return {
+              content: [{ type: "text" as const, text: `Saved the screenshot as ${file.name}.` }, ...note],
+            };
+          }
+          return { content: [{ type: "image" as const, data: shot.data, mimeType: "image/jpeg" }, ...note] };
+        }),
     ),
 
     tool(
@@ -200,10 +225,13 @@ ${code}
         : "Open a path of the app in the preview (e.g. /settings) and wait for it to load.",
       Schema.Struct({ url: Schema.String }),
       ({ url }) =>
-        call<{ url: string; title: string }>("page.navigate", { url }, 45_000).pipe(
-          Effect.tap((page) => (options.site ? env.log(`Opened ${page.url.slice(0, 80)}`) : Effect.void)),
-          Effect.map((page) => `Loaded ${page.url} — ${page.title}`),
-        ),
+        // Websites only: local files (file://) and the browser's own pages stay out of the agent's reach.
+        options.site && /^(?!https?:|about:blank)[a-z][\w+.-]*:(\/\/|[^\d])/i.test(url.trim())
+          ? Effect.succeed(text(`Only websites (http or https) can be opened, not ${url.slice(0, 80)}.`, true))
+          : call<{ url: string; title: string }>("page.navigate", { url }, 45_000).pipe(
+              Effect.tap((page) => (options.site ? env.log(`Opened ${page.url.slice(0, 80)}`) : Effect.void)),
+              Effect.map((page) => `Loaded ${page.url} — ${page.title}`),
+            ),
     ),
 
     tool("reload", `Reload ${where} and wait for it to load.`, NoArgs, () =>

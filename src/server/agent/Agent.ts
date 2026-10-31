@@ -7,6 +7,7 @@ import {
   appTarget,
   type AgentChoice,
   type ChatEvent,
+  type ChatFile,
   type ChatMessage,
   type PageContext,
   type ProviderId,
@@ -39,6 +40,8 @@ import { Mcp, type Tool } from "./Mcp";
 import { describeRuneTool, toolKind } from "./activity";
 import { buildAppPrompt, buildWebPrompt, contextSummary, withPageContext } from "./prompts";
 import { browseTools } from "./browseTools";
+import { ChatFiles } from "./ChatFiles";
+import { fileTools } from "./fileTools";
 import { devtoolsTools } from "./devtoolsTools";
 import { historyTools } from "./historyTools";
 import { describeSource, sourceTools } from "./sourceTools";
@@ -59,10 +62,11 @@ export function summarizeArgs(args: unknown): string | null {
   return parts.length ? parts.join(", ") : null;
 }
 
-/** The Rune Browser tool call in progress: which tool, and whether it logged a line of its own. */
-const CurrentCall = Context.Reference<{ tool: string; logged: boolean } | null>("rune/agent/CurrentCall", {
-  defaultValue: () => null,
-});
+/** The Rune Browser tool call in progress: which tool, whether it logged a line of its own, the files it saved. */
+const CurrentCall = Context.Reference<{ tool: string; logged: boolean; files: ChatFile[] } | null>(
+  "rune/agent/CurrentCall",
+  { defaultValue: () => null },
+);
 
 export class AgentError extends Data.TaggedError("AgentError")<{
   readonly status: 404 | 409 | 400;
@@ -125,6 +129,7 @@ export const make = Effect.gen(function* () {
     | Sources
     | Audit
     | History
+    | ChatFiles
   >();
 
   const emit = (appId: string, event: ChatEvent) =>
@@ -140,10 +145,13 @@ export const make = Effect.gen(function* () {
     ...t,
     run: (args) =>
       Effect.gen(function* () {
-        const call = { tool: t.name, logged: false };
+        const call = { tool: t.name, logged: false, files: [] as ChatFile[] };
         const result = yield* t.run(args).pipe(Effect.provideService(CurrentCall, call));
         if (!call.logged || result.isError) {
-          const activity = describeRuneTool(t.name, args);
+          const activity = {
+            ...describeRuneTool(t.name, args),
+            ...(call.files.length ? { files: call.files } : {}),
+          };
           yield* message(tabId, "tool", JSON.stringify(result.isError ? { ...activity, failed: true } : activity));
         }
         yield* audit.record({
@@ -192,7 +200,7 @@ export const make = Effect.gen(function* () {
         const file = yield* attachments.get(appId, id);
         if (file) files.push(file);
       }
-      if (files.length) yield* message(appId, "attachments", JSON.stringify(files.map(({ path: _, ...meta }) => meta)));
+      if (files.length) yield* message(appId, "attachments", JSON.stringify(files));
       const turnInput = yield* attachments.forTurn(request.prompt, files);
       if (request.page?.selection.length) yield* message(appId, "context", contextSummary(request.page));
       if (shared.summaries.length) {
@@ -220,10 +228,16 @@ export const make = Effect.gen(function* () {
           Effect.gen(function* () {
             const call = yield* CurrentCall;
             if (call) call.logged = true;
-            yield* message(appId, "tool", JSON.stringify({ kind: toolKind(call?.tool ?? ""), title: line }));
+            const files = call?.files.length ? { files: call.files } : {};
+            yield* message(appId, "tool", JSON.stringify({ kind: toolKind(call?.tool ?? ""), title: line, ...files }));
           }),
         message: (role, content) => Effect.asVoid(message(appId, role, content)),
         label: actorLabel,
+        saved: (file) =>
+          Effect.gen(function* () {
+            const call = yield* CurrentCall;
+            if (call && !call.files.some((f) => f.path === file.path)) call.files.push(file);
+          }),
       };
       const tools = web
         ? [
@@ -237,6 +251,7 @@ export const make = Effect.gen(function* () {
             ...(yield* Effect.provide(sourceTools(env), context)),
             ...(yield* Effect.provide(registryTools(env), context)),
             ...(yield* Effect.provide(tabTools(env), context)),
+            ...(yield* Effect.provide(fileTools(env), context)),
           ]
         : [
             ...(yield* Effect.provide(appTools(env), context)),
@@ -249,6 +264,7 @@ export const make = Effect.gen(function* () {
             ...(yield* Effect.provide(registryTools(env), context)),
             ...(yield* Effect.provide(scheduleTools(env), context)),
             ...(yield* Effect.provide(tabTools(env), context)),
+            ...(yield* Effect.provide(fileTools(env, { project: true }), context)),
           ];
       const mcpUrl = yield* mcp.register(tools.map((t) => audited(t, appId, actorLabel)));
       // Snapshots around the turn: what changed before it (the user, the app's data), and what the agent changed.

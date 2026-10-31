@@ -21,7 +21,8 @@ const tools: Record<string, { kind: ToolKind; title: (args: Args) => string }> =
   wait_for: { kind: "page", title: (a) => `Waited for${plain(a.selector ?? a.text) || " the page"}` },
   screenshot: {
     kind: "screenshot",
-    title: (a) => `Took a screenshot${str(a.selector) ? ` of ${clip(str(a.selector)!, 50)}` : ""}`,
+    title: (a) =>
+      `Took a screenshot${str(a.selector) ? ` of ${clip(str(a.selector)!, 50)}` : ""}${str(a.save_as) ? " and saved it" : ""}`,
   },
   inspect: { kind: "inspect", title: (a) => `Inspected${plain(a.selector) || " the page"}` },
   element_styles: { kind: "inspect", title: (a) => `Looked at the styles of${plain(a.selector) || " an element"}` },
@@ -39,6 +40,15 @@ const tools: Record<string, { kind: ToolKind; title: (args: Args) => string }> =
   type_text: { kind: "browse", title: () => "Typed on the page" },
   fill_form: { kind: "browse", title: () => "Filled in a form" },
   confirm_action: { kind: "browse", title: () => "Asked to confirm an action" },
+  upload_file: { kind: "browse", title: () => "Uploaded files to the page" },
+  // The chat's folder.
+  list_files: { kind: "read", title: (a) => `Listed the chat's files${plain(a.path) ? ` in${plain(a.path)}` : ""}` },
+  read_file: { kind: "read", title: (a) => `Read${plain(a.path) || " a file"}` },
+  write_file: { kind: "create", title: (a) => `Wrote${plain(a.path) || " a file"}` },
+  edit_file: { kind: "edit", title: (a) => `Edited${plain(a.path) || " a file"}` },
+  delete_file: { kind: "edit", title: (a) => `Deleted${plain(a.path) || " a file"}` },
+  show_files: { kind: "read", title: () => "Showed files" },
+  copy_to_project: { kind: "create", title: (a) => `Copied${plain(a.path) || " a file"} into the project` },
   // Site customizations and page changes.
   get_site_override: { kind: "customize", title: () => "Read the site's customization" },
   set_site_override: { kind: "customize", title: () => "Customized the site" },

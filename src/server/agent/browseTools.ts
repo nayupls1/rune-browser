@@ -14,6 +14,7 @@ import { Effect, Schema } from "effect";
 import { hostOf } from "../../shared/web";
 import { Hub } from "../Hub";
 import { Permissions, WEBSITE_AGENT } from "../security/Permissions";
+import { ChatFiles } from "./ChatFiles";
 import { text, tool } from "./Mcp";
 import type { ToolEnv } from "./tools";
 
@@ -77,6 +78,7 @@ const Locator = {
 
 export const browseTools = Effect.fn(function* (env: ToolEnv) {
   const hub = yield* Hub;
+  const chatFiles = yield* ChatFiles;
   const permissions = yield* Permissions;
   const call = <T>(method: string, params: object = {}, timeoutMs?: number) =>
     hub.rpc<T>(method, { tabId: env.tabId, ...params }, timeoutMs);
@@ -277,6 +279,39 @@ export const browseTools = Effect.fn(function* (env: ToolEnv) {
             (seconds + 5) * 1000,
           );
           return found ? "It's there." : text(`Not there after ${seconds} s.`, true);
+        }),
+    ),
+
+    tool(
+      "upload_file",
+      "Put files from the chat's folder (a screenshot you saved, the user's attachments, a file you wrote) into a file upload field of the page, like the user picking them; the user confirms each upload. Finds <input type=\"file\"> by selector (the first one by default; sites often hide it behind a button). Doesn't submit: click the page's button afterwards.",
+      Schema.Struct({
+        paths: Schema.Array(Schema.String).annotate({ description: "Paths in the chat's folder" }),
+        selector: Schema.optionalKey(
+          Schema.String.annotate({ description: 'CSS selector of the file input (default input[type="file"])' }),
+        ),
+        index: Schema.optionalKey(Schema.Finite.annotate({ description: "Which match, when several (0 = first)" })),
+      }),
+      ({ paths, selector, index }) =>
+        Effect.gen(function* () {
+          if (!paths.length) return text("Give at least one path.", true);
+          const files: string[] = [];
+          for (const path of paths.slice(0, 20)) {
+            const file = yield* chatFiles.resolve(env.tabId, path);
+            if (!(yield* chatFiles.describe(yield* chatFiles.dir(env.tabId), file)))
+              return text(`${path} doesn't exist. list_files shows what's there.`, true);
+            files.push(file);
+          }
+          const { url } = yield* call<{ url: string }>("page.info");
+          const refused = yield* allowSite(url);
+          if (refused) return text(refused, true);
+          // The user's files leave Rune Browser for the site: confirmed every time.
+          const names = paths.map((p) => p.split("/").pop()).join(", ");
+          if (!(yield* confirm(`upload ${names} to ${hostOf(url) || "this page"}`, url)))
+            return text("The user didn't want these files uploaded. Don't try another way; ask them.", true);
+          yield* call("devtools", { command: "upload", params: { selector, index, files } }, 30_000);
+          yield* env.log(`Uploaded ${names} to ${hostOf(url) || "the page"}`);
+          return `Put ${names} into the file field. Submit the form or click its button to send it.`;
         }),
     ),
 

@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, webUtils } from "electron";
 import type { RuneBridge } from "../shared/api";
 
 const arg = (name: string) => process.argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3) ?? "";
@@ -52,6 +52,8 @@ const bridge: RuneBridge = {
     savePage: (webContentsId) => ipcRenderer.invoke("rune:save-page", webContentsId),
     capture: (webContentsId) => ipcRenderer.invoke("rune:capture", webContentsId),
     openExternal: (url) => ipcRenderer.send("rune:open-external", url),
+    pathForFile: (file) => webUtils.getPathForFile(file),
+    download: (workspaceId, url) => ipcRenderer.send("rune:download", workspaceId, url),
     devtools: (webContentsId, command, params) => ipcRenderer.invoke("rune:devtools", webContentsId, command, params),
     network: {
       list: (webContentsId, filter) => ipcRenderer.invoke("rune:network-list", webContentsId, filter),

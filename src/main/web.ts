@@ -37,6 +37,8 @@ import { setupShortcuts } from "./shortcuts";
 import type { Observation } from "../shared/endpoints";
 
 const isWebUrl = (url: string) => /^https?:/i.test(url);
+/** A local file, opened in a web tab by the user (dropped on Rune Browser, or from a chat). */
+const isFileUrl = (url: string) => /^file:\/\//i.test(url);
 /** Where Rune Browser serves apps (see the server's runtime). */
 const isAppUrl = (url: string) => /^http:\/\/(127\.0\.0\.1|localhost):\d+(\/|$)/i.test(url);
 
@@ -87,7 +89,11 @@ export function setupWebTabs(
       const partition = params.partition ?? "";
       const isWeb = WEB_PARTITION_PATTERN.test(partition);
       const web =
-        isWeb && (isWebUrl(src) || src === "about:blank" || extensions.isExtensionPage(webSession(partition), src));
+        isWeb &&
+        (isWebUrl(src) ||
+          isFileUrl(src) ||
+          src === "about:blank" ||
+          extensions.isExtensionPage(webSession(partition), src));
       const preview = APP_PARTITION_PATTERN.test(partition) && (isAppUrl(src) || src === "about:blank");
       if (!web && !preview) return event.preventDefault();
       if (web) {
@@ -113,6 +119,9 @@ export function setupWebTabs(
     contents.on("will-navigate", (event, url) => {
       // App previews stay on the app; links elsewhere open as web tabs.
       if (isPreview() ? isAppUrl(url) : isTabUrl(contents.session, url) || url.startsWith("about:")) return;
+      // Local files only when the user opens one (a file dropped on the page), never when a page
+      // (or an agent's script in it) navigates there: that would read any file on the computer.
+      if (!isPreview() && isFileUrl(url) && !event.initiator) return;
       event.preventDefault();
       if (/^(mailto|tel):/i.test(url)) shell.openExternal(url);
       else openTab(contents.session, url);
@@ -275,6 +284,14 @@ export function setupWebTabs(
     await extensions.detach(s);
     await s.clearStorageData();
     await s.clearCache();
+  });
+
+  // A dropped file the browser can't show is downloaded, like Chrome does.
+  ipcMain.on("rune:download", (event, workspaceId: unknown, url: unknown) => {
+    if (event.sender !== getWindow()?.webContents || typeof workspaceId !== "string" || !/^[\w-]+$/.test(workspaceId))
+      return;
+    if (typeof url === "string" && (isFileUrl(url) || isWebUrl(url)))
+      webSession(webPartition(workspaceId)).downloadURL(url);
   });
 
   ipcMain.on("rune:open-external", (event, url: unknown) => {

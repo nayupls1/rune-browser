@@ -95,7 +95,7 @@ rune.sqlite        the host database
 apps/<id>/         each app's project (its rune.json, sources, .rune/ state)
 appdata/<id>/      each app's database and files, outside the project
 history/objects/   the content store snapshots point into
-attachments/       files sent to agents
+chats/<tab>/<chat>/  each chat's folder: attachments, what its agent saved and its own files
 sources/           repositories cloned for agents
 agent/, ai/        working folders of agent sessions and AI requests
 ```

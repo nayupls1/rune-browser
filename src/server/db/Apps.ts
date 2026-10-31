@@ -26,6 +26,7 @@ interface AppRow {
   created_at: string;
   updated_at: string;
   closed_at: string | null;
+  chat_folder: string | null;
 }
 
 export interface AppRecord extends AppSummary {
@@ -72,6 +73,7 @@ interface ChatRow {
   title: string;
   session_id: string | null;
   session_provider: string | null;
+  folder: string | null;
   created_at: string;
   updated_at: string;
   count: number;
@@ -114,10 +116,10 @@ export const make = Effect.gen(function* () {
       const title = first.content.replace(/\s+/g, " ").trim().slice(0, 80) || "Chat";
       const [chat] = yield* sql<{
         id: number;
-      }>`INSERT INTO chats (app_id, title, session_id, session_provider, created_at, updated_at)
-        VALUES (${appId}, ${title}, ${app.session_id}, ${app.session_provider}, ${current[0]!.created_at}, ${current.at(-1)!.created_at}) RETURNING id`;
+      }>`INSERT INTO chats (app_id, title, session_id, session_provider, folder, created_at, updated_at)
+        VALUES (${appId}, ${title}, ${app.session_id}, ${app.session_provider}, ${app.chat_folder}, ${current[0]!.created_at}, ${current.at(-1)!.created_at}) RETURNING id`;
       yield* sql`UPDATE messages SET chat_id = ${chat!.id} WHERE app_id = ${appId} AND chat_id IS NULL`;
-      yield* sql`UPDATE apps SET session_id = NULL, session_provider = NULL, updated_at = ${sql.literal(now)} WHERE id = ${appId}`;
+      yield* sql`UPDATE apps SET session_id = NULL, session_provider = NULL, chat_folder = NULL, updated_at = ${sql.literal(now)} WHERE id = ${appId}`;
       return chat!.id;
     });
 
@@ -284,21 +286,42 @@ export const make = Effect.gen(function* () {
           if (!chat) return false;
           yield* archive(appId);
           yield* sql`UPDATE messages SET chat_id = NULL WHERE chat_id = ${chatId}`;
-          yield* sql`UPDATE apps SET session_id = ${chat.session_id}, session_provider = ${chat.session_provider}, updated_at = ${sql.literal(now)} WHERE id = ${appId}`;
+          yield* sql`UPDATE apps SET session_id = ${chat.session_id}, session_provider = ${chat.session_provider}, chat_folder = ${chat.folder}, updated_at = ${sql.literal(now)} WHERE id = ${appId}`;
           yield* sql`DELETE FROM chats WHERE id = ${chatId}`;
           return true;
         }),
       ),
 
+    /** Deletes an earlier chat; its folder of files (to delete too), or false if there's no such chat. */
     deleteChat: (appId: string, chatId: number) =>
       sql.withTransaction(
         Effect.gen(function* () {
-          const found = yield* sql<{ id: number }>`SELECT id FROM chats WHERE id = ${chatId} AND app_id = ${appId}`;
-          if (!found.length) return false;
+          const found = yield* sql<{
+            folder: string | null;
+          }>`SELECT folder FROM chats WHERE id = ${chatId} AND app_id = ${appId}`;
+          if (!found.length) return false as const;
           yield* sql`DELETE FROM messages WHERE chat_id = ${chatId}`;
           yield* sql`DELETE FROM chats WHERE id = ${chatId}`;
-          return true;
+          return { folder: found[0]!.folder };
         }),
+      ),
+
+    /** The current chat's folder of files (agent/ChatFiles.ts): made on first use. Null for an unknown tab. */
+    chatFolder: (appId: string) =>
+      Effect.gen(function* () {
+        const r = yield* row(appId);
+        if (!r) return null;
+        if (r.chat_folder) return r.chat_folder;
+        const folder = crypto.randomUUID();
+        yield* sql`UPDATE apps SET chat_folder = ${folder} WHERE id = ${appId} AND chat_folder IS NULL`;
+        return (yield* row(appId))?.chat_folder ?? folder;
+      }),
+
+    /** Every chat folder of a tab: the current chat's (if it has one) and the earlier chats'. */
+    chatFolders: (appId: string) =>
+      sql<{ folder: string }>`SELECT chat_folder AS folder FROM apps WHERE id = ${appId} AND chat_folder IS NOT NULL
+        UNION SELECT folder FROM chats WHERE app_id = ${appId} AND folder IS NOT NULL`.pipe(
+        Effect.map((rows) => rows.map((r) => r.folder)),
       ),
 
     addMessage: (appId: string, role: ChatMessage["role"], content: string) =>
@@ -306,16 +329,19 @@ export const make = Effect.gen(function* () {
         Effect.map((rows) => toMessage(rows[0]!)),
       ),
 
-    /** Deletes the current chat and forgets the agent session, so the next message starts fresh (earlier chats stay). */
+    /**
+     * Deletes the current chat and forgets the agent session, so the next message starts fresh (earlier chats stay).
+     * Returns the chat's folder of files, to delete too.
+     */
     clearMessages: (appId: string) =>
-      sql
-        .withTransaction(
-          Effect.all([
-            sql`DELETE FROM messages WHERE app_id = ${appId} AND chat_id IS NULL`,
-            sql`UPDATE apps SET session_id = NULL, session_provider = NULL, updated_at = ${sql.literal(now)} WHERE id = ${appId}`,
-          ]),
-        )
-        .pipe(Effect.asVoid),
+      sql.withTransaction(
+        Effect.gen(function* () {
+          const folder = (yield* row(appId))?.chat_folder ?? null;
+          yield* sql`DELETE FROM messages WHERE app_id = ${appId} AND chat_id IS NULL`;
+          yield* sql`UPDATE apps SET session_id = NULL, session_provider = NULL, chat_folder = NULL, updated_at = ${sql.literal(now)} WHERE id = ${appId}`;
+          return folder;
+        }),
+      ),
   };
   return repo;
 });

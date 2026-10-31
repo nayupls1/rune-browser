@@ -15,6 +15,7 @@ import { dirname, join } from "node:path";
 import { launchElectron } from "./electron";
 import { Page } from "./lib/cdp";
 import { writeFixtureBrowser } from "./lib/fixture-browser";
+import { fileUrl } from "../src/shared/web";
 
 const args = process.argv.slice(2);
 const agentIndex = args.indexOf("--agent");
@@ -161,6 +162,27 @@ const site = Bun.serve({
     });
   },
 });
+
+/** A one-page PDF saying `text`. */
+function minimalPdf(text: string) {
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+    `<< /Length ${`BT /F1 24 Tf 40 100 Td (${text}) Tj ET`.length} >>\nstream\nBT /F1 24 Tf 40 100 Td (${text}) Tj ET\nendstream`,
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+  ];
+  let out = "%PDF-1.4\n";
+  const offsets: number[] = [];
+  objects.forEach((body, i) => {
+    offsets.push(out.length);
+    out += `${i + 1} 0 obj\n${body}\nendobj\n`;
+  });
+  const xref = out.length;
+  out += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.map((o) => `${String(o).padStart(10, "0")} 00000 n \n`).join("")}`;
+  out += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return out;
+}
 
 /** Shortcuts' "Mod": Cmd on macOS, Ctrl elsewhere (a KeyboardEvent's property, and sendInputEvent's modifier). */
 const mod = process.platform === "darwin" ? "metaKey" : "ctrlKey";
@@ -2393,6 +2415,44 @@ try {
     });
   }
 
+  if (agentPrompt && webTabId) {
+    await check("website agent saves a screenshot in the chat's folder; its card opens it in a tab", async () => {
+      await click(`nav li[data-app-id="${webTabId}"]`);
+      const panel = agentOf(webTabId!);
+      await page!.waitFor(`!!document.querySelector('${panel} textarea')`, { label: "composer" });
+      await chooseAgent(panel, "claude", "haiku", "Low");
+      await sendPrompt(
+        panel,
+        "Take a screenshot of the page with save_as set to screenshots/page.jpg (don't look at it), then call show_files with that path. Reply with one short sentence.",
+      );
+      const chat = await agentDone(panel);
+      const card = `${panel} [data-shown-files] [data-file-card], ${panel} [data-file-card]`;
+      await page!.waitFor(`!!document.querySelector(${JSON.stringify(card)})`, {
+        label: `a file card in the chat:\n${chat.slice(-600)}`,
+        timeoutMs: 15_000,
+      });
+      await page!.waitFor(
+        `[...document.querySelectorAll(${JSON.stringify(`${card.split(", ")[1]} img`)})].some((i) => i.naturalWidth > 0)`,
+        { label: "its thumbnail" },
+      );
+      await shot("chat-files.png");
+      type Tab = { id: string; url: string | null };
+      const before = new Set((await apiCall<Tab[]>("/api/apps")).map((t) => t.id));
+      await click(card.split(", ")[1]!);
+      const tab = await waitForValue(async () => {
+        const fresh = (await apiCall<Tab[]>("/api/apps")).find((t) => !before.has(t.id));
+        return fresh?.url?.endsWith(".jpg") ? fresh : undefined;
+      }, 15_000);
+      await page!.waitFor(`document.querySelector('[data-web-tab="${tab.id}"] webview')?.getURL?.().endsWith(".jpg")`, {
+        label: "the screenshot open in a tab",
+        timeoutMs: 15_000,
+      });
+      await shot("chat-file-tab.png");
+      await apiCall(`/api/apps/${tab.id}`, { method: "DELETE" });
+      return tab.url!.split("/").slice(-2).join("/");
+    });
+  }
+
   await check("extensions: imported from Chrome with their settings, toolbar, popup, shortcut, blocking", async () => {
     const id = fixture.extensionId;
     // Import from the (fake) browser profile, settings included.
@@ -3203,6 +3263,141 @@ try {
       });
       await apiCall(`/api/apps/${tab.id}`, { method: "DELETE" });
       return "image thumbnail and a file chip; removed one";
+    },
+  );
+
+  await check(
+    "files: dropped on the tab list they open in tabs, on a tab in that tab; pages can't open files",
+    async () => {
+      await page!.waitFor(`!!${currentWorkspaceName}`, { label: "workspace loaded" });
+      const dir = mkdtempSync(join(tempDir, "rune-e2e-files-"));
+      const note = join(dir, "note.txt");
+      const pic = join(dir, "pic.svg");
+      writeFileSync(note, "Hello from a dropped file");
+      writeFileSync(
+        pic,
+        `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" rx="12" fill="#6d4aff"/></svg>`,
+      );
+      type Tab = { id: string; url: string | null; name: string };
+      const before = new Set((await apiCall<Tab[]>("/api/apps")).map((t) => t.id));
+      // Files on disk (they have paths, like ones from a file manager), dragged in with DOM drag events:
+      // offscreen rendering doesn't deliver native drops.
+      const filesFor = async (paths: string[]) => {
+        await page!.eval(`(() => {
+          document.getElementById("e2e-files")?.remove();
+          const input = Object.assign(document.createElement("input"), { type: "file", multiple: true, id: "e2e-files", hidden: true });
+          document.body.append(input);
+          return true;
+        })()`);
+        const { root } = await page!.send("DOM.getDocument", { depth: 0 });
+        const { nodeId } = await page!.send("DOM.querySelector", { nodeId: root.nodeId, selector: "#e2e-files" });
+        await page!.send("DOM.setFileInputFiles", { nodeId, files: paths });
+      };
+      const drag = (type: "dragover" | "drop", selector: string) =>
+        page!.eval(`(() => {
+          const el = document.querySelector(${JSON.stringify(selector)});
+          const r = el.getBoundingClientRect();
+          const data = new DataTransfer();
+          for (const file of document.getElementById("e2e-files").files) data.items.add(file);
+          el.dispatchEvent(new DragEvent(${JSON.stringify(type)}, {
+            bubbles: true, cancelable: true, dataTransfer: data,
+            clientX: r.left + r.width / 2, clientY: r.top + r.height / 2,
+          }));
+          return true;
+        })()`);
+
+      await filesFor([note, pic]);
+      await drag("dragover", "[data-new-tab]");
+      await page!.waitFor(`!!document.querySelector("[data-drop-slot]")`, { label: "a slot for the new tab" });
+      await shot("drop-files.png");
+      await drag("drop", "[data-new-tab]");
+      const opened = await waitForValue(async () => {
+        const fresh = (await apiCall<Tab[]>("/api/apps")).filter((t) => !before.has(t.id));
+        return fresh.length === 2 && fresh.every((t) => t.url?.startsWith("file:///")) ? fresh : undefined;
+      }, 15_000);
+      const noteTab = opened.find((t) => t.url!.endsWith("note.txt"));
+      if (!noteTab || !opened.some((t) => t.url!.endsWith("pic.svg"))) throw new Error("the files didn't open");
+      await page!.waitFor(`!document.querySelector("[data-drop-slot]")`, { label: "slot gone" });
+      const inTab = <T>(id: string, code: string) =>
+        page!.eval<T>(
+          `document.querySelector('[data-web-tab="${id}"] webview').executeJavaScript(${JSON.stringify(code)})`,
+        );
+      await click(`nav li[data-app-id="${noteTab.id}"]`);
+      const text = await waitForValue(async () => {
+        const t = await inTab<string>(noteTab.id, "document.body.innerText");
+        return t.includes("Hello from a dropped file") ? t : undefined;
+      }, 15_000);
+      await page!.waitFor(`!!document.querySelector('nav li[data-app-id="${noteTab.id}"] svg.lucide-file')`, {
+        label: "file icon for the tab",
+      });
+      await page!.waitFor(
+        `document.querySelector('nav li[data-app-id="${noteTab.id}"]')?.innerText.trim() === "note.txt"`,
+        {
+          label: "the tab named after the file",
+        },
+      );
+      await shot("file-tab.png");
+
+      // A page can't take itself (or an agent's script) to another local file.
+      await inTab(noteTab.id, `location.href = ${JSON.stringify(fileUrl(pic))}; true`);
+      await Bun.sleep(800);
+      const still = await inTab<string>(noteTab.id, "location.href");
+      if (!still.endsWith("note.txt")) throw new Error(`the page navigated itself to ${still}`);
+
+      // Dropped on a web tab, it opens in that tab.
+      await filesFor([pic]);
+      await drag("dragover", `nav li[data-app-id="${noteTab.id}"]`);
+      await page!.waitFor(
+        `getComputedStyle(document.querySelector('nav li[data-app-id="${noteTab.id}"]')).boxShadow.includes("inset")`,
+        { label: "the tab is highlighted" },
+      );
+      await shot("drop-on-tab.png");
+      await drag("drop", `nav li[data-app-id="${noteTab.id}"]`);
+      await waitForValue(
+        async () => ((await inTab<string>(noteTab.id, "location.href")).endsWith("pic.svg") ? true : undefined),
+        15_000,
+      );
+      await page!.eval(`document.getElementById("e2e-files")?.remove(), true`);
+
+      // A PDF opens in Chromium's viewer (an extension frame Rune Browser's extension shim must leave alone).
+      const pdf = join(dir, "doc.pdf");
+      writeFileSync(pdf, minimalPdf("Hello PDF"));
+      const pdfTab = await apiCall<{ id: string }>("/api/apps", {
+        method: "POST",
+        body: { kind: "web", url: fileUrl(pdf) },
+      });
+      await page!.waitFor(`!!document.querySelector('nav li[data-app-id="${pdfTab.id}"]')`, { label: "PDF tab" });
+      await click(`nav li[data-app-id="${pdfTab.id}"]`);
+      type Target = { targetId: string; type: string; url: string };
+      let targets: Target[] = [];
+      const viewer = await waitForValue(async () => {
+        targets = (await page!.send("Target.getTargets")).targetInfos;
+        return targets.find((t) => t.url.startsWith("chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/"));
+      }, 20_000).catch(() => {
+        throw new Error(`no PDF viewer; targets: ${targets.map((t) => `${t.type} ${t.url.slice(0, 80)}`).join(", ")}`);
+      });
+      const { sessionId } = await page!.send("Target.attachToTarget", { targetId: viewer.targetId, flatten: true });
+      // Its toolbar (in shadow roots) names the document once the viewer is up.
+      const shown = await waitForValue(async () => {
+        const res = await page!.send(
+          "Runtime.evaluate",
+          {
+            expression: `(() => {
+              const text = (root) => [...root.querySelectorAll("*")].map((el) => (el.shadowRoot ? text(el.shadowRoot) : "") + (el.children.length ? "" : el.textContent)).join(" ");
+              return text(document).includes("doc.pdf");
+            })()`,
+            returnByValue: true,
+          },
+          sessionId,
+        );
+        return res.result?.value === true ? true : undefined;
+      }, 15_000).catch(() => false);
+      await shot("pdf-tab.png");
+      if (!shown) throw new Error("the PDF viewer didn't show the document");
+      opened.push(pdfTab as Tab);
+      for (const t of opened) await apiCall(`/api/apps/${t.id}`, { method: "DELETE" });
+      rmSync(dir, { recursive: true, force: true });
+      return `${opened.length} tabs (${text.trim().slice(0, 30)}…), the SVG into the text file's tab, a PDF in the viewer`;
     },
   );
 

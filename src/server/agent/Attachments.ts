@@ -1,13 +1,14 @@
 // Files the user gives an agent with a message (pasted screenshots, dropped
-// files): kept per tab in <data>/attachments/<tab>/, shown in the chat, and
-// handed to the provider: images (and PDFs, for Claude) as content the model
-// sees, text files inlined in the prompt, anything else by its path.
-import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
-import { readFile, rm, writeFile } from "node:fs/promises";
-import { extname, join } from "node:path";
+// files): kept in the chat's folder (attachments/, see ChatFiles.ts), shown in
+// the chat, and handed to the provider: images (and PDFs, for Claude) as
+// content the model sees, text files inlined in the prompt, anything else by
+// its path.
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { Context, Data, Effect, Layer } from "effect";
 import type { Attachment } from "../../shared/api";
-import { ServerConfig } from "../Config";
+import { ChatFiles, freeName, META_DIR, safeName } from "./ChatFiles";
 
 export class AttachmentError extends Data.TaggedError("AttachmentError")<{ readonly message: string }> {}
 
@@ -17,12 +18,9 @@ const INLINE_TEXT = 200 * 1024;
 export const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 
 /** An attachment on disk, for a provider. */
-export interface AttachedFile extends Attachment {
-  readonly path: string;
-}
+export type AttachedFile = Attachment;
 
 const ID = /^[a-f0-9-]{36}$/;
-const safeName = (name: string) => name.replace(/[^\w.\- ()]+/g, "_").slice(0, 120) || "file";
 
 const textLike = (mime: string, name: string) =>
   mime.startsWith("text/") ||
@@ -42,15 +40,13 @@ export interface AttachmentsShape {
     prompt: string,
     files: readonly AttachedFile[],
   ) => Effect.Effect<{ prompt: string; files: AttachedFile[] }>;
-  readonly forgetTab: (tabId: string) => Effect.Effect<void>;
 }
 
 export class Attachments extends Context.Service<Attachments, AttachmentsShape>()("rune/Attachments") {}
 
 export const make = Effect.gen(function* () {
-  const config = yield* ServerConfig;
-  const root = join(config.dataDir, "attachments");
-  const dirOf = (tabId: string) => join(root, tabId.replace(/[^\w-]/g, ""));
+  const chatFiles = yield* ChatFiles;
+  const metaOf = (folder: string, id: string) => join(folder, META_DIR, "attachments", `${id}.json`);
 
   return {
     save: (tabId, { name, mime, data }) =>
@@ -60,31 +56,39 @@ export const make = Effect.gen(function* () {
           return yield* new AttachmentError({
             message: `${name} is too large (at most ${MAX_ATTACHMENT / 1048576} MB).`,
           });
+        const folder = yield* chatFiles
+          .dir(tabId)
+          .pipe(Effect.mapError((e) => new AttachmentError({ message: e.message })));
         const id = crypto.randomUUID();
-        const dir = dirOf(tabId);
+        const dir = join(folder, "attachments");
+        mkdirSync(dir, { recursive: true });
+        mkdirSync(join(folder, META_DIR, "attachments"), { recursive: true });
+        const fileName = freeName(dir, safeName(name));
         const meta: Attachment = {
           id,
-          name: safeName(name),
+          name: fileName,
           mime: mime || "application/octet-stream",
           size: data.length,
+          path: join(dir, fileName),
         };
         yield* Effect.promise(async () => {
-          mkdirSync(dir, { recursive: true });
-          await writeFile(join(dir, `${id}${extname(meta.name).slice(0, 10)}`), data);
-          await writeFile(join(dir, `${id}.json`), JSON.stringify(meta));
+          await writeFile(meta.path, data);
+          await writeFile(metaOf(folder, id), JSON.stringify(meta));
         });
         return meta;
       }),
 
+    // In any of the tab's chats: earlier chats show their attachments too.
     get: (tabId, id) =>
-      Effect.sync(() => {
+      Effect.gen(function* () {
         if (!ID.test(id)) return null;
-        const dir = dirOf(tabId);
-        const metaFile = join(dir, `${id}.json`);
-        if (!existsSync(metaFile)) return null;
-        const meta = JSON.parse(readFileSync(metaFile, "utf8")) as Attachment;
-        const path = join(dir, `${id}${extname(meta.name).slice(0, 10)}`);
-        return existsSync(path) && statSync(path).isFile() ? { ...meta, path } : null;
+        for (const folder of yield* chatFiles.folders(tabId)) {
+          const metaFile = metaOf(folder, id);
+          if (!existsSync(metaFile)) continue;
+          const meta = JSON.parse(readFileSync(metaFile, "utf8")) as Attachment;
+          return existsSync(meta.path) ? meta : null;
+        }
+        return null;
       }),
 
     forTurn: (prompt, files) =>
@@ -104,12 +108,10 @@ export const make = Effect.gen(function* () {
         }
         const others = rest.filter((f) => !IMAGE_TYPES.has(f.mime) && f.mime !== "application/pdf");
         const notes = others.length
-          ? `\n\nFiles the user attached (read them from these paths if you can):\n${others.map((f) => `- ${f.name}: ${f.path}`).join("\n")}`
+          ? `\n\nFiles the user attached, in this chat's folder (read_file reads them):\n${others.map((f) => `- attachments/${f.name} (${f.path})`).join("\n")}`
           : "";
         return { prompt: `${inline.length ? `${inline.join("\n\n")}\n\n` : ""}${prompt}${notes}`, files: rest };
       }),
-
-    forgetTab: (tabId) => Effect.promise(() => rm(dirOf(tabId), { recursive: true, force: true })),
   } satisfies AttachmentsShape;
 });
 

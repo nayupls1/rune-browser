@@ -752,18 +752,57 @@ export function setupDevtools(options: DevtoolsOptions) {
       }
       // Kept to a size models read well.
       const scale = Math.min(1, (params.maxWidth ?? 1280) / clip.width, 8000 / clip.height);
-      const { data } = await cdp.send<{ data: string }>(contents, "Page.captureScreenshot", {
-        format: "jpeg",
-        quality: 80,
-        captureBeyondViewport: true,
-        clip: { ...clip, scale },
-      });
+      // Webviews are transparent where a page sets no background, which a JPEG turns black: white, like a browser.
+      const transparent = await evaluate<boolean>(
+        contents,
+        `[document.documentElement, document.body].every((el) => !el || /^(transparent|rgba\\(0, 0, 0, 0\\))$/.test(getComputedStyle(el).backgroundColor))`,
+      ).catch(() => false);
+      const css = transparent
+        ? await contents.insertCSS(":root { background-color: #fff !important; }").catch(() => null)
+        : null;
+      const { data } = await cdp
+        .send<{ data: string }>(contents, "Page.captureScreenshot", {
+          format: "jpeg",
+          quality: 80,
+          captureBeyondViewport: true,
+          clip: { ...clip, scale },
+        })
+        .finally(() => css && contents.removeInsertedCSS(css).catch(() => {}));
       return {
         data,
         width: Math.round(clip.width * scale),
         height: Math.round(clip.height * scale),
         truncated: !!params.fullPage && cssContentSize.height > 12000,
       };
+    },
+
+    /** Puts files (paths the server checked: in the agent's chat folder) into a file input, like picking them. */
+    async upload(contents, params: { selector?: string; index?: number; files?: string[] }) {
+      const files = (params.files ?? []).filter((f) => typeof f === "string" && f);
+      if (!files.length) throw new Error("No files to upload");
+      const selector = params.selector || 'input[type="file"]';
+      const { root } = await cdp.send<{ root: { nodeId: number } }>(contents, "DOM.getDocument", { depth: 0 });
+      const { nodeIds } = await cdp.send<{ nodeIds: number[] }>(contents, "DOM.querySelectorAll", {
+        nodeId: root.nodeId,
+        selector,
+      });
+      const nodeId = nodeIds[Math.max(0, Math.floor(params.index ?? 0))];
+      if (!nodeId) throw new Error(`Nothing matches ${selector}${nodeIds.length ? ` at index ${params.index}` : ""}`);
+      const { node } = await cdp.send<{ node: { nodeName: string; attributes?: string[] } }>(
+        contents,
+        "DOM.describeNode",
+        { nodeId },
+      );
+      const attrs = node.attributes ?? [];
+      const attr = (name: string) => {
+        const i = attrs.findIndex((a, j) => j % 2 === 0 && a.toLowerCase() === name);
+        return i === -1 ? null : (attrs[i + 1] ?? "");
+      };
+      if (node.nodeName !== "INPUT" || attr("type")?.toLowerCase() !== "file")
+        throw new Error(`${selector} isn't a file input (<input type="file">)`);
+      if (files.length > 1 && attr("multiple") === null) throw new Error("This file input takes only one file");
+      await cdp.send(contents, "DOM.setFileInputFiles", { nodeId, files });
+      return { count: files.length, accept: attr("accept") ?? "" };
     },
 
     async emulate(

@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, ManagedRuntime } from "effect";
 import { Attachments } from "../src/server/agent/Attachments";
+import { Apps } from "../src/server/db/Apps";
 import { readConfig } from "../src/server/Config";
 import { core } from "../src/server/services";
 import { startServer } from "./lib/server";
@@ -73,7 +74,10 @@ describe("what the provider gets", () => {
     const result = await runtime.runPromise(
       Effect.gen(function* () {
         const attachments = yield* Attachments;
-        const save = (name: string, mime: string, data: Uint8Array) => attachments.save("tab-1", { name, mime, data });
+        const apps = yield* Apps;
+        const tab = (yield* apps.create("default", "app", null)).id;
+        const other = (yield* apps.create("default", "app", null)).id;
+        const save = (name: string, mime: string, data: Uint8Array) => attachments.save(tab, { name, mime, data });
         const ids = [
           (yield* save("notes.md", "text/markdown", new TextEncoder().encode("# Ideas\nDark mode"))).id,
           (yield* save("shot.png", "image/png", PNG)).id,
@@ -81,16 +85,19 @@ describe("what the provider gets", () => {
           (yield* save("data.zip", "application/zip", new Uint8Array([80, 75, 3, 4]))).id,
         ];
         const files = [];
-        for (const id of ids) files.push((yield* attachments.get("tab-1", id))!);
-        expect(yield* attachments.get("tab-2", ids[0]!)).toBeNull();
-        expect(yield* attachments.get("tab-1", "../../etc/passwd")).toBeNull();
+        for (const id of ids) files.push((yield* attachments.get(tab, id))!);
+        expect(yield* attachments.get(other, ids[0]!)).toBeNull();
+        expect(yield* attachments.get(tab, "../../etc/passwd")).toBeNull();
+        // In the chat's folder, by name (a taken name gets a number).
+        expect(files[1]!.path).toEndWith(join("attachments", "shot.png"));
+        expect((yield* save("shot.png", "image/png", PNG)).name).toBe("shot (2).png");
         return yield* attachments.forTurn("Make it like this", files);
       }),
     );
     expect(result.prompt).toStartWith(
       '<attached-file name="notes.md">\n# Ideas\nDark mode\n</attached-file>\n\nMake it like this',
     );
-    expect(result.prompt).toContain("- data.zip: ");
+    expect(result.prompt).toContain("- attachments/data.zip (");
     expect(result.files.map((f) => f.name)).toEqual(["shot.png", "spec.pdf", "data.zip"]);
   });
 });

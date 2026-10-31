@@ -29,6 +29,7 @@ import * as AppTools from "./workspace/AppTools";
 import * as Projects from "./workspace/Projects";
 import * as Sources from "./workspace/Sources";
 import * as Attachments from "./agent/Attachments";
+import * as ChatFiles from "./agent/ChatFiles";
 import * as Runtime from "./workspace/Runtime";
 import * as Sandbox from "./workspace/Sandbox";
 import * as Workspace from "./workspace/Workspace";
@@ -41,6 +42,7 @@ export const core = (config: ServerConfigShape) =>
     Layer.provideMerge(Runtime.layer),
     Layer.provideMerge(AppData.layer),
     Layer.provideMerge(Layer.mergeAll(Workspace.layer, Sandbox.layer, Sources.layer, Attachments.layer)),
+    Layer.provideMerge(ChatFiles.layer),
     Layer.provideMerge(Secrets.layer),
     Layer.provideMerge(Permissions.layer),
     Layer.provideMerge(Layer.mergeAll(Vault.layer, Audit.layer)),

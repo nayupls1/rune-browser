@@ -160,7 +160,7 @@ export function AddressBar() {
         icon: () => <Icon name="globe" size={14} />,
         title: target,
         detail: "Open",
-        run: () => open(target),
+        run: () => open(target, q),
       });
     // Open tabs, in every workspace.
     const tabs = apps
@@ -190,12 +190,19 @@ export function AddressBar() {
     });
     // Typed words (not an address): the matching tabs first, then the search.
     if (searching && !tabs.length) out.unshift(out.pop()!);
+    // A bare path ("/act") is more likely part of an open tab's address than a local file: tabs first.
+    if (!searching && tabs.length && /^file:/i.test(target) && !/^file:/i.test(q))
+      out.splice(tabs.length, 0, out.shift()!);
     return out;
   };
 
-  /** In this tab when it can (a web tab), else in a new web tab. */
-  function open(target: string) {
+  /**
+   * In this tab when it can (a web tab), else in a new web tab. A typed path goes to the
+   * app on screen first (its preview); elsewhere it's a local file.
+   */
+  function open(target: string, typed?: string) {
     const c = chrome();
+    if (typed?.startsWith("/") && c?.go?.(typed)) return;
     if (!(c?.go && c.go(target))) void newWebTab(target);
   }
 
@@ -233,7 +240,7 @@ export function AddressBar() {
           ? typed
           : normalizeUrl(typed, settings().web.searchEngine);
     if (newTab) void newWebTab(target);
-    else open(target);
+    else open(target, typed);
     finish();
     return true;
   };
@@ -249,7 +256,7 @@ export function AddressBar() {
         if (chosen) return run(chosen);
         const typed = text().trim();
         if (!typed) return;
-        open(isExtensionUrl(typed) ? typed : normalizeUrl(typed, settings().web.searchEngine));
+        open(isExtensionUrl(typed) ? typed : normalizeUrl(typed, settings().web.searchEngine), typed);
         finish();
       }}
       data-address-bar

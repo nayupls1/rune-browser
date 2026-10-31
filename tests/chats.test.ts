@@ -72,7 +72,7 @@ test("new chat, earlier chats, reopening and deleting", async () => {
     session: { provider: "claude", id: "session-1" },
   });
   expect(result.kept).toEqual(["Something else"]);
-  expect(result.deleted).toBe(true);
+  expect(result.deleted).toEqual({ folder: null });
   expect(result.missing).toEqual([false, false]);
   expect(result.afterClear).toEqual({ current: 0, chats: 1 });
   expect(result.gone).toBe(0);

@@ -9,6 +9,7 @@ import { createEffect, createSignal, For, on, onCleanup, Show, untrack } from "s
 import { DEFAULT_WORKSPACE, webPartition, type ElementInfo, type PageContext } from "../../shared/api";
 import { isExtensionUrl } from "../../shared/extensions";
 import {
+  fileNameOf,
   hostOf,
   normalizeUrl,
   overrideScript,
@@ -497,6 +498,8 @@ export function WebTab(props: { appId: string; active: boolean }) {
     view.addEventListener("did-navigate", (e) => {
       navigated(e.url, false);
       syncZoom(props.appId);
+      // A local file is named after itself, like in Chrome (text, images and PDFs have no title of their own).
+      if (/^file:/i.test(e.url)) updatePage(props.appId, { title: fileNameOf(e.url) });
     });
     view.addEventListener("found-in-page", (e) => foundInPage(props.appId, e.result));
     view.addEventListener("did-navigate-in-page", (e) => e.isMainFrame && navigated(e.url, true));
@@ -541,7 +544,14 @@ export function WebTab(props: { appId: string; active: boolean }) {
     registerChrome(props.appId, {
       url: () => address(),
       blank: () => !src(),
-      icon: () => (isExtensionUrl(currentUrl()) ? "puzzle" : currentUrl().startsWith("https:") ? "lock" : "globe"),
+      icon: () =>
+        isExtensionUrl(currentUrl())
+          ? "puzzle"
+          : currentUrl().startsWith("https:")
+            ? "lock"
+            : currentUrl().startsWith("file:")
+              ? "file"
+              : "globe",
       canBack: () => history().back,
       canForward: () => history().forward,
       loading,
@@ -615,7 +625,8 @@ export function WebTab(props: { appId: string; active: boolean }) {
               ref={attach}
               src={src()}
               partition={partition}
-              {...{ allowpopups: "" }}
+              // plugins: Chromium's PDF viewer, for PDFs on the web and local ones.
+              {...{ allowpopups: "", plugins: "" }}
               {...stylex.attrs(styles.webview)}
             />
           </Show>

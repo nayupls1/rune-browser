@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { Effect, Exit, ManagedRuntime, Schema, Scope } from "effect";
 import { make, tool, type Tool } from "../src/server/agent/Mcp";
 import { browseTools } from "../src/server/agent/browseTools";
+import { fileTools } from "../src/server/agent/fileTools";
 import { appTools, pageTools, registryTools, scheduleTools, siteTools, tabTools } from "../src/server/agent/tools";
 import { readConfig } from "../src/server/Config";
 import { core } from "../src/server/services";
@@ -83,6 +84,7 @@ describe("mcp", () => {
           ...(yield* registryTools(env)),
           ...(yield* scheduleTools(env)),
           ...(yield* tabTools(env)),
+          ...(yield* fileTools(env)),
         ];
       }),
     );

@@ -2,22 +2,37 @@
 // replies, its tool calls (consecutive ones grouped and summed up, "Ran 2
 // commands, edited 3 files"), and where each turn ended ("Worked for 42s").
 import * as stylex from "@stylexjs/stylex";
-import { createEffect, createMemo, createSignal, For, Index, Match, onCleanup, onMount, Show, Switch } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  Index,
+  Match,
+  on,
+  onCleanup,
+  onMount,
+  Show,
+  Switch,
+} from "solid-js";
+import { render } from "solid-js/web";
 import {
   parseToolActivity,
   type Attachment,
+  type ChatFile,
   type ChatMessage,
   type ToolActivity,
   type ToolKind,
 } from "../../shared/api";
 import { markdownToHtml } from "../../shared/markdown";
-import { attachmentUrl } from "../lib/attachments";
+import { chatFileNamed, refreshChatFiles } from "../lib/files";
 import { buildRows, formatElapsed, summarize, type Row, type WorkEntry } from "../lib/timeline";
 import { settings } from "../lib/settings";
 import { handOver, refusal } from "../lib/sharing";
 import { appById, apps, states } from "../lib/store";
 import { colors, font, radius, space } from "../theme.stylex";
 import { ContextMenu, type MenuItem, type MenuPosition } from "./ContextMenu";
+import { FileCards, FileMention } from "./FileChip";
 import { Icon } from "./Icon";
 import { SecretRequestCard } from "./Secrets";
 import { toast } from "./Toast";
@@ -71,6 +86,15 @@ function InlineCode(props: { text: string }) {
 export function Timeline(props: { appId: string }) {
   const state = () => states[props.appId]!;
   const rows = createMemo(() => buildRows(state().messages, state().running, settings().agent.showToolMessages));
+  // What's in the chat's folder, for the file paths replies mention (refreshed as the chat goes on).
+  let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+  createEffect(
+    on([() => props.appId, () => state().messages.length, () => state().running], () => {
+      clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => void refreshChatFiles(props.appId), 400);
+    }),
+  );
+  onCleanup(() => clearTimeout(refreshTimer));
   const lastIndex = () => rows().length - 1;
   return (
     <>
@@ -83,7 +107,7 @@ export function Timeline(props: { appId: string }) {
       <Show when={state().running}>
         <Show when={state().draft}>
           <div {...stylex.attrs(styles.assistantRow)}>
-            <Markdown text={state().draft} />
+            <Markdown text={state().draft} tabId={props.appId} />
           </div>
         </Show>
         <Working since={turnStartOf(state().messages)} />
@@ -96,7 +120,7 @@ function RowView(props: { appId: string; row: Row; live: boolean }) {
   return (
     <Switch>
       <Match when={props.row.type === "work" && (props.row as Extract<Row, { type: "work" }>)}>
-        {(work) => <WorkGroup entries={work().entries} live={props.live} />}
+        {(work) => <WorkGroup appId={props.appId} entries={work().entries} live={props.live} />}
       </Match>
       <Match when={props.row.type === "turn-end" && (props.row as Extract<Row, { type: "turn-end" }>)}>
         {(end) => <TurnEnd appId={props.appId} ms={end().ms} stopped={end().stopped} steps={end().steps} />}
@@ -182,7 +206,7 @@ function TurnEnd(props: { appId: string; ms: number; stopped: boolean; steps: Ro
 // --- Tool calls -------------------------------------------------------------------------------
 
 /** Consecutive tool calls: one row, or a summary that opens to all of them (open while they're happening). */
-function WorkGroup(props: { entries: WorkEntry[]; live: boolean }) {
+function WorkGroup(props: { appId: string; entries: WorkEntry[]; live: boolean }) {
   const [open, setOpen] = createSignal<boolean>();
   const expanded = () => open() ?? props.live;
   const failed = () => props.entries.filter((e) => e.activity.failed).length;
@@ -192,7 +216,7 @@ function WorkGroup(props: { entries: WorkEntry[]; live: boolean }) {
   };
   const single = () => props.entries.length === 1;
   return (
-    <Show when={!single()} fallback={<WorkRow activity={props.entries[0]!.activity} />}>
+    <Show when={!single()} fallback={<WorkRow appId={props.appId} activity={props.entries[0]!.activity} />}>
       <section {...stylex.attrs(styles.group)} aria-label="Tool calls" data-tool-group>
         <button
           type="button"
@@ -214,7 +238,7 @@ function WorkGroup(props: { entries: WorkEntry[]; live: boolean }) {
         </button>
         <Show when={expanded()}>
           <div {...stylex.attrs(styles.groupEntries)}>
-            <For each={props.entries}>{(entry) => <WorkRow activity={entry.activity} />}</For>
+            <For each={props.entries}>{(entry) => <WorkRow appId={props.appId} activity={entry.activity} />}</For>
           </div>
         </Show>
       </section>
@@ -222,8 +246,8 @@ function WorkGroup(props: { entries: WorkEntry[]; live: boolean }) {
   );
 }
 
-/** One tool call: its icon and line; opens to its detail (the whole command, the arguments). */
-function WorkRow(props: { activity: ToolActivity }) {
+/** One tool call: its icon and line; opens to its detail (the whole command, the arguments). Files it saved show under it. */
+function WorkRow(props: { appId: string; activity: ToolActivity }) {
   const [open, setOpen] = createSignal(false);
   const failed = () => !!props.activity.failed;
   const hasDetail = () => !!props.activity.detail;
@@ -255,6 +279,11 @@ function WorkRow(props: { activity: ToolActivity }) {
       <Show when={open() && props.activity.detail}>
         {(detail) => <pre {...stylex.attrs(styles.detail)}>{detail()}</pre>}
       </Show>
+      <Show when={props.activity.files?.length}>
+        <div {...stylex.attrs(styles.toolFiles)}>
+          <FileCards tabId={props.appId} files={props.activity.files!} />
+        </div>
+      </Show>
     </div>
   );
 }
@@ -281,6 +310,9 @@ function Message(props: { appId: string; message: ChatMessage }) {
       </Match>
       <Match when={props.message.role === "attachments"}>
         <SentAttachments appId={props.appId} content={props.message.content} />
+      </Match>
+      <Match when={props.message.role === "files"}>
+        <ShownFiles appId={props.appId} content={props.message.content} />
       </Match>
       <Match when={props.message.role === "secret"}>
         <SecretRequestCard appId={props.appId} content={props.message.content} />
@@ -370,7 +402,7 @@ function Reply(props: { appId: string; message: ChatMessage }) {
   const saved = () => props.message.id > 0;
   return (
     <div {...stylex.attrs(stylex.defaultMarker(), styles.assistantRow)} data-reply={props.message.id}>
-      <Markdown text={props.message.content} />
+      <Markdown text={props.message.content} tabId={props.appId} />
       <div {...stylex.attrs(styles.actions, styles.actionsStart)}>
         <CopyButton text={() => props.message.content} label="Copy reply" />
         <Show when={saved()}>
@@ -405,8 +437,11 @@ function Reply(props: { appId: string; message: ChatMessage }) {
   );
 }
 
-/** Assistant text (Markdown; escaped, so it can't inject markup). Links open as web tabs; code blocks get a copy button. */
-export function Markdown(props: { text: string }) {
+/**
+ * Assistant text (Markdown; escaped, so it can't inject markup). Links open as web tabs; code blocks get a copy
+ * button; `paths` of files in the chat's folder become chips that open them.
+ */
+export function Markdown(props: { text: string; tabId?: string }) {
   let root!: HTMLDivElement;
   createEffect(() => {
     root.innerHTML = markdownToHtml(props.text);
@@ -423,6 +458,18 @@ export function Markdown(props: { text: string }) {
       });
       pre.append(button);
     }
+    const tabId = props.tabId;
+    if (!tabId) return;
+    const disposers: (() => void)[] = [];
+    for (const code of root.querySelectorAll(":not(pre) > code")) {
+      const label = code.textContent ?? "";
+      const file = chatFileNamed(tabId, label);
+      if (!file) continue;
+      const slot = document.createElement("span");
+      code.replaceWith(slot);
+      disposers.push(render(() => <FileMention file={file} label={label} />, slot));
+    }
+    onCleanup(() => disposers.forEach((dispose) => dispose()));
   });
   return (
     <div {...stylex.attrs(styles.markdown)}>
@@ -431,7 +478,7 @@ export function Markdown(props: { text: string }) {
   );
 }
 
-/** Files sent with the next message: images as thumbnails, others by name. */
+/** Files sent with a message: images as thumbnails, others as cards; each opens in a tab. */
 function SentAttachments(props: { appId: string; content: string }) {
   const files = () => {
     try {
@@ -442,26 +489,23 @@ function SentAttachments(props: { appId: string; content: string }) {
   };
   return (
     <div {...stylex.attrs(styles.sentFiles)} data-sent-attachments>
-      <For each={files()}>
-        {(file) => (
-          <Show
-            when={file.mime.startsWith("image/")}
-            fallback={
-              <span {...stylex.attrs(styles.sentFile)} title={file.name}>
-                <Icon name="file-text" size={14} />
-                <span {...stylex.attrs(styles.chipLabel)}>{file.name}</span>
-              </span>
-            }
-          >
-            <img
-              src={attachmentUrl(props.appId, file.id)}
-              alt={file.name}
-              title={file.name}
-              {...stylex.attrs(styles.sentImage)}
-            />
-          </Show>
-        )}
-      </For>
+      <FileCards tabId={props.appId} files={files().filter((f) => f.path)} align="end" />
+    </div>
+  );
+}
+
+/** Files of the chat's folder the agent showed the user (show_files). */
+function ShownFiles(props: { appId: string; content: string }) {
+  const files = () => {
+    try {
+      return JSON.parse(props.content) as ChatFile[];
+    } catch {
+      return [];
+    }
+  };
+  return (
+    <div {...stylex.attrs(styles.shownFiles)} data-shown-files>
+      <FileCards tabId={props.appId} files={files()} />
     </div>
   );
 }
@@ -789,27 +833,10 @@ const styles = stylex.create({
     minWidth: 0,
     marginBottom: -6,
   },
-  sentImage: {
-    display: "block",
-    maxHeight: 140,
-    maxWidth: "min(220px, 100%)",
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: colors.border,
-    objectFit: "cover",
-  },
-  sentFile: {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 6,
-    maxWidth: "100%",
-    height: 30,
-    paddingInline: space.sm,
-    borderRadius: radius.md,
-    backgroundColor: colors.accentSoft,
-    fontSize: font.xs,
-  },
+  // Files the agent showed: with its reply, on the left.
+  shownFiles: { display: "flex", minWidth: 0, maxWidth: "100%" },
+  // Files a tool call saved, under its line.
+  toolFiles: { marginLeft: 26, marginTop: 4, marginBottom: 6, minWidth: 0 },
   context: {
     display: "flex",
     flexWrap: "wrap",

@@ -25,6 +25,13 @@ open page and saves changes that apply on every visit. It gets only the page too
 - **App actions:** what it finds can go into your apps with `use_app_tool` (after your OK for that app's tool).
 - **Limits:** the checks read the element's text, name and form, so a site that labels "Buy" as an icon only can slip past the confirmation (the agent is told to use `confirm_action` then). `run_js` can still change a page directly; it's meant for exploring.
 
+**Opening files.** Dragging a file into Rune Browser opens it, like in Chrome (`lib/drops.ts`):
+
+- **Where:** dropped on the tab list or the window, it opens in a new tab; on a web tab in the list, in that tab (the tab gets a highlight, the list a slot where the new tab will be, the window an overlay). Several files open in several tabs.
+- **What:** what a browser shows (PDFs, images, video, audio, text, pages, SVG) opens as a `file://` page; anything else is downloaded. Paths typed in the address bar open too.
+- **Pages keep theirs:** a file dropped on a page's upload area is uploaded; dropped elsewhere on a page, it opens in that tab. Links and text dropped on the tab list open or are searched for.
+- **Not for pages or agents:** a page (or an agent's script in it) can't navigate to a local file, only the user can open one; the website agent's `navigate` only opens websites.
+
 The older **site override** (one stylesheet and script per hostname, `set_site_override`) still exists for larger reworks.
 
 Web tab logins are cookies, which are encrypted with a key from the same keychain, like Chrome's. The `EnableCookieEncryption` fuse is set in `electron-builder.yml` for the packaged app, and by `scripts/electron.ts` in `node_modules` for runs from source. As in Chrome, a site's local storage, IndexedDB and cache aren't encrypted. They sit in the 0700 profile folder.

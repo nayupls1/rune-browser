@@ -331,7 +331,7 @@ export async function newApp() {
 }
 
 /**
- * Opens a web tab: the given URL (a website or an extension's page), or a
+ * Opens a web tab: the given URL (a website, an extension's page or a local file), or a
  * blank one, like a browser's new tab (the address bar takes the focus, empty).
  * In the current workspace unless another is given; a background tab opens
  * without being shown.
@@ -339,7 +339,7 @@ export async function newApp() {
 export async function newWebTab(url?: string, options: { workspaceId?: string; background?: boolean } = {}) {
   const app = await api.createApp({
     kind: "web",
-    url: url && /^(https?:\/\/|chrome-extension:\/\/)/i.test(url) ? url : undefined,
+    url: url && /^(https?:\/\/|chrome-extension:\/\/|file:\/\/\/)/i.test(url) ? url : undefined,
     workspaceId: options.workspaceId ?? currentWorkspace()?.id,
   });
   if (!options.background) showNewTab(app);
