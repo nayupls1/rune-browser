@@ -15,6 +15,7 @@ import { dirname, join } from "node:path";
 import { launchElectron } from "./electron";
 import { Page } from "./lib/cdp";
 import { writeFixtureBrowser } from "./lib/fixture-browser";
+import { fileUrl } from "../src/shared/web";
 
 const args = process.argv.slice(2);
 const agentIndex = args.indexOf("--agent");
@@ -3338,7 +3339,7 @@ try {
       await shot("file-tab.png");
 
       // A page can't take itself (or an agent's script) to another local file.
-      await inTab(noteTab.id, `location.href = ${JSON.stringify(`file://${pic}`)}; true`);
+      await inTab(noteTab.id, `location.href = ${JSON.stringify(fileUrl(pic))}; true`);
       await Bun.sleep(800);
       const still = await inTab<string>(noteTab.id, "location.href");
       if (!still.endsWith("note.txt")) throw new Error(`the page navigated itself to ${still}`);
@@ -3363,16 +3364,18 @@ try {
       writeFileSync(pdf, minimalPdf("Hello PDF"));
       const pdfTab = await apiCall<{ id: string }>("/api/apps", {
         method: "POST",
-        body: { kind: "web", url: `file://${pdf}` },
+        body: { kind: "web", url: fileUrl(pdf) },
       });
       await page!.waitFor(`!!document.querySelector('nav li[data-app-id="${pdfTab.id}"]')`, { label: "PDF tab" });
       await click(`nav li[data-app-id="${pdfTab.id}"]`);
+      type Target = { targetId: string; type: string; url: string };
+      let targets: Target[] = [];
       const viewer = await waitForValue(async () => {
-        const { targetInfos } = await page!.send("Target.getTargets");
-        return (targetInfos as { targetId: string; url: string }[]).find((t) =>
-          t.url.startsWith("chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/"),
-        );
-      }, 15_000);
+        targets = (await page!.send("Target.getTargets")).targetInfos;
+        return targets.find((t) => t.url.startsWith("chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/"));
+      }, 20_000).catch(() => {
+        throw new Error(`no PDF viewer; targets: ${targets.map((t) => `${t.type} ${t.url.slice(0, 80)}`).join(", ")}`);
+      });
       const { sessionId } = await page!.send("Target.attachToTarget", { targetId: viewer.targetId, flatten: true });
       // Its toolbar (in shadow roots) names the document once the viewer is up.
       const shown = await waitForValue(async () => {
