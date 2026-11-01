@@ -6,14 +6,15 @@ import { Effect, Schema } from "effect";
 import { describeEndpoint } from "../../shared/endpoints";
 import { Apps } from "../db/Apps";
 import { Endpoints } from "../db/Endpoints";
-import { tool } from "./Mcp";
+import { dataTools } from "./output";
 import type { ToolEnv } from "./tools";
 
 export const endpointTools = Effect.fn(function* (env: ToolEnv) {
   const endpoints = yield* Endpoints;
   const apps = yield* Apps;
+  const data = yield* dataTools(env);
   return [
-    tool(
+    data(
       "api_map",
       "The API map of the user's workspace: every endpoint the sites they visit call, learned from their web tabs, with its parameters, request body and response shapes (types only, never values; credentials only by name). Without arguments: the hosts in the map. With host: that host's endpoints. With search: endpoints whose host, path, GraphQL operation or calling site contains the text.",
       Schema.Struct({

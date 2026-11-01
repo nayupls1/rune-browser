@@ -59,6 +59,7 @@ const bridge: RuneBridge = {
       list: (webContentsId, filter) => ipcRenderer.invoke("rune:network-list", webContentsId, filter),
       get: (webContentsId, id, reveal) => ipcRenderer.invoke("rune:network-get", webContentsId, id, reveal),
       clear: (webContentsId) => ipcRenderer.invoke("rune:network-clear", webContentsId),
+      use: (webContentsId, id, chat) => ipcRenderer.invoke("rune:network-use", webContentsId, id, chat),
       replay: (target, overrides, reveal) => ipcRenderer.invoke("rune:network-replay", target, overrides, reveal),
       draft: (webContentsId, id) => ipcRenderer.invoke("rune:network-draft", webContentsId, id),
       setRules: (rules) => ipcRenderer.send("rune:network-rules", rules),

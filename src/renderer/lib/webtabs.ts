@@ -203,6 +203,9 @@ handleRpc("network.list", async ({ tabId, filter }) =>
   network.list((await page(tabId)).webContentsId(), (filter ?? {}) as NetworkFilter),
 );
 handleRpc("network.get", async ({ tabId, id }) => network.get((await page(tabId)).webContentsId(), String(id), false));
+handleRpc("network.use", async ({ tabId, id, chat }) =>
+  network.use((await page(tabId)).webContentsId(), String(id), String(chat)),
+);
 handleRpc("network.draft", async ({ tabId, id }) => network.draft((await page(tabId)).webContentsId(), String(id)));
 handleRpc("network.replay", async ({ tabId, id, workspaceId, draft, overrides }) =>
   network.replay(

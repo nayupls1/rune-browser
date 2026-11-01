@@ -2,10 +2,12 @@
 // with credentials redacted), sending requests again with the user's session
 // (asks the user once per site; the session's cookies and tokens are used but
 // never shown), and saved requests to send later without opening the site.
+import { basename } from "node:path";
 import { Effect, Schema } from "effect";
 import type {
   NetworkEntry,
   NetworkEntrySummary,
+  NetworkUse,
   ReplayOverrides,
   ReplayResult,
   RequestDraft,
@@ -26,16 +28,13 @@ import { Apps } from "../db/Apps";
 import { Network } from "../db/Network";
 import { ResponseOverrides } from "../db/ResponseOverrides";
 import { Hub } from "../Hub";
-import { Permissions, WEBSITE_AGENT } from "../security/Permissions";
+import { Permissions, WEBSITE_AGENT, type PermissionsShape } from "../security/Permissions";
+import { ChatFiles } from "./ChatFiles";
 import { NoArgs, text, tool } from "./Mcp";
+import { clip, dataTools, type Data } from "./output";
 import type { ToolEnv } from "./tools";
 
-const MAX_BODY = 20_000;
-
-const clip = (body: string | null, max = MAX_BODY) =>
-  body === null ? null : body.length > max ? `${body.slice(0, max)}… (${body.length - max} more characters)` : body;
-
-const Changes = {
+export const Changes = {
   url: Schema.optionalKey(
     Schema.String.annotate({ description: "Send it to another URL (e.g. other query parameters)" }),
   ),
@@ -48,7 +47,7 @@ const Changes = {
   body: Schema.optionalKey(Schema.NullOr(Schema.String)),
 };
 
-const toOverrides = (args: {
+export const toOverrides = (args: {
   url?: string;
   method?: string;
   headers?: readonly { name: string; value: string | null }[];
@@ -60,7 +59,7 @@ const toOverrides = (args: {
   ...(args.body !== undefined ? { body: args.body } : {}),
 });
 
-const line = (e: NetworkEntrySummary) =>
+export const line = (e: NetworkEntrySummary) =>
   `#${e.id} ${e.method} ${e.status ?? (e.error ? "failed" : "pending")} ${e.type} ${e.url}${e.mimeType ? ` · ${e.mimeType}` : ""}${e.size ? ` · ${e.size} B` : ""}${
     e.durationMs !== null ? ` · ${e.durationMs} ms` : ""
   }${e.error ? ` · ${e.error}` : ""}${e.rule ? ` · rule: ${e.rule}` : ""}${e.override ? ` · overridden: ${e.override}` : ""}`;
@@ -70,22 +69,64 @@ const headerLines = (headers: Record<string, string>) =>
     .map(([k, v]) => `${k}: ${v}`)
     .join("\n");
 
-const describeResult = (r: ReplayResult) =>
-  [
-    `HTTP ${r.status} ${r.statusText} · ${r.mimeType || "no content type"} · ${r.size} B · ${r.durationMs} ms · ${r.url}`,
+/** A response: the status and headers always, the body returned or saved (save_as, fields). */
+const describeResult = (r: ReplayResult): Data => ({
+  head: [
+    `HTTP ${r.status} ${r.statusText} · ${r.mimeType || "no content type"} · ${r.size} B · ${r.durationMs} ms · ${r.url}${
+      r.truncated ? " · the body is cut off at 512 kB" : ""
+    }`,
     "",
     headerLines(r.headers),
-    "",
-    r.body === null ? "(no text body)" : `${clip(r.body)}${r.truncated ? "\n(truncated at 512 kB)" : ""}`,
-  ].join("\n");
+  ].join("\n"),
+  body: r.body,
+});
+
+/** Sending requests with the user's session needs their OK, once per site (or remembered). */
+export const contactPermission = (permissions: PermissionsShape, env: ToolEnv) => (url: string) =>
+  Effect.gen(function* () {
+    const host = hostOf(url);
+    if (!host) return { host, allowed: false };
+    const allowed = yield* permissions.ask({
+      agentTab: env.tabId,
+      subject: WEBSITE_AGENT,
+      action: "agent.network",
+      resource: host,
+      title: `Let the website agent send requests to ${host}?`,
+      detail: `It wants to send requests to ${host} with your session: your cookies and logins are used, but never shown to it. Requests can change things on the site (post, buy, delete).`,
+      timeoutMs: 120_000,
+    });
+    return { host, allowed };
+  });
+
+export const refused = (host: string) =>
+  text(`The user didn't allow sending requests to ${host || "that address"}. Nothing was sent.`, true);
+
+/**
+ * A captured request the agent uses: it stays in the log until the chat ends
+ * (main/network.ts), so a reload's traffic doesn't push it out. Else why it's gone.
+ */
+export const usedRequest = Effect.fn(function* (env: ToolEnv, id: string) {
+  const hub = yield* Hub;
+  const files = yield* ChatFiles;
+  const chat = yield* files.dir(env.tabId).pipe(
+    Effect.map((dir) => basename(dir)),
+    Effect.orElseSucceed(() => env.tabId),
+  );
+  const used = yield* hub.rpc<NetworkUse>("network.use", { tabId: env.tabId, id: id.replace(/^#/, ""), chat });
+  return "entry" in used ? used.entry : text(`Request #${id.replace(/^#/, "")} isn't in the log. ${used.gone}`, true);
+});
 
 /** Reading the page's traffic (also for app builders, on their app's preview). */
 export const networkReadTools = Effect.fn(function* (env: ToolEnv) {
   const hub = yield* Hub;
+  const files = yield* ChatFiles;
+  const data = yield* dataTools(env);
   const call = <T>(method: string, params: object = {}, timeoutMs?: number) =>
     hub.rpc<T>(method, { tabId: env.tabId, ...params }, timeoutMs);
+  const use = (id: string) =>
+    usedRequest(env, id).pipe(Effect.provideService(Hub, hub), Effect.provideService(ChatFiles, files));
   return [
-    tool(
+    data(
       "network_requests",
       "The page's recent network requests, newest last (#id method status type url). By default only data (fetch/XHR, JSON, XML…); `all` for everything. Credentials are redacted. Use network_request for one request's headers and bodies.",
       Schema.Struct({
@@ -97,37 +138,39 @@ export const networkReadTools = Effect.fn(function* (env: ToolEnv) {
         call<NetworkEntrySummary[]>("network.list", {
           filter: { query, kind: all ? "all" : "data", limit: Math.min(Math.max(limit ?? 60, 1), 200) },
         }).pipe(
-          Effect.map((list) =>
-            list.length
-              ? list.map(line).join("\n")
-              : "No requests recorded yet (reload the page to capture its traffic).",
-          ),
+          Effect.map((list): Data => ({
+            body: list.length ? list.map(line).join("\n") : null,
+            value: list,
+            empty: "No requests recorded yet (reload the page to capture its traffic).",
+          })),
         ),
     ),
 
-    tool(
+    data(
       "network_request",
-      "One captured request: its headers, request body and response body (kept for structured data: JSON, XML, forms, text). Credentials are redacted.",
+      "One captured request: its headers, request body and response body (kept for structured data: JSON, XML, forms, text). Credentials are redacted. save_as and fields apply to the response body. Requests you look at or replay stay in the log until the chat ends, even after a reload.",
       Schema.Struct({ id: Schema.String }),
       ({ id }) =>
-        call<NetworkEntry | null>("network.get", { id: id.replace(/^#/, "") }).pipe(
+        use(id).pipe(
           Effect.map((e) =>
-            e
-              ? [
-                  line(e),
-                  "",
-                  "Request headers:",
-                  headerLines(e.requestHeaders),
-                  ...(e.requestBody !== null ? ["", "Request body:", clip(e.requestBody)!] : []),
-                  "",
-                  "Response headers:",
-                  headerLines(e.responseHeaders),
-                  "",
-                  e.responseBody !== null
-                    ? `Response body:\n${clip(e.responseBody)}`
-                    : `No response body: ${e.bodyNote ?? "none"}`,
-                ].join("\n")
-              : text(`No request #${id} in the log (it keeps the most recent ones).`, true),
+            !("content" in e)
+              ? {
+                  head: [
+                    line(e),
+                    "",
+                    "Request headers:",
+                    headerLines(e.requestHeaders),
+                    ...(e.requestBody !== null ? ["", "Request body:", clip(e.requestBody)] : []),
+                    "",
+                    "Response headers:",
+                    headerLines(e.responseHeaders),
+                    "",
+                    e.responseBody !== null ? "Response body:" : "",
+                  ].join("\n"),
+                  body: e.responseBody,
+                  empty: `No response body: ${e.bodyNote ?? "none"}`,
+                }
+              : e,
           ),
         ),
     ),
@@ -139,42 +182,30 @@ export const networkTools = Effect.fn(function* (env: ToolEnv) {
   const network = yield* Network;
   const apps = yield* Apps;
   const permissions = yield* Permissions;
+  const files = yield* ChatFiles;
+  const data = yield* dataTools(env);
   const call = <T>(method: string, params: object = {}, timeoutMs?: number) =>
     hub.rpc<T>(method, { tabId: env.tabId, ...params }, timeoutMs);
   const workspaceId = apps.get(env.tabId).pipe(Effect.map((app) => app?.workspaceId ?? null));
 
-  /** Sending requests with the user's session needs their OK, once per site (or remembered). */
-  const mayContact = (url: string) =>
-    Effect.gen(function* () {
-      const host = hostOf(url);
-      if (!host) return { host, allowed: false };
-      const allowed = yield* permissions.ask({
-        agentTab: env.tabId,
-        subject: WEBSITE_AGENT,
-        action: "agent.network",
-        resource: host,
-        title: `Let the website agent send requests to ${host}?`,
-        detail: `It wants to send requests to ${host} with your session: your cookies and logins are used, but never shown to it. Requests can change things on the site (post, buy, delete).`,
-        timeoutMs: 120_000,
-      });
-      return { host, allowed };
-    });
-  const refused = (host: string) =>
-    text(`The user didn't allow sending requests to ${host || "that address"}. Nothing was sent.`, true);
+  const mayContact = contactPermission(permissions, env);
 
   return [
     ...(yield* networkReadTools(env)),
     ...(yield* overrideTools(env)),
 
-    tool(
+    data(
       "replay_request",
-      "Send a captured request again with the user's session (their cookies and logins are used but never shown to you), optionally changed. Returns the response. The user is asked the first time for each site.",
+      "Send a captured request again with the user's session (their cookies and logins are used but never shown to you), optionally changed. Returns the response (save_as and fields apply to its body). The user is asked the first time for each site.",
       Schema.Struct({ id: Schema.String, ...Changes }),
       ({ id, ...changes }) =>
         Effect.gen(function* () {
           const entryId = id.replace(/^#/, "");
-          const entry = yield* call<NetworkEntry | null>("network.get", { id: entryId });
-          if (!entry) return text(`No request #${id} in the log.`, true);
+          const entry = yield* usedRequest(env, entryId).pipe(
+            Effect.provideService(Hub, hub),
+            Effect.provideService(ChatFiles, files),
+          );
+          if ("content" in entry) return entry;
           const { host, allowed } = yield* mayContact(changes.url ?? entry.url);
           if (!allowed) return refused(host);
           const result = yield* call<ReplayResult>(
@@ -184,6 +215,38 @@ export const networkTools = Effect.fn(function* (env: ToolEnv) {
           );
           yield* env.log(`Sent ${changes.method ?? entry.method} ${host}`);
           return describeResult(result);
+        }),
+    ),
+
+    tool(
+      "cancel_requests",
+      "Cancel the page's pending requests (fetch, XHR, images still loading…) without reloading it, like the browser's Stop button. Says which were canceled.",
+      NoArgs,
+      () =>
+        Effect.gen(function* () {
+          const pendingOf = (list: NetworkEntrySummary[]) => list.filter((e) => e.status === null && !e.error);
+          const all = { filter: { kind: "all", limit: 200 } };
+          const before = pendingOf(yield* call<NetworkEntrySummary[]>("network.list", all));
+          if (!before.length) return "No requests are pending.";
+          yield* call("page.eval", { code: "(() => { window.stop(); return true; })()" });
+          // The log hears about the canceled ones a moment later.
+          yield* Effect.sleep("400 millis");
+          const after = new Map((yield* call<NetworkEntrySummary[]>("network.list", all)).map((e) => [e.id, e]));
+          const canceled = before.filter((e) => after.get(e.id)?.error);
+          const still = before.filter((e) => {
+            const now = after.get(e.id);
+            return now && now.status === null && !now.error;
+          });
+          if (canceled.length)
+            yield* env.log(`Canceled ${canceled.length} pending request${canceled.length === 1 ? "" : "s"}`);
+          return [
+            canceled.length
+              ? `Canceled:\n${canceled.map((e) => line(after.get(e.id)!)).join("\n")}`
+              : "Nothing was canceled.",
+            ...(still.length
+              ? [`Still open (streams and sockets aren't stopped this way):\n${still.map(line).join("\n")}`]
+              : []),
+          ].join("\n\n");
         }),
     ),
 
@@ -216,9 +279,9 @@ export const networkTools = Effect.fn(function* (env: ToolEnv) {
       }),
     ),
 
-    tool(
+    data(
       "send_saved_request",
-      "Send a saved request with the workspace's session, without opening the site, optionally changed. Returns the response. The user is asked the first time for each site.",
+      "Send a saved request with the workspace's session, without opening the site, optionally changed. Returns the response (save_as and fields apply to its body). The user is asked the first time for each site.",
       Schema.Struct({ id: Schema.String, ...Changes }),
       ({ id, ...changes }) =>
         Effect.gen(function* () {

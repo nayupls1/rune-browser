@@ -117,7 +117,7 @@ describe("the traffic log", () => {
   });
 
   test("keeps the newest requests, filtered, redacted unless revealed", () => {
-    const log = new TrafficLog(new BodyBudget(), { entries: 3, body: 100, tabBodies: 1000 });
+    const log = new TrafficLog(new BodyBudget(), { entries: 3, changes: 1, kept: 2, body: 100, tabBodies: 1000 });
     for (let n = 1; n <= 5; n++) log.add(entry(n, n === 4 ? { type: "Image", mimeType: "image/png" } : {}));
     expect(log.size).toBe(3);
     expect(log.list().map((e) => e.url)).toEqual([3, 4, 5].map((n) => `https://site.com/api/${n}?token=${REDACTED}`));
@@ -129,10 +129,46 @@ describe("the traffic log", () => {
     expect(log.detail("5", false)!.url).toContain("token=t5");
   });
 
+  test("requests an agent uses and requests that change things outlast a burst of traffic", () => {
+    const log = new TrafficLog(new BodyBudget(), { entries: 4, changes: 1, kept: 2, body: 100, tabBodies: 1000 });
+    log.add(entry(1)); // #1: the agent looks at it
+    log.add(entry(2, { method: "DELETE" })); // #2: a change
+    log.add(entry(3));
+    log.keep(["1"], "chat-a");
+    // A reload: lots of GETs. #1 is kept for the agent, #2 outlasts the ordinary ones.
+    for (let n = 4; n <= 20; n++) log.add(entry(n));
+    expect(log.detail("1")).not.toBeNull();
+    expect(log.detail("2")!.method).toBe("DELETE");
+    expect(log.detail("3")).toBeNull();
+    expect(log.size).toBe(5); // 4, plus the one that's kept
+    expect(log.whyGone("3")).toContain("pushed out by newer traffic");
+    expect(log.whyGone("99")).toContain("go up to #20");
+
+    // Past `changes`, the oldest change goes like any other request.
+    log.add(entry(21, { method: "POST" }));
+    log.add(entry(22));
+    expect(log.detail("2")).toBeNull();
+    expect(log.whyGone("2")).toContain("requests that change things");
+    expect(log.detail("21")).not.toBeNull();
+
+    // Kept until the chat ends: a new chat's requests replace the earlier chat's.
+    log.keep(["22"], "chat-b");
+    expect([log.isKept("1"), log.isKept("22")]).toEqual([false, true]);
+    for (let n = 23; n <= 30; n++) log.add(entry(n));
+    expect(log.detail("1")).toBeNull();
+    expect(log.detail("22")).not.toBeNull();
+    // Past `kept`, the longest-kept go back to normal.
+    log.keep(["30", "29"], "chat-b");
+    expect([log.isKept("22"), log.isKept("29"), log.isKept("30")]).toEqual([false, true, true]);
+
+    log.clear("The user cleared the log.");
+    expect(log.whyGone("30")).toBe("The user cleared the log.");
+  });
+
   test("bodies stay within the tab's and the shared budget, oldest dropped first", () => {
     const budget = new BodyBudget(250);
-    const a = new TrafficLog(budget, { entries: 100, body: 100, tabBodies: 200 });
-    const b = new TrafficLog(budget, { entries: 100, body: 100, tabBodies: 200 });
+    const a = new TrafficLog(budget, { entries: 100, changes: 10, kept: 10, body: 100, tabBodies: 200 });
+    const b = new TrafficLog(budget, { entries: 100, changes: 10, kept: 10, body: 100, tabBodies: 200 });
     const [a1, a2, a3] = [1, 2, 3].map((n) => a.add(entry(n)));
     expect(a.setBody(a1!, "x".repeat(101))).toBe(false);
     expect(a1!.bodyNote).toBe("Too large to keep");

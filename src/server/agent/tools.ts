@@ -24,6 +24,7 @@ import { Secrets } from "../security/Secrets";
 import { ChatFiles } from "./ChatFiles";
 import { saveOutput } from "./fileTools";
 import { NoArgs, text, tool } from "./Mcp";
+import { dataTools, MAX_SAVED } from "./output";
 import { sharedContext, shareRefusal } from "./sharedTabs";
 import { topics } from "../../shared/hub";
 import {
@@ -103,13 +104,14 @@ export interface ToolEnv {
 export const pageTools = Effect.fn(function* (env: ToolEnv, options: { site: boolean }) {
   const hub = yield* Hub;
   const chatFiles = yield* ChatFiles;
+  const data = yield* dataTools(env);
   const call = <T>(method: string, params: object = {}, timeoutMs?: number) =>
     hub.rpc<T>(method, { tabId: env.tabId, ...params }, timeoutMs);
   const evalIn = <T>(code: string) => call<T>("page.eval", { code });
 
   const where = options.site ? "the page in the user's tab" : "the app's preview";
   return [
-    tool("get_page", `The URL, title, viewport and visible text of ${where}.`, NoArgs, () =>
+    data("get_page", `The URL, title, viewport and visible text of ${where}.`, NoArgs, () =>
       evalIn<object>(`(() => {
             const text = (document.body?.innerText ?? "").replace(/\\n{3,}/g, "\\n\\n");
             return {
@@ -121,7 +123,7 @@ export const pageTools = Effect.fn(function* (env: ToolEnv, options: { site: boo
           })()`).pipe(Effect.map((page) => JSON.stringify(page, null, 1))),
     ),
 
-    tool(
+    data(
       "inspect",
       `Elements of ${where} matching a CSS selector: count, outer HTML (truncated), position and key computed styles.`,
       Schema.Struct({ selector: Schema.String, limit: Schema.optionalKey(Schema.Finite) }),
@@ -146,39 +148,28 @@ export const pageTools = Effect.fn(function* (env: ToolEnv, options: { site: boo
         ),
     ),
 
-    tool(
+    data(
       "run_js",
       `Run JavaScript in ${where} and get the result. \`code\` is the body of an async function: use \`return\` (JSON-serializable).${
         options.site
           ? " Changes made this way are lost on reload; use set_site_override to keep them."
           : " Good for checking behavior; change the source files for real changes."
       } With save_as, the whole result goes into a file in the chat's folder instead (data you collected or fetched, an export), and you get only its size.`,
-      Schema.Struct({
-        code: Schema.String,
-        save_as: Schema.optionalKey(
-          Schema.String.annotate({ description: "A path in the chat's folder for the result, e.g. data/prices.json" }),
-        ),
-      }),
-      ({ code, save_as }) =>
-        Effect.gen(function* () {
-          const limit = save_as ? 5_000_000 : 20_000;
-          const result = yield* evalIn<string>(`(async () => {
+      Schema.Struct({ code: Schema.String }),
+      ({ code }) =>
+        evalIn<string>(`(async () => {
           const __result = await (async () => {
 ${code}
           })();
           if (__result === undefined) return "undefined";
-          if (typeof __result === "string" && ${save_as ? "true" : "false"}) return __result.length > ${limit} ? __result.slice(0, ${limit}) : __result;
+          if (typeof __result === "string") return __result.slice(0, ${MAX_SAVED});
           try {
             const s = JSON.stringify(__result, null, 1);
-            return s === undefined ? String(__result) : s.length > ${limit} ? s.slice(0, ${limit}) + "…" : s;
+            return s === undefined ? String(__result) : s.slice(0, ${MAX_SAVED});
           } catch {
             return String(__result);
           }
-        })()`);
-          if (!save_as) return result;
-          const file = yield* saveOutput(chatFiles, env, save_as, result);
-          return `Saved the result in ${file.name} (${result.length} characters). read_file reads it.`;
-        }),
+        })()`),
     ),
 
     tool(

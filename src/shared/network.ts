@@ -169,15 +169,29 @@ const isData = (e: Captured) =>
   ["XHR", "Fetch", "EventSource", "WebSocket"].includes(e.type) || isStructured(e.mimeType, e.type);
 
 export interface Limits {
-  /** Requests kept per tab (the oldest go first). */
+  /** Requests kept per tab (the oldest ordinary ones go first). */
   entries: number;
+  /** Requests that change things (POST, PUT, PATCH, DELETE) that outlast ordinary ones, per tab. */
+  changes: number;
+  /** Requests an agent has used, kept even when the log is full (until its chat ends), per tab. */
+  kept: number;
   /** Largest response body kept (characters). */
   body: number;
   /** Bodies kept per tab, in total (characters). */
   tabBodies: number;
 }
 
-export const DEFAULT_LIMITS: Limits = { entries: 500, body: 256 * 1024, tabBodies: 3 * 1024 * 1024 };
+export const DEFAULT_LIMITS: Limits = {
+  entries: 500,
+  changes: 100,
+  kept: 100,
+  body: 256 * 1024,
+  tabBodies: 3 * 1024 * 1024,
+};
+
+const isChange = (e: Captured) => !/^(GET|HEAD|OPTIONS)$/i.test(e.method);
+/** Why requests that are no longer in the log went, remembered for this many. */
+const MAX_GONE = 2000;
 
 /** Shared by every tab's log: when all bodies together pass `max`, the oldest anywhere go. */
 export class BodyBudget {
@@ -198,10 +212,18 @@ export class BodyBudget {
   }
 }
 
-/** One tab's recent traffic, bounded in count and body size. */
+/**
+ * One tab's recent traffic, bounded in count and body size. When it's full the
+ * oldest ordinary request goes; requests that change things outlast them (up to
+ * `limits.changes`), and the ones an agent has used stay until its chat ends.
+ */
 export class TrafficLog {
   private entries: Captured[] = [];
   private byId = new Map<string, Captured>();
+  /** Requests an agent has used: id → its chat. */
+  private kept = new Map<string, string>();
+  /** Why requests that are no longer here went. */
+  private gone = new Map<string, string>();
   private bodies: Captured[] = [];
   private bodyChars = 0;
   private seq = 0;
@@ -221,8 +243,60 @@ export class TrafficLog {
     const captured = { ...entry, id: String(++this.seq) } as Captured;
     this.entries.push(captured);
     this.byId.set(captured.id, captured);
-    while (this.entries.length > this.limits.entries) this.remove(this.entries[0]!);
+    while (this.entries.length > this.limits.entries + this.kept.size) {
+      const victim = this.victim();
+      if (!victim) break;
+      this.remove(
+        victim,
+        isChange(victim)
+          ? `It was pushed out by newer traffic: the log keeps the last ${this.limits.changes} requests that change things (${this.limits.entries} requests in all).`
+          : `It was pushed out by newer traffic: the log keeps the last ${this.limits.entries} requests, and requests that change things longer.`,
+      );
+    }
     return captured;
+  }
+
+  /** What goes when the log is full: the oldest ordinary request, or the oldest change once there are too many. */
+  private victim() {
+    let changes = 0;
+    for (const e of this.entries) if (isChange(e) && !this.kept.has(e.id)) changes++;
+    let fallback: Captured | undefined;
+    for (const e of this.entries) {
+      if (this.kept.has(e.id)) continue;
+      fallback ??= e;
+      if (!isChange(e) || changes > this.limits.changes) return e;
+    }
+    return fallback;
+  }
+
+  /**
+   * Keeps requests an agent has used (looked at or replayed) for its chat, even
+   * when the log is full. A new chat's requests replace the ones the earlier
+   * chat kept; past `limits.kept`, the longest-kept go back to normal.
+   */
+  keep(ids: readonly string[], chat: string) {
+    for (const [id, holder] of this.kept) if (holder !== chat) this.kept.delete(id);
+    for (const id of ids) {
+      if (!this.byId.has(id)) continue;
+      this.kept.delete(id);
+      this.kept.set(id, chat);
+    }
+    while (this.kept.size > this.limits.kept) this.kept.delete(this.kept.keys().next().value!);
+  }
+
+  /** Whether a request is kept for an agent. */
+  isKept(id: string) {
+    return this.kept.has(id);
+  }
+
+  /** Why a request isn't in the log (anymore), for the agent. */
+  whyGone(id: string) {
+    const reason = this.gone.get(id);
+    if (reason) return reason;
+    const n = Number(id);
+    if (!Number.isInteger(n) || n < 1 || n > this.seq)
+      return `There's no request #${id}: the ids in this tab's log go up to #${this.seq}.`;
+    return "It's no longer in the log.";
   }
 
   get(id: string) {
@@ -267,14 +341,17 @@ export class TrafficLog {
     if (i !== -1) this.bodies.splice(i, 1);
   }
 
-  private remove(entry: Captured) {
+  private remove(entry: Captured, reason: string) {
     this.dropBody(entry);
     this.entries.splice(this.entries.indexOf(entry), 1);
     this.byId.delete(entry.id);
+    this.kept.delete(entry.id);
+    this.gone.set(entry.id, reason);
+    if (this.gone.size > MAX_GONE) this.gone.delete(this.gone.keys().next().value!);
   }
 
-  clear() {
-    for (const entry of [...this.entries]) this.remove(entry);
+  clear(reason = "The log was cleared.") {
+    for (const entry of [...this.entries]) this.remove(entry, reason);
   }
 
   /** Stops counting against the shared budget (the tab closed). */
