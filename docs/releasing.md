@@ -43,7 +43,7 @@ Pushing the tag starts the **Release** workflow (`.github/workflows/release.yml`
    release with GitHub's generated notes: "What's Changed" (the merged pull
    requests since the last release) and the "Full Changelog" compare link.
 2. **Checks:** the whole CI workflow (typecheck, unit tests, build, e2e) on
-   Linux, Windows and macOS.
+   Linux and Windows.
 3. **Build:** on each OS, `bun run build` (with the daily version written into
    `package.json` first) and electron-builder, which uploads
    the installers into the draft, with the update feeds the app reads
@@ -66,8 +66,8 @@ The notes are only as good as the pull request titles: they're the list.
 | Windows | `rune-browser-<v>-setup-x64.exe` (NSIS, per-user)                            | yes                                                                                           |
 | macOS   | `rune-browser-<v>-mac-arm64.dmg` and `.zip` (Apple Silicon)                  | no: it shows the new version and links to its release                                         |
 
-macOS is supported but not tested by hand (CI runs the checks there, without
-blocking on them).
+macOS is supported but not tested, by hand or by CI: its installers are built,
+but the checks only run on Linux and Windows.
 
 ## Updates
 

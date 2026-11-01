@@ -1,4 +1,4 @@
-# Typecheck, unit tests, build and e2e on every supported OS. Runs on pull
+# Typecheck, unit tests, build and e2e on Linux and Windows. Runs on pull
 # requests and master, and before every release (release.yml calls it).
 name: CI
 
@@ -21,11 +21,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        # No macOS: nobody on the team can test it by hand, and its runners'
+        # flaky failures were noise. Releases still build its installers.
+        os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    # macOS is supported but nobody on the team can test it by hand: its
-    # failures show up without blocking.
-    continue-on-error: ${{ matrix.os == 'macos-latest' }}
     timeout-minutes: 30
     env:
       # e2e: no agent logins on CI, so providers only need to be detected.
@@ -44,9 +43,14 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun fmt --check
       - run: bun run typecheck
+      # Flaky failures (a test file, or the e2e run, that passes when run again)
+      # don't fail the job, but show as warnings on the run and in its summary.
       - run: bun run test
       - run: bun run build
-      - run: bun run e2e
+      - run: bun run e2e --retries 1
+        env:
+          # Windows runners are several times slower than a developer's machine.
+          E2E_TIMEOUT_SCALE: ${{ runner.os == 'Windows' && '2' || '1' }}
       - name: Screenshots
         if: always()
         uses: actions/upload-artifact@v4

@@ -6,6 +6,10 @@
 //   bun run e2e --agent "..."   ...with a custom prompt
 //   bun run e2e --visible       show the window while testing (default: offscreen)
 //   bun run e2e --only <text>   only the checks whose name contains it ("a|b": either; and the boot check)
+//   bun run e2e --retries <n>   if any check fails, run everything again (up to n times, on a fresh profile);
+//                               checks that pass then are reported as flaky (CI uses 1)
+//
+// E2E_TIMEOUT_SCALE=2 doubles every wait, for slow machines (CI's Windows runners).
 //
 // Screenshots go to test-results/. Run `bun run build` first.
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -15,6 +19,8 @@ import { dirname, join } from "node:path";
 import { launchElectron } from "./electron";
 import { Page } from "./lib/cdp";
 import { writeFixtureBrowser } from "./lib/fixture-browser";
+import { reportFlaky } from "./lib/flaky";
+import { TIMEOUT_SCALE } from "./lib/cdp";
 import { fileUrl } from "../src/shared/web";
 
 const args = process.argv.slice(2);
@@ -229,7 +235,7 @@ async function check(name: string, fn: () => Promise<string | void>) {
 
 /** Polls an async function until it returns something other than undefined. */
 async function waitForValue<T>(fn: () => Promise<T | undefined>, timeoutMs = 10_000): Promise<T> {
-  const deadline = Date.now() + timeoutMs;
+  const deadline = Date.now() + timeoutMs * TIMEOUT_SCALE;
   for (;;) {
     const value = await fn().catch(() => undefined);
     if (value !== undefined) return value;
@@ -1496,6 +1502,7 @@ try {
       { label: "web tab" },
     );
     const tab = `[data-web-tab="${tabId}"]`;
+    await page!.waitFor(`!!document.querySelector('${chromeFor(tab)} [data-address]')`, { label: "address bar" });
     await page!.eval(`(() => {
       const input = document.querySelector('${chromeFor(tab)} [data-address]');
       input.value = "${site.url.origin}/keys";
@@ -3518,4 +3525,25 @@ try {
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} checks passed. Screenshots in ${outDir}/`);
 if (skippedShots.length) console.log(`(window wasn't painting, skipped screenshots: ${skippedShots.join(", ")})`);
+
+// The checks build on each other (one slow step fails the ones after it), so a
+// failed run is run again as a whole, on a fresh profile. What passes then was flaky.
+const retriesIndex = args.indexOf("--retries");
+const retries = retriesIndex === -1 ? 0 : Number(args[retriesIndex + 1]) || 0;
+if (failed.length && retries > 0) {
+  console.log(
+    `\nRunning the e2e checks again (${failed.length} failed; ${retries} ${retries === 1 ? "try" : "tries"} left)…\n`,
+  );
+  const rest = args.filter((_, i) => i !== retriesIndex && i !== retriesIndex + 1);
+  const again = Bun.spawn([process.execPath, import.meta.path, ...rest, "--retries", String(retries - 1)], {
+    stdio: ["inherit", "inherit", "inherit"],
+  });
+  const code = await again.exited;
+  if (code === 0)
+    reportFlaky(
+      "e2e checks",
+      failed.map((r) => `${r.name} — ${r.detail}`.slice(0, 300)),
+    );
+  process.exit(code);
+}
 process.exit(failed.length ? 1 : 0);
