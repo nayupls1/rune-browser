@@ -43,7 +43,8 @@ agents, which do much of the work here, but it's just as true for people.
 ## Workflow
 
 - Work on a branch and open a pull request against `master`; CI runs
-  `bun run check` on Linux, Windows and macOS for every PR.
+  `bun run check` on Linux and Windows for every PR (not macOS; releases
+  still build its installers).
 - **Flaky checks:** `bun run test` runs failed test files once more on their own
   (`scripts/test.ts`), and CI runs `bun run e2e --retries 1`, which runs the whole
   e2e again on a fresh profile when a check fails (the checks build on each other).

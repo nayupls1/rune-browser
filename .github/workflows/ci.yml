@@ -1,4 +1,4 @@
-# Typecheck, unit tests, build and e2e on every supported OS. Runs on pull
+# Typecheck, unit tests, build and e2e on Linux and Windows. Runs on pull
 # requests and master, and before every release (release.yml calls it).
 name: CI
 
@@ -21,11 +21,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        # No macOS: nobody on the team can test it by hand, and its runners'
+        # flaky failures were noise. Releases still build its installers.
+        os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    # macOS is supported but nobody on the team can test it by hand: its
-    # failures show up without blocking.
-    continue-on-error: ${{ matrix.os == 'macos-latest' }}
     timeout-minutes: 30
     env:
       # e2e: no agent logins on CI, so providers only need to be detected.
