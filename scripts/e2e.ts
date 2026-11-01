@@ -244,8 +244,9 @@ async function waitForValue<T>(fn: () => Promise<T | undefined>, timeoutMs = 10_
   }
 }
 
-/** Opens the sidebar's "New tab" menu and picks an entry. */
+/** Opens the sidebar's "New tab" menu, picks an entry, and waits for the new tab in the sidebar. */
 async function newTab(label: "New app" | "New web tab") {
+  const count = await page!.eval<number>(`document.querySelectorAll("nav li[data-app-id]").length`);
   // Menus close on resize and blur, which CI's offscreen window can still send right after it starts: click again if it closed.
   const menuOpen = `!!document.querySelector("[data-context-menu]")`;
   for (let attempt = 1; ; attempt++) {
@@ -258,6 +259,18 @@ async function newTab(label: "New app" | "New web tab") {
     }
   }
   await click("[data-context-menu] button", label);
+  // Creating the first tab on a cold CI machine can take a while. If it never shows, say whether the server made it.
+  try {
+    await page!.waitFor(`document.querySelectorAll("nav li[data-app-id]").length > ${count}`, {
+      label: `the ${label === "New app" ? "new app" : "new web tab"} in the sidebar`,
+      timeoutMs: 60_000,
+    });
+  } catch (err) {
+    const apps = await apiCall<unknown[]>("/api/apps").catch(() => null);
+    throw new Error(
+      `${(err as Error).message} (the server has ${apps ? `${apps.length} tabs; the sidebar ${count}` : "no answer"})`,
+    );
+  }
 }
 
 /** Authenticated request to the Rune Browser server, made from the renderer. */
@@ -2588,8 +2601,12 @@ try {
     await page!.waitFor(`!document.querySelector("[data-extensions-list]")`, { label: "menu closed" });
 
     // Its declarativeNetRequest rules block (and Rune Browser's own rules, checked above, still work alongside).
+    // The extension's rules load in the background: on a slow machine the first fetch can come before them.
     const before = siteSeen.length;
-    const blocked = await inPage<string>(`fetch("/blocked-by-extension").then(() => "loaded", () => "blocked")`);
+    const blocked = await waitForValue(async () => {
+      const result = await inPage<string>(`fetch("/blocked-by-extension").then(() => "loaded", () => "blocked")`);
+      return result === "blocked" ? result : undefined;
+    }, 15_000).catch(() => "loaded");
     if (blocked !== "blocked") throw new Error("the extension's rule didn't block the request");
 
     // The popup sees the tab it was opened on.
