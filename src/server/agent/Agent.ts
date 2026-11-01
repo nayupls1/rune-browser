@@ -47,6 +47,7 @@ import { historyTools } from "./historyTools";
 import { describeSource, sourceTools } from "./sourceTools";
 import { Attachments, type AttachedFile } from "./Attachments";
 import { networkReadTools, networkTools } from "./networkTools";
+import { batchTools } from "./batchTools";
 import { endpointTools } from "./endpointTools";
 import { Endpoints } from "../db/Endpoints";
 import { sharedContext, withSharedTabs, type SharedTabInput } from "./sharedTabs";
@@ -246,6 +247,7 @@ export const make = Effect.gen(function* () {
             ...(yield* Effect.provide(browseTools(env), context)),
             ...(yield* Effect.provide(siteTools(env), context)),
             ...(yield* Effect.provide(networkTools(env), context)),
+            ...(yield* Effect.provide(batchTools(env), context)),
             ...(yield* Effect.provide(endpointTools(env), context)),
             ...(yield* Effect.provide(historyTools(env, { site: true }), context)),
             ...(yield* Effect.provide(sourceTools(env), context)),

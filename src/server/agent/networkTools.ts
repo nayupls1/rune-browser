@@ -28,13 +28,13 @@ import { Apps } from "../db/Apps";
 import { Network } from "../db/Network";
 import { ResponseOverrides } from "../db/ResponseOverrides";
 import { Hub } from "../Hub";
-import { Permissions, WEBSITE_AGENT } from "../security/Permissions";
+import { Permissions, WEBSITE_AGENT, type PermissionsShape } from "../security/Permissions";
 import { ChatFiles } from "./ChatFiles";
 import { NoArgs, text, tool } from "./Mcp";
 import { clip, dataTools, type Data } from "./output";
 import type { ToolEnv } from "./tools";
 
-const Changes = {
+export const Changes = {
   url: Schema.optionalKey(
     Schema.String.annotate({ description: "Send it to another URL (e.g. other query parameters)" }),
   ),
@@ -47,7 +47,7 @@ const Changes = {
   body: Schema.optionalKey(Schema.NullOr(Schema.String)),
 };
 
-const toOverrides = (args: {
+export const toOverrides = (args: {
   url?: string;
   method?: string;
   headers?: readonly { name: string; value: string | null }[];
@@ -59,7 +59,7 @@ const toOverrides = (args: {
   ...(args.body !== undefined ? { body: args.body } : {}),
 });
 
-const line = (e: NetworkEntrySummary) =>
+export const line = (e: NetworkEntrySummary) =>
   `#${e.id} ${e.method} ${e.status ?? (e.error ? "failed" : "pending")} ${e.type} ${e.url}${e.mimeType ? ` · ${e.mimeType}` : ""}${e.size ? ` · ${e.size} B` : ""}${
     e.durationMs !== null ? ` · ${e.durationMs} ms` : ""
   }${e.error ? ` · ${e.error}` : ""}${e.rule ? ` · rule: ${e.rule}` : ""}${e.override ? ` · overridden: ${e.override}` : ""}`;
@@ -80,6 +80,26 @@ const describeResult = (r: ReplayResult): Data => ({
   ].join("\n"),
   body: r.body,
 });
+
+/** Sending requests with the user's session needs their OK, once per site (or remembered). */
+export const contactPermission = (permissions: PermissionsShape, env: ToolEnv) => (url: string) =>
+  Effect.gen(function* () {
+    const host = hostOf(url);
+    if (!host) return { host, allowed: false };
+    const allowed = yield* permissions.ask({
+      agentTab: env.tabId,
+      subject: WEBSITE_AGENT,
+      action: "agent.network",
+      resource: host,
+      title: `Let the website agent send requests to ${host}?`,
+      detail: `It wants to send requests to ${host} with your session: your cookies and logins are used, but never shown to it. Requests can change things on the site (post, buy, delete).`,
+      timeoutMs: 120_000,
+    });
+    return { host, allowed };
+  });
+
+export const refused = (host: string) =>
+  text(`The user didn't allow sending requests to ${host || "that address"}. Nothing was sent.`, true);
 
 /**
  * A captured request the agent uses: it stays in the log until the chat ends
@@ -168,24 +188,7 @@ export const networkTools = Effect.fn(function* (env: ToolEnv) {
     hub.rpc<T>(method, { tabId: env.tabId, ...params }, timeoutMs);
   const workspaceId = apps.get(env.tabId).pipe(Effect.map((app) => app?.workspaceId ?? null));
 
-  /** Sending requests with the user's session needs their OK, once per site (or remembered). */
-  const mayContact = (url: string) =>
-    Effect.gen(function* () {
-      const host = hostOf(url);
-      if (!host) return { host, allowed: false };
-      const allowed = yield* permissions.ask({
-        agentTab: env.tabId,
-        subject: WEBSITE_AGENT,
-        action: "agent.network",
-        resource: host,
-        title: `Let the website agent send requests to ${host}?`,
-        detail: `It wants to send requests to ${host} with your session: your cookies and logins are used, but never shown to it. Requests can change things on the site (post, buy, delete).`,
-        timeoutMs: 120_000,
-      });
-      return { host, allowed };
-    });
-  const refused = (host: string) =>
-    text(`The user didn't allow sending requests to ${host || "that address"}. Nothing was sent.`, true);
+  const mayContact = contactPermission(permissions, env);
 
   return [
     ...(yield* networkReadTools(env)),
