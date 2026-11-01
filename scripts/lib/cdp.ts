@@ -1,5 +1,8 @@
 // Minimal Chrome DevTools Protocol client for driving the Electron renderer.
 
+/** Every wait is this many times longer (E2E_TIMEOUT_SCALE), for slow machines like CI's Windows runners. */
+export const TIMEOUT_SCALE = Math.max(Number(process.env.E2E_TIMEOUT_SCALE) || 1, 1);
+
 export class Page {
   private nextId = 0;
   private pending = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void }>();
@@ -119,7 +122,7 @@ export class Page {
 
   /** Polls an expression until it is truthy. */
   async waitFor<T>(expression: string, { timeoutMs = 10_000, label = expression } = {}): Promise<T> {
-    const deadline = Date.now() + timeoutMs;
+    const deadline = Date.now() + timeoutMs * TIMEOUT_SCALE;
     for (;;) {
       const value = await this.eval<T>(expression).catch(() => undefined);
       if (value) return value;

@@ -24,7 +24,7 @@
     "release": "bun scripts/release.ts",
     "server": "bun --watch src/server/index.ts",
     "typecheck": "bun check --no-script",
-    "test": "bun test --timeout 30000 tests",
+    "test": "bun scripts/test.ts",
     "e2e": "bun scripts/e2e.ts",
     "check": "bun fmt --check && bun run typecheck && bun run test && bun run build && bun run e2e"
   },

@@ -15,32 +15,48 @@ export async function freePort() {
 
 /** `dataDir`: an existing one (e.g. an old database to migrate); removed on stop either way. */
 export async function startServer(options: { dataDir?: string } = {}) {
-  const port = await freePort();
   const dataDir = options.dataDir ?? mkdtempSync(join(tmpdir(), "rune-server-test-"));
-  const url = `http://127.0.0.1:${port}`;
   const token = crypto.randomUUID();
-  const proc = Bun.spawn([process.execPath, "src/server/index.ts"], {
-    env: {
-      ...process.env,
-      PORT: String(port),
-      RUNE_DATA_DIR: dataDir,
-      RUNE_ALLOWED_ORIGIN: "app://rune",
-      RUNE_TOKEN: token,
-    },
-    stdout: "ignore",
-    stderr: "inherit",
-  });
-  // The first start on Windows CI can take over 10s (a cold start, and refused connections take ~2s there).
-  const deadline = Date.now() + 20_000;
-  for (;;) {
-    try {
-      if ((await fetch(`${url}/api/health`)).ok) break;
-    } catch {
-      // not up yet
+  // The free port can be taken by someone else before the server binds it: then
+  // the server exits, and it's started again on another one.
+  let started: { proc: Bun.Subprocess; port: number } | undefined;
+  for (let attempt = 1; !started; attempt++) {
+    const port = await freePort();
+    const proc = Bun.spawn([process.execPath, "src/server/index.ts"], {
+      env: {
+        ...process.env,
+        PORT: String(port),
+        RUNE_DATA_DIR: dataDir,
+        RUNE_ALLOWED_ORIGIN: "app://rune",
+        RUNE_TOKEN: token,
+      },
+      stdout: "ignore",
+      stderr: "inherit",
+    });
+    // The first start on Windows CI can take over 10s (a cold start, and refused connections take ~2s there).
+    const deadline = Date.now() + 25_000; // within the 30 s a test (or hook) gets
+    for (;;) {
+      try {
+        if ((await fetch(`http://127.0.0.1:${port}/api/health`, { signal: AbortSignal.timeout(5_000) })).ok) {
+          started = { proc, port };
+          break;
+        }
+      } catch {
+        // not up yet
+      }
+      if (proc.exitCode !== null || proc.signalCode !== null) {
+        if (attempt < 3) break;
+        throw new Error(`server did not start: it exited (${proc.exitCode ?? proc.signalCode}) three times`);
+      }
+      if (Date.now() > deadline) {
+        proc.kill();
+        throw new Error(`server did not start within 25s (port ${port})`);
+      }
+      await Bun.sleep(50);
     }
-    if (Date.now() > deadline) throw new Error("server did not start");
-    await Bun.sleep(50);
   }
+  const { proc, port } = started;
+  const url = `http://127.0.0.1:${port}`;
 
   const api = async <T = unknown>(path: string, init?: RequestInit & { json?: unknown }): Promise<T> => {
     const res = await fetch(`${url}${path}`, {
