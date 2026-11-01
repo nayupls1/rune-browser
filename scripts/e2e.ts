@@ -240,8 +240,17 @@ async function waitForValue<T>(fn: () => Promise<T | undefined>, timeoutMs = 10_
 
 /** Opens the sidebar's "New tab" menu and picks an entry. */
 async function newTab(label: "New app" | "New web tab") {
-  await click("[data-new-tab]");
-  await page!.waitFor(`!!document.querySelector("[data-context-menu]")`, { label: "new tab menu" });
+  // Menus close on resize and blur, which CI's offscreen window can still send right after it starts: click again if it closed.
+  const menuOpen = `!!document.querySelector("[data-context-menu]")`;
+  for (let attempt = 1; ; attempt++) {
+    await click("[data-new-tab]");
+    try {
+      await page!.waitFor(menuOpen, { label: "new tab menu", timeoutMs: attempt < 3 ? 2_000 : 10_000 });
+      break;
+    } catch (err) {
+      if (attempt >= 3) throw err;
+    }
+  }
   await click("[data-context-menu] button", label);
 }
 
@@ -400,6 +409,9 @@ try {
   });
   // The window is offscreen and, on CI, never focused: without this, menus that close on blur close at once.
   await page.send("Emulation.setFocusEmulationEnabled", { enabled: true });
+  // Let the new size land (and its resize event, which closes menus) before the first check clicks anything.
+  await page.waitFor(`innerWidth === 1400 && innerHeight === 900`, { label: "window size" });
+  await page.eval(`new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))`);
 
   await check("app boots and shows the sidebar", async () => {
     await page!.waitFor(`!!document.querySelector('[data-page-link="Settings"]')`, { timeoutMs: 20_000 });
