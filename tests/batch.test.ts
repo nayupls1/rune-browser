@@ -4,7 +4,7 @@
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative, sep } from "node:path";
 import { Context, Effect, Exit, Scope } from "effect";
 import type { ReplayResult } from "../src/shared/api";
 import { batchTools } from "../src/server/agent/batchTools";
@@ -53,7 +53,9 @@ const setup = (options: { answers?: Partial<Record<AskInput["action"], boolean>>
   const files = {
     dir: () => Effect.succeed(dir),
     resolve: (_tab: string, path: string) => Effect.succeed(join(dir, path)),
-    describe: (_dir: string, path: string) => Effect.succeed({ name: path.slice(dir.length + 1) } as never),
+    // Names as ChatFiles gives them: relative, with forward slashes on every OS.
+    describe: (_dir: string, path: string) =>
+      Effect.succeed({ name: relative(dir, path).split(sep).join("/") } as never),
   } as unknown as ChatFilesShape;
   const permissions = {
     ask: (input: AskInput) =>
