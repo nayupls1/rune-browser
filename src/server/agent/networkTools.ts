@@ -28,12 +28,8 @@ import { ResponseOverrides } from "../db/ResponseOverrides";
 import { Hub } from "../Hub";
 import { Permissions, WEBSITE_AGENT } from "../security/Permissions";
 import { NoArgs, text, tool } from "./Mcp";
+import { clip, dataTools, type Data } from "./output";
 import type { ToolEnv } from "./tools";
-
-const MAX_BODY = 20_000;
-
-const clip = (body: string | null, max = MAX_BODY) =>
-  body === null ? null : body.length > max ? `${body.slice(0, max)}… (${body.length - max} more characters)` : body;
 
 const Changes = {
   url: Schema.optionalKey(
@@ -70,22 +66,26 @@ const headerLines = (headers: Record<string, string>) =>
     .map(([k, v]) => `${k}: ${v}`)
     .join("\n");
 
-const describeResult = (r: ReplayResult) =>
-  [
-    `HTTP ${r.status} ${r.statusText} · ${r.mimeType || "no content type"} · ${r.size} B · ${r.durationMs} ms · ${r.url}`,
+/** A response: the status and headers always, the body returned or saved (save_as, fields). */
+const describeResult = (r: ReplayResult): Data => ({
+  head: [
+    `HTTP ${r.status} ${r.statusText} · ${r.mimeType || "no content type"} · ${r.size} B · ${r.durationMs} ms · ${r.url}${
+      r.truncated ? " · the body is cut off at 512 kB" : ""
+    }`,
     "",
     headerLines(r.headers),
-    "",
-    r.body === null ? "(no text body)" : `${clip(r.body)}${r.truncated ? "\n(truncated at 512 kB)" : ""}`,
-  ].join("\n");
+  ].join("\n"),
+  body: r.body,
+});
 
 /** Reading the page's traffic (also for app builders, on their app's preview). */
 export const networkReadTools = Effect.fn(function* (env: ToolEnv) {
   const hub = yield* Hub;
+  const data = yield* dataTools(env);
   const call = <T>(method: string, params: object = {}, timeoutMs?: number) =>
     hub.rpc<T>(method, { tabId: env.tabId, ...params }, timeoutMs);
   return [
-    tool(
+    data(
       "network_requests",
       "The page's recent network requests, newest last (#id method status type url). By default only data (fetch/XHR, JSON, XML…); `all` for everything. Credentials are redacted. Use network_request for one request's headers and bodies.",
       Schema.Struct({
@@ -97,36 +97,38 @@ export const networkReadTools = Effect.fn(function* (env: ToolEnv) {
         call<NetworkEntrySummary[]>("network.list", {
           filter: { query, kind: all ? "all" : "data", limit: Math.min(Math.max(limit ?? 60, 1), 200) },
         }).pipe(
-          Effect.map((list) =>
-            list.length
-              ? list.map(line).join("\n")
-              : "No requests recorded yet (reload the page to capture its traffic).",
-          ),
+          Effect.map((list): Data => ({
+            body: list.length ? list.map(line).join("\n") : null,
+            value: list,
+            empty: "No requests recorded yet (reload the page to capture its traffic).",
+          })),
         ),
     ),
 
-    tool(
+    data(
       "network_request",
-      "One captured request: its headers, request body and response body (kept for structured data: JSON, XML, forms, text). Credentials are redacted.",
+      "One captured request: its headers, request body and response body (kept for structured data: JSON, XML, forms, text). Credentials are redacted. save_as and fields apply to the response body.",
       Schema.Struct({ id: Schema.String }),
       ({ id }) =>
         call<NetworkEntry | null>("network.get", { id: id.replace(/^#/, "") }).pipe(
           Effect.map((e) =>
             e
-              ? [
-                  line(e),
-                  "",
-                  "Request headers:",
-                  headerLines(e.requestHeaders),
-                  ...(e.requestBody !== null ? ["", "Request body:", clip(e.requestBody)!] : []),
-                  "",
-                  "Response headers:",
-                  headerLines(e.responseHeaders),
-                  "",
-                  e.responseBody !== null
-                    ? `Response body:\n${clip(e.responseBody)}`
-                    : `No response body: ${e.bodyNote ?? "none"}`,
-                ].join("\n")
+              ? {
+                  head: [
+                    line(e),
+                    "",
+                    "Request headers:",
+                    headerLines(e.requestHeaders),
+                    ...(e.requestBody !== null ? ["", "Request body:", clip(e.requestBody)] : []),
+                    "",
+                    "Response headers:",
+                    headerLines(e.responseHeaders),
+                    "",
+                    e.responseBody !== null ? "Response body:" : "",
+                  ].join("\n"),
+                  body: e.responseBody,
+                  empty: `No response body: ${e.bodyNote ?? "none"}`,
+                }
               : text(`No request #${id} in the log (it keeps the most recent ones).`, true),
           ),
         ),
@@ -139,6 +141,7 @@ export const networkTools = Effect.fn(function* (env: ToolEnv) {
   const network = yield* Network;
   const apps = yield* Apps;
   const permissions = yield* Permissions;
+  const data = yield* dataTools(env);
   const call = <T>(method: string, params: object = {}, timeoutMs?: number) =>
     hub.rpc<T>(method, { tabId: env.tabId, ...params }, timeoutMs);
   const workspaceId = apps.get(env.tabId).pipe(Effect.map((app) => app?.workspaceId ?? null));
@@ -166,9 +169,9 @@ export const networkTools = Effect.fn(function* (env: ToolEnv) {
     ...(yield* networkReadTools(env)),
     ...(yield* overrideTools(env)),
 
-    tool(
+    data(
       "replay_request",
-      "Send a captured request again with the user's session (their cookies and logins are used but never shown to you), optionally changed. Returns the response. The user is asked the first time for each site.",
+      "Send a captured request again with the user's session (their cookies and logins are used but never shown to you), optionally changed. Returns the response (save_as and fields apply to its body). The user is asked the first time for each site.",
       Schema.Struct({ id: Schema.String, ...Changes }),
       ({ id, ...changes }) =>
         Effect.gen(function* () {
@@ -216,9 +219,9 @@ export const networkTools = Effect.fn(function* (env: ToolEnv) {
       }),
     ),
 
-    tool(
+    data(
       "send_saved_request",
-      "Send a saved request with the workspace's session, without opening the site, optionally changed. Returns the response. The user is asked the first time for each site.",
+      "Send a saved request with the workspace's session, without opening the site, optionally changed. Returns the response (save_as and fields apply to its body). The user is asked the first time for each site.",
       Schema.Struct({ id: Schema.String, ...Changes }),
       ({ id, ...changes }) =>
         Effect.gen(function* () {

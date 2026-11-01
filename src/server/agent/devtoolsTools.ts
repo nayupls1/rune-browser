@@ -10,6 +10,7 @@ import type { DevtoolsCommand } from "../../shared/api";
 import type { TraceAnalysis } from "../../shared/trace";
 import { Hub } from "../Hub";
 import { NoArgs, text, tool } from "./Mcp";
+import { dataTools } from "./output";
 import type { ToolEnv } from "./tools";
 
 interface ConsoleEntry {
@@ -23,6 +24,7 @@ const json = (value: unknown) => JSON.stringify(value, null, 1);
 
 export const devtoolsTools = Effect.fn(function* (env: ToolEnv, options: { site: boolean }) {
   const hub = yield* Hub;
+  const data = yield* dataTools(env);
   const devtools = <T>(command: DevtoolsCommand, params: object = {}, timeoutMs = 30_000) =>
     hub.rpc<T>("devtools", { tabId: env.tabId, command, params }, timeoutMs);
   const where = options.site ? "the page in the user's tab" : "the app's preview";
@@ -34,7 +36,7 @@ export const devtoolsTools = Effect.fn(function* (env: ToolEnv, options: { site:
   );
 
   return [
-    tool(
+    data(
       "console_logs",
       `Console messages and uncaught errors of ${where} (console.log/warn/error, exceptions with their stack, and the browser's own messages: failed requests, CSP, deprecations), oldest first.${
         options.site
@@ -72,14 +74,14 @@ export const devtoolsTools = Effect.fn(function* (env: ToolEnv, options: { site:
         ),
     ),
 
-    tool(
+    data(
       "page_metrics",
       `Performance numbers of ${where} right now: web vitals as the page measured them (TTFB, FCP, LCP and its element, CLS, total blocking time, slowest interaction), load timing, resources and bytes, DOM size, JS heap, and the time spent on layout, styles and scripts so far.`,
       NoArgs,
       () => devtools<object>("metrics").pipe(Effect.map(json)),
     ),
 
-    tool(
+    data(
       "performance_trace",
       `Record a performance trace of ${where}, like DevTools' Performance panel, and get its analysis: web vitals, long tasks and what ran in them, where the main thread's time went, the hottest functions (with file:line), layouts forced by scripts, layout shifts and their elements, slow, large, render-blocking and failed requests. \`reload\` traces the page loading; \`interaction\` runs JavaScript in the page once recording has started (click a button, type, scroll, open a dialog) to trace what it does. The trace file is saved for Chrome DevTools.`,
       Schema.Struct({
@@ -117,7 +119,7 @@ export const devtoolsTools = Effect.fn(function* (env: ToolEnv, options: { site:
         ),
     ),
 
-    tool(
+    data(
       "accessibility_tree",
       `The accessibility tree of ${where} (or of one element), as screen readers get it: roles, names, values and states (focused, checked, expanded, disabled…). Good for checking labels and structure, and for finding elements by their role and name.`,
       Schema.Struct({
@@ -134,7 +136,7 @@ export const devtoolsTools = Effect.fn(function* (env: ToolEnv, options: { site:
         ),
     ),
 
-    tool(
+    data(
       "element_styles",
       `The CSS of an element in ${where}, like DevTools' Styles panel: every rule that applies (selector, declarations, stylesheet file:line, media query; the winning ones first), its box model (content, padding, border, margin) and computed values.`,
       Schema.Struct({
@@ -170,14 +172,14 @@ export const devtoolsTools = Effect.fn(function* (env: ToolEnv, options: { site:
         ),
     ),
 
-    tool(
+    data(
       "page_storage",
       `What ${where} stores: cookies (name, domain, expiry, flags${options.site ? "; values hidden" : ""}), localStorage and sessionStorage${options.site ? " (credential-like values hidden)" : ""}, IndexedDB databases with their stores and record counts, Cache Storage and service workers.`,
       NoArgs,
       () => devtools<object>("storage").pipe(Effect.map(json)),
     ),
 
-    tool(
+    data(
       "code_coverage",
       `How much of ${where}'s JavaScript and CSS is actually used, per file (like DevTools' Coverage panel): reloads the page (unless reload is false), waits, and lists files by unused bytes.`,
       Schema.Struct({
