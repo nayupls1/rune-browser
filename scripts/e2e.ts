@@ -1502,6 +1502,7 @@ try {
       { label: "web tab" },
     );
     const tab = `[data-web-tab="${tabId}"]`;
+    await page!.waitFor(`!!document.querySelector('${chromeFor(tab)} [data-address]')`, { label: "address bar" });
     await page!.eval(`(() => {
       const input = document.querySelector('${chromeFor(tab)} [data-address]');
       input.value = "${site.url.origin}/keys";
