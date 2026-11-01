@@ -2,10 +2,12 @@
 // with credentials redacted), sending requests again with the user's session
 // (asks the user once per site; the session's cookies and tokens are used but
 // never shown), and saved requests to send later without opening the site.
+import { basename } from "node:path";
 import { Effect, Schema } from "effect";
 import type {
   NetworkEntry,
   NetworkEntrySummary,
+  NetworkUse,
   ReplayOverrides,
   ReplayResult,
   RequestDraft,
@@ -27,6 +29,7 @@ import { Network } from "../db/Network";
 import { ResponseOverrides } from "../db/ResponseOverrides";
 import { Hub } from "../Hub";
 import { Permissions, WEBSITE_AGENT } from "../security/Permissions";
+import { ChatFiles } from "./ChatFiles";
 import { NoArgs, text, tool } from "./Mcp";
 import { clip, dataTools, type Data } from "./output";
 import type { ToolEnv } from "./tools";
@@ -78,12 +81,30 @@ const describeResult = (r: ReplayResult): Data => ({
   body: r.body,
 });
 
+/**
+ * A captured request the agent uses: it stays in the log until the chat ends
+ * (main/network.ts), so a reload's traffic doesn't push it out. Else why it's gone.
+ */
+export const usedRequest = Effect.fn(function* (env: ToolEnv, id: string) {
+  const hub = yield* Hub;
+  const files = yield* ChatFiles;
+  const chat = yield* files.dir(env.tabId).pipe(
+    Effect.map((dir) => basename(dir)),
+    Effect.orElseSucceed(() => env.tabId),
+  );
+  const used = yield* hub.rpc<NetworkUse>("network.use", { tabId: env.tabId, id: id.replace(/^#/, ""), chat });
+  return "entry" in used ? used.entry : text(`Request #${id.replace(/^#/, "")} isn't in the log. ${used.gone}`, true);
+});
+
 /** Reading the page's traffic (also for app builders, on their app's preview). */
 export const networkReadTools = Effect.fn(function* (env: ToolEnv) {
   const hub = yield* Hub;
+  const files = yield* ChatFiles;
   const data = yield* dataTools(env);
   const call = <T>(method: string, params: object = {}, timeoutMs?: number) =>
     hub.rpc<T>(method, { tabId: env.tabId, ...params }, timeoutMs);
+  const use = (id: string) =>
+    usedRequest(env, id).pipe(Effect.provideService(Hub, hub), Effect.provideService(ChatFiles, files));
   return [
     data(
       "network_requests",
@@ -107,12 +128,12 @@ export const networkReadTools = Effect.fn(function* (env: ToolEnv) {
 
     data(
       "network_request",
-      "One captured request: its headers, request body and response body (kept for structured data: JSON, XML, forms, text). Credentials are redacted. save_as and fields apply to the response body.",
+      "One captured request: its headers, request body and response body (kept for structured data: JSON, XML, forms, text). Credentials are redacted. save_as and fields apply to the response body. Requests you look at or replay stay in the log until the chat ends, even after a reload.",
       Schema.Struct({ id: Schema.String }),
       ({ id }) =>
-        call<NetworkEntry | null>("network.get", { id: id.replace(/^#/, "") }).pipe(
+        use(id).pipe(
           Effect.map((e) =>
-            e
+            !("content" in e)
               ? {
                   head: [
                     line(e),
@@ -129,7 +150,7 @@ export const networkReadTools = Effect.fn(function* (env: ToolEnv) {
                   body: e.responseBody,
                   empty: `No response body: ${e.bodyNote ?? "none"}`,
                 }
-              : text(`No request #${id} in the log (it keeps the most recent ones).`, true),
+              : e,
           ),
         ),
     ),
@@ -141,6 +162,7 @@ export const networkTools = Effect.fn(function* (env: ToolEnv) {
   const network = yield* Network;
   const apps = yield* Apps;
   const permissions = yield* Permissions;
+  const files = yield* ChatFiles;
   const data = yield* dataTools(env);
   const call = <T>(method: string, params: object = {}, timeoutMs?: number) =>
     hub.rpc<T>(method, { tabId: env.tabId, ...params }, timeoutMs);
@@ -176,8 +198,11 @@ export const networkTools = Effect.fn(function* (env: ToolEnv) {
       ({ id, ...changes }) =>
         Effect.gen(function* () {
           const entryId = id.replace(/^#/, "");
-          const entry = yield* call<NetworkEntry | null>("network.get", { id: entryId });
-          if (!entry) return text(`No request #${id} in the log.`, true);
+          const entry = yield* usedRequest(env, entryId).pipe(
+            Effect.provideService(Hub, hub),
+            Effect.provideService(ChatFiles, files),
+          );
+          if ("content" in entry) return entry;
           const { host, allowed } = yield* mayContact(changes.url ?? entry.url);
           if (!allowed) return refused(host);
           const result = yield* call<ReplayResult>(
@@ -187,6 +212,38 @@ export const networkTools = Effect.fn(function* (env: ToolEnv) {
           );
           yield* env.log(`Sent ${changes.method ?? entry.method} ${host}`);
           return describeResult(result);
+        }),
+    ),
+
+    tool(
+      "cancel_requests",
+      "Cancel the page's pending requests (fetch, XHR, images still loading…) without reloading it, like the browser's Stop button. Says which were canceled.",
+      NoArgs,
+      () =>
+        Effect.gen(function* () {
+          const pendingOf = (list: NetworkEntrySummary[]) => list.filter((e) => e.status === null && !e.error);
+          const all = { filter: { kind: "all", limit: 200 } };
+          const before = pendingOf(yield* call<NetworkEntrySummary[]>("network.list", all));
+          if (!before.length) return "No requests are pending.";
+          yield* call("page.eval", { code: "(() => { window.stop(); return true; })()" });
+          // The log hears about the canceled ones a moment later.
+          yield* Effect.sleep("400 millis");
+          const after = new Map((yield* call<NetworkEntrySummary[]>("network.list", all)).map((e) => [e.id, e]));
+          const canceled = before.filter((e) => after.get(e.id)?.error);
+          const still = before.filter((e) => {
+            const now = after.get(e.id);
+            return now && now.status === null && !now.error;
+          });
+          if (canceled.length)
+            yield* env.log(`Canceled ${canceled.length} pending request${canceled.length === 1 ? "" : "s"}`);
+          return [
+            canceled.length
+              ? `Canceled:\n${canceled.map((e) => line(after.get(e.id)!)).join("\n")}`
+              : "Nothing was canceled.",
+            ...(still.length
+              ? [`Still open (streams and sockets aren't stopped this way):\n${still.map(line).join("\n")}`]
+              : []),
+          ].join("\n\n");
         }),
     ),
 

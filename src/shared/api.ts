@@ -103,6 +103,11 @@ export interface RuneBridge {
       /** reveal: with credentials (only for the user's own eyes). */
       get: (webContentsId: number, id: string, reveal: boolean) => Promise<NetworkEntry | null>;
       clear: (webContentsId: number) => Promise<void>;
+      /**
+       * A captured request an agent uses (always redacted): it's kept in the log
+       * until the agent's chat ends. If it's gone, why.
+       */
+      use: (webContentsId: number, id: string, chat: string) => Promise<NetworkUse>;
       /** Sends a captured request (or a saved one, in its workspace's session) again. */
       replay: (target: ReplayTarget, overrides: ReplayOverrides, reveal: boolean) => Promise<ReplayResult>;
       /** A captured request ready to be saved: its credentials sealed (only Rune Browser's main process can open them). */
@@ -936,6 +941,9 @@ export interface NetworkEntry extends NetworkEntrySummary {
   /** Credentials (cookies, tokens, passwords) were replaced with "[redacted]". */
   redacted: boolean;
 }
+
+/** A captured request an agent asked for, or why it's no longer in the log. */
+export type NetworkUse = { entry: NetworkEntry } | { gone: string };
 
 export interface NetworkFilter {
   /** Text in the URL, method, type or status. */

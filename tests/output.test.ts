@@ -55,24 +55,26 @@ describe("save_as and fields on data tools", () => {
   const hub = {
     rpc: (method: string) =>
       Effect.sync(() => {
-        if (method === "network.get")
+        if (method === "network.use")
           return {
-            id: "7",
-            method: "GET",
-            url: "https://api.example/items",
-            type: "Fetch",
-            status: 200,
-            mimeType: "application/json",
-            size: body.length,
-            durationMs: 12,
-            error: null,
-            rule: null,
-            override: null,
-            requestHeaders: { accept: "application/json" },
-            responseHeaders: { "content-type": "application/json" },
-            requestBody: null,
-            responseBody: body,
-            bodyNote: null,
+            entry: {
+              id: "7",
+              method: "GET",
+              url: "https://api.example/items",
+              type: "Fetch",
+              status: 200,
+              mimeType: "application/json",
+              size: body.length,
+              durationMs: 12,
+              error: null,
+              rule: null,
+              override: null,
+              requestHeaders: { accept: "application/json" },
+              responseHeaders: { "content-type": "application/json" },
+              requestBody: null,
+              responseBody: body,
+              bodyNote: null,
+            },
           };
         if (method === "network.list")
           return [

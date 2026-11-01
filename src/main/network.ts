@@ -482,7 +482,16 @@ export function setupNetwork(options: NetworkOptions) {
     return log && typeof entryId === "string" ? log.detail(entryId, reveal !== true) : null;
   });
   ipcMain.handle("rune:network-clear", (event, id: unknown) => {
-    logOf(event, id).log?.clear();
+    logOf(event, id).log?.clear("The user cleared the log.");
+  });
+  ipcMain.handle("rune:network-use", (event, id: unknown, entryId: unknown, chat: unknown) => {
+    const { log } = logOf(event, id);
+    if (typeof entryId !== "string" || typeof chat !== "string") throw new Error("Bad request");
+    if (!log) return { gone: "This tab's traffic isn't being recorded (it can be turned off in Settings)." };
+    const entry = log.detail(entryId);
+    if (!entry) return { gone: log.whyGone(entryId) };
+    log.keep([entryId], chat);
+    return { entry };
   });
   ipcMain.handle("rune:network-draft", (event, id: unknown, entryId: unknown) => {
     const entry = typeof entryId === "string" ? logOf(event, id).log?.get(entryId) : undefined;

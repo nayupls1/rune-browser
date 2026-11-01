@@ -42,13 +42,13 @@ Web tabs say they're plain Chrome, because some sites turn away other browsers. 
 
 Every web tab's traffic is recorded in Electron's main process over the DevTools protocol (`src/main/network.ts`). "Network requests" in the command bar opens the Network panel: requests with their headers and the data they returned, filterable, data (fetch/XHR, JSON, XML, forms) by default.
 
-- **Bounded memory:** the last 500 requests per tab. Response bodies are kept for structured data only, at most 256 kB each, 3 MB per tab and 24 MB in all; the oldest go first. Settings → Network turns recording off.
+- **Bounded memory:** the last 500 requests per tab; the oldest ordinary requests go first, while requests that change things (POST, PUT, PATCH, DELETE) outlast them (the last 100), and up to 100 requests the website agent has looked at or replayed stay until its chat ends, so a reload's traffic doesn't push out a request it's using. When the agent asks for one that's gone, it's told why. Response bodies are kept for structured data only, at most 256 kB each, 3 MB per tab and 24 MB in all; the oldest go first. Settings → Network turns recording off.
 - **Credentials stay hidden:** cookies, `Authorization` and other credential headers, token-like URL parameters and JSON or form fields (`password`, `accessToken`…), JWTs and bearer tokens show as `[redacted]`. In the panel you can show them; the website agent only ever gets them redacted.
 - **Send again:** a captured request is sent again with the workspace's session (its cookies, plus the original credential headers), optionally changed.
 - **Save for later:** a saved request is stored per workspace with its credentials sealed (AES-GCM, with a key only the main process uses; the server stores the blob but never returns it). It can be sent from the panel's Saved tab or by the website agent without opening the site.
 - **Rules** block requests or set and remove request or response headers, for every workspace or one (Settings → Network, or "Block like this" in the panel). Patterns use `*` over the whole URL, or match text anywhere in it. A small built-in extension applies them as `declarativeNetRequest` session rules (`src/main/extensions/builtin.ts`), so they work alongside extensions like uBlock Origin Lite: Electron turns off every extension's blocking in a session that has `webRequest` hooks. Requests sent again from the panel check the rules themselves.
 
-The website agent has `network_requests`, `network_request`, `replay_request`, `save_request`, `saved_requests` and `send_saved_request`. Sending anything with the user's session asks first, once per site (permission `agent.network`), and every call is in the activity log.
+The website agent has `network_requests`, `network_request`, `replay_request`, `save_request`, `saved_requests`, `send_saved_request` and `cancel_requests` (stops the page's pending requests without reloading it). Sending anything with the user's session asks first, once per site (permission `agent.network`), and every call is in the activity log.
 
 ### Response overrides
 

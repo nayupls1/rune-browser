@@ -60,6 +60,7 @@ const tools: Record<string, { kind: ToolKind; title: (args: Args) => string }> =
   network_requests: { kind: "network", title: () => "Looked at the network requests" },
   network_request: { kind: "network", title: () => "Looked at a network request" },
   replay_request: { kind: "network", title: () => "Replayed a request" },
+  cancel_requests: { kind: "network", title: () => "Canceled the page's pending requests" },
   saved_requests: { kind: "network", title: () => "Listed the saved requests" },
   save_request: { kind: "network", title: (a) => `Saved a request${quoted(a.name)}` },
   send_saved_request: { kind: "network", title: () => "Sent a saved request" },
