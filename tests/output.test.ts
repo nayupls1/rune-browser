@@ -3,7 +3,7 @@
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative, sep } from "node:path";
 import { Context, Effect } from "effect";
 import { ChatFiles, type ChatFilesShape } from "../src/server/agent/ChatFiles";
 import { networkReadTools } from "../src/server/agent/networkTools";
@@ -85,7 +85,9 @@ describe("save_as and fields on data tools", () => {
   const files = {
     dir: () => Effect.succeed(dir),
     resolve: (_tab: string, path: string) => Effect.succeed(join(dir, path)),
-    describe: (_dir: string, path: string) => Effect.succeed({ name: path.slice(dir.length + 1) } as never),
+    // Names as ChatFiles gives them: relative, with forward slashes on every OS.
+    describe: (_dir: string, path: string) =>
+      Effect.succeed({ name: relative(dir, path).split(sep).join("/") } as never),
   } as unknown as ChatFilesShape;
   const env = { tabId: "tab", log: () => Effect.void, message: () => Effect.void, label: "Website agent" };
   const tools = Effect.runSync(
