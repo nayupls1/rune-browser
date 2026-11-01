@@ -112,7 +112,7 @@ export function Sidebar() {
             .slice(0, 12)
             .map((app): MenuItem => ({
               label: `Open ${app.name}`,
-              icon: "archive-restore",
+              icon: "archive-arrow-up",
               onSelect: () => void reopenApp(app.id),
             })),
         ]

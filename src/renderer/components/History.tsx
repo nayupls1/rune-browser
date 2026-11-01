@@ -223,7 +223,7 @@ function Entry(props: {
               </Button>
             </Show>
             <Button onClick={() => void restore()} disabled={busy()} data-restore>
-              <Icon name="archive-restore" size={14} />
+              <Icon name="archive-arrow-up" size={14} />
               Restore this version
             </Button>
             <Show when={props.restoreAllIn !== undefined}>
