@@ -1,5 +1,4 @@
-import { flipFuses, FuseV1Options, FuseVersion, getCurrentFuseWire } from "@electron/fuses";
-import { FuseState } from "@electron/fuses/dist/constants";
+import { flipFuses, FuseState, FuseV1Options, FuseVersion, getCurrentFuseWire } from "@electron/fuses";
 // Outside of Electron, the `electron` package exports the path to its binary.
 import electronBinary from "electron";
 import { chmodSync, copyFileSync, renameSync, rmSync, statSync } from "node:fs";
