@@ -256,6 +256,7 @@ export function setupExtensions(options: ExtensionsOptions) {
 
   function hookWorkers(s: Session) {
     const hooked = new WeakSet<Electron.ServiceWorkerMain>();
+    // Extension workers only: websites' own workers are never touched.
     const byVersion = new Map<number, Electron.ServiceWorkerMain>();
     s.serviceWorkers.on("running-status-changed", (details) => {
       // A worker that's gone by now (they come and go quickly) is no reason to take the app down.
@@ -267,14 +268,21 @@ export function setupExtensions(options: ExtensionsOptions) {
     });
     function onStatus({ versionId, runningStatus }: { versionId: number; runningStatus: string }) {
       const key = `w:${stateKey(s, "")}:${versionId}`;
-      const known = byVersion.get(versionId) ?? s.serviceWorkers.getWorkerFromVersionID(versionId);
+      const known = byVersion.get(versionId);
       if (known) workerStatus(known, runningStatus);
       if (runningStatus === "stopped") {
         byVersion.delete(versionId);
         return contexts.remove(key);
       }
-      const worker = s.serviceWorkers.getWorkerFromVersionID(versionId);
-      if (worker) {
+      if (runningStatus !== "running") return;
+      // Getting a worker's ServiceWorkerMain while Chromium starts, stops or replaces it can crash
+      // the whole app (an access violation on Windows): a website's worker does that when the page
+      // clears its caches and navigates. So: only running workers, and only extensions', by the
+      // plain info first (no ServiceWorkerMain made for anything else).
+      const scope = s.serviceWorkers.getAllRunning()[versionId]?.scope;
+      if (!extensionIdOf(scope)) return;
+      const worker = known ?? s.serviceWorkers.getWorkerFromVersionID(versionId);
+      if (worker && !known) {
         byVersion.set(versionId, worker);
         workerStatus(worker, runningStatus);
       }

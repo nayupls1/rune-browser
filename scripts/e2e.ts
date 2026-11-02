@@ -125,6 +125,16 @@ const site = Bun.serve({
         sessionToken: "resp-secret-4",
       });
     }
+    // A site with its own service worker, whose button does what crashed Rune on Windows: a request,
+    // clearing its caches, a new worker version, and a navigation (all while the worker changes state).
+    if (path === "/sw.js") {
+      return new Response(
+        `self.addEventListener("install", (e) => { self.skipWaiting(); e.waitUntil(caches.open("v").then((c) => c.put("/x", new Response("x")))); });
+         self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));
+         self.addEventListener("fetch", (e) => { if (new URL(e.request.url).pathname.startsWith("/api/")) e.respondWith(fetch(e.request)); });`,
+        { headers: { "Content-Type": "text/javascript" } },
+      );
+    }
     const body =
       path === "/feed"
         ? feedPage
@@ -157,11 +167,24 @@ const site = Bun.serve({
                if ((e.ctrlKey || e.metaKey) && e.key === "k") { e.preventDefault(); got.push("k:" + e.keyCode); }
              });
            </script>`
-                  : path === "/second"
-                    ? `<title>Second page</title><h1>Second</h1>`
-                    : path === "/blocked-by-extension"
-                      ? `<title>Should be blocked</title>`
-                      : `<title>Test site</title><main><h1 id="headline">Hello from the test site</h1><p class="lead">Plain text</p>
+                  : path === "/sw"
+                    ? `<title>Worker page</title><h1>Worker</h1><button id="clean">Clean up</button><p id="state">registering</p>
+           <script>
+             navigator.serviceWorker.register("/sw.js").then(() => navigator.serviceWorker.ready)
+               .then(() => (document.getElementById("state").textContent = "ready"))
+               .catch((e) => (document.getElementById("state").textContent = "failed: " + e.message));
+             document.getElementById("clean").onclick = async () => {
+               await fetch("/api/feed?page=2").catch(() => {});
+               for (const key of await caches.keys()) await caches.delete(key);
+               navigator.serviceWorker.register("/sw.js?v=" + Date.now()).catch(() => {});
+               location.href = "/second";
+             };
+           </script>`
+                    : path === "/second"
+                      ? `<title>Second page</title><h1>Second</h1>`
+                      : path === "/blocked-by-extension"
+                        ? `<title>Should be blocked</title>`
+                        : `<title>Test site</title><main><h1 id="headline">Hello from the test site</h1><p class="lead">Plain text</p>
            <button class="cta">Buy now</button> <a id="popup" href="/second" target="_blank">open popup</a></main>`;
     return new Response(`<!doctype html><meta charset="utf-8"><link rel="icon" href="data:,">${body}`, {
       headers: { "Content-Type": "text/html; charset=utf-8" },
@@ -2484,6 +2507,28 @@ try {
       return tab.url!.split("/").slice(-2).join("/");
     });
   }
+
+  await check("a site's own service worker: cleaning up and navigating away doesn't crash Rune", async () => {
+    if (!webTabId) throw new Error("needs the web tab");
+    const tab = `[data-web-tab="${webTabId}"]`;
+    const inPage = <T>(code: string) =>
+      page!.eval<T>(`document.querySelector('${tab} webview').executeJavaScript(${JSON.stringify(code)})`);
+    const url = () => inPage<string>("location.href");
+    await click(`nav li[data-app-id="${webTabId}"]`);
+    for (let round = 1; round <= 5; round++) {
+      await inPage(`location.href = ${JSON.stringify(`${site.url.origin}/sw`)}, true`);
+      await waitForValue(
+        async () =>
+          (await inPage<string>(`document.getElementById("state")?.textContent ?? ""`)) === "ready" ? true : undefined,
+        15_000,
+      );
+      await inPage(`document.getElementById("clean").click(), true`);
+      await waitForValue(async () => ((await url()).endsWith("/second") ? true : undefined), 15_000);
+    }
+    // The app (and its server) are still there.
+    await apiCall("/api/apps");
+    return "5 rounds of request, cache cleanup, new worker and navigation";
+  });
 
   await check("extensions: imported from Chrome with their settings, toolbar, popup, shortcut, blocking", async () => {
     const id = fixture.extensionId;

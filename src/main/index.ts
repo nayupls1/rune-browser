@@ -1,7 +1,10 @@
 import { app, BrowserWindow, dialog, ipcMain, net, protocol } from "electron";
+import { homedir } from "node:os";
 import { join, normalize, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { apiMapReporter } from "./apiMap";
+import { describeExitCode, redactPaths } from "./crashReport";
+import { setupCrashReports } from "./crashes";
 import { startServer, type ServerHandle } from "./server";
 import { appUserModelId, taskbarDetails } from "./taskbar";
 import { setupUpdates } from "./updates";
@@ -21,13 +24,21 @@ if (
   app.commandLine.appendSwitch("password-store", "gnome-libsecret");
 }
 
-// An extension (or anything else) failing in the background is logged instead
-// of taking the app down with an error dialog.
-process.on("uncaughtException", (err) => console.error("Uncaught error in the main process:", err));
-process.on("unhandledRejection", (reason) => console.error("Unhandled rejection in the main process:", reason));
-
 // Lets tests run against a throwaway profile instead of the real data.
 if (process.env.RUNE_USER_DATA_DIR) app.setPath("userData", process.env.RUNE_USER_DATA_DIR);
+
+// Crash reports and logs/crashes.log (as early as possible, to catch everything).
+const crashes = setupCrashReports();
+
+// An extension (or anything else) failing in the background is logged instead
+// of taking the app down with an error dialog.
+const survived = (what: string, err: unknown) => {
+  console.error(`${what}:`, err);
+  const text = err instanceof Error ? (err.stack ?? err.message) : String(err);
+  crashes.log(`${what}: ${redactPaths(text, homedir()).split("\n").slice(0, 6).join("\n")}`);
+};
+process.on("uncaughtException", (err) => survived("Uncaught error in the main process", err));
+process.on("unhandledRejection", (reason) => survived("Unhandled rejection in the main process", reason));
 
 // Bun inlines `__dirname` at bundle time, so resolve build output from the app
 // root instead (works both unpackaged and inside the packaged asar).
@@ -110,6 +121,22 @@ function registerAppProtocol() {
   });
 }
 
+/** The backend server crashed: chats, agents and apps stop working until Rune Browser restarts. */
+function serverStopped(exit: { code: number | null; signal: string | null; stderr: string[] }) {
+  const at = Date.now();
+  const how = exit.signal ? `signal ${exit.signal}` : `exit code ${describeExitCode(exit.code)}`;
+  crashes.log(
+    `The backend server stopped (${how})${exit.stderr.length ? `. Its last output: ${exit.stderr.slice(-15).join("\n")}` : ""}`,
+  );
+  void crashes.show(mainWindow, {
+    title: "Rune Browser's background service stopped",
+    message: "Chats, agents and apps won't work until Rune Browser restarts. Your tabs and chats are kept.",
+    what: `The backend server stopped unexpectedly (${how})`,
+    since: at - 1000,
+    action: { label: "Restart Rune Browser", run: () => relaunch(false) },
+  });
+}
+
 function createWindow(server: ServerHandle) {
   const win = new BrowserWindow({
     width: 1100,
@@ -157,12 +184,21 @@ function createWindow(server: ServerHandle) {
   });
   guardWindow(win, rendererOrigin, (input) => web?.windowInput(input) ?? false);
   // The window's page crashed (out of memory, a GPU or renderer bug): it comes back, a few times at most.
-  let crashes: number[] = [];
+  let pageCrashes: number[] = [];
   win.webContents.on("render-process-gone", (_event, details) => {
     if (details.reason === "clean-exit" || win.isDestroyed()) return;
     console.error("The window's page is gone:", details.reason);
-    crashes = [...crashes.filter((t) => Date.now() - t < 60_000), Date.now()];
-    if (crashes.length <= 3) win.webContents.reload();
+    pageCrashes = [...pageCrashes.filter((t) => Date.now() - t < 60_000), Date.now()];
+    if (pageCrashes.length <= 3) return win.webContents.reload();
+    // It keeps crashing: tell the user rather than leave an empty window.
+    void crashes.show(win, {
+      title: "Rune Browser stopped working",
+      message:
+        "Rune Browser's window crashed several times in a row. Restarting it in safe mode leaves out themes and site changes, in case one of them is the cause.",
+      what: `The window's page crashed ${pageCrashes.length} times in a minute (${details.reason}, exit code ${describeExitCode(details.exitCode)})`,
+      since: pageCrashes[0]! - 1000,
+      action: { label: "Restart in safe mode", run: () => relaunch(true) },
+    });
   });
   // Works even when the UI itself is unusable.
   win.webContents.on("before-input-event", (event, input) => {
@@ -189,14 +225,17 @@ app.whenReady().then(async () => {
   setupUpdates(() => mainWindow);
 
   try {
-    server = await startServer(rendererOrigin);
+    server = await startServer({ allowedOrigin: rendererOrigin, onExit: serverStopped });
   } catch (err) {
+    crashes.log(`The backend server didn't start: ${err}`);
     dialog.showErrorBox("Rune Browser", `Failed to start the backend server:\n\n${err}`);
+    crashes.cleanExit();
     app.exit(1);
     return;
   }
 
   createWindow(server);
+  if (mainWindow) crashes.checkPreviousRun(mainWindow);
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0 && server) createWindow(server);
