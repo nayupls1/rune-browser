@@ -256,8 +256,10 @@ export function setupExtensions(options: ExtensionsOptions) {
 
   function hookWorkers(s: Session) {
     const hooked = new WeakSet<Electron.ServiceWorkerMain>();
-    // Extension workers only: websites' own workers are never touched.
+    // Extension workers only.
     const byVersion = new Map<number, Electron.ServiceWorkerMain>();
+    // Websites' own workers: looked at once (for their scope), then never touched again.
+    const ignored = new Set<number>();
     s.serviceWorkers.on("running-status-changed", (details) => {
       // A worker that's gone by now (they come and go quickly) is no reason to take the app down.
       try {
@@ -272,20 +274,21 @@ export function setupExtensions(options: ExtensionsOptions) {
       if (known) workerStatus(known, runningStatus);
       if (runningStatus === "stopped") {
         byVersion.delete(versionId);
+        ignored.delete(versionId);
         return contexts.remove(key);
       }
-      if (runningStatus !== "running") return;
-      // Getting a worker's ServiceWorkerMain while Chromium starts, stops or replaces it can crash
-      // the whole app (an access violation on Windows): a website's worker does that when the page
-      // clears its caches and navigates. So: only running workers, and only extensions', by the
-      // plain info first (no ServiceWorkerMain made for anything else).
-      const scope = s.serviceWorkers.getAllRunning()[versionId]?.scope;
-      if (!extensionIdOf(scope)) return;
-      const worker = known ?? s.serviceWorkers.getWorkerFromVersionID(versionId);
-      if (worker && !known) {
-        byVersion.set(versionId, worker);
-        workerStatus(worker, runningStatus);
-      }
+      if (known || ignored.has(versionId)) return;
+      // Getting a worker's ServiceWorkerMain while Chromium stops or replaces it can crash the whole
+      // app (an access violation on Windows): a website's worker does that when the page clears its
+      // caches, updates its worker and navigates. So never while a worker stops, and a website's
+      // worker only once. Extension workers are hooked as they start: their preload calls crx:call
+      // right away, and it has no timers to try again with.
+      if (runningStatus !== "starting" && runningStatus !== "running") return;
+      const worker = s.serviceWorkers.getWorkerFromVersionID(versionId);
+      if (!worker) return;
+      if (!extensionIdOf(worker.scope)) return void ignored.add(versionId);
+      byVersion.set(versionId, worker);
+      workerStatus(worker, runningStatus);
       const id = extensionIdOf(worker?.scope);
       if (!worker || !id || hooked.has(worker)) return;
       hooked.add(worker);
