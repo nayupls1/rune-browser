@@ -48,7 +48,7 @@ Mixed colors are `color-mix(in oklab, …)`, so they follow a custom theme too. 
 
 ### Readability
 
-In both modes, text is at least 7:1 on every background, and secondary text, the accent and the status colors at least 4.5:1 (WCAG AA). Text on the accent is white wherever white is readable and black otherwise, also for a custom accent.
+In both modes, text is at least 7:1 on every background. Secondary text, the accent and the status colors are at least 4.5:1 (WCAG AA) on `bg` and `surface`, and at least 4:1 on the tinted ones (`sidebar`, `surfaceHover`, `accentSoft`). Text on the accent is white wherever white is readable and black otherwise, also for a custom accent.
 
 ## Customizing
 

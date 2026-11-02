@@ -107,9 +107,14 @@ describe("Rune's palette", () => {
         expect(ratio(p, fg, "bg")).toBeGreaterThanOrEqual(4.5);
         expect(ratio(p, fg, "surface")).toBeGreaterThanOrEqual(4.5);
       }
+      // On the tinted backgrounds (sidebar, hover, selection) they stay close.
+      for (const bg of ["sidebar", "surfaceHover", "accentSoft"] as const) {
+        for (const fg of ["muted", "accent", "danger", "success", "warning"] as const) {
+          expect(ratio(p, fg, bg)).toBeGreaterThanOrEqual(4);
+        }
+      }
       expect(ratio(p, "accentText", "accent")).toBeGreaterThanOrEqual(4.5);
       expect(ratio(p, "text", "accentSoft")).toBeGreaterThanOrEqual(7);
-      expect(ratio(p, "accent", "accentSoft")).toBeGreaterThanOrEqual(3);
       // Error banners put the accent's text color on the danger color.
       expect(ratio(p, "accentText", "danger")).toBeGreaterThanOrEqual(4.5);
       // Borders are visible, and the accent isn't mistaken for an error.

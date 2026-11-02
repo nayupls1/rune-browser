@@ -2,7 +2,7 @@
 // theme is applied by overriding those properties on the document root.
 import { createSignal } from "solid-js";
 import type { GlobalTheme, Theme } from "../../shared/settings";
-import { palette, resolveMode, themePresets, type Mode } from "../../shared/theme";
+import { palette, resolveMode, type Mode } from "../../shared/theme";
 import { colors, font, radius } from "../theme.stylex";
 
 /** `var(--x1abc)` → `--x1abc` */
@@ -34,7 +34,7 @@ export function themeVars(theme: Omit<Theme, "mode">, mode: Mode): Record<string
   return Object.fromEntries(Object.entries(vars).map(([k, v]) => [varName(k), v]));
 }
 
-export { resolveMode, themePresets };
+export { resolveMode };
 
 // --- System preference ---------------------------------------------------------------
 
