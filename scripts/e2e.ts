@@ -2575,7 +2575,7 @@ try {
         label: "the http:// address",
       });
       const text = await page!.eval<string>(`${warning}.innerText`);
-      if (!text.includes("doesn't support a secure connection")) throw new Error(`warning says: ${text}`);
+      if (!text.includes("doesn't have a working secure connection")) throw new Error(`warning says: ${text}`);
       await shot("insecure-warning.png");
 
       // Go back: the page from before, over the failed attempt.

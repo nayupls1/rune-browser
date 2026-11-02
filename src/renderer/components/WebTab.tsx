@@ -157,6 +157,8 @@ export function WebTab(props: { appId: string; active: boolean }) {
   const [insecure, setInsecure] = createSignal<{ url: string; attempt: string | null } | null>(null);
   /** Trying an http:// page's HTTPS version: if it fails, the tab warns instead. */
   let upgrading: { from: string; to: string; host: string; timer: ReturnType<typeof setTimeout> } | null = null;
+  /** The webview has shown a page (one that loaded, not an error): there's something to go back to. */
+  let committed = false;
   const stopUpgrading = () => {
     if (upgrading) clearTimeout(upgrading.timer);
     upgrading = null;
@@ -210,12 +212,13 @@ export function WebTab(props: { appId: string; active: boolean }) {
     if (!warning) return;
     const onAttempt = !!warning.attempt && sameUrl(pageUrl(), warning.attempt);
     if (onAttempt && webview!.canGoBack()) return webview!.goBack();
-    if (src() && !onAttempt) {
+    if (committed && !onAttempt) {
       if (!editing) setAddress(currentUrl());
       return;
     }
     // Nothing to go back to: a new tab.
     ready = false;
+    committed = false;
     webview = undefined;
     pendingUrl = null;
     setContentsId(null);
@@ -630,6 +633,7 @@ export function WebTab(props: { appId: string; active: boolean }) {
       // A page committed: the HTTPS version loaded, or something else replaced the warning.
       stopUpgrading();
       setInsecure(null);
+      committed = true;
       navigated(e.url, false);
       syncZoom(props.appId);
       // A local file is named after itself, like in Chrome (text, images and PDFs have no title of their own).

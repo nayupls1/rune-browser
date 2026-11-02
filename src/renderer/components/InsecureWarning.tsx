@@ -25,7 +25,7 @@ export function InsecureWarning(props: {
         <p {...stylex.attrs(styles.text)}>
           <strong>{host()}</strong>{" "}
           {props.failed
-            ? "doesn't support a secure connection (HTTPS)."
+            ? "doesn't have a working secure connection (HTTPS)."
             : "uses an unencrypted connection (HTTP) on its own port, so there's no secure version to try."}{" "}
           Others on your network can see and change what you see and send there, like passwords, messages or card
           numbers.

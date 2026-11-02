@@ -46,9 +46,10 @@ showing one that can't, like other browsers (`shared/insecure.ts`).
   and VPN ranges, IPv6 local addresses, names without a dot, `.local`, `.lan`, `.home.arpa`, `.internal`) are never
   upgraded or warned about. App previews aren't web tabs, so they aren't affected either.
 - **Not secure:** the address bar says "Not secure" on a page shown over HTTP (and under the warning).
-- **Same rules for everything:** what a page navigates to itself and every redirect is held back in the main process
-  (`main/web.ts`) and handed to the tab, so tabs in the background and the website agent go through the same checks.
-  Only the user can continue: the agent is told the page is behind the warning.
+- **Same rules for everything:** what a web tab's page navigates to itself, its redirects and extensions'
+  `tabs.update` are held back in the main process (`main/web.ts`) and handed to the tab, so tabs in the background and
+  the website agent go through the same checks. Only the user can continue: the agent is told the page is behind the
+  warning. Going back or forward to a page already allowed isn't checked again.
 
 The older **site override** (one stylesheet and script per hostname, `set_site_override`) still exists for larger reworks.
 

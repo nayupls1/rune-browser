@@ -58,6 +58,8 @@ export interface ApiEnv {
   registry: Registry;
   state: (s: Session, id: string) => ExtensionState | undefined;
   workspaceOf: (s: Session) => string | undefined;
+  /** Holds back a tab's navigation to an insecure page and hands it to the tab (main/web.ts); true if it did. */
+  holdInsecure: (contents: WebContents, url: string) => boolean;
   /** Every web tab session with extensions running. */
   sessions: () => Session[];
   window: () => BrowserWindow | undefined;
@@ -476,7 +478,7 @@ export function createApis(env: ApiEnv) {
       if (!contents) throw err("No active tab");
       if (props.url !== undefined) {
         const url = openableUrl(ctx.extensionId, props.url);
-        if (url) void contents.loadURL(url).catch(() => {});
+        if (url && !env.holdInsecure(contents, url)) void contents.loadURL(url).catch(() => {});
       }
       if (typeof props.muted === "boolean") contents.setAudioMuted(props.muted);
       if (props.active || props.highlighted || props.selected) {

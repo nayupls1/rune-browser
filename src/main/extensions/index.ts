@@ -67,6 +67,8 @@ export interface ExtensionsOptions {
   /** The session of a workspace's web tabs (set up on first use). */
   webSession: (workspaceId: string) => Session;
   workspaceOf: (s: Session) => string | undefined;
+  /** Holds back a tab's navigation to an insecure page and hands it to the tab; true if it did. */
+  holdInsecure: (contents: WebContents, url: string) => boolean;
 }
 
 const UPDATE_INTERVAL = 5 * 60 * 60 * 1000;
@@ -159,6 +161,7 @@ export function setupExtensions(options: ExtensionsOptions) {
     registry,
     state,
     workspaceOf: options.workspaceOf,
+    holdInsecure: options.holdInsecure,
     sessions,
     window: getWindow,
     tabs: tabsOf,
