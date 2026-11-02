@@ -3,6 +3,7 @@ import { join, normalize, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { apiMapReporter } from "./apiMap";
 import { startServer, type ServerHandle } from "./server";
+import { appUserModelId, taskbarDetails } from "./taskbar";
 import { setupUpdates } from "./updates";
 import { guardWindow, setupWebTabs } from "./web";
 
@@ -25,16 +26,25 @@ if (
 process.on("uncaughtException", (err) => console.error("Uncaught error in the main process:", err));
 process.on("unhandledRejection", (reason) => console.error("Unhandled rejection in the main process:", reason));
 
-// Windows groups the taskbar button, its icon and notifications by this ID: the
-// installer's shortcut uses electron-builder's appId.
-if (process.platform === "win32") app.setAppUserModelId("dev.runebrowser.app");
-
 // Lets tests run against a throwaway profile instead of the real data.
 if (process.env.RUNE_USER_DATA_DIR) app.setPath("userData", process.env.RUNE_USER_DATA_DIR);
 
 // Bun inlines `__dirname` at bundle time, so resolve build output from the app
 // root instead (works both unpackaged and inside the packaged asar).
 const distDir = join(app.getAppPath(), "dist");
+
+// Windows groups the taskbar button, its icon and notifications by an ID, and
+// every window says which icon and command its button (and a pin of it) has.
+if (process.platform === "win32") {
+  app.setAppUserModelId(appUserModelId(app.isPackaged));
+  const details = taskbarDetails({
+    packaged: app.isPackaged,
+    execPath: process.execPath,
+    appPath: app.getAppPath(),
+    iconPath: join(distDir, "electron", "icon.ico"),
+  });
+  app.on("browser-window-created", (_event, win) => win.setAppDetails(details));
+}
 
 // In production the renderer is served from a custom privileged scheme instead
 // of file:// so it gets a real origin (needed for CORS against the Bun server).
