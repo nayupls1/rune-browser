@@ -11,6 +11,8 @@ export interface TabChrome {
   blank?: () => boolean;
   /** The address field's icon. */
   icon: () => string;
+  /** The page isn't secure (plain HTTP): the address field says so. */
+  notSecure?: () => boolean;
   canBack: () => boolean;
   canForward: () => boolean;
   loading: () => boolean;

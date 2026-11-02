@@ -86,6 +86,12 @@ export const Settings = Schema.Struct({
     apiMapOff: Schema.Array(Schema.String.check(Schema.isMaxLength(253)))
       .check(Schema.isMaxLength(500))
       .pipe(withDefault([])),
+    /** Open http:// pages over HTTPS when they can be, and warn before showing them unencrypted (shared/insecure.ts). */
+    warnInsecure: Schema.Boolean.pipe(withDefault(true)),
+    /** Hosts the user allowed over HTTP, without a warning. */
+    insecureAllowed: Schema.Array(Schema.String.check(Schema.isMaxLength(253)))
+      .check(Schema.isMaxLength(1000))
+      .pipe(withDefault([])),
   }).pipe(withDefault({})),
   tabs: Schema.Struct({
     /** Tabs not used for this many minutes are unloaded (their page closes, its state is kept); 0 = never. */

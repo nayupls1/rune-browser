@@ -123,6 +123,10 @@ export interface RuneBridge {
     onAuthPrompt: (fn: (request: AuthPrompt) => void) => () => void;
     /** The user's answer to an AuthPrompt (null: cancelled). */
     authReply: (requestId: string, value: { username: string; password: string } | null) => void;
+    /** Which http:// pages web tabs open without a warning (shared/insecure.ts). */
+    setInsecurePolicy: (policy: { enabled: boolean; allowed: readonly string[] }) => void;
+    /** A web tab's page went (or was redirected) to an insecure page, and was held back. */
+    onInsecure: (fn: (event: { contentsId: number; url: string }) => void) => () => void;
   };
   /** Chrome extensions in web tabs (see main/extensions/). */
   extensions: {

@@ -31,6 +31,7 @@ import { autoUpdate, extensionList } from "../lib/extensions";
 import { securityVersion } from "../lib/security";
 import { watchTopic } from "../lib/realtime";
 import { settings, updateSettings } from "../lib/settings";
+import { disallowInsecure } from "../lib/insecure";
 import { checkForUpdates, installUpdate, setUpdateChannel, updateInfo } from "../lib/updates";
 import {
   ACTIVITY_VIEW,
@@ -373,6 +374,33 @@ function WebSection() {
         >
           <PageChangeRows />
         </Row>
+        <Row
+          label="Warn before insecure sites"
+          description="Open http:// pages over HTTPS when they can be, and warn before showing a site that has no secure version. Local addresses (this computer, your network) are never warned about."
+        >
+          <Toggle checked={settings().web.warnInsecure} onChange={(warnInsecure) => set("web", { warnInsecure })} />
+        </Row>
+        <Show when={settings().web.insecureAllowed.length}>
+          <Row label="Allowed insecure sites" description="Sites you chose to open over HTTP without a warning." wide>
+            <div {...stylex.attrs(styles.siteList)}>
+              <For each={settings().web.insecureAllowed}>
+                {(host) => (
+                  <div {...stylex.attrs(styles.siteControls)} data-insecure-allowed={host}>
+                    <span {...stylex.attrs(styles.siteHost)}>{host}</span>
+                    <button
+                      type="button"
+                      title={`Warn about ${host} again`}
+                      onClick={() => disallowInsecure(host)}
+                      {...stylex.attrs(styles.iconButton)}
+                    >
+                      <Icon name="trash" size={15} />
+                    </button>
+                  </div>
+                )}
+              </For>
+            </div>
+          </Row>
+        </Show>
       </Section>
 
       <Section title="Tabs" icon="layers" anchor="tabs">
@@ -1948,6 +1976,8 @@ const styles = stylex.create({
   controlWide: { width: "100%" },
   select: { width: 220 },
   siteControls: { display: "flex", alignItems: "center", gap: space.sm },
+  siteList: { display: "flex", flexDirection: "column", gap: space.xs },
+  siteHost: { flex: 1, minWidth: 0, fontSize: font.sm, overflowWrap: "anywhere" },
   extToolbar: { display: "flex", alignItems: "center", gap: space.md, flexWrap: "wrap" },
   extSearch: {
     display: "flex",

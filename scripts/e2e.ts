@@ -54,6 +54,23 @@ const port = await new Promise<number>((resolve) => {
   });
 });
 
+// A site that isn't local, over plain HTTP: Chromium sends insecure.example to a server here (both its
+// HTTP and HTTPS ports; the HTTPS attempt fails, since the server doesn't speak TLS).
+const insecureSite = Bun.serve({
+  hostname: "127.0.0.1",
+  port: 0,
+  fetch(req) {
+    const url = new URL(req.url);
+    // From a local page (no warning) to the insecure site: the redirect is held back.
+    if (url.pathname === "/hop") return Response.redirect("http://insecure.example/", 302);
+    return new Response(
+      `<!doctype html><meta charset="utf-8"><link rel="icon" href="data:,"><title>Insecure site</title><h1>Over plain HTTP</h1>`,
+      { headers: { "Content-Type": "text/html; charset=utf-8" } },
+    );
+  },
+});
+const insecureHost = `127.0.0.1:${insecureSite.port}`;
+
 // Rendered offscreen by default: always painted (reliable screenshots). The
 // headless ozone platform doesn't connect to the display server at all, so no
 // window can show up on the user's screen (Wayland compositors ignore window
@@ -73,6 +90,7 @@ const electron = await launchElectron(
     `--remote-debugging-port=${port}`,
     "--disable-backgrounding-occluded-windows",
     "--disable-renderer-backgrounding",
+    `--host-resolver-rules=MAP insecure.example:80 ${insecureHost}, MAP insecure.example:443 ${insecureHost}`,
   ],
 );
 
@@ -2530,6 +2548,104 @@ try {
     return "5 rounds of request, cache cleanup, new worker and navigation";
   });
 
+  await check(
+    "insecure sites: HTTPS tried first, a warning instead, go back, continue, allowed in settings",
+    async () => {
+      if (!webTabId) throw new Error("needs the web tab");
+      const tab = `[data-web-tab="${webTabId}"]`;
+      const chrome = chromeFor(tab);
+      const inPage = <T>(code: string) =>
+        page!.eval<T>(`document.querySelector('${tab} webview').executeJavaScript(${JSON.stringify(code)})`);
+      const url = () => inPage<string>("location.href");
+      const warning = `document.querySelector('${tab} [data-insecure-warning]')`;
+      await click(`nav li[data-app-id="${webTabId}"]`);
+      const start = `${site.url.origin}/second`;
+      await inPage(`location.href = ${JSON.stringify(start)}, true`);
+      await waitForValue(async () => ((await url()) === start ? true : undefined), 15_000);
+
+      // A link of the page to an insecure site: its HTTPS version fails, so the tab warns.
+      await inPage(`location.href = "http://insecure.example/", true`);
+      await page!.waitFor(`${warning}?.dataset.insecureWarning === "http://insecure.example/"`, {
+        timeoutMs: 20_000,
+        label: "the warning",
+      });
+      await page!.waitFor(`!!document.querySelector('${chrome} [data-not-secure]')`, { label: "Not secure" });
+      // The address is the page warned about, not its failed HTTPS attempt.
+      await page!.waitFor(`document.querySelector('${chrome} [data-address]').value === "http://insecure.example/"`, {
+        label: "the http:// address",
+      });
+      const text = await page!.eval<string>(`${warning}.innerText`);
+      if (!text.includes("doesn't support a secure connection")) throw new Error(`warning says: ${text}`);
+      await shot("insecure-warning.png");
+
+      // Go back: the page from before, over the failed attempt.
+      await click(`${tab} [data-insecure-back]`);
+      await page!.waitFor(`!${warning}`, { label: "warning gone" });
+      await waitForValue(async () => ((await url()) === start ? true : undefined), 15_000);
+      await page!.waitFor(`!document.querySelector('${chrome} [data-not-secure]')`, { label: "secure again" });
+
+      // A port of its own: warned at once, nothing loaded, so going back leaves the page as it is.
+      await inPage(`location.href = "http://insecure.example:8081/", true`);
+      await page!.waitFor(`${warning}?.innerText.includes("on its own port")`, { label: "warning for a port" });
+      if ((await url()) !== start) throw new Error(`the page moved to ${await url()}`);
+      await click(`${tab} [data-insecure-back]`);
+      await page!.waitFor(`!${warning}`, { label: "warning gone" });
+
+      // A local page redirecting to it: the redirect is held back too. Continue, and don't ask again.
+      await inPage(`location.href = "http://${insecureHost}/hop", true`);
+      await page!.waitFor(`!!${warning}`, { timeoutMs: 20_000, label: "the warning after a redirect" });
+      await page!.eval(`(() => {
+      const box = document.querySelector('${tab} [data-insecure-always]');
+      box.checked = true;
+      box.dispatchEvent(new Event("change", { bubbles: true }));
+      return true;
+    })()`);
+      await click(`${tab} [data-insecure-continue]`);
+      await waitForValue(async () => ((await url()) === "http://insecure.example/" ? true : undefined), 15_000);
+      await page!.waitFor(`!${warning} && !!document.querySelector('${chrome} [data-not-secure]')`, {
+        label: "the site over HTTP, not secure",
+      });
+      await waitForValue(async () =>
+        (await apiCall<{ web: { insecureAllowed: string[] } }>("/api/settings")).web.insecureAllowed.includes(
+          "insecure.example",
+        )
+          ? true
+          : undefined,
+      );
+      await shot("insecure-continued.png");
+
+      // Allowed now: the page goes there without a warning.
+      await inPage(`location.href = ${JSON.stringify(start)}, true`);
+      await waitForValue(async () => ((await url()) === start ? true : undefined), 15_000);
+      await inPage(`location.href = "http://insecure.example/?again", true`);
+      await waitForValue(async () => ((await url()) === "http://insecure.example/?again" ? true : undefined), 15_000);
+      if (await page!.eval<boolean>(`!!${warning}`)) throw new Error("warned about an allowed site");
+
+      // Settings → Web tabs lists it; removing it warns again.
+      await openSettingsAt("web");
+      await page!.waitFor(`!!document.querySelector('[data-insecure-allowed="insecure.example"]')`, {
+        label: "allowed site in settings",
+      });
+      await shot("insecure-settings.png");
+      await click(`[data-insecure-allowed="insecure.example"] button`);
+      await page!.waitFor(`!document.querySelector('[data-insecure-allowed="insecure.example"]')`, {
+        label: "removed",
+      });
+      await waitForValue(async () =>
+        (await apiCall<{ web: { insecureAllowed: string[] } }>("/api/settings")).web.insecureAllowed.length === 0
+          ? true
+          : undefined,
+      );
+      await click(`nav li[data-app-id="${webTabId}"]`);
+      await inPage(`location.href = ${JSON.stringify(start)}, true`);
+      await waitForValue(async () => ((await url()) === start ? true : undefined), 15_000);
+      await inPage(`location.href = "http://insecure.example/", true`);
+      await page!.waitFor(`!!${warning}`, { timeoutMs: 20_000, label: "warned again" });
+      await click(`${tab} [data-insecure-back]`);
+      await page!.waitFor(`!${warning}`, { label: "warning gone" });
+    },
+  );
+
   await check("extensions: imported from Chrome with their settings, toolbar, popup, shortcut, blocking", async () => {
     const id = fixture.extensionId;
     // Import from the (fake) browser profile, settings included.
@@ -3573,6 +3689,7 @@ try {
 } finally {
   page?.close();
   site.stop(true);
+  insecureSite.stop(true);
   electron.kill();
   await electron.exited;
   // Windows may still hold a file of the profile for a moment after Electron exits (EBUSY).

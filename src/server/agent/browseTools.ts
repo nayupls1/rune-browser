@@ -140,8 +140,9 @@ export const browseTools = Effect.fn(function* (env: ToolEnv) {
 
   /** What the page is now, after an action (it may have navigated). */
   const after = (done: string) =>
-    call<{ url: string; title: string }>("page.settle", {}, 20_000).pipe(
-      Effect.map((page) => `${done}. Now at ${page.url} — ${page.title}`),
+    call<{ url: string; title: string; blocked?: string }>("page.settle", {}, 20_000).pipe(
+      // It went to an insecure site the user is warned about (shared/insecure.ts).
+      Effect.map((page) => (page.blocked ? `${done}. ${page.blocked}` : `${done}. Now at ${page.url} — ${page.title}`)),
       Effect.orElseSucceed(() => done),
     );
 

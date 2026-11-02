@@ -8,6 +8,7 @@ import type { DidFailLoadEvent, PageFaviconUpdatedEvent, PageTitleUpdatedEvent, 
 import { createEffect, createSignal, For, on, onCleanup, Show, untrack } from "solid-js";
 import { DEFAULT_WORKSPACE, webPartition, type ElementInfo, type PageContext } from "../../shared/api";
 import { isExtensionUrl } from "../../shared/extensions";
+import { insecureAction, insecureHostOf, isInsecureUrl } from "../../shared/insecure";
 import {
   fileNameOf,
   hostOf,
@@ -23,6 +24,7 @@ import { captureScript, restoreScript, takeSavedPage, type SavedPage } from "../
 import { cancelPickScript, pickScript, unmarkScript } from "../lib/picker";
 import { addPick, clearPicks, isPicking, picksOf, removePick, setPickingIn } from "../lib/picks";
 import { settings } from "../lib/settings";
+import { allowInsecure, insecurePolicy } from "../lib/insecure";
 import { sendWithShares } from "../lib/sharing";
 import { appById, isAgentCollapsed, setAgentCollapsed, states, stopAgent, updatePage } from "../lib/store";
 import { showExtensionSettings } from "../lib/extensions";
@@ -42,12 +44,24 @@ import type { MenuPosition } from "./ContextMenu";
 import { openExtensionImport } from "./ExtensionImport";
 import { ExtensionsBar } from "./ExtensionsBar";
 import { Icon } from "./Icon";
+import { InsecureWarning } from "./InsecureWarning";
 import { NetworkPanel } from "./NetworkPanel";
 import { toast } from "./Toast";
 import { changesFor, PageChangesPopover } from "./PageChanges";
 import { OverridesPopover, overridesFor } from "./ResponseOverrides";
 import { FindBar, ZoomBadge } from "./FindBar";
 import { foundInPage, syncZoom } from "../lib/pageTools";
+
+/** How long an http:// page's HTTPS version may take to answer before the tab warns instead. */
+const UPGRADE_TIMEOUT_MS = 6_000;
+
+const sameUrl = (a: string, b: string) => {
+  try {
+    return new URL(a).href === new URL(b).href;
+  } catch {
+    return false;
+  }
+};
 
 export function WebTab(props: { appId: string; active: boolean }) {
   // A tab that was unloaded comes back where it was (lib/unload.ts).
@@ -56,7 +70,8 @@ export function WebTab(props: { appId: string; active: boolean }) {
   // The workspace's session (cookies, logins). A tab moved to another workspace is closed and reopened with the new one.
   const workspaceId = untrack(() => appById(props.appId)?.workspaceId ?? DEFAULT_WORKSPACE);
   const partition = webPartition(workspaceId);
-  const [src, setSrc] = createSignal(initialUrl);
+  // Set by open() below: an insecure first page may be tried over HTTPS, or not loaded at all.
+  const [src, setSrc] = createSignal("");
   const [address, setAddress] = createSignal(initialUrl);
   const [currentUrl, setCurrentUrl] = createSignal(initialUrl);
   const [loading, setLoading] = createSignal(false);
@@ -100,8 +115,12 @@ export function WebTab(props: { appId: string; active: boolean }) {
     if (!webview || !ready) throw new Error("No page is open in this tab yet");
     return webview;
   };
-  const info = (): PageInfo =>
-    webview && ready ? { url: webview.getURL(), title: webview.getTitle() } : { url: currentUrl(), title: "" };
+  const info = (): PageInfo => {
+    const page =
+      webview && ready ? { url: webview.getURL(), title: webview.getTitle() } : { url: currentUrl(), title: "" };
+    const blocked = blockedNote();
+    return blocked ? { ...page, blocked } : page;
+  };
   /** The page's address; "" before the webview's ready or after the tab closed, where getURL would throw. */
   const pageUrl = () => (webview && ready ? webview.getURL() : "");
   // Closing the tab detaches the webview; work still in flight (applying changes) stops touching it.
@@ -120,13 +139,118 @@ export function WebTab(props: { appId: string; active: boolean }) {
     const target = isExtensionUrl(input.trim()) ? input.trim() : normalizeUrl(input, settings().web.searchEngine);
     if (!target) return false;
     setAddress(target);
+    open(target);
+    return true;
+  }
+
+  function load(target: string) {
     if (!src())
       setSrc(target); // creates the webview
     // Its first page is still on its way: loadURL would throw until it's ready.
     else if (!webview || !ready) pendingUrl = target;
     else webview.loadURL(target).catch(() => {}); // failures show up as did-fail-load
-    return true;
   }
+
+  // --- Insecure pages (shared/insecure.ts) -----------------------------------------------
+
+  /** The http:// page the tab warns about instead of showing it, and the HTTPS version that was tried. */
+  const [insecure, setInsecure] = createSignal<{ url: string; attempt: string | null } | null>(null);
+  /** Trying an http:// page's HTTPS version: if it fails, the tab warns instead. */
+  let upgrading: { from: string; to: string; host: string; timer: ReturnType<typeof setTimeout> } | null = null;
+  const stopUpgrading = () => {
+    if (upgrading) clearTimeout(upgrading.timer);
+    upgrading = null;
+  };
+  onCleanup(stopUpgrading);
+
+  /** Opens a page, over HTTPS when an http:// one can be, or warns first. */
+  function open(target: string) {
+    stopUpgrading();
+    setInsecure(null);
+    const action = insecureAction(target, insecurePolicy());
+    if (action.kind === "allow") return load(target);
+    if (action.kind === "warn") return warn(target, null);
+    const from = target;
+    upgrading = {
+      from,
+      to: action.url,
+      host: insecureHostOf(action.url),
+      // A site that doesn't answer over HTTPS (a firewall dropping the connection) would keep the tab waiting.
+      timer: setTimeout(() => {
+        if (upgrading?.from !== from) return;
+        webview?.stop();
+        warn(from, action.url);
+      }, UPGRADE_TIMEOUT_MS),
+    };
+    load(action.url);
+  }
+
+  function warn(url: string, attempt: string | null) {
+    stopUpgrading();
+    setLoadError();
+    setInsecure({ url, attempt });
+    if (!editing) setAddress(url);
+    // The agent waiting for the page gets its answer (lib/webtabs.ts: navigate, settle).
+    loaded();
+  }
+
+  /** "Continue to site": the page over HTTP, this time (until Rune Browser restarts) or always. */
+  function proceed(always: boolean) {
+    const warning = insecure();
+    if (!warning) return;
+    allowInsecure(insecureHostOf(warning.url), always);
+    setInsecure(null);
+    load(warning.url);
+  }
+
+  /** "Go back": the page the tab was on (stepping back over the failed HTTPS attempt, if it's in its history). */
+  function leave() {
+    const warning = insecure();
+    setInsecure(null);
+    if (!warning) return;
+    const onAttempt = !!warning.attempt && sameUrl(pageUrl(), warning.attempt);
+    if (onAttempt && webview!.canGoBack()) return webview!.goBack();
+    if (src() && !onAttempt) {
+      if (!editing) setAddress(currentUrl());
+      return;
+    }
+    // Nothing to go back to: a new tab.
+    ready = false;
+    webview = undefined;
+    pendingUrl = null;
+    setContentsId(null);
+    setSrc("");
+    setCurrentUrl("");
+    setAddress("");
+    updatePage(props.appId, { url: "" });
+    pagesChanged();
+  }
+
+  // The page navigated (or was redirected) to an insecure page, and the main process held it back.
+  onCleanup(
+    window.rune.web.onInsecure(({ contentsId: id, url }) => {
+      let mine = false;
+      try {
+        // Known as soon as the webview is attached, before its first page.
+        mine = !!webview && webview.getWebContentsId() === id;
+      } catch {
+        // not attached
+      }
+      if (!mine) return;
+      // The HTTPS version sends it back to HTTP: it has no secure version.
+      if (upgrading && insecureHostOf(url) === upgrading.host) return warn(upgrading.from, upgrading.to);
+      if (!editing) setAddress(url);
+      open(url);
+    }),
+  );
+
+  /** What the agent is told when the page it asked for is behind the warning. */
+  const blockedNote = () => {
+    const warning = insecure();
+    return warning
+      ? `${warning.url} isn't secure (plain HTTP${warning.attempt ? ", no HTTPS version" : ""}): Rune Browser shows the user a warning instead, and only they can choose to open it.`
+      : undefined;
+  };
 
   const updateHistory = () => {
     if (webview && ready) setHistory({ back: webview.canGoBack(), forward: webview.canGoForward() });
@@ -411,6 +535,8 @@ export function WebTab(props: { appId: string; active: boolean }) {
       const done = waitForLoad();
       if (!go(url)) throw new Error(`Invalid URL: ${url}`);
       await done;
+      const blocked = blockedNote();
+      if (blocked) throw new Error(blocked);
       await loadApplied;
       return info();
     },
@@ -473,6 +599,8 @@ export function WebTab(props: { appId: string; active: boolean }) {
     });
   }
 
+  if (initialUrl) open(initialUrl);
+
   function attach(view: WebviewTag) {
     webview = view;
     view.addEventListener("did-start-loading", () => {
@@ -482,7 +610,8 @@ export function WebTab(props: { appId: string; active: boolean }) {
     view.addEventListener("did-stop-loading", () => {
       setLoading(false);
       // Whatever got it there (history, a redirect, a page's own navigation), the page is where it says.
-      if (ready && view.getURL() && view.getURL() !== currentUrl()) {
+      // Not under the insecure-site warning: the address is the page warned about, not the failed HTTPS attempt.
+      if (ready && !insecure() && view.getURL() && view.getURL() !== currentUrl()) {
         setCurrentUrl(view.getURL());
         if (!editing) setAddress(view.getURL());
       }
@@ -490,12 +619,17 @@ export function WebTab(props: { appId: string; active: boolean }) {
       loaded();
     });
     view.addEventListener("did-fail-load", (e: DidFailLoadEvent) => {
+      // The HTTPS version of an http:// page didn't load: the page has none (or a broken one).
+      if (e.isMainFrame && upgrading && e.errorCode !== -3) return warn(upgrading.from, upgrading.to);
       // -3 is an aborted load (e.g. a new navigation replaced it).
       if (e.isMainFrame && e.errorCode !== -3)
         setLoadError(`${e.errorDescription || "Failed to load"} (${e.validatedURL})`);
       loaded();
     });
     view.addEventListener("did-navigate", (e) => {
+      // A page committed: the HTTPS version loaded, or something else replaced the warning.
+      stopUpgrading();
+      setInsecure(null);
       navigated(e.url, false);
       syncZoom(props.appId);
       // A local file is named after itself, like in Chrome (text, images and PDFs have no title of their own).
@@ -539,26 +673,39 @@ export function WebTab(props: { appId: string; active: boolean }) {
   // The address bar's flask: response overrides that apply to this tab, so a changed page is never mistaken for the real one.
   const overridesHere = () => overridesFor(props.appId, workspaceId, currentUrl());
 
+  // The address bar says when the page isn't secure: shown over plain HTTP (not a local one), or warned about.
+  const notSecure = () => !!insecure() || isInsecureUrl(currentUrl());
+
   // What the sidebar's top bar shows for this tab (components/TopBar.tsx): the address with the page's changes, and the extensions.
   onCleanup(
     registerChrome(props.appId, {
       url: () => address(),
       blank: () => !src(),
       icon: () =>
-        isExtensionUrl(currentUrl())
-          ? "puzzle"
-          : currentUrl().startsWith("https:")
-            ? "lock"
-            : currentUrl().startsWith("file:")
-              ? "file"
-              : "globe",
+        notSecure()
+          ? "triangle-alert"
+          : isExtensionUrl(currentUrl())
+            ? "puzzle"
+            : currentUrl().startsWith("https:")
+              ? "lock"
+              : currentUrl().startsWith("file:")
+                ? "file"
+                : "globe",
+      notSecure,
       canBack: () => history().back,
       canForward: () => history().forward,
       loading,
       back: () => webview?.goBack(),
       forward: () => webview?.goForward(),
-      reload: () => webview?.reload(),
-      stop: () => webview?.stop(),
+      reload: () => {
+        const warning = insecure();
+        if (warning) open(warning.url);
+        else webview?.reload();
+      },
+      stop: () => {
+        stopUpgrading();
+        webview?.stop();
+      },
       go,
       addressExtras: () => (
         <>
@@ -648,7 +795,12 @@ export function WebTab(props: { appId: string; active: boolean }) {
               </button>
             </div>
           </Show>
-          <Show when={loadError()}>
+          <Show when={insecure()} keyed>
+            {(warning) => (
+              <InsecureWarning url={warning.url} failed={!!warning.attempt} onBack={leave} onContinue={proceed} />
+            )}
+          </Show>
+          <Show when={loadError() && !insecure()}>
             <div {...stylex.attrs(styles.banner, styles.bannerError)}>
               {loadError()}
               <button type="button" onClick={() => webview?.reload()} {...stylex.attrs(styles.bannerButton)}>

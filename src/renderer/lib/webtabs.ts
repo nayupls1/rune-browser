@@ -38,6 +38,8 @@ import { setSidebarCollapsed, toggleSidebar } from "./layout";
 export interface PageInfo {
   url: string;
   title: string;
+  /** The page the tab was asked for is behind the insecure-site warning (components/WebTab.tsx); what the agent is told. */
+  blocked?: string;
 }
 
 export interface ApplyResult {
