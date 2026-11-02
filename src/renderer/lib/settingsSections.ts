@@ -30,7 +30,7 @@ export const settingsSections: SettingsSection[] = [
     label: "Web tabs",
     icon: "globe",
     group: "settings",
-    keywords: "search engine unload customizations page changes http https insecure not secure",
+    keywords: "default browser links search engine unload customizations page changes http https insecure not secure",
   },
   { id: "network", label: "Network", icon: "network", group: "settings", keywords: "rules block headers record" },
   { id: "extensions", label: "Extensions", icon: "blocks", group: "settings" },

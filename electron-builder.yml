@@ -39,6 +39,15 @@ linux:
   maintainer: nayupls1 <316469236+nathanpls@users.noreply.github.com>
   # The window's Wayland app id / WM_CLASS matches the .desktop file (its icon, pinning).
   syncDesktopName: true
+  # A browser: offered for links and web files, and can be the default (src/shared/defaultBrowser.ts).
+  mimeTypes:
+    - text/html
+    - application/xhtml+xml
+    - application/pdf
+    - image/svg+xml
+    - image/webp
+    - x-scheme-handler/http
+    - x-scheme-handler/https
 deb:
   # Apps are sandboxed with bubblewrap.
   recommends:
@@ -48,11 +57,23 @@ win:
   icon: build/icon.ico
 nsis:
   artifactName: rune-browser-${version}-setup-${arch}.${ext}
+  # build/installer.nsh registers Rune Browser as a browser (Default apps) and removes that when uninstalled.
 mac:
   target:
     - dmg
     # Updates read the zip.
     - zip
   category: public.app-category.productivity
+  # A browser: offered for links and web files, and can be the default (src/shared/defaultBrowser.ts).
+  # Alternate: it never takes files over from their apps by itself.
+  protocols:
+    - name: Web site URL
+      role: Viewer
+      schemes: [http, https]
+  fileAssociations:
+    - { ext: [html, htm, xhtml, shtml], name: HTML document, role: Viewer, rank: Alternate }
+    - { ext: pdf, name: PDF document, role: Viewer, rank: Alternate }
+    - { ext: svg, name: SVG image, role: Viewer, rank: Alternate }
+    - { ext: webp, name: WebP image, role: Viewer, rank: Alternate }
   # Not signed yet (NAT-89): ad-hoc, so Apple Silicon runs it after "Open anyway".
   identity: "-"

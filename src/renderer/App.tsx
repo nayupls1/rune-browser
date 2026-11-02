@@ -49,6 +49,8 @@ export default function App() {
     await loadSettings().catch((err) => console.error("Loading settings failed:", err));
     void loadProviders().catch((err) => console.error("Loading providers failed:", err));
     await loadApps();
+    // Links from other apps open as tabs from now on (the ones Rune Browser was started with first).
+    window.rune.web.linksReady();
   });
 
   const isSelected = (id: string) => selectedId() === id;

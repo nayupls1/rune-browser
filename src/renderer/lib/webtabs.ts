@@ -382,3 +382,16 @@ onConnected(() => void loadPageChanges());
 
 // Links that want a new window (web pages, app previews, chat links).
 window.rune.web.onOpenTab((url, background) => void newWebTab(url, { background }));
+
+// Links and files from other apps (Rune Browser as the default browser: main/defaultBrowser.ts),
+// each in a new tab, in order (the last one shown).
+let opening = Promise.resolve();
+window.rune.web.onOpenLinks((urls) => {
+  for (const url of urls)
+    opening = opening.then(() =>
+      newWebTab(url).then(
+        () => {},
+        () => {},
+      ),
+    );
+});

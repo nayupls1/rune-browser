@@ -1,5 +1,6 @@
 // Types shared between the Bun server, the Electron main/preload and the renderer.
 import type { Hunk } from "./diff";
+import type { DefaultBrowserStatus } from "./defaultBrowser";
 import type {
   BrowserProfile,
   ExtensionAction,
@@ -74,11 +75,21 @@ export interface RuneBridge {
     install: () => void;
     onChanged: (fn: (info: UpdateInfo) => void) => () => void;
   };
+  /** Rune Browser as the system's default browser (main/defaultBrowser.ts). */
+  defaultBrowser: {
+    get: () => Promise<DefaultBrowserStatus>;
+    /** Makes it the default (or opens the system's settings for it, on Windows); the status after. */
+    make: () => Promise<DefaultBrowserStatus>;
+  };
   web: {
     /** Deletes the cookies and storage of a workspace's web tabs (the workspace was deleted). */
     clearWorkspace: (workspaceId: string) => Promise<void>;
     /** A page asked to open a link in a new window: open it in a new web tab (in the background for Ctrl+click). */
     onOpenTab: (fn: (url: string, background?: boolean) => void) => () => void;
+    /** Links and files from other apps (Rune Browser as the default browser): each in a new tab. */
+    onOpenLinks: (fn: (urls: string[]) => void) => () => void;
+    /** The window is ready for those links (the ones Rune Browser was started with come then). */
+    linksReady: () => void;
     /** A keyboard shortcut pressed while a page had the focus, that the page passed on (main/shortcuts.ts). */
     onShortcut: (fn: (event: ShortcutEvent) => void) => () => void;
     /** The keys of every shortcut, for the keys pressed in pages (shared/shortcuts.ts). */

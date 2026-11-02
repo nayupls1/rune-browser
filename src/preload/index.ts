@@ -39,6 +39,10 @@ const bridge: RuneBridge = {
     install: () => ipcRenderer.send("rune:updates-install"),
     onChanged: listen("rune:updates-changed"),
   },
+  defaultBrowser: {
+    get: () => ipcRenderer.invoke("rune:default-browser-get"),
+    make: () => ipcRenderer.invoke("rune:default-browser-make"),
+  },
   web: {
     clearWorkspace: (workspaceId) => ipcRenderer.invoke("rune:clear-workspace", workspaceId),
     onOpenTab: (fn) => {
@@ -46,6 +50,8 @@ const bridge: RuneBridge = {
       ipcRenderer.on("rune:open-tab", handler);
       return () => void ipcRenderer.removeListener("rune:open-tab", handler);
     },
+    onOpenLinks: listen("rune:open-links"),
+    linksReady: () => ipcRenderer.send("rune:links-ready"),
     onShortcut: listen("rune:shortcut"),
     setShortcuts: (bindings) => ipcRenderer.send("rune:shortcuts", bindings),
     openDevTools: (webContentsId, panel) => ipcRenderer.send("rune:open-devtools", webContentsId, panel),
