@@ -63,11 +63,35 @@ export function crashReport(info: CrashInfo, home: string) {
 /** URLs longer than this are cut by browsers or refused by GitHub. */
 const MAX_URL = 7000;
 
-/** A new GitHub issue with the report filled in (the oldest events go first when it's too long). */
-export function issueUrl(issuesUrl: string, title: string, report: string) {
+/** The bug report form's operating systems (.github/ISSUE_TEMPLATE/bug_report.yml). */
+const FORM_OS: Record<string, string> = { win32: "Windows", darwin: "macOS", linux: "Linux" };
+
+export interface IssueFields {
+  version: string;
+  /** process.platform. */
+  platform: string;
+  /** e.g. "10.0.26100 x64". */
+  osDetails: string;
+  /** What happened, in a sentence. */
+  what: string;
+}
+
+/**
+ * A new GitHub issue on the bug report form, with the report filled in (blank
+ * issues are off). The oldest events go first when it's too long for a URL.
+ */
+export function issueUrl(issuesUrl: string, title: string, report: string, fields: IssueFields) {
   const make = (r: string) => {
-    const body = ["**What were you doing when it happened?**", "", "", "**Details**", "", "```", r, "```"].join("\n");
-    return `${issuesUrl.replace(/\/+$/, "")}/new?${new URLSearchParams({ title, body }).toString()}`;
+    const params = new URLSearchParams({
+      template: "bug_report.yml",
+      title,
+      what: `${fields.what}\n\n(What were you doing when it happened?)`,
+      version: fields.version,
+      ...(FORM_OS[fields.platform] ? { os: FORM_OS[fields.platform]! } : {}),
+      "os-details": fields.osDetails,
+      extra: ["```", r, "```"].join("\n"),
+    });
+    return `${issuesUrl.replace(/\/+$/, "")}/new?${params.toString()}`;
   };
   let lines = report.split("\n");
   let url = make(report);

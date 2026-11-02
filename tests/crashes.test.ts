@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { crashReport, describeExitCode, issueUrl, linesSince, logLine, redactPaths } from "../src/main/crashReport";
 
 describe("crash reports", () => {
@@ -42,20 +43,32 @@ describe("crash reports", () => {
     expect(report).not.toContain("abc.def-123");
   });
 
-  test("the GitHub issue has the report filled in and stays short enough for a URL", () => {
-    const url = new URL(issueUrl("https://github.com/o/r/issues", "Rune Browser crashed", "line one\nline two"));
+  test("the GitHub issue is the bug report form, filled in, and short enough for a URL", () => {
+    const fields = { version: "0.1.0", platform: "win32", osDetails: "10.0.26100 x64", what: "Rune Browser crashed" };
+    const url = new URL(
+      issueUrl("https://github.com/o/r/issues", "Rune Browser crashed", "line one\nline two", fields),
+    );
     expect(url.pathname).toBe("/o/r/issues/new");
+    // The form's field ids (.github/ISSUE_TEMPLATE/bug_report.yml).
+    const form = readFileSync(".github/ISSUE_TEMPLATE/bug_report.yml", "utf8");
+    expect(url.searchParams.get("template")).toBe("bug_report.yml");
+    for (const id of ["what", "version", "os", "os-details", "extra"]) {
+      expect(form).toContain(`id: ${id}`);
+      expect(url.searchParams.get(id)).toBeTruthy();
+    }
     expect(url.searchParams.get("title")).toBe("Rune Browser crashed");
-    expect(url.searchParams.get("body")).toContain("line one\nline two");
+    expect(url.searchParams.get("os")).toBe("Windows");
+    expect(form).toContain("- Windows");
+    expect(url.searchParams.get("extra")).toContain("line one\nline two");
 
     const events = Array.from({ length: 400 }, (_, i) => `event ${i} ${"x".repeat(40)}`);
     const long = ["head 1", "head 2", "head 3", "head 4", "head 5", ...events].join("\n");
-    const cut = issueUrl("https://github.com/o/r/issues/", "t", long);
+    const cut = issueUrl("https://github.com/o/r/issues/", "t", long, fields);
     expect(cut.length).toBeLessThanOrEqual(7000);
-    const body = new URL(cut).searchParams.get("body")!;
-    expect(body).toContain("head 5");
-    expect(body).toContain("event 399");
-    expect(body).not.toContain("event 0 ");
+    const extra = new URL(cut).searchParams.get("extra")!;
+    expect(extra).toContain("head 5");
+    expect(extra).toContain("event 399");
+    expect(extra).not.toContain("event 0 ");
   });
 
   test("log lines are one line each, and only this run's are picked", () => {

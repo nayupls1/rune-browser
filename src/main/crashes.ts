@@ -156,7 +156,15 @@ export function setupCrashReports() {
           copied = true;
           continue;
         }
-        if (picked === "Report on GitHub") void shell.openExternal(issueUrl(pkg.bugs, d.title, report));
+        if (picked === "Report on GitHub")
+          void shell.openExternal(
+            issueUrl(pkg.bugs, d.title, report, {
+              version: pkg.version,
+              platform: process.platform,
+              osDetails: `${process.getSystemVersion?.() ?? ""} ${process.arch}`.trim(),
+              what: d.what,
+            }),
+          );
         else if (picked === "Show crash report" && d.dump) shell.showItemInFolder(d.dump);
         else if (d.action && picked === d.action.label) d.action.run();
         if (picked === "Show crash report") continue;
