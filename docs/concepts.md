@@ -265,6 +265,8 @@ Both keep the app's current data unless you tick "also its data". Restoring or u
 
 If something breaks Rune Browser's own UI, **safe mode** starts it without the theme and site customizations. Start it with `--safe-mode` or press Ctrl+Alt+Shift+S, undo the change in History, then restart normally.
 
+When Rune Browser crashes, the next start says so; when its background server stops or its window keeps crashing, it says so right away. Either way you can copy the details or open a GitHub issue with them filled in (your folder paths and tokens are left out, and nothing is sent unless you submit the issue). Crash reports (minidumps) stay on your computer, in the profile's `Crashpad` folder, and what went wrong is logged in `logs/crashes.log`: processes that died and their exit codes, the server stopping, errors the app survived.
+
 Contents are stored once (content-addressed, gzipped) under `<data dir>/history/`. The last 200 snapshots are kept per app, for site customizations and for settings.
 
 ## Mods

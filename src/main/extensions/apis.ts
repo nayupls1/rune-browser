@@ -1075,6 +1075,9 @@ export function createApis(env: ApiEnv) {
     }
   };
 
+  /** A frame that's still part of its page (not destroyed, nor detached by a navigation that replaced it). */
+  const usable = (frame: WebFrameMain | null | undefined) =>
+    frame && !frame.isDestroyed() && !frame.detached ? frame : null;
   const frameIdOf = (frame: WebFrameMain | null | undefined) => (!frame || !frame.parent ? 0 : frame.frameTreeNodeId);
   const frameOf = (contents: WebContents, frameId: number) =>
     frameId === 0 ? contents.mainFrame : contents.mainFrame.framesInSubtree.find((f) => f.frameTreeNodeId === frameId);
@@ -1098,11 +1101,21 @@ export function createApis(env: ApiEnv) {
         if (visible && !see) return null;
         return [tabId, change, tabObject(s, id, contents)];
       });
-    const nav = (event: string, details: (id: string) => Record<string, unknown>) =>
-      emit(s, `webNavigation.${event}`, (id) =>
-        hasPermission(s, id, "webNavigation") ? [{ tabId, timeStamp: Date.now(), ...details(id) }] : null,
-      );
-    const frameFrom = (processId: number, routingId: number) => webFrameMain.fromId(processId, routingId) ?? null;
+    /** A webNavigation event; `details` is only worked out when an extension that may see it listens (null: none). */
+    const nav = (event: string, details: () => Record<string, unknown> | null) =>
+      emit(s, `webNavigation.${event}`, (id) => {
+        if (!hasPermission(s, id, "webNavigation")) return null;
+        const d = details();
+        return d ? [{ tabId, timeStamp: Date.now(), ...d }] : null;
+      });
+    // Frames are looked at only when an extension listens, and only while they're still in the page:
+    // a frame that's being swapped out by a navigation can crash the app when it's touched.
+    const frameFrom = (processId: number, routingId: number) => usable(webFrameMain.fromId(processId, routingId));
+    /** Runs `fn` once, the first time an extension's listener needs its result. */
+    const once = <T>(fn: () => T) => {
+      let done: { value: T } | undefined;
+      return () => (done ??= { value: fn() }).value;
+    };
     const lastUrl = new Map<number, string>();
 
     contents.on("did-start-loading", () => updated({ status: "loading" }, false));
@@ -1124,35 +1137,50 @@ export function createApis(env: ApiEnv) {
     });
     contents.on("did-navigate-in-page", (_e, url, isMainFrame, processId, routingId) => {
       if (isMainFrame) updated({ url }, true);
-      const frame = frameFrom(processId, routingId);
-      const frameId = frameIdOf(frame);
-      const before = lastUrl.get(frameId);
-      lastUrl.set(frameId, url);
-      const fragmentOnly = before !== undefined && before.split("#")[0] === url.split("#")[0];
-      nav(fragmentOnly ? "onReferenceFragmentUpdated" : "onHistoryStateUpdated", () => ({
-        frameId,
+      const details = once(() => {
+        const frameId = frameIdOf(frameFrom(processId, routingId));
+        const before = lastUrl.get(frameId);
+        lastUrl.set(frameId, url);
+        const fragmentOnly = before !== undefined && before.split("#")[0] === url.split("#")[0];
+        return { frameId, fragmentOnly };
+      });
+      const event = (fragmentOnly: boolean) => (fragmentOnly ? "onReferenceFragmentUpdated" : "onHistoryStateUpdated");
+      for (const fragmentOnly of [true, false])
+        nav(event(fragmentOnly), () =>
+          details().fragmentOnly === fragmentOnly
+            ? { frameId: details().frameId, url, processId, transitionType: "link", transitionQualifiers: [] }
+            : null,
+        );
+    });
+    contents.on("did-start-navigation", (details) => {
+      if (details.isSameDocument) return;
+      const isMainFrame = details.isMainFrame;
+      const ids = once(() => {
+        const frame = usable(details.frame);
+        const parent = usable(frame?.parent);
+        return { frameId: frameIdOf(frame), parentFrameId: parent ? frameIdOf(parent) : -1 };
+      });
+      nav("onBeforeNavigate", () => ({
+        ...ids(),
+        url: details.url,
+        processId: -1,
+        frameType: isMainFrame ? "outermost_frame" : "sub_frame",
+        documentLifecycle: "active",
+      }));
+    });
+    contents.on("did-frame-navigate", (_e, url, _code, _text, _main, processId, routingId) => {
+      const frameId = once(() => {
+        const id = frameIdOf(frameFrom(processId, routingId));
+        lastUrl.set(id, url);
+        return id;
+      });
+      nav("onCommitted", () => ({
+        frameId: frameId(),
         url,
         processId,
         transitionType: "link",
         transitionQualifiers: [],
       }));
-    });
-    contents.on("did-start-navigation", (details) => {
-      if (details.isSameDocument) return;
-      const frameId = frameIdOf(details.frame);
-      nav("onBeforeNavigate", () => ({
-        frameId,
-        parentFrameId: details.frame?.parent ? frameIdOf(details.frame.parent) : -1,
-        url: details.url,
-        processId: -1,
-        frameType: details.isMainFrame ? "outermost_frame" : "sub_frame",
-        documentLifecycle: "active",
-      }));
-    });
-    contents.on("did-frame-navigate", (_e, url, _code, _text, _main, processId, routingId) => {
-      const frameId = frameIdOf(frameFrom(processId, routingId));
-      lastUrl.set(frameId, url);
-      nav("onCommitted", () => ({ frameId, url, processId, transitionType: "link", transitionQualifiers: [] }));
     });
     contents.on("dom-ready", () =>
       nav("onDOMContentLoaded", () => ({
@@ -1162,15 +1190,20 @@ export function createApis(env: ApiEnv) {
       })),
     );
     contents.on("did-frame-finish-load", (_e, isMainFrame, processId, routingId) => {
-      const frame = frameFrom(processId, routingId);
-      const frameId = frameIdOf(frame);
-      const url = frame?.url ?? contents.getURL();
-      if (!isMainFrame) nav("onDOMContentLoaded", () => ({ frameId, url, processId }));
-      nav("onCompleted", () => ({ frameId, url, processId }));
+      const details = once(() => {
+        const frame = frameFrom(processId, routingId);
+        return { frameId: frameIdOf(frame), url: frame?.url ?? contents.getURL(), processId };
+      });
+      if (!isMainFrame) nav("onDOMContentLoaded", details);
+      nav("onCompleted", details);
     });
     contents.on("did-fail-load", (_e, code, description, url, _main, processId, routingId) => {
-      const frameId = frameIdOf(frameFrom(processId, routingId));
-      nav("onErrorOccurred", () => ({ frameId, url, processId, error: `net::${description || code}` }));
+      nav("onErrorOccurred", () => ({
+        frameId: frameIdOf(frameFrom(processId, routingId)),
+        url,
+        processId,
+        error: `net::${description || code}`,
+      }));
     });
     contents.once("destroyed", () => favicons.delete(tabId));
   }

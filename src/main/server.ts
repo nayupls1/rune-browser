@@ -12,6 +12,15 @@ export interface ServerHandle {
   stop: () => void;
 }
 
+export interface ServerOptions {
+  allowedOrigin: string;
+  /** The server stopped without being asked to (it crashed): its exit and its last error output. */
+  onExit?: (exit: { code: number | null; signal: string | null; stderr: string[] }) => void;
+}
+
+/** How much of the server's error output is kept for a crash report. */
+const STDERR_LINES = 40;
+
 function getFreePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const srv = createServer();
@@ -55,7 +64,7 @@ async function waitForHealthy(url: string, child: ChildProcess, timeoutMs = 10_0
   throw new Error(`Server did not become healthy within ${timeoutMs}ms`);
 }
 
-export async function startServer(allowedOrigin: string): Promise<ServerHandle> {
+export async function startServer({ allowedOrigin, onExit }: ServerOptions): Promise<ServerHandle> {
   const port = await getFreePort();
   const url = `http://127.0.0.1:${port}`;
   const token = randomBytes(32).toString("hex");
@@ -78,20 +87,46 @@ export async function startServer(allowedOrigin: string): Promise<ServerHandle> 
       // Dev only: `bun --watch` restarts the server, which then can't read stdin again.
       ...(process.env.VITE_DEV_SERVER_URL && secretsKey ? { RUNE_DEV_SECRETS_KEY: JSON.stringify(secretsKey) } : {}),
     },
-    // stdin stays piped so the server can detect when the app goes away.
-    stdio: ["pipe", "inherit", "inherit"],
+    // stdin stays piped so the server can detect when the app goes away. Its errors pass through
+    // here, so the last of them can go into a crash report.
+    stdio: ["pipe", "inherit", "pipe"],
     windowsHide: true,
+  });
+
+  const stderr: string[] = [];
+  let partial = "";
+  child.stderr!.setEncoding("utf8");
+  child.stderr!.on("data", (chunk: string) => {
+    try {
+      process.stderr.write(chunk);
+    } catch {
+      // no console (the packaged app on Windows)
+    }
+    const lines = (partial + chunk).split(/\r?\n/);
+    partial = lines.pop() ?? "";
+    stderr.push(...lines.filter((l) => l.trim()).map((l) => l.slice(0, 500)));
+    stderr.splice(0, Math.max(0, stderr.length - STDERR_LINES));
+  });
+
+  // Only once it's up: failing to start is reported by startServer's caller.
+  let running = false;
+  let stopping = false;
+  child.on("exit", (code, signal) => {
+    if (!running || stopping) return;
+    onExit?.({ code, signal, stderr: partial.trim() ? [...stderr, partial.slice(0, 500)] : [...stderr] });
   });
 
   // The secrets key goes over stdin, not the environment (other processes of the user can read that).
   child.stdin!.write(`${JSON.stringify({ secretsKey })}\n`);
 
   const stop = () => {
+    stopping = true;
     if (child.exitCode === null && !child.killed) child.kill();
   };
 
   try {
     await waitForHealthy(url, child);
+    running = true;
   } catch (err) {
     stop();
     throw err;
