@@ -12,7 +12,8 @@
 // only once an agent asks for it (pages can notice it).
 import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { app, ipcMain, webContents, type BrowserWindow, type WebContents } from "electron";
+import { app, ipcMain, webContents, type WebContents } from "electron";
+import type { AppWindows } from "./windows";
 import { isSensitiveName, REDACTED, redactTokens, redactUrl } from "../shared/network";
 import { analyzeTrace, describeTrace, type TraceEvent } from "../shared/trace";
 import * as cdp from "./cdp";
@@ -119,7 +120,7 @@ function remoteText(arg: any): string {
 }
 
 export interface DevtoolsOptions {
-  getWindow: () => BrowserWindow | undefined;
+  windows: AppWindows;
   /** Web tabs, as opposed to app previews. */
   isWebTab: (contents: WebContents) => boolean;
 }
@@ -913,7 +914,7 @@ export function setupDevtools(options: DevtoolsOptions) {
     }
   }
 
-  const fromWindow = (event: Electron.IpcMainInvokeEvent) => event.sender === options.getWindow()?.webContents;
+  const fromWindow = (event: Electron.IpcMainInvokeEvent) => options.windows.isUi(event.sender);
   ipcMain.handle("rune:devtools", (event, id: unknown, command: unknown, params: unknown) => {
     const target = typeof id === "number" ? webContents.fromId(id) : undefined;
     if (!fromWindow(event) || !target || target.getType() !== "webview" || target.hostWebContents !== event.sender)

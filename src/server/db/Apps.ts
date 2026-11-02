@@ -3,6 +3,7 @@ import { Context, Effect, Layer } from "effect";
 import { SqlClient } from "effect/sql";
 import type { AgentChoice, AppMode, AppSummary, ChatMessage, ChatSummary, ProviderId, TabKind } from "../../shared/api";
 import { hostOf } from "../../shared/web";
+import { isPrivateWindow } from "../../shared/windows";
 import { now, orDieAll, type OrDie } from "./Db";
 
 interface AppRow {
@@ -27,6 +28,7 @@ interface AppRow {
   updated_at: string;
   closed_at: string | null;
   chat_folder: string | null;
+  window_id: string | null;
 }
 
 export interface AppRecord extends AppSummary {
@@ -50,6 +52,8 @@ const toSummary = (r: AppRow): AppSummary => ({
   createdAt: r.created_at,
   updatedAt: r.updated_at,
   ...(r.closed_at ? { closedAt: r.closed_at } : {}),
+  windowId: r.window_id,
+  private: isPrivateWindow(r.window_id),
 });
 
 const toRecord = (r: AppRow): AppRecord => ({
@@ -123,7 +127,12 @@ export const make = Effect.gen(function* () {
       return chat!.id;
     });
 
+  /** Where tabs made without a window go (an agent's scheduled run): the first open window (POST /api/windows). */
+  let homeWindow: string | null = null;
+
   const repo = {
+    setHomeWindow: (id: string | null) => Effect.sync(() => void (homeWindow = id)),
+
     /** The open tabs. */
     list: () =>
       sql<AppRow>`SELECT * FROM apps WHERE closed_at IS NULL ORDER BY position, created_at, rowid`.pipe(
@@ -139,20 +148,20 @@ export const make = Effect.gen(function* () {
     close: (id: string) =>
       sql`UPDATE apps SET closed_at = ${sql.literal(now)} WHERE id = ${id}`.pipe(Effect.andThen(summary(id))),
 
-    /** Opens a closed app again, last in a workspace. */
-    reopen: (id: string, workspaceId: string) =>
-      sql`UPDATE apps SET closed_at = NULL, workspace_id = ${workspaceId}, position = ${lastPosition(workspaceId)}, updated_at = ${sql.literal(now)} WHERE id = ${id}`.pipe(
+    /** Opens a closed app again, last in a workspace (in a window, if given). */
+    reopen: (id: string, workspaceId: string, windowId: string | null = null) =>
+      sql`UPDATE apps SET closed_at = NULL, workspace_id = ${workspaceId}, window_id = ${windowId ?? homeWindow}, position = ${lastPosition(workspaceId)}, updated_at = ${sql.literal(now)} WHERE id = ${id}`.pipe(
         Effect.andThen(summary(id)),
       ),
 
     get: (id: string) => row(id).pipe(Effect.map((r) => (r ? toRecord(r) : null))),
 
-    create: (workspaceId: string, kind: TabKind, url: string | null) =>
+    create: (workspaceId: string, kind: TabKind, url: string | null, windowId: string | null = null) =>
       Effect.gen(function* () {
         const id = crypto.randomUUID();
         const name = kind === "web" ? hostOf(url) || "New tab" : "New app";
-        yield* sql`INSERT INTO apps (id, workspace_id, kind, name, url, position)
-          VALUES (${id}, ${workspaceId}, ${kind}, ${name}, ${url}, ${lastPosition(workspaceId)})`;
+        yield* sql`INSERT INTO apps (id, workspace_id, kind, name, url, position, window_id)
+          VALUES (${id}, ${workspaceId}, ${kind}, ${name}, ${url}, ${lastPosition(workspaceId)}, ${windowId ?? homeWindow})`;
         return (yield* summary(id))!;
       }),
 
@@ -220,6 +229,16 @@ export const make = Effect.gen(function* () {
         )
         .pipe(Effect.andThen(summary(id))),
 
+    /** Moves a tab to another window: last in its workspace there, or where it was (tabs a window takes in). */
+    setWindow: (id: string, windowId: string, place: "last" | "same" = "last") =>
+      Effect.gen(function* () {
+        const r = yield* row(id);
+        if (!r) return null;
+        const position = place === "last" ? lastPosition(r.workspace_id) : r.position;
+        yield* sql`UPDATE apps SET window_id = ${windowId}, position = ${position}, updated_at = ${sql.literal(now)} WHERE id = ${id}`;
+        return yield* summary(id);
+      }),
+
     /** Puts a workspace's tabs in this order (ids of other workspaces are ignored). */
     reorder: (workspaceId: string, ids: readonly string[]) =>
       sql
@@ -250,8 +269,8 @@ export const make = Effect.gen(function* () {
         const r = yield* row(id);
         if (!r) return null;
         const copyId = crypto.randomUUID();
-        yield* sql`INSERT INTO apps (id, workspace_id, kind, name, icon, icon_locked, url, favicon, provider, model, effort, mode, position)
-          VALUES (${copyId}, ${r.workspace_id}, ${r.kind}, ${`${r.name} copy`}, ${r.icon}, ${r.icon_locked}, ${r.url}, ${r.favicon}, ${r.provider}, ${r.model}, ${r.effort}, ${r.mode}, ${lastPosition(r.workspace_id)})`;
+        yield* sql`INSERT INTO apps (id, workspace_id, kind, name, icon, icon_locked, url, favicon, provider, model, effort, mode, position, window_id)
+          VALUES (${copyId}, ${r.workspace_id}, ${r.kind}, ${`${r.name} copy`}, ${r.icon}, ${r.icon_locked}, ${r.url}, ${r.favicon}, ${r.provider}, ${r.model}, ${r.effort}, ${r.mode}, ${lastPosition(r.workspace_id)}, ${r.window_id})`;
         return (yield* summary(copyId))!;
       }),
 

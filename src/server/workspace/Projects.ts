@@ -48,8 +48,10 @@ export interface ProjectsShape {
   readonly move: (appId: string, workspaceId: string) => Effect.Effect<AppSummary | null>;
   /** Closes an app's tab: the app stops and goes to the library, with everything it has, to be opened again. */
   readonly close: (appId: string) => Effect.Effect<AppSummary | null>;
-  /** Opens a closed app again in a workspace. */
-  readonly reopen: (appId: string, workspaceId: string) => Effect.Effect<AppSummary | null>;
+  /** Opens a closed app again in a workspace (in a window, if given). */
+  readonly reopen: (appId: string, workspaceId: string, windowId?: string) => Effect.Effect<AppSummary | null>;
+  /** Moves a tab to another window: it leaves its split (a split view is in one window). */
+  readonly moveToWindow: (appId: string, windowId: string) => Effect.Effect<AppSummary | null>;
   /** Deletes a tab with everything that belongs to it: its project, data, secrets, permissions, history and schedules. Stop its agent first. */
   readonly remove: (appId: string) => Effect.Effect<void>;
   /** The tab was opened: its app starts (in its mode) if Settings say so. */
@@ -187,13 +189,34 @@ export const make = Effect.gen(function* () {
         return closed;
       }),
 
-    reopen: (appId, workspaceId) =>
+    reopen: (appId, workspaceId, windowId) =>
       Effect.gen(function* () {
         const tab = yield* apps.get(appId);
         if (!tab?.closedAt) return tab ?? null;
-        const opened = yield* apps.reopen(appId, workspaceId);
+        const opened = yield* apps.reopen(appId, workspaceId, windowId ?? null);
         yield* publish(opened);
         return opened;
+      }),
+
+    moveToWindow: (appId, windowId) =>
+      Effect.gen(function* () {
+        const tab = yield* apps.get(appId);
+        if (!tab) return null;
+        if (tab.windowId === windowId) return tab;
+        const moved = yield* apps.setWindow(appId, windowId);
+        const space = yield* workspaces.get(tab.workspaceId);
+        if (space?.splits.some((s) => s.tabs.includes(appId))) {
+          const splits = space.splits.map((s) => {
+            const i = s.tabs.indexOf(appId);
+            return i === -1
+              ? s
+              : { ...s, tabs: s.tabs.filter((_, j) => j !== i), sizes: s.sizes.filter((_, j) => j !== i) };
+          });
+          const updated = yield* workspaces.setSplits(tab.workspaceId, splits);
+          if (updated) yield* hub.publish({ type: "workspace", topic: topics.workspaces, workspace: updated });
+        }
+        yield* publish(moved);
+        return moved;
       }),
 
     remove: (appId) =>

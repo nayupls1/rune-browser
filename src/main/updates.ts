@@ -5,12 +5,13 @@
 // deb/rpm packages, the Windows installer. macOS builds aren't signed yet, and
 // unsigned apps can't replace themselves there, so they only link to the
 // release (NAT-89).
-import { app, ipcMain, type BrowserWindow, type WebContents } from "electron";
+import { app, ipcMain, type WebContents } from "electron";
 import { autoUpdater } from "electron-updater";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { UpdateChannel, UpdateInfo, UpdateStatus } from "../shared/updates";
 import { readJson, writeJson } from "./extensions/registry";
+import type { AppWindows } from "./windows";
 
 const RELEASES_URL = "https://github.com/nayupls1/rune-browser/releases";
 const FIRST_CHECK_MS = 15_000;
@@ -36,7 +37,7 @@ function errorStatus(err: unknown): UpdateStatus {
   return { state: "error", message: (message.split("\n")[0] ?? message).slice(0, 200) };
 }
 
-export function setupUpdates(getWindow: () => BrowserWindow | undefined) {
+export function setupUpdates(windows: AppWindows) {
   const file = join(app.getPath("userData"), "updates.json");
   let channel: UpdateChannel = readJson<{ channel?: string }>(file)?.channel === "daily" ? "daily" : "stable";
   let checkedAt: string | null = null;
@@ -48,7 +49,7 @@ export function setupUpdates(getWindow: () => BrowserWindow | undefined) {
   const set = (next: UpdateStatus) => {
     status = next;
     if (next.state !== "checking" && next.state !== "downloading") checkedAt = new Date().toISOString();
-    getWindow()?.webContents.send("rune:updates-changed", info());
+    windows.broadcast("rune:updates-changed", info());
   };
 
   const check = async () => {
@@ -84,7 +85,7 @@ export function setupUpdates(getWindow: () => BrowserWindow | undefined) {
     setInterval(() => void check(), CHECK_EVERY_MS);
   }
 
-  const fromWindow = (sender: WebContents) => sender === getWindow()?.webContents;
+  const fromWindow = (sender: WebContents) => windows.isUi(sender);
   ipcMain.handle("rune:updates-get", (event) => (fromWindow(event.sender) ? info() : null));
   ipcMain.handle("rune:updates-check", (event) => (fromWindow(event.sender) ? check() : null));
   ipcMain.handle("rune:updates-set-channel", (event, value: unknown) => {

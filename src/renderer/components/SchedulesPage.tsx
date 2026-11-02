@@ -11,13 +11,13 @@ import { topics } from "../../shared/hub";
 import { DEFAULT_TIMEOUT_SEC, describeTrigger, scheduleProblem } from "../../shared/schedule";
 import { api } from "../lib/api";
 import { watchTopic } from "../lib/realtime";
-import { apps, currentWorkspace } from "../lib/store";
+import { allApps, currentWorkspace } from "../lib/store";
 import { colors, font, radius, space } from "../theme.stylex";
 import { confirmDialog } from "./ConfirmDialog";
 import { Icon } from "./Icon";
 import { Button } from "./ui";
 
-const appName = (id: string) => apps.find((a) => a.id === id)?.name ?? "a deleted app";
+const appName = (id: string) => allApps().find((a) => a.id === id)?.name ?? "a deleted app";
 const taskIcons: Record<ScheduleTask["type"], string> = { tool: "wrench", command: "terminal", prompt: "sparkles" };
 
 /** "Notes · sync", "Notes · bun run x", "a new tab · “Summarize…”". */
@@ -306,9 +306,9 @@ const localInput = (iso: string) => {
 
 function ScheduleEditor(props: { schedule: Schedule | null; onDone: () => void }) {
   const s = props.schedule;
-  const workspaceApps = () => apps.filter((a) => a.kind === "app" && a.workspaceId === currentWorkspace()?.id);
+  const workspaceApps = () => allApps().filter((a) => a.kind === "app" && a.workspaceId === currentWorkspace()?.id);
   // A prompt can go to any tab, or to one it opens.
-  const workspaceTabs = () => apps.filter((a) => a.workspaceId === currentWorkspace()?.id);
+  const workspaceTabs = () => allApps().filter((a) => a.workspaceId === currentWorkspace()?.id);
   const [name, setName] = createSignal(s?.name ?? "");
   const [appId, setAppId] = createSignal(s?.task.appId ?? workspaceApps()[0]?.id ?? "");
   const [taskType, setTaskType] = createSignal<ScheduleTask["type"]>(s?.task.type ?? "tool");

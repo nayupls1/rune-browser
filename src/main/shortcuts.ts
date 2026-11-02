@@ -4,7 +4,7 @@
 // when it doesn't use it (preventDefault) does the window run the shortcut.
 // Keys pressed in the window itself are the renderer's (lib/shortcuts.ts),
 // which also tells this one the keymap (the user can change it in Settings).
-import { ipcMain, Menu, type BrowserWindow, type Input, type WebContents } from "electron";
+import { ipcMain, Menu, type Input, type WebContents } from "electron";
 import {
   keymapOf,
   keyPlatform,
@@ -15,6 +15,7 @@ import {
   type ShortcutDef,
 } from "../shared/shortcuts";
 import type { ShortcutEvent } from "../shared/api";
+import type { AppWindows } from "./windows";
 
 const platform = keyPlatform(process.platform);
 
@@ -69,13 +70,15 @@ async function pageUsesKey(contents: WebContents, input: Input) {
   }
 }
 
-export function setupShortcuts(getWindow: () => BrowserWindow | undefined) {
+export function setupShortcuts(windows: AppWindows) {
   let bindings: Record<string, readonly string[]> = resolveBindings(platform);
   let keymap = keymapOf(bindings);
-  const send = (event: ShortcutEvent) => getWindow()?.webContents.send("rune:shortcut", event);
+  /** A shortcut pressed in a page runs in the window that page is in. */
+  const send = (contents: WebContents, event: ShortcutEvent) =>
+    windows.of(contents)?.webContents.send("rune:shortcut", event);
 
   ipcMain.on("rune:shortcuts", (event, bindings: unknown) => {
-    if (event.sender !== getWindow()?.webContents || !bindings || typeof bindings !== "object") return;
+    if (!windows.isUi(event.sender) || !bindings || typeof bindings !== "object") return;
     const valid: Record<string, string[]> = {};
     for (const [id, keys] of Object.entries(bindings))
       if (Array.isArray(keys)) valid[id] = keys.filter((k): k is string => typeof k === "string").slice(0, 10);
@@ -83,7 +86,7 @@ export function setupShortcuts(getWindow: () => BrowserWindow | undefined) {
     keymap = keymapOf(valid);
   });
 
-  setupMenu();
+  setupMenu((id) => windows.current()?.webContents.send("rune:shortcut", { id } satisfies ShortcutEvent));
 
   return {
     /** A shortcut's first keys as an Electron accelerator (shown in menus), if it has any. */
@@ -108,7 +111,7 @@ export function setupShortcuts(getWindow: () => BrowserWindow | undefined) {
         meta: mods.has("meta") || mods.has("command") || mods.has("cmd"),
       });
       const def = pressed ? keymap.get(pressed) : undefined;
-      if (def) send({ id: def.id, contentsId: contents.id });
+      if (def) send(contents, { id: def.id, contentsId: contents.id });
     },
 
     /**
@@ -119,15 +122,15 @@ export function setupShortcuts(getWindow: () => BrowserWindow | undefined) {
     handlePageInput(contents: WebContents, input: Input, def: ShortcutDef) {
       const event = { id: def.id, contentsId: contents.id };
       if (def.page === "passive") {
-        send(event);
+        send(contents, event);
         return false;
       }
       if (def.page === "reserved") {
-        send(event);
+        send(contents, event);
         return true;
       }
       void pageUsesKey(contents, input).then((used) => {
-        if (!used && !contents.isDestroyed()) send(event);
+        if (!used && !contents.isDestroyed()) send(contents, event);
       });
       return true;
     },
@@ -147,16 +150,34 @@ const toKey = (input: Input) => ({
  * The application menu. Electron's default one closes the window on Ctrl+W,
  * reloads Rune Browser itself on Ctrl+R and zooms it on Ctrl+Plus; those keys
  * are the tabs'. Linux and Windows show no menu, so they get none (editing
- * keys work without one); macOS keeps its app, Edit and Window menus.
+ * keys work without one; new windows are in the sidebar's New tab menu); macOS
+ * keeps its app, File (new tabs and windows), Edit and Window menus.
  */
-function setupMenu() {
+function setupMenu(run: (shortcut: string) => void) {
   if (process.platform !== "darwin") {
     Menu.setApplicationMenu(null);
     return;
   }
+  // Shown with their keys, which the window handles itself (lib/shortcuts.ts).
+  const item = (label: string, id: string, accelerator: string) => ({
+    label,
+    accelerator,
+    registerAccelerator: false,
+    click: () => run(id),
+  });
   Menu.setApplicationMenu(
     Menu.buildFromTemplate([
       { role: "appMenu" },
+      {
+        label: "File",
+        submenu: [
+          item("New Tab", "tab.new", "Cmd+T"),
+          item("New Window", "window.new", "Cmd+N"),
+          item("New Private Window", "window.private", "Cmd+Shift+N"),
+          { type: "separator" },
+          item("Reopen Closed Tab or Window", "tab.reopen", "Cmd+Shift+T"),
+        ],
+      },
       { role: "editMenu" },
       {
         label: "Window",

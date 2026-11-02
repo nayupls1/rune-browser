@@ -2,9 +2,28 @@
 
 [README](../README.md) · [Architecture](architecture.md) · [Concepts](concepts.md) · [Interface](interface.md) · [Browsing](browsing.md) · [Design system](design-system.md) · [Development](development.md) · [Releasing](releasing.md)
 
+## Windows
+
+Rune Browser opens as many windows as you like, each with its own tabs (`main/windows.ts`, `shared/windows.ts`). Workspaces are shared: every window shows one of them, with that window's tabs in it.
+
+- **New window:** Ctrl+N, "New window" in the sidebar's New tab menu, the command bar, or File → New Window on macOS. It opens with a new tab.
+- **Moving tabs:** drag a tab out of the sidebar and let go outside the window: it opens in a window of its own (where you let go, on platforms that say). Drop it on another window's tabs to move it there. A tab's menu has "Move to new window" and "Move to window …" too. A window whose last tab leaves closes. A tab that moves leaves its split view; agents keep working in it (their page requests go to whichever window has the tab, `Hub.ts`).
+- **Closing and reopening:** a closed window (with other windows still open) can be reopened with its tabs: Ctrl+Shift+T reopens whatever was closed last, a tab or a window, and the command bar has "Reopen closed window". The last 10 are kept; older ones are forgotten, their web tabs closed and their apps put back in the library.
+- **After a restart:** Settings → Browser → On startup. "Continue where you left off" brings every window back where it was (size, place where the platform says, maximized), with its tabs, its workspace and the tab you were on. With "Open the New Tab page" or "Open a specific page or set of pages", only the first window comes back and does that (`lib/browser.ts`, only there: new windows don't); the others become closed windows to reopen. Closing the last window keeps it for the next start.
+- **The server** keeps which window each tab is in (`apps.window_id`). The main process tells it which windows are open, closed and forgotten (`POST /api/windows`), so tabs of a window that's gone go where they belong.
+
+### Private windows
+
+Ctrl+Shift+N (or "New private window") opens a private window, like Chrome's incognito:
+
+- **Marked:** a "Private" badge in the sidebar's top row, a tinted sidebar, "(Private)" in the window's title, and its new tab page says what's kept.
+- **Nothing kept:** its web tabs share one session of their own (`persist:private-web`), wiped when the last private window closes and whenever Rune Browser starts (Electron runs no extensions in a session kept only in memory). Its tabs are deleted when it closes, it's never saved for a restart or reopened, and it doesn't remember closed tabs. Pages there feed no API map, sites' zoom isn't remembered, and their site settings can only be looked at, not changed (both are saved with the settings). Downloaded files stay where they were saved.
+- **No agents:** there's no agent sidebar, no apps (agents build them) and no workspaces. Agents can't see its tabs: they're left out of `list_tabs` and can't be shared, a chat can't start there, permission prompts and schedule notices show in normal windows only, and page requests never go to a private window.
+- **Extensions** run there only if you allow it in their details (Settings → Extensions → "Allow in private windows"). Tabs don't move between private and normal windows.
+
 ## Window
 
-The window has no title bar, like Zen Browser. On Linux and Windows it's frameless and Rune Browser draws one button, close, as a red macOS-style light first in the sidebar's top row (gray while the window isn't focused; `components/WindowControls.tsx`). There's no minimize or maximize button: drag the row to move the window, double-click it to maximize. macOS keeps its traffic lights, top left. That row and the agent sidebar's header are where the window is dragged, and double-clicking one maximizes it (`lib/windowChrome.ts`).
+Each window has no title bar, like Zen Browser. On Linux and Windows it's frameless and Rune Browser draws one button, close, as a red macOS-style light first in the sidebar's top row (gray while the window isn't focused; `components/WindowControls.tsx`). There's no minimize or maximize button: drag the row to move the window, double-click it to maximize. macOS keeps its traffic lights, top left. That row and the agent sidebar's header are where the window is dragged, and double-clicking one maximizes it (`lib/windowChrome.ts`).
 
 ## Sidebar
 

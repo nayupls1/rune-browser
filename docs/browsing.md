@@ -184,7 +184,7 @@ endpoint, grouped by host, with its parameters, request body and responses (`sha
 
 ## Extensions
 
-Web tabs run Chrome extensions (Manifest V3 and V2) with Electron's extension support. Each workspace's session loads its own copy, so an extension only sees the tabs of its workspace and keeps separate data there (`chrome.storage.sync` is the exception: one copy per extension, shared). Settings → Extensions lists them. You can add one from the Chrome Web Store (link or ID), load an unpacked folder, or import from a browser. Store extensions update every 5 hours.
+Web tabs run Chrome extensions (Manifest V3 and V2) with Electron's extension support. Each workspace's session loads its own copy, so an extension only sees the tabs of its workspace and keeps separate data there (`chrome.storage.sync` is the exception: one copy per extension, shared). Private windows' session loads only the extensions allowed there ("Allow in private windows" in their details), and sees the private windows' tabs. An extension sees the tabs of its workspace in every window; the focused window's say which tab is active, and tabs it opens go to the window you used last. Settings → Extensions lists them. You can add one from the Chrome Web Store (link or ID), load an unpacked folder, or import from a browser. Store extensions update every 5 hours.
 
 **Import from your browser** (Settings → Extensions, or the puzzle menu in a web tab) reads the profiles of Chrome, Chromium, Brave, Edge and Vivaldi (including Flatpak and Snap installs). It offers what's turned on there. Store extensions are copied and keep their IDs. Unpacked ones are used from their folder. They come along with:
 
@@ -257,8 +257,9 @@ The rest of Chromium (settings, internal pages, everyday behavior) is in [Chromi
 | Print (Ctrl+P), save page (Ctrl+S)                                                                 | Same (.html with its files, or .htm alone)                                   |
 | DevTools, console, inspect (F12, Ctrl+Shift+I/J/C, macOS Cmd+Option+I/J/C)                         | Same                                                                         |
 | Full screen (F11, macOS Cmd+Ctrl+F), close window (Ctrl+Shift+W, Alt+F4), quit (Ctrl+Shift+Q)      | Same (macOS quits with Cmd+Q)                                                |
+| Reopen closed tab (Ctrl+Shift+T) after closing a window                                            | Same: reopens the window with its tabs                                       |
 | History (Ctrl+H, macOS Cmd+Y)                                                                      | Same                                                                         |
-| Ctrl+click or middle click on a link; Ctrl+Shift+click, Shift+click                                | Same: a background tab; a tab that's shown (one window, so no new window)    |
+| Ctrl+click or middle click on a link; Ctrl+Shift+click, Shift+click                                | Same: a background tab; a tab that's shown (Shift+click: not a new window)   |
 | Address bar: Ctrl+Enter (www. and .com), Alt+Enter or Shift+Enter (macOS Cmd+Enter: new tab)       | Same                                                                         |
 | Search tabs (Ctrl+Shift+A)                                                                         | Same, in the command bar                                                     |
 | View source (Ctrl+U, macOS Cmd+Option+U)                                                           | Different: DevTools' Sources panel (Electron can't show view-source: pages)  |
@@ -267,7 +268,7 @@ The rest of Chromium (settings, internal pages, everyday behavior) is in [Chromi
 | Bookmarks bar (Ctrl+Shift+B)                                                                       | Different: shows or hides the sidebar (no bookmarks)                         |
 | Search in the address bar (Ctrl+K)                                                                 | Different: the command bar, which also searches                              |
 | Bookmark manager (Ctrl+Shift+O)                                                                    | Not yet: no bookmarks                                                        |
-| New window (Ctrl+N), private window (Ctrl+Shift+N)                                                 | Not yet: one window                                                          |
+| New window (Ctrl+N), private window (Ctrl+Shift+N)                                                 | Same (see [Windows](interface.md#windows))                                   |
 | Open file (Ctrl+O)                                                                                 | Not yet                                                                      |
 | Clear browsing data (Ctrl+Shift+Delete), task manager (Shift+Esc), caret browsing (F7)             | Not yet                                                                      |
 | Home (Alt+Home), menu (Alt+F, F10), focus toolbar (Alt+Shift+T)                                    | Not applicable: no home page or menu                                         |

@@ -4,10 +4,10 @@
 // browser can show (PDF, image, video, audio, text, page) opens in a tab;
 // anything else is downloaded, like Chrome does.
 import { createStore } from "solid-js/store";
-import { DEFAULT_WORKSPACE, type ChatFile } from "../../shared/api";
+import { DEFAULT_WORKSPACE, PRIVATE_WORKSPACE, type ChatFile } from "../../shared/api";
 import { fileNameOf, fileUrl, isViewableFile } from "../../shared/web";
 import { api } from "./api";
-import { appById, currentWorkspace, newWebTab, selectApp } from "./store";
+import { appById, currentWorkspace, isPrivate, newWebTab, selectApp } from "./store";
 import { pageOf } from "./webtabs";
 import { openInternalPage } from "./internalPages";
 
@@ -33,7 +33,7 @@ export async function openUrl(url: string, options: { tabId?: string; background
 export async function openFile(path: string, options: { tabId?: string; background?: boolean; mime?: string } = {}) {
   const url = fileUrl(path);
   if (isViewableFile(fileNameOf(path), options.mime)) await openUrl(url, options);
-  else window.rune.web.download(currentWorkspace()?.id ?? DEFAULT_WORKSPACE, url);
+  else window.rune.web.download(isPrivate ? PRIVATE_WORKSPACE : (currentWorkspace()?.id ?? DEFAULT_WORKSPACE), url);
 }
 
 /** Where the chat can show a chat file (an <img> src: carries the window's token). */

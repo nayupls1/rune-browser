@@ -31,8 +31,8 @@ tests/               bun:test tests
 ## Processes and security
 
 On startup the main process picks a free port, generates an API token and
-spawns the server, then opens the window and passes URL and token to the
-renderer through the preload script. The API requires the token and rejects
+spawns the server, then opens the windows and passes URL, token and the window's id to
+each window's renderer through the preload script. The API requires the token and rejects
 browser requests from other origins, since web pages and app previews can
 reach 127.0.0.1 too. App previews run in a session per app (cookies don't
 separate ports).
@@ -80,7 +80,7 @@ to drive a web tab for an agent).
 
 ## The main process
 
-`src/main/` starts the server and the window, and owns everything that needs
+`src/main/` starts the server and the windows (`windows.ts`: opening, restoring and reopening them, see [Windows](interface.md#windows)), and owns everything that needs
 Chromium: web tabs are `<webview>` guests with a session per workspace
 (`web.ts`), Chrome extensions run in those sessions (`extensions/`), network
 recording and rules (`network.ts`), DevTools access for agents (`devtools.ts`),

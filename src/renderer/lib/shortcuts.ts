@@ -22,6 +22,7 @@ import {
   currentWorkspace,
   duplicateApp,
   HISTORY_VIEW,
+  isPrivate,
   isSettingsView,
   isTab,
   newApp,
@@ -43,6 +44,7 @@ import { splitOf } from "./splits";
 import { chromeOf, focusAddress } from "./tabChrome";
 import { pageOf, tabOfContents } from "./webtabs";
 import { findStep, openFind, zoom } from "./pageTools";
+import { newPrivateWindow, newWindow } from "./windows";
 
 export const platform = keyPlatform(window.rune.window.platform);
 
@@ -195,6 +197,8 @@ const actions: Record<string, Action> = {
   "page.console": { when: (ctx) => contentsIdOf(ctx) !== undefined, run: (ctx) => devtools(ctx, "console") },
   "page.inspect": { when: (ctx) => contentsIdOf(ctx) !== undefined, run: (ctx) => devtools(ctx, "inspect") },
 
+  "window.new": { run: () => newWindow() },
+  "window.private": { run: () => newPrivateWindow() },
   "window.fullscreen": { run: () => window.rune.window.toggleFullScreen() },
   "window.close": { run: () => window.rune.window.close() },
   "app.quit": { run: () => window.rune.window.quit() },
@@ -205,13 +209,17 @@ const actions: Record<string, Action> = {
   "open.shortcuts": { run: () => openSettings("shortcuts") },
 
   "app.command-bar": { run: () => openCommandBar() },
-  "agent.toggle": { when: hasTab, run: (ctx) => toggleAgent(ctx.tabId!) },
+  // Private windows have no agents, apps or workspaces.
+  "agent.toggle": { when: (ctx) => hasTab(ctx) && !isPrivate, run: (ctx) => toggleAgent(ctx.tabId!) },
   "sidebar.toggle": { run: () => toggleSidebar() },
-  "new.app": { run: () => newApp() },
+  "new.app": { when: () => !isPrivate, run: () => newApp() },
   ...Object.fromEntries(
     [1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => [
       `workspace.select-${n}`,
-      { when: () => !!workspaces[n - 1], run: () => showWorkspace(workspaces[n - 1]!.id) } satisfies Action,
+      {
+        when: () => !isPrivate && !!workspaces[n - 1],
+        run: () => showWorkspace(workspaces[n - 1]!.id),
+      } satisfies Action,
     ]),
   ),
 };

@@ -25,6 +25,8 @@ import {
   APP_PARTITION_PATTERN,
   DEFAULT_WORKSPACE,
   type CertificateProblem,
+  PRIVATE_PARTITION,
+  PRIVATE_WORKSPACE,
   WEB_PARTITION,
   WEB_PARTITION_PATTERN,
   webPartition,
@@ -39,6 +41,7 @@ import { setupShortcuts } from "./shortcuts";
 import { buildContextMenu } from "./contextMenu";
 import type { Observation } from "../shared/endpoints";
 import { insecureAction, type InsecurePolicy } from "../shared/insecure";
+import type { AppWindows } from "./windows";
 
 const isWebUrl = (url: string) => /^https?:/i.test(url);
 /** A local file, opened in a web tab by the user (dropped on Rune Browser, or from a chat). */
@@ -49,37 +52,36 @@ const isAppUrl = (url: string) => /^http:\/\/(127\.0\.0\.1|localhost):\d+(\/|$)/
 // Websites get the harmless permissions, and what their site settings allow (camera, location, notifications…).
 const allowedPermissions = new Set(["fullscreen", "clipboard-sanitized-write", "pointerLock"]);
 
-export function setupWebTabs(
-  getWindow: () => BrowserWindow | undefined,
-  onApiCall?: (workspaceId: string, observation: Observation) => void,
-) {
-  const send = (channel: string, ...args: unknown[]) => getWindow()?.webContents.send(channel, ...args);
-  const shortcuts = setupShortcuts(getWindow);
+export function setupWebTabs(windows: AppWindows, onApiCall?: (workspaceId: string, observation: Observation) => void) {
+  /** Tells the window a page is in. */
+  const sendTo = (contents: WebContents, channel: string, ...args: unknown[]) =>
+    windows.of(contents)?.webContents.send(channel, ...args);
+  const shortcuts = setupShortcuts(windows);
   // Plain HTTP (shared/insecure.ts): what a page navigates to itself, and redirects, are held
-  // back here; the tab (components/WebTab.tsx) tries HTTPS or warns. The window sends the policy.
+  // back here; the tab (components/WebTab.tsx) tries HTTPS or warns. The windows send the policy.
   let insecurePolicy: InsecurePolicy = { enabled: true, allowed: [] };
   ipcMain.on("rune:insecure-policy", (event, value: unknown) => {
-    if (event.sender !== getWindow()?.webContents || !value || typeof value !== "object") return;
+    if (!windows.isUi(event.sender) || !value || typeof value !== "object") return;
     const v = value as { enabled?: unknown; allowed?: unknown };
     insecurePolicy = {
       enabled: v.enabled !== false,
       allowed: Array.isArray(v.allowed) ? v.allowed.filter((h): h is string => typeof h === "string") : [],
     };
   });
-  /** Holds back a web tab's navigation to an insecure page; true if it did. */
+  /** Holds back a web tab's navigation to an insecure page; true if it did. The tab's window warns. */
   const holdInsecure = (contents: WebContents, url: string) => {
     if (insecureAction(url, insecurePolicy).kind === "allow") return false;
-    send("rune:insecure", { contentsId: contents.id, url });
+    sendTo(contents, "rune:insecure", { contentsId: contents.id, url });
     return true;
   };
   const browser = setupBrowser({
-    getWindow,
+    windows,
     webSession: (workspaceId) => webSession(webPartition(workspaceId)),
     isWebSession: (s) => webSessions.has(s),
     rulesChanged: () => extensions.rulesChanged(),
   });
   const extensions = setupExtensions({
-    getWindow,
+    windows,
     webSession: (workspaceId) => webSession(webPartition(workspaceId)),
     workspaceOf: (s) => webSessions.get(s),
     holdInsecure,
@@ -87,24 +89,25 @@ export function setupWebTabs(
   });
   /** Websites, and the pages of the extensions running in that session. */
   const isTabUrl = (s: Electron.Session, url: string) => isWebUrl(url) || extensions.isExtensionPage(s, url);
-  /** In the background: Ctrl+click and middle click, like in a browser. */
-  const openTab = (s: Electron.Session, url: string, background = false) =>
-    isTabUrl(s, url) && send("rune:open-tab", url, background);
+  /** In the background: Ctrl+click and middle click, like in a browser. A new tab opens in the page's window. */
+  const openTab = (contents: WebContents, url: string, background = false) =>
+    isTabUrl(contents.session, url) && sendTo(contents, "rune:open-tab", url, background);
   const network = setupNetwork({
-    getWindow,
+    windows,
     webSession: (workspaceId) => webSession(webPartition(workspaceId)),
     workspaceOf: (s) => webSessions.get(s),
     applyRules: (rules) => extensions.setNetworkRules(rules),
-    onApiCall,
+    // Private windows leave nothing behind, not even the shapes of the APIs their pages call.
+    onApiCall: (workspaceId, observation) => workspaceId !== PRIVATE_WORKSPACE && onApiCall?.(workspaceId, observation),
   });
 
   const overrides = setupOverrides({
-    getWindow,
+    windows,
     workspaceOf: (s) => webSessions.get(s),
     onOverridden: (id, requestId, title) => network.markOverridden(id, requestId, title),
   });
 
-  const devtools = setupDevtools({ getWindow, isWebTab: (contents) => webSessions.has(contents.session) });
+  const devtools = setupDevtools({ windows, isWebTab: (contents) => webSessions.has(contents.session) });
 
   app.on("web-contents-created", (_event, contents) => {
     contents.on("will-attach-webview", (event, prefs, params) => {
@@ -146,7 +149,7 @@ export function setupWebTabs(
       browser.trackGuest(contents);
     }
     contents.setWindowOpenHandler(({ url, disposition }) => {
-      openTab(contents.session, url, disposition === "background-tab");
+      openTab(contents, url, disposition === "background-tab");
       return { action: "deny" };
     });
     contents.on("will-navigate", (event, url) => {
@@ -158,7 +161,7 @@ export function setupWebTabs(
       if (!isPreview() && isFileUrl(url) && !event.initiator) return;
       event.preventDefault();
       if (/^(mailto|tel):/i.test(url)) shell.openExternal(url);
-      else openTab(contents.session, url);
+      else openTab(contents, url);
     });
     // A redirect to plain HTTP, whoever started the navigation (the tab, the agent, the page).
     contents.on("will-redirect", (details) => {
@@ -178,10 +181,10 @@ export function setupWebTabs(
     contents.on("input-event", (_event, input) => shortcuts.handlePageMouse(contents, input));
     // Ctrl+scroll zooms, like Ctrl+Plus and Minus.
     contents.on("zoom-changed", (_event, direction) =>
-      send("rune:shortcut", { id: direction === "in" ? "zoom.in" : "zoom.out", contentsId: contents.id }),
+      sendTo(contents, "rune:shortcut", { id: direction === "in" ? "zoom.in" : "zoom.out", contentsId: contents.id }),
     );
     contents.on("context-menu", (_event, params) => {
-      Menu.buildFromTemplate(contextMenu(contents, params)).popup({ window: getWindow() });
+      Menu.buildFromTemplate(contextMenu(contents, params)).popup({ window: windows.of(contents) });
     });
   }
 
@@ -194,7 +197,7 @@ export function setupWebTabs(
   /** The search engine Settings picked (the renderer sends it), for "Search … for" in the menu. */
   let searchEngine: { label: string; url: string } | undefined;
   ipcMain.on("rune:search-engine", (event, value: unknown) => {
-    if (event.sender !== getWindow()?.webContents) return;
+    if (!windows.isUi(event.sender)) return;
     const v = value as { label?: unknown; url?: unknown } | null;
     if (v && typeof v.label === "string" && typeof v.url === "string" && /^https:\/\/.*%s/.test(v.url))
       searchEngine = { label: v.label.slice(0, 60), url: v.url };
@@ -203,7 +206,7 @@ export function setupWebTabs(
   function contextMenu(contents: WebContents, params: ContextMenuParams): MenuItemConstructorOptions[] {
     const history = contents.navigationHistory;
     return buildContextMenu(params, {
-      openTab: (url, background) => openTab(contents.session, url, background),
+      openTab: (url, background) => openTab(contents, url, background),
       openExternal: (url) => void shell.openExternal(url),
       copyText: (text) => clipboard.writeText(text),
       download: (url) => contents.downloadURL(url),
@@ -257,7 +260,14 @@ export function setupWebTabs(
   function webSession(partition: string) {
     const s = session.fromPartition(partition);
     if (webSessions.has(s)) return s;
-    webSessions.set(s, partition === WEB_PARTITION ? DEFAULT_WORKSPACE : partition.slice(WEB_PARTITION.length + 1));
+    webSessions.set(
+      s,
+      partition === PRIVATE_PARTITION
+        ? PRIVATE_WORKSPACE
+        : partition === WEB_PARTITION
+          ? DEFAULT_WORKSPACE
+          : partition.slice(WEB_PARTITION.length + 1),
+    );
     lockDown(s);
     void extensions.attach(s);
     // A plain Chrome user agent: some sites turn away unknown browsers. Google's
@@ -284,13 +294,13 @@ export function setupWebTabs(
       }
       if (answer === "cancel") return callback();
       if (answer) return callback(answer.username, answer.password);
-      const win = getWindow();
+      const win = windows.of(contents);
       if (!win || contents.isDestroyed()) return callback();
       const requestId = String(++authPromptIds);
       const typed = await new Promise<{ username: string; password: string } | null>((resolve) => {
         authPrompts.set(requestId, resolve);
         contents.once("destroyed", () => resolve(null));
-        send("rune:auth-prompt", {
+        win.webContents.send("rune:auth-prompt", {
           requestId,
           url: details.url,
           host: authInfo.host,
@@ -305,7 +315,7 @@ export function setupWebTabs(
     })();
   });
   ipcMain.on("rune:auth-reply", (event, requestId: unknown, value: unknown) => {
-    if (event.sender !== getWindow()?.webContents || typeof requestId !== "string") return;
+    if (!windows.isUi(event.sender) || typeof requestId !== "string") return;
     const v = value as { username?: unknown; password?: unknown } | null;
     authPrompts.get(requestId)?.(
       v && typeof v.username === "string" && typeof v.password === "string"
@@ -375,8 +385,7 @@ export function setupWebTabs(
 
   // A deleted workspace's cookies, logins and cache go with it.
   ipcMain.handle("rune:clear-workspace", async (event, workspaceId: unknown) => {
-    if (event.sender !== getWindow()?.webContents || typeof workspaceId !== "string" || !/^[\w-]+$/.test(workspaceId))
-      return;
+    if (!windows.isUi(event.sender) || typeof workspaceId !== "string" || !/^[\w-]+$/.test(workspaceId)) return;
     const s = session.fromPartition(webPartition(workspaceId));
     await extensions.detach(s);
     await s.clearStorageData();
@@ -385,14 +394,13 @@ export function setupWebTabs(
 
   // A dropped file the browser can't show is downloaded, like Chrome does.
   ipcMain.on("rune:download", (event, workspaceId: unknown, url: unknown) => {
-    if (event.sender !== getWindow()?.webContents || typeof workspaceId !== "string" || !/^[\w-]+$/.test(workspaceId))
-      return;
+    if (!windows.isUi(event.sender) || typeof workspaceId !== "string" || !/^[\w-]+$/.test(workspaceId)) return;
     if (typeof url === "string" && (isFileUrl(url) || isWebUrl(url)))
       webSession(webPartition(workspaceId)).downloadURL(url);
   });
 
   ipcMain.on("rune:open-external", (event, url: unknown) => {
-    if (event.sender !== getWindow()?.webContents) return;
+    if (!windows.isUi(event.sender)) return;
     if (typeof url === "string" && isWebUrl(url)) void shell.openExternal(url);
   });
 
@@ -429,7 +437,7 @@ export function setupWebTabs(
   });
 
   async function savePage(contents: WebContents) {
-    const win = getWindow();
+    const win = windows.of(contents);
     if (!win) return;
     const name =
       (contents.getTitle() || "page")

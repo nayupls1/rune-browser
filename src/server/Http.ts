@@ -25,6 +25,7 @@ import {
 } from "../shared/api";
 import { topics } from "../shared/hub";
 import { taskTab } from "../shared/schedule";
+import { isPrivateWindow, tabFate, WINDOW_ID_PATTERN } from "../shared/windows";
 import { Settings as SettingsSchema, WorkspaceSettings } from "../shared/settings";
 import { Agent } from "./agent/Agent";
 import { Mcp } from "./agent/Mcp";
@@ -97,6 +98,7 @@ const decodeBody = <S extends Schema.Codec<unknown>>(schema: S) =>
   });
 
 const str = (max: number) => Schema.String.check(Schema.isMaxLength(max));
+const WindowId = Schema.String.check(Schema.isPattern(WINDOW_ID_PATTERN, { message: "not a window id" }));
 
 // --- Auth ----------------------------------------------------------------------------
 
@@ -157,7 +159,10 @@ const ws = HttpRouter.add(
     const url = new URL(req.url, "http://localhost");
     const socket = yield* req.upgrade.pipe(Effect.orElseSucceed(() => null));
     if (!socket) return json({ error: "Expected a WebSocket upgrade" }, 426);
-    yield* hub.serve(socket, { renderer: url.searchParams.get("role") === "renderer" });
+    yield* hub.serve(socket, {
+      renderer: url.searchParams.get("role") === "renderer",
+      window: url.searchParams.get("window") ?? undefined,
+    });
     return noContent;
   }),
 );
@@ -475,12 +480,21 @@ const appRoutes = HttpRouter.addAll([
               ),
             ),
             workspaceId: Schema.optionalKey(str(100)),
+            windowId: Schema.optionalKey(WindowId),
           }),
         );
         const space = input.workspaceId ? yield* workspaces.get(input.workspaceId) : yield* workspaces.first();
         if (!space) return yield* fail(404, "No such workspace");
         const kind = input.kind ?? "app";
-        const app = yield* apps.create(space.id, kind, kind === "web" ? (input.url ?? null) : null);
+        // Agents don't work in private windows, so there are no apps there.
+        if (kind === "app" && isPrivateWindow(input.windowId))
+          return yield* fail(400, "Private windows have web tabs only");
+        const app = yield* apps.create(
+          space.id,
+          kind,
+          kind === "web" ? (input.url ?? null) : null,
+          input.windowId ?? null,
+        );
         yield* publishApp(app);
         return json(app, 201);
       }),
@@ -561,9 +575,12 @@ const appRoutes = HttpRouter.addAll([
     handle(
       Effect.gen(function* () {
         const id = yield* param("id");
-        const { workspaceId } = yield* decodeBody(Schema.Struct({ workspaceId: str(100) }));
+        const { workspaceId, windowId } = yield* decodeBody(
+          Schema.Struct({ workspaceId: str(100), windowId: Schema.optionalKey(WindowId) }),
+        );
         yield* ensureWorkspace(workspaceId);
-        const opened = yield* (yield* Projects).reopen(id, workspaceId);
+        if (isPrivateWindow(windowId)) return yield* fail(400, "Private windows have web tabs only");
+        const opened = yield* (yield* Projects).reopen(id, workspaceId, windowId);
         if (!opened) return yield* fail(404, "No such app");
         yield* youDid(id, "app.reopen", opened.name);
         return json(opened);
@@ -620,10 +637,29 @@ const appRoutes = HttpRouter.addAll([
         if (!target) return yield* fail(404, "No such workspace");
         const app = yield* apps.get(id);
         if (!app) return yield* fail(404, "Not found");
+        // A private window has no workspaces: its tabs share the private session.
+        if (app.private) return yield* fail(400, "Private tabs aren't in a workspace");
         if (app.workspaceId === workspaceId) return json(app);
         const moved = yield* (yield* Projects).move(id, workspaceId);
         yield* youDid(id, "tab.move", target.name);
         return json(moved);
+      }),
+    ),
+  ),
+
+  // Moving a tab to another window (dragged there, or "Move to new window"). Private tabs stay in private windows.
+  HttpRouter.route(
+    "POST",
+    "/api/apps/:id/window",
+    handle(
+      Effect.gen(function* () {
+        const id = yield* param("id");
+        const { windowId } = yield* decodeBody(Schema.Struct({ windowId: WindowId }));
+        const app = yield* (yield* Apps).get(id);
+        if (!app || app.closedAt) return yield* fail(404, "Not found");
+        if (app.private !== isPrivateWindow(windowId))
+          return yield* fail(400, "Tabs don't move between private and normal windows");
+        return json(yield* (yield* Projects).moveToWindow(id, windowId));
       }),
     ),
   ),
@@ -782,6 +818,45 @@ const appRoutes = HttpRouter.addAll([
     }),
   ),
 ]);
+
+/**
+ * The main process tells which windows are open, closed (to be reopened) and forgotten, at
+ * startup and whenever that changes (shared/windows.ts: tabFate): private tabs whose window
+ * closed are deleted, forgotten windows' tabs close (apps go to the library), and tabs of
+ * windows nobody knows go to the first open window.
+ */
+const windowRoutes = HttpRouter.add(
+  "POST",
+  "/api/windows",
+  handle(
+    Effect.gen(function* () {
+      const ids = Schema.Array(WindowId).check(Schema.isMaxLength(200));
+      const sync = yield* decodeBody(Schema.Struct({ open: ids, closed: ids, forget: ids }));
+      const apps = yield* Apps;
+      const projects = yield* Projects;
+      yield* apps.setHomeWindow(sync.open.find((id) => !isPrivateWindow(id)) ?? null);
+      const changed = { deleted: 0, closed: 0, adopted: 0 };
+      for (const tab of yield* apps.list()) {
+        const fate = tabFate(tab, { open: [...sync.open], closed: [...sync.closed], forget: [...sync.forget] });
+        if (fate === "keep") continue;
+        if (fate === "delete") {
+          yield* removeApp(tab.id);
+          changed.deleted++;
+        } else if (fate === "close") {
+          yield* (yield* Agent).stop(tab.id);
+          if (yield* (yield* Workspace).info(tab.id)) yield* projects.close(tab.id);
+          else yield* removeApp(tab.id);
+          yield* dropTabOverrides(tab.id);
+          changed.closed++;
+        } else {
+          yield* projects.publish(yield* apps.setWindow(tab.id, fate.adopt, "same"));
+          changed.adopted++;
+        }
+      }
+      return json(changed);
+    }),
+  ),
+);
 
 const runtimeRoutes = HttpRouter.addAll([
   HttpRouter.route(
@@ -2598,6 +2673,7 @@ export const routes = Layer.mergeAll(
   attachmentRoutes,
   presetsRoute,
   appRoutes,
+  windowRoutes,
   workspaceRoutes,
   historyRoutes,
   actionRoutes,

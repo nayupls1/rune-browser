@@ -44,7 +44,8 @@ import {
   type InstallResult,
   type Shortcut,
 } from "../../shared/extensions";
-import type { NetworkRule } from "../../shared/api";
+import { PRIVATE_WORKSPACE, type NetworkRule } from "../../shared/api";
+import type { AppWindows } from "../windows";
 import { createApis } from "./apis";
 import { builtinExtensionDir } from "./builtin";
 import { detectBrowsers, importExtensions, platform, storageFolders } from "./browsers";
@@ -64,7 +65,7 @@ import {
 import { checkUpdates, downloadFromWebStore, downloadUpdate, WEB_STORE_UPDATE_URL } from "./webstore";
 
 export interface ExtensionsOptions {
-  getWindow: () => BrowserWindow | undefined;
+  windows: AppWindows;
   /** The session of a workspace's web tabs (set up on first use). */
   webSession: (workspaceId: string) => Session;
   workspaceOf: (s: Session) => string | undefined;
@@ -83,7 +84,7 @@ function idForDir(dir: string, key: unknown) {
 }
 
 export function setupExtensions(options: ExtensionsOptions) {
-  const { getWindow } = options;
+  const { windows } = options;
   const registry = new Registry();
   const contexts = new Contexts();
   const states = new Map<string, ExtensionState>();
@@ -94,10 +95,18 @@ export function setupExtensions(options: ExtensionsOptions) {
   const grants = new Map<string, Set<number>>();
   const loading = new Map<string, Promise<void>>();
   let tabs: ExtensionTabs = { workspaces: {}, current: null, showing: null };
+  /** Each window's tabs (rune:extensions-tabs, by the window page's id); \`tabs\` has them all. */
+  const windowTabs = new Map<number, ExtensionTabs>();
   let networkRules: NetworkRule[] = [];
   const preload = join(app.getAppPath(), "dist", "electron", "extension-preload.cjs");
 
-  const send = (channel: string, ...args: unknown[]) => getWindow()?.webContents.send(channel, ...args);
+  const send = (channel: string, ...args: unknown[]) => windows.broadcast(channel, ...args);
+  /** The window that acts for a workspace's extensions: the private windows have one session for all of them. */
+  const windowFor = (workspaceId: string | null | undefined) =>
+    windows.current(workspaceId === PRIVATE_WORKSPACE ? "private" : workspaceId ? "normal" : undefined);
+  /** Private windows run only the extensions the user allowed there, like Chrome's "Allow in Incognito". */
+  const allowedIn = (s: Session, entry: InstalledExtension) =>
+    options.workspaceOf(s) !== PRIVATE_WORKSPACE || entry.allowPrivate === true;
   const stateKey = (s: Session, id: string) => `${options.workspaceOf(s) ?? "?"}|${id}`;
   const state = (s: Session, id: string) => states.get(stateKey(s, id));
   const sessions = () => [...attached.keys()];
@@ -137,13 +146,14 @@ export function setupExtensions(options: ExtensionsOptions) {
         clearTimeout(timer);
         resolve(value);
       });
-      if (!getWindow()) {
+      const win = windowFor(typeof request.workspaceId === "string" ? request.workspaceId : null);
+      if (!win) {
         pending.delete(requestId);
         clearTimeout(timer);
         resolve(fallback);
         return;
       }
-      send(channel, { ...request, requestId });
+      win.webContents.send(channel, { ...request, requestId });
     });
   }
 
@@ -166,7 +176,7 @@ export function setupExtensions(options: ExtensionsOptions) {
     workspaceOf: options.workspaceOf,
     holdInsecure: options.holdInsecure,
     sessions,
-    window: getWindow,
+    window: () => windows.current(),
     tabs: tabsOf,
     active: activeOf,
     hasActiveTab: (s, id, tabId) =>
@@ -212,8 +222,27 @@ export function setupExtensions(options: ExtensionsOptions) {
   type DistributiveOmit<T, K extends keyof any> = T extends unknown ? Omit<T, K> : never;
 
   ipcMain.on("rune:extensions-tabs", (event, value: ExtensionTabs) => {
-    if (event.sender !== getWindow()?.webContents || !value || typeof value !== "object") return;
+    if (!windows.isUi(event.sender) || !value || typeof value !== "object" || !value.workspaces) return;
+    const sender = event.sender;
+    if (!windowTabs.has(sender.id)) sender.once("destroyed", () => windowTabs.delete(sender.id) && mergeTabs());
+    windowTabs.set(sender.id, value);
+    mergeTabs();
+  });
+  /** Every window's tabs together; the focused window's say which tab is active and what's on screen. */
+  function mergeTabs() {
     const before = tabs;
+    const focused = windows.current()?.webContents.id;
+    const ordered = [...windowTabs.entries()].sort(([a], [b]) => (a === focused ? 1 : 0) - (b === focused ? 1 : 0));
+    const value: ExtensionTabs = { workspaces: {}, current: null, showing: null };
+    for (const [, t] of ordered) {
+      for (const [workspaceId, w] of Object.entries(t.workspaces)) {
+        const merged = (value.workspaces[workspaceId] ??= { tabs: [], active: null });
+        merged.tabs.push(...w.tabs);
+        if (w.active !== null) merged.active = w.active;
+      }
+      if (t.current) value.current = t.current;
+      if (t.showing !== null) value.showing = t.showing;
+    }
     tabs = value;
     for (const s of sessions()) {
       const workspaceId = options.workspaceOf(s);
@@ -225,9 +254,9 @@ export function setupExtensions(options: ExtensionsOptions) {
         actionsChanged(s);
       }
     }
-  });
+  }
   ipcMain.on("rune:extensions-reply", (event, requestId: unknown, value: unknown) => {
-    if (event.sender !== getWindow()?.webContents || typeof requestId !== "string") return;
+    if (!windows.isUi(event.sender) || typeof requestId !== "string") return;
     const resolve = pending.get(requestId);
     pending.delete(requestId);
     resolve?.(value);
@@ -381,7 +410,7 @@ export function setupExtensions(options: ExtensionsOptions) {
   }
 
   async function load(s: Session, entry: InstalledExtension) {
-    if (!entry.enabled || loaded(s, entry.id)) return;
+    if (!entry.enabled || !allowedIn(s, entry) || loaded(s, entry.id)) return;
     const key = stateKey(s, entry.id);
     let st = states.get(key);
     if (!st) {
@@ -561,7 +590,7 @@ export function setupExtensions(options: ExtensionsOptions) {
     const a = state(s, id)?.actionFor(activeOf(workspaceId));
     const popup = url ?? (a ? popupOf(s, id, a) : "");
     if (!popup) return false;
-    send("rune:extensions-popup", { workspaceId, extensionId: id, url: popup });
+    windowFor(workspaceId)?.webContents.send("rune:extensions-popup", { workspaceId, extensionId: id, url: popup });
     return true;
   }
 
@@ -716,7 +745,7 @@ export function setupExtensions(options: ExtensionsOptions) {
   }
 
   async function loadUnpacked(): Promise<InstallResult | null> {
-    const win = getWindow();
+    const win = windows.current();
     const picked = win
       ? await dialog.showOpenDialog(win, { title: "Load an unpacked extension", properties: ["openDirectory"] })
       : null;
@@ -822,6 +851,18 @@ export function setupExtensions(options: ExtensionsOptions) {
     listChanged();
   }
 
+  /** Lets it run in private windows, or not (it starts or stops there right away). */
+  function setAllowPrivate(id: string, allowed: boolean) {
+    const entry = registry.update(id, { allowPrivate: allowed });
+    if (!entry) return;
+    for (const s of sessions()) {
+      if (options.workspaceOf(s) !== PRIVATE_WORKSPACE) continue;
+      if (allowed) void loadInto(s, entry);
+      else void unloadFrom(s, id);
+    }
+    listChanged();
+  }
+
   // --- Updates ----------------------------------------------------------------------------------------------
 
   let updating: Promise<number> | null = null;
@@ -879,8 +920,7 @@ export function setupExtensions(options: ExtensionsOptions) {
 
   // --- IPC from the Rune Browser window ---------------------------------------------------------------------------
 
-  const fromWindow = (event: Electron.IpcMainInvokeEvent | Electron.IpcMainEvent) =>
-    event.sender === getWindow()?.webContents;
+  const fromWindow = (event: Electron.IpcMainInvokeEvent | Electron.IpcMainEvent) => windows.isUi(event.sender);
   const validWorkspace = (w: unknown): w is string => typeof w === "string" && /^[\w-]+$/.test(w);
   const handle = (channel: string, fn: (...args: any[]) => unknown) =>
     ipcMain.handle(channel, (event, ...args) => {
@@ -908,6 +948,10 @@ export function setupExtensions(options: ExtensionsOptions) {
   handle(
     "rune:extensions-set-enabled",
     (id: unknown, enabled: unknown) => isExtensionId(id) && setEnabled(id, enabled === true),
+  );
+  handle(
+    "rune:extensions-set-allow-private",
+    (id: unknown, allowed: unknown) => isExtensionId(id) && setAllowPrivate(id, allowed === true),
   );
   handle("rune:extensions-set-pinned", (id: unknown, pinned: unknown) => {
     if (!isExtensionId(id) || !registry.update(id, { pinned: pinned === true })) return;
@@ -955,9 +999,9 @@ export function setupExtensions(options: ExtensionsOptions) {
             },
           ]
         : []),
-      { label: "Manage extensions", click: () => send("rune:extensions-manage") },
+      { label: "Manage extensions", click: () => windowFor(workspaceId)?.webContents.send("rune:extensions-manage") },
     ];
-    Menu.buildFromTemplate(items).popup({ window: getWindow() });
+    Menu.buildFromTemplate(items).popup({ window: windowFor(workspaceId) });
   });
 
   return {

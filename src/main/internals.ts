@@ -1,22 +1,23 @@
 // What Rune Browser's internal pages need from the main process (shared/internalPages.ts):
 // rune://version, rune://gpu and rune://flags. Only Rune Browser's window asks.
-import { app, ipcMain, type BrowserWindow } from "electron";
+import { app, ipcMain } from "electron";
 import { arch, release, type, version } from "node:os";
 import { cleanFlagState, type FlagsInfo, type FlagState } from "../shared/flags";
 import type { GpuReport, VersionInfo } from "../shared/internalPages";
 import { readFlags, writeFlags } from "./flags";
 import { webUserAgent } from "./web";
+import type { AppWindows } from "./windows";
 
 /** Complete GPU info can take a while (it starts the GPU's info collection); basic info after this long. */
 const COMPLETE_GPU_INFO_MS = 4000;
 
 export function setupInternals(options: {
-  getWindow: () => BrowserWindow | undefined;
+  windows: AppWindows;
   /** The flags in effect since startup. */
   appliedFlags: FlagState;
   safeMode: boolean;
 }) {
-  const fromWindow = (event: Electron.IpcMainInvokeEvent) => event.sender === options.getWindow()?.webContents;
+  const fromWindow = (event: Electron.IpcMainInvokeEvent) => options.windows.isUi(event.sender);
 
   ipcMain.handle("rune:internals-version", (event): VersionInfo | null => {
     if (!fromWindow(event)) return null;

@@ -22,7 +22,10 @@ import {
   selectedId,
   currentWorkspace,
   appById,
+  isPrivate,
+  sessionWorkspace,
 } from "./store";
+import { PRIVATE_WORKSPACE } from "../../shared/api";
 import { pageOf, pagesVersion, tabOfContents } from "./webtabs";
 import { searchEngine } from "./settings";
 
@@ -75,13 +78,14 @@ createRoot(() => {
     pagesVersion();
     const opened = new Set(openedIds());
     const selected = selectedId();
-    const current = currentWorkspace()?.id ?? null;
+    const current = isPrivate ? PRIVATE_WORKSPACE : (currentWorkspace()?.id ?? null);
     const tabs: ExtensionTabs = { workspaces: {}, current, showing: null };
     for (const app of apps) {
       if (app.kind !== "web" || !opened.has(app.id)) continue;
       const id = contentsOf(app.id);
       if (id === null) continue;
-      const ws = (tabs.workspaces[app.workspaceId] ??= { tabs: [], active: null });
+      // A private window's tabs are all in the private session's extensions' view.
+      const ws = (tabs.workspaces[sessionWorkspace(app)] ??= { tabs: [], active: null });
       ws.tabs.push(id);
       // The selected tab of a workspace: the one on screen, or the last one shown there.
       if (app.id === selected || (ws.active === null && app.id === lastTabOf(app.workspaceId))) ws.active = id;
@@ -106,15 +110,20 @@ bridge.onTabRequest(async (request) => {
     if (request.action === "open") {
       // chrome.search.query: the search engine from Settings.
       const url = request.search ? searchEngine().url.replace("%s", encodeURIComponent(request.search)) : request.url;
+      // The private session's extensions open their tabs in the private window (main sends them there).
+      const here = isPrivate
+        ? request.workspaceId === PRIVATE_WORKSPACE
+        : request.workspaceId === currentWorkspace()?.id;
       const app = await newWebTab(url || undefined, {
-        workspaceId: request.workspaceId,
-        background: !request.active || request.workspaceId !== currentWorkspace()?.id,
+        workspaceId: isPrivate ? undefined : request.workspaceId,
+        background: !request.active || !here,
       });
       bridge.reply(request.requestId, await contentsWhenReady(app.id));
       return;
     }
     const tabId = tabOfContents(request.tabId);
-    if (!tabId || appById(tabId)?.workspaceId !== request.workspaceId) return bridge.reply(request.requestId, null);
+    if (!tabId || sessionWorkspace(appById(tabId)) !== request.workspaceId)
+      return bridge.reply(request.requestId, null);
     if (request.action === "select") await selectApp(tabId);
     else await deleteApp(tabId);
     bridge.reply(request.requestId, request.tabId);

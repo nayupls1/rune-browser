@@ -54,6 +54,8 @@ export const isValidTopic = (topic: unknown): topic is string =>
 export type ClientMessage =
   | { type: "subscribe"; topic: string }
   | { type: "unsubscribe"; topic: string }
+  /** A window's renderer: the tabs in its window (requests about them go there). */
+  | { type: "tabs"; ids: string[] }
   | { type: "rpc-result"; id: number; result?: unknown; error?: string };
 
 export type ServerMessage =
@@ -117,6 +119,7 @@ export class Socket {
       this.retry = 0;
       // Subscribe before telling listeners, so what they refetch can't miss a change.
       for (const topic of this.handlers.keys()) this.raw({ type: "subscribe", topic });
+      if (this.tabs) this.raw({ type: "tabs", ids: this.tabs });
       this.setConnected(true);
     };
     ws.onmessage = (event) => {
@@ -154,6 +157,13 @@ export class Socket {
 
   private raw(msg: ClientMessage) {
     if (this.ws?.readyState === 1) this.ws.send(JSON.stringify(msg));
+  }
+
+  private tabs: string[] | undefined;
+  /** A window's renderer: says which tabs its window has (again after a reconnect). */
+  setTabs(ids: string[]) {
+    this.tabs = ids;
+    this.raw({ type: "tabs", ids });
   }
 
   subscribe(topic: string, fn: Handler): () => void {

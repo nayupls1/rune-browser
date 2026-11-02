@@ -81,6 +81,9 @@ export function SiteInfoPopover(props: {
                 <Icon name={siteSettings[key].icon} size={14} {...stylex.attrs(styles.rowIcon)} />
                 <span {...stylex.attrs(styles.rowLabel)}>{siteSettings[key].label}</span>
                 <select
+                  // Saved with the settings: a private window keeps nothing, so it shows them only.
+                  disabled={window.rune.window.private}
+                  title={window.rune.window.private ? "Site settings can't be changed in a private window" : undefined}
                   value={own()[key] ?? ""}
                   onChange={(e) => {
                     setSiteSetting(props.site, key, (e.currentTarget.value || undefined) as SiteDecision | undefined);

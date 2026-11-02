@@ -52,6 +52,8 @@ export const defaultZoom = () => settings().browser.zoom.default;
 
 /** Remembers the zoom of the page's site (web pages only). */
 export function rememberZoom(url: string, factor: number) {
+  // A private window remembers nothing: its pages keep their zoom only while they're open.
+  if (window.rune.window.private) return;
   const host = /^https?:/i.test(url) ? hostOf(url) : "";
   if (host) updateBrowser((b) => withSiteZoom(b, host, factor));
 }

@@ -236,6 +236,8 @@ const migrate = Effect.gen(function* () {
     ["closed_at", "TEXT"],
     // The current chat's folder (agent/ChatFiles.ts), made on first use.
     ["chat_folder", "TEXT"],
+    // The window it's in (shared/windows.ts; "private-…" for private windows).
+    ["window_id", "TEXT"],
   ];
   for (const [name, type] of added) {
     if (!columns.has(name)) yield* sql.unsafe(`ALTER TABLE apps ADD COLUMN ${name} ${type}`);

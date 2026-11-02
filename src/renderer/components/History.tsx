@@ -8,7 +8,7 @@ import { appOfTarget, type HistoryEntry, type HistoryFile } from "../../shared/a
 import { topics } from "../../shared/hub";
 import { api } from "../lib/api";
 import { watchTopic } from "../lib/realtime";
-import { apps, currentWorkspace, workspaces } from "../lib/store";
+import { allApps, currentWorkspace, workspaces } from "../lib/store";
 import { colors, font, radius, space } from "../theme.stylex";
 import { confirmDialog } from "./ConfirmDialog";
 import { Icon } from "./Icon";
@@ -28,7 +28,7 @@ const when = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyl
 /** The name of what a snapshot covers. */
 export const targetName = (target: string) => {
   const appId = appOfTarget(target);
-  if (appId) return apps.find((a) => a.id === appId)?.name ?? "A deleted app";
+  if (appId) return allApps().find((a) => a.id === appId)?.name ?? "A deleted app";
   return target === "sites" ? "Site customizations" : "Settings";
 };
 
@@ -348,7 +348,7 @@ export function HistoryPage() {
   const [target, setTarget] = createSignal("");
   const [everywhere, setEverywhere] = createSignal(false);
   const workspace = () => (everywhere() ? undefined : currentWorkspace()?.id);
-  const appTabs = () => apps.filter((a) => a.kind === "app" && (!workspace() || a.workspaceId === workspace()));
+  const appTabs = () => allApps().filter((a) => a.kind === "app" && (!workspace() || a.workspaceId === workspace()));
   return (
     <div {...stylex.attrs(styles.page)} data-history-page>
       <header {...stylex.attrs(styles.header)}>

@@ -12,6 +12,7 @@ import { startServer, type ServerHandle } from "./server";
 import { appUserModelId, taskbarDetails } from "./taskbar";
 import { setupUpdates } from "./updates";
 import { guardWindow, setupWebTabs } from "./web";
+import { createWindowManager } from "./windows";
 
 const devServerUrl = process.env.VITE_DEV_SERVER_URL;
 
@@ -79,16 +80,7 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 let server: ServerHandle | undefined;
-let mainWindow: BrowserWindow | undefined;
 let web: ReturnType<typeof setupWebTabs> | undefined;
-
-// Links and files from other apps (registered before the app is ready: macOS sends the first ones then).
-setupLinks({
-  getWindow: () => mainWindow,
-  showWindow: () => {
-    if (server && !mainWindow) createWindow(server);
-  },
-});
 
 // Safe mode: the renderer leaves out the theme and site customizations, so
 // whatever broke the UI can be undone in History. rune://flags are left out too.
@@ -103,33 +95,38 @@ function relaunch(safe: boolean) {
   app.quit();
 }
 
+const manager = createWindowManager({
+  rendererUrl: devServerUrl ?? `${APP_SCHEME}://${APP_HOST}/`,
+  preload: join(distDir, "electron/preload.cjs"),
+  // The window and taskbar icon (Windows wants an .ico; the packaged app's executable has one too).
+  icon: join(distDir, "electron", process.platform === "win32" ? "icon.ico" : "icon.png"),
+  safeMode,
+  offscreen: process.env.RUNE_OFFSCREEN === "1",
+  onCreated: setupWindow,
+});
+const { windows } = manager;
+
+// Links and files from other apps (registered before the app is ready: macOS sends the first ones then).
+setupLinks({
+  windows,
+  showWindow: () => {
+    if (server) manager.showNormal();
+  },
+});
+
 ipcMain.on("rune:relaunch", (event, safe: unknown) => {
-  if (event.sender === mainWindow?.webContents) relaunch(safe === true);
+  if (windows.isUi(event.sender)) relaunch(safe === true);
 });
 
 // A folder of the user's (importing an existing project as an app).
 ipcMain.handle("rune:pick-folder", async (event, title: unknown) => {
-  const win = mainWindow;
-  if (!win || event.sender !== win.webContents) return null;
+  const win = windows.of(event.sender);
+  if (!win || !windows.isUi(event.sender)) return null;
   const picked = await dialog.showOpenDialog(win, {
     title: typeof title === "string" ? title.slice(0, 200) : "Choose a folder",
     properties: ["openDirectory"],
   });
   return picked.canceled ? null : (picked.filePaths[0] ?? null);
-});
-
-// The window's buttons (drawn by the renderer when there's no frame) and double-clicking a top bar.
-ipcMain.on("rune:window", (event, action: unknown) => {
-  const win = mainWindow;
-  if (!win || event.sender !== win.webContents) return;
-  if (action === "minimize") win.minimize();
-  else if (action === "close") win.close();
-  else if (action === "toggle-fullscreen") win.setFullScreen(!win.isFullScreen());
-  else if (action === "quit") app.quit();
-  else if (action === "toggle-maximize") {
-    if (win.isMaximized()) win.unmaximize();
-    else win.maximize();
-  }
 });
 
 function registerAppProtocol() {
@@ -150,7 +147,7 @@ function serverStopped(exit: { code: number | null; signal: string | null; stder
   crashes.log(
     `The backend server stopped (${how})${exit.stderr.length ? `. Its last output: ${exit.stderr.slice(-15).join("\n")}` : ""}`,
   );
-  void crashes.show(mainWindow, {
+  void crashes.show(windows.current(), {
     title: "Rune Browser's background service stopped",
     message: "Chats, agents and apps won't work until Rune Browser restarts. Your tabs and chats are kept.",
     what: `The backend server stopped unexpectedly (${how})`,
@@ -159,51 +156,8 @@ function serverStopped(exit: { code: number | null; signal: string | null; stder
   });
 }
 
-function createWindow(server: ServerHandle) {
-  const win = new BrowserWindow({
-    width: 1100,
-    height: 750,
-    show: false,
-    autoHideMenuBar: true,
-    // The window and taskbar icon (Windows wants an .ico; the packaged app's executable has one too).
-    icon: join(distDir, "electron", process.platform === "win32" ? "icon.ico" : "icon.png"),
-    // No title bar (like Chrome). macOS keeps its traffic lights (top left); elsewhere the
-    // window is frameless and the renderer draws minimize, maximize and close (top right).
-    // Its top bars are where the window is dragged (lib/windowChrome.ts).
-    ...(process.platform === "darwin"
-      ? { titleBarStyle: "hidden" as const, trafficLightPosition: { x: 16, y: 16 } }
-      : { frame: false }),
-    webPreferences: {
-      preload: join(distDir, "electron/preload.cjs"),
-      additionalArguments: [
-        `--rune-server-url=${server.url}`,
-        `--rune-token=${server.token}`,
-        ...(safeMode ? ["--rune-safe-mode=1"] : []),
-        ...(process.env.RUNE_OFFSCREEN === "1" ? ["--rune-offscreen=1"] : []),
-      ],
-      contextIsolation: true,
-      sandbox: true,
-      nodeIntegration: false,
-      // Web tabs are <webview> guests (locked down in web.ts).
-      webviewTag: true,
-      // Agent runs stream into the window while it's in the background.
-      backgroundThrottling: false,
-      // Tests render without a visible window (always painted, nothing pops up).
-      offscreen: process.env.RUNE_OFFSCREEN === "1",
-    },
-  });
-
-  win.once("ready-to-show", () => {
-    if (process.env.RUNE_OFFSCREEN !== "1") win.show();
-  });
-
-  mainWindow = win;
-  const sendMaximized = () => win.webContents.send("rune:maximized", win.isMaximized());
-  win.on("maximize", sendMaximized);
-  win.on("unmaximize", sendMaximized);
-  win.on("closed", () => {
-    if (mainWindow === win) mainWindow = undefined;
-  });
+/** What every window gets besides its page (windows.ts): links stay in Rune Browser, crashes and safe mode. */
+function setupWindow(win: BrowserWindow) {
   guardWindow(win, rendererOrigin, (input) => web?.windowInput(input) ?? false);
   // The window's page crashed (out of memory, a GPU or renderer bug): it comes back, a few times at most.
   let pageCrashes: number[] = [];
@@ -229,23 +183,17 @@ function createWindow(server: ServerHandle) {
       relaunch(true);
     }
   });
-
-  if (devServerUrl) {
-    win.loadURL(devServerUrl);
-    win.webContents.openDevTools({ mode: "detach" });
-  } else {
-    win.loadURL(`${APP_SCHEME}://${APP_HOST}/`);
-  }
+  if (devServerUrl) win.webContents.openDevTools({ mode: "detach" });
 }
 
 app.whenReady().then(async () => {
   if (!devServerUrl) registerAppProtocol();
   web = setupWebTabs(
-    () => mainWindow,
+    windows,
     apiMapReporter(() => server),
   );
-  setupUpdates(() => mainWindow);
-  setupInternals({ getWindow: () => mainWindow, appliedFlags, safeMode });
+  setupUpdates(windows);
+  setupInternals({ windows, appliedFlags, safeMode });
 
   try {
     server = await startServer({ allowedOrigin: rendererOrigin, onExit: serverStopped });
@@ -257,11 +205,12 @@ app.whenReady().then(async () => {
     return;
   }
 
-  createWindow(server);
-  if (mainWindow) crashes.checkPreviousRun(mainWindow);
+  await manager.start(server);
+  const first = windows.current();
+  if (first) crashes.checkPreviousRun(first);
 
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0 && server) createWindow(server);
+    if (BrowserWindow.getAllWindows().length === 0 && server) manager.activate();
   });
 });
 

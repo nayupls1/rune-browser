@@ -192,6 +192,8 @@ export const shortcutDefs: ShortcutDef[] = [
   },
 
   // --- Window
+  { id: "window.new", label: "New window", category: "Window", keys: ["Mod+N"], page: "reserved" },
+  { id: "window.private", label: "New private window", category: "Window", keys: ["Mod+Shift+N"], page: "reserved" },
   {
     id: "window.fullscreen",
     label: "Full screen",
