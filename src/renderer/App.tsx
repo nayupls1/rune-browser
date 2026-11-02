@@ -11,6 +11,7 @@ import { ModReviewHost } from "./components/ModsPage";
 import { SettingsShell } from "./components/SettingsPage";
 import { paneStyle, SplitChrome, SplitDropZones } from "./components/SplitView";
 import { visibleSplit, visibleTabs } from "./lib/splits";
+import { anyPainting, isPainting } from "./lib/webtabs";
 import { Sidebar } from "./components/Sidebar";
 import { ToastHost } from "./components/Toast";
 import { Button } from "./components/ui";
@@ -120,7 +121,10 @@ export default function App() {
         </Show>
         {/* The page, inset from the window and the sidebars with rounded corners (like Zen Browser);
             in a split view each pane is a card of its own. */}
-        <div {...stylex.attrs(styles.content, split() && styles.contentSplit)} data-content>
+        <div
+          {...stylex.attrs(styles.content, split() && styles.contentSplit, anyPainting() && styles.contentCovering)}
+          data-content
+        >
           <Switch
             fallback={
               <div {...stylex.attrs(styles.empty)}>
@@ -149,12 +153,19 @@ export default function App() {
             {(tab) => {
               const inBackground = () => !isSelected(tab.id) && !paneStyle(tab.id);
               const inPane = () => !!paneStyle(tab.id);
+              // An agent's screenshot of a tab that isn't on screen (lib/webtabs.ts).
+              const painting = () => inBackground() && isPainting(tab.id);
               const focus = () => {
                 if (!isSelected(tab.id)) void selectApp(tab.id);
               };
               return (
                 <div
-                  {...stylex.attrs(styles.layer, inPane() && styles.pane, inBackground() && styles.hidden)}
+                  {...stylex.attrs(
+                    styles.layer,
+                    inPane() && styles.pane,
+                    inBackground() && styles.hidden,
+                    painting() && styles.painting,
+                  )}
                   style={paneStyle(tab.id)}
                   // Clicking into a pane (its page included: the webview takes the focus) focuses its tab.
                   onPointerDown={focus}
@@ -231,6 +242,8 @@ const styles = stylex.create({
   },
   // The panes are the cards; the gaps between them show the frame.
   contentSplit: { backgroundColor: "transparent", boxShadow: "none" },
+  // Covers a tab being captured in the background (styles.painting), also between split panes.
+  contentCovering: { backgroundColor: colors.bg },
   // Plain colors on purpose: it must stay readable whatever the theme did.
   safeMode: {
     display: "flex",
@@ -268,6 +281,8 @@ const styles = stylex.create({
   pane: { boxShadow: `0 0 0 1px ${colors.border}, 0 1px 3px rgb(0 0 0 / 0.06)` },
   // Not display:none: webviews must keep their size to stay rendered.
   hidden: { visibility: "hidden", pointerEvents: "none", zIndex: 0 },
+  // Painted (so it can be captured) but under the content area's background: the user doesn't see it.
+  painting: { visibility: "visible", zIndex: -1 },
   // Where dropped files open: over the page area, never in the way of the drop itself.
   dropOverlay: {
     position: "absolute",

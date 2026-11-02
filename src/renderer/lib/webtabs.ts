@@ -151,6 +151,42 @@ export async function wakePage(tabId: string) {
   return handle;
 }
 
+// Pages of tabs that aren't on screen (their layer is visibility: hidden) aren't
+// painted, so they can't be captured: Electron fails and DevTools' screenshot
+// never returns. While an agent takes a screenshot of one, App.tsx shows its
+// layer underneath the content area's background, where it's painted but
+// covered.
+const [painting, setPainting] = createSignal<string[]>([]);
+/** An agent is taking a screenshot of this tab's page. */
+export const isPainting = (tabId: string) => painting().includes(tabId);
+/** An agent is taking a screenshot of a tab's page. */
+export const anyPainting = () => painting().length > 0;
+
+const nextFrames = () =>
+  new Promise<void>((resolve) => {
+    // Bounded: no frames come while the window is minimized.
+    const timer = setTimeout(resolve, 200);
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        clearTimeout(timer);
+        resolve();
+      }),
+    );
+  });
+
+async function painted<T>(tabId: string, capture: () => Promise<T>) {
+  setPainting((ids) => [...ids, tabId]);
+  try {
+    await nextFrames();
+    return await capture();
+  } finally {
+    setPainting((ids) => {
+      const i = ids.indexOf(tabId);
+      return i === -1 ? ids : ids.toSpliced(i, 1);
+    });
+  }
+}
+
 async function page(tabId: unknown) {
   if (typeof tabId !== "string") throw new Error("No page is open in this tab");
   return wakePage(tabId);
@@ -158,7 +194,10 @@ async function page(tabId: unknown) {
 
 handleRpc("page.info", async ({ tabId }) => (await page(tabId)).info());
 handleRpc("page.eval", async ({ tabId, code }) => (await page(tabId)).eval(String(code)));
-handleRpc("page.capture", async ({ tabId }) => (await page(tabId)).capture());
+handleRpc("page.capture", async ({ tabId }) => {
+  const handle = await page(tabId);
+  return painted(String(tabId), () => handle.capture());
+});
 handleRpc("page.navigate", async ({ tabId, url }) => (await page(tabId)).navigate(String(url)));
 handleRpc("page.reload", async ({ tabId }) => (await page(tabId)).reload());
 // The website agent's browse tools (agent/browseTools.ts): find the element, then act on it.
@@ -196,9 +235,11 @@ handleRpc("page.applyOverride", async ({ tabId }) => {
 
 const network = window.rune.web.network;
 // DevTools for the agents (main/devtools.ts), on web tabs and app previews.
-handleRpc("devtools", async ({ tabId, command, params }) =>
-  window.rune.web.devtools((await page(tabId)).webContentsId(), command as DevtoolsCommand, params ?? {}),
-);
+handleRpc("devtools", async ({ tabId, command, params }) => {
+  const handle = await page(tabId);
+  const run = () => window.rune.web.devtools(handle.webContentsId(), command as DevtoolsCommand, params ?? {});
+  return command === "screenshot" ? painted(String(tabId), run) : run();
+});
 handleRpc("network.list", async ({ tabId, filter }) =>
   network.list((await page(tabId)).webContentsId(), (filter ?? {}) as NetworkFilter),
 );
