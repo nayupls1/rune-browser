@@ -57,6 +57,22 @@ showing one that can't, like other browsers (`shared/insecure.ts`).
 - **One copy:** launching it again (which is what opening a link does) hands the links and files to the running window, where each opens in a new tab, and quits. macOS sends them as events instead. Links it's started with open once the window is ready. Anything that isn't a web link or an existing web file is ignored, and on Windows links come after `--`, so they can't pass switches to Chromium.
 - **Settings → Web tabs** shows whether it's the default. **Make default** sets it on Linux (`xdg-mime`, for links and web pages; an AppImage first writes its own `.desktop` file to `~/.local/share/applications`), asks macOS, which confirms with the user, and on Windows opens Settings at Rune Browser's default apps, since only the user can choose there. Runs from source can't be the default.
 
+**Error pages** are Chromium's (`shared/loadErrors.ts`, `components/LoadError.tsx`): "This site can't be reached" and
+the like, with Chromium's error code and Reload. A site whose certificate isn't valid gets "Your connection is not
+private" first, with Back to safety, and under Advanced what's wrong with the certificate and "Proceed to … (unsafe)".
+Going on is remembered for the site and that certificate in the workspace's session until Rune Browser quits
+(`certificate-error` in `main/web.ts`), and the address bar warns while it's open. Only the user can go on, from Rune
+Browser's window: pages and agents can't.
+
+**The page's menu** (right click, `main/contextMenu.ts`) has Chromium's items for what was clicked: a link (open in a new
+tab, save, copy its address or text), an image, video or audio (open, save, copy it or its address), a field (spelling
+suggestions and Add to dictionary, undo, redo, cut, copy, paste, paste as plain text, emoji where the system has a
+picker), selected text (copy, search for it with the search engine from Settings, or go to it when it's an address,
+print) or else the page (back, forward, reload, save, print, view source). Extensions' items come after, and Inspect
+last.
+
+**Internal pages** have rune:// addresses (chrome:// ones open them): see [Chromium parity](chromium-parity.md).
+
 The older **site override** (one stylesheet and script per hostname, `set_site_override`) still exists for larger reworks.
 
 Web tab logins are cookies, which are encrypted with a key from the same keychain, like Chrome's. The `EnableCookieEncryption` fuse is set in `electron-builder.yml` for the packaged app, and by `scripts/electron.ts` in `node_modules` for runs from source. As in Chrome, a site's local storage, IndexedDB and cache aren't encrypted. They sit in the 0700 profile folder.
@@ -178,6 +194,8 @@ them are listed and can be changed in Settings → Keyboard shortcuts. The comma
   Browser's pages it goes back to the tabs.
 
 ### Chromium parity
+
+The rest of Chromium (settings, internal pages, everyday behavior) is in [Chromium parity](chromium-parity.md).
 
 | Chromium                                                                                           | Rune Browser                                                                 |
 | -------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |

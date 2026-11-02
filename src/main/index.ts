@@ -6,6 +6,8 @@ import { apiMapReporter } from "./apiMap";
 import { describeExitCode, redactPaths } from "./crashReport";
 import { setupCrashReports } from "./crashes";
 import { claimSingleInstance, restartArgs, setupLinks } from "./defaultBrowser";
+import { applyFlags } from "./flags";
+import { setupInternals } from "./internals";
 import { startServer, type ServerHandle } from "./server";
 import { appUserModelId, taskbarDetails } from "./taskbar";
 import { setupUpdates } from "./updates";
@@ -89,8 +91,11 @@ setupLinks({
 });
 
 // Safe mode: the renderer leaves out the theme and site customizations, so
-// whatever broke the UI can be undone in History.
+// whatever broke the UI can be undone in History. rune://flags are left out too.
 const safeMode = process.argv.includes("--safe-mode") || process.env.RUNE_SAFE_MODE === "1";
+
+// rune://flags, as Chromium switches (before the app is ready).
+const appliedFlags = applyFlags(safeMode);
 
 function relaunch(safe: boolean) {
   const args = restartArgs().filter((a) => a !== "--safe-mode");
@@ -240,6 +245,7 @@ app.whenReady().then(async () => {
     apiMapReporter(() => server),
   );
   setupUpdates(() => mainWindow);
+  setupInternals({ getWindow: () => mainWindow, appliedFlags, safeMode });
 
   try {
     server = await startServer({ allowedOrigin: rendererOrigin, onExit: serverStopped });

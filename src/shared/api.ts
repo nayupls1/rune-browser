@@ -12,6 +12,8 @@ import type {
   ImportRequest,
   InstallResult,
 } from "./extensions";
+import type { FlagsInfo } from "./flags";
+import type { GpuReport, VersionInfo } from "./internalPages";
 import type { WorkspaceSettings } from "./settings";
 import type { UpdateChannel, UpdateInfo } from "./updates";
 
@@ -32,6 +34,20 @@ export interface AuthPrompt {
   isProxy: boolean;
   /** The web tab's webContents. */
   contentsId: number;
+}
+
+/** A web tab's page whose certificate isn't valid (main/web.ts), for its error page's details. */
+export interface CertificateProblem {
+  url: string;
+  /** Chromium's error ("net::ERR_CERT_AUTHORITY_INVALID"). */
+  error: string;
+  subject: string;
+  issuer: string;
+  /** Milliseconds since the epoch. */
+  validFrom: number;
+  validUntil: number;
+  /** "sha256/…" */
+  fingerprint: string;
 }
 
 export interface RuneBridge {
@@ -64,6 +80,15 @@ export interface RuneBridge {
     electron: string;
     chrome: string;
     node: string;
+  };
+  /** What Rune Browser's internal pages show (rune://version, rune://gpu, rune://flags; main/internals.ts). */
+  internals: {
+    version: () => Promise<VersionInfo>;
+    gpu: () => Promise<GpuReport>;
+    flags: () => Promise<FlagsInfo>;
+    /** Sets a flag ("default" resets it); takes effect after a relaunch. */
+    setFlag: (id: string, value: string) => Promise<FlagsInfo>;
+    resetFlags: () => Promise<FlagsInfo>;
   };
   /** Updates of Rune Browser itself (main/updates.ts). */
   updates: {
@@ -138,6 +163,12 @@ export interface RuneBridge {
     setInsecurePolicy: (policy: { enabled: boolean; allowed: readonly string[] }) => void;
     /** A web tab's page went (or was redirected) to an insecure page, and was held back. */
     onInsecure: (fn: (event: { contentsId: number; url: string }) => void) => () => void;
+    /** Why a tab's page at `url` has no valid certificate (null: it's not that). */
+    certificateProblem: (webContentsId: number, url: string) => Promise<CertificateProblem | null>;
+    /** The user goes on to a site whose certificate isn't valid (until Rune Browser quits); false if it can't. */
+    proceedAnyway: (webContentsId: number, url: string) => Promise<boolean>;
+    /** The search engine Settings picked, for "Search … for" in a page's menu. */
+    setSearchEngine: (engine: { label: string; url: string }) => void;
   };
   /** Chrome extensions in web tabs (see main/extensions/). */
   extensions: {

@@ -14,6 +14,7 @@ import type {
 } from "../../shared/api";
 import { topics } from "../../shared/hub";
 import { hostOf } from "../../shared/web";
+import { searchEngines } from "../../shared/settings";
 import { api } from "./api";
 import { handleRpc, onConnected, watchTopic } from "./realtime";
 import { openCommandBar } from "./commands";
@@ -399,3 +400,11 @@ window.rune.web.onOpenLinks((urls) => {
       ),
     );
 });
+
+// "Search … for" in a page's menu (main/contextMenu.ts) uses the search engine Settings picked.
+createRoot(() =>
+  createEffect(() => {
+    const { label, url } = searchEngines[settings().web.searchEngine];
+    window.rune.web.setSearchEngine({ label, url });
+  }),
+);

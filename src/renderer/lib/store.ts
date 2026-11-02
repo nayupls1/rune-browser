@@ -20,6 +20,7 @@ import type {
 } from "../../shared/api";
 import type { WorkspaceSettings } from "../../shared/settings";
 import { topics } from "../../shared/hub";
+import { FLAGS_VIEW, GPU_VIEW, URLS_VIEW, VERSION_VIEW } from "../../shared/internalPages";
 import { api } from "./api";
 import { attachmentsOf, clearAttachments } from "./attachments";
 import { onConnected, watchTopic } from "./realtime";
@@ -44,7 +45,19 @@ export const ACTIVITY_VIEW = "activity";
 export const HISTORY_VIEW = "history";
 export const SCHEDULES_VIEW = "schedules";
 export const MODS_VIEW = "mods";
-const settingsViews = [SETTINGS_VIEW, ACTIVITY_VIEW, HISTORY_VIEW, SCHEDULES_VIEW, MODS_VIEW];
+/** rune://version, rune://gpu, rune://flags and rune://rune-urls (shared/internalPages.ts). */
+export { FLAGS_VIEW, GPU_VIEW, URLS_VIEW, VERSION_VIEW };
+const settingsViews = [
+  SETTINGS_VIEW,
+  ACTIVITY_VIEW,
+  HISTORY_VIEW,
+  SCHEDULES_VIEW,
+  MODS_VIEW,
+  VERSION_VIEW,
+  GPU_VIEW,
+  FLAGS_VIEW,
+  URLS_VIEW,
+];
 /** Settings or one of the pages in it. */
 export const isSettingsView = (id: string | null) => !!id && settingsViews.includes(id);
 

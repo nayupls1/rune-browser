@@ -85,8 +85,8 @@ Chromium: web tabs are `<webview>` guests with a session per workspace
 (`web.ts`), Chrome extensions run in those sessions (`extensions/`), network
 recording and rules (`network.ts`), DevTools access for agents (`devtools.ts`),
 links from other apps and the default browser (`defaultBrowser.ts`, see
-[Browsing](browsing.md#web-tabs)), and updates of the app itself (`updates.ts`,
-see [Releasing](releasing.md)).
+[Browsing](browsing.md#web-tabs)), what the internal pages show and rune://flags applied at startup (`internals.ts`, `flags.ts`, see
+[Chromium parity](chromium-parity.md)), and updates of the app itself (`updates.ts`, see [Releasing](releasing.md)).
 
 ## Data
 

@@ -1,5 +1,6 @@
 // Helpers for web tabs shared by the renderer and the website agent.
 import type { PageChange, PageChangeAction, PageChangeSpec, PageScope } from "./api";
+import { parseInternalUrl } from "./internalPages";
 import { searchEngines, type Settings } from "./settings";
 import { base } from "./theme";
 
@@ -62,11 +63,14 @@ export const isViewableFile = (name: string, mime = "") =>
 /**
  * Turns address bar input into a URL: URLs stay as they are, things that look
  * like a domain get https:// (http:// for local addresses), local paths become
- * file:// URLs, anything else is searched for.
+ * file:// URLs, internal pages (chrome://, about:version) their rune:// address,
+ * anything else is searched for.
  */
 export function normalizeUrl(input: string, engine: Settings["web"]["searchEngine"] = "duckduckgo") {
   const text = input.trim();
   if (!text) return "";
+  const internal = parseInternalUrl(text);
+  if (internal) return internal.url;
   if (/^(https?:\/\/|about:|file:\/\/)/i.test(text)) return text;
   if (/^(\/[^/\s]|[a-z]:[\\/])/i.test(text)) return fileUrl(text);
   const local = /^(localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)(:\d+)?(\/|$)/i.test(text);
