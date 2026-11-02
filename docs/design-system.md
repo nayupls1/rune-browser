@@ -16,29 +16,31 @@ The colors live in `src/shared/theme.ts` (`brand`, `base` and `palette()`); ever
 
 ### Brand
 
-| Color                       | Light                             | Dark                  |
-| --------------------------- | --------------------------------- | --------------------- |
-| Rune (accent gradient)      | `#d9582f` → `#a62f19`, the icon's | `#f08a5d` → `#d9582f` |
-| Cream (background gradient) | `#f8f5f0` → `#e5ded3`, the icon's |                       |
+| Color                   | Light                             | Dark                  |
+| ----------------------- | --------------------------------- | --------------------- |
+| Rune (accent gradient)  | `#d9582f` → `#a62f19`, the icon's | `#f08a5d` → `#d9582f` |
+| Cream (icon background) | `#f8f5f0` → `#e5ded3`, the icon's |                       |
 
 ### Tokens
 
-| Token (StyleX / CSS)                         | Light                | Dark                 | Used for                                            |
-| -------------------------------------------- | -------------------- | -------------------- | --------------------------------------------------- |
-| `bg` / `--color-bg`                          | `#f8f5f0`            | `#171411`            | The window, page backgrounds                        |
-| `surface` / `--color-surface`                | `#fffdfa`            | `#211d19`            | Cards, inputs, panels, menus                        |
-| `surfaceHover` / `--color-surface-hover`     | surface + 5% text    | surface + 8% text    | Hovered rows and buttons                            |
-| `sidebar`                                    | bg + 4% text         | bg + 30% black       | The tab sidebar                                     |
-| `border` / `--color-border`                  | surface + 12% text   | surface + 14% text   | Borders, dividers                                   |
-| `text` / `--color-text`                      | `#2b211a`            | `#f2ece3`            | Text                                                |
-| `muted` / `--color-muted`                    | text + 36% bg        | text + 36% bg        | Secondary text                                      |
-| `accent` / `--color-accent`                  | `#c2461f`            | `#ec7748`            | Primary buttons, links, focus, selection            |
-| `accentText` / `--color-accent-text`         | `#ffffff`            | `#000000`            | Text on the accent                                  |
-| `accentSoft` / `--color-accent-soft`         | surface + 12% accent | surface + 22% accent | Selected rows, focus rings, highlights              |
-| `accentGradient` / `--color-accent-gradient` | the rune, light      | the rune, dark       | Brand moments: the icon's gradient                  |
-| `success` / `--color-success`                | `#2e7d3a`            | `#5fc477`            | Running, saved, added lines                         |
-| `warning` / `--color-warning`                | `#9a5800`            | `#eaa63f`            | Starting, needs attention                           |
-| `danger` / `--color-danger`                  | `#b42346`            | `#f06b85`            | Errors, crashes, destructive actions, removed lines |
+| Token (StyleX / CSS)                         | Light                | Dark                 | Used for                                               |
+| -------------------------------------------- | -------------------- | -------------------- | ------------------------------------------------------ |
+| `bg` / `--color-bg`                          | `#f8f5f0`            | `#171411`            | The window, page backgrounds                           |
+| `surface` / `--color-surface`                | `#fffdfa`            | `#211d19`            | Cards, inputs, panels, menus                           |
+| `surfaceHover` / `--color-surface-hover`     | surface + 5% text    | surface + 8% text    | Hovered rows and buttons                               |
+| `sidebar`                                    | bg + 4% text         | bg + 30% black       | The tab sidebar                                        |
+| `border` / `--color-border`                  | surface + 12% text   | surface + 14% text   | Borders, dividers                                      |
+| `text` / `--color-text`                      | `#2b211a`            | `#f2ece3`            | Text                                                   |
+| `muted` / `--color-muted`                    | text + 36% bg        | text + 36% bg        | Secondary text                                         |
+| `accent` / `--color-accent`                  | `#c2461f`            | `#ec7748`            | Primary buttons, links, focus, selection               |
+| `accentText` / `--color-accent-text`         | `#ffffff`            | `#000000`            | Text on the accent                                     |
+| `accentSoft` / `--color-accent-soft`         | surface + 12% accent | surface + 22% accent | Selected rows, focus rings, highlights                 |
+| `accentGradient` / `--color-accent-gradient` | the rune, light      | the rune, dark       | Decoration only: the icon's gradient, never under text |
+| `success` / `--color-success`                | `#2e7d3a`            | `#5fc477`            | Running, saved, added lines                            |
+| `warning` / `--color-warning`                | `#9a5800`            | `#eaa63f`            | Starting, needs attention                              |
+| `danger` / `--color-danger`                  | `#b42346`            | `#f06b85`            | Errors, crashes, destructive actions, removed lines    |
+
+The window's background is the cream's top stop; the full cream gradient is only in the icon. The accent gradient is for decoration (marks, illustrations, apps' brand moments): its lighter top stop doesn't hold white text at 4.5:1, so text goes on the flat accent. A custom accent gets a gradient of its own, from 14% lighter to 18% darker.
 
 Mixed colors are `color-mix(in oklab, …)`, so they follow a custom theme too. The light accent sits between the rune's two stops, dark enough for white text; the dark accent is lighter, for dark backgrounds, and takes black text. Danger leans to crimson so errors aren't mistaken for the accent.
 

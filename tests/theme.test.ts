@@ -118,7 +118,7 @@ describe("Rune's palette", () => {
     });
   }
 
-  test("an accent's text color is readable on it, for the presets and any color", () => {
+  test("an accent's text color is readable on it: presets, mods and a sweep of colors", () => {
     const accents = [
       ...themePresets.flatMap((t) => (t.theme.accent ? [t.theme.accent] : [])),
       ...builtInMods.flatMap((m) => (m.theme?.accent ? [m.theme.accent] : [])),
