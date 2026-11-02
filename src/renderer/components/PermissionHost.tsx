@@ -210,7 +210,7 @@ const styles = stylex.create({
     whiteSpace: "pre",
   },
   line: { paddingInline: space.sm, minWidth: "max-content" },
-  added: { backgroundColor: "color-mix(in oklab, transparent, #16a34a 16%)" },
-  removed: { backgroundColor: "color-mix(in oklab, transparent, #dc2626 16%)" },
+  added: { backgroundColor: `color-mix(in oklab, transparent, ${colors.success} 16%)` },
+  removed: { backgroundColor: `color-mix(in oklab, transparent, ${colors.danger} 16%)` },
   hunk: { color: colors.muted },
 });

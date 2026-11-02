@@ -95,6 +95,7 @@ More in [Development](docs/development.md).
 - [Interface](docs/interface.md): the window, sidebars, command bar, split view, settings
 - [Browsing](docs/browsing.md): web tabs, page changes, network, the API map, extensions, keyboard shortcuts
 - [Architecture](docs/architecture.md): processes, the server's services, where data lives
+- [Design system](docs/design-system.md): the palette from the icon, light and dark, and how themes build on it
 - [Development](docs/development.md) and [Releasing](docs/releasing.md)
 
 Built with Electron and SolidJS (StyleX), and a local Bun server written with

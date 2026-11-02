@@ -2,7 +2,7 @@
 // theme is applied by overriding those properties on the document root.
 import { createSignal } from "solid-js";
 import type { GlobalTheme, Theme } from "../../shared/settings";
-import { palette, resolveMode, type Mode } from "../../shared/theme";
+import { palette, resolveMode, themePresets, type Mode } from "../../shared/theme";
 import { colors, font, radius } from "../theme.stylex";
 
 /** `var(--x1abc)` → `--x1abc` */
@@ -22,6 +22,7 @@ export function themeVars(theme: Omit<Theme, "mode">, mode: Mode): Record<string
     [colors.accent]: p.accent,
     [colors.accentText]: p.accentText,
     [colors.accentSoft]: p.accentSoft,
+    [colors.accentGradient]: p.accentGradient,
     [colors.danger]: p.danger,
     [colors.success]: p.success,
     [colors.warning]: p.warning,
@@ -33,7 +34,7 @@ export function themeVars(theme: Omit<Theme, "mode">, mode: Mode): Record<string
   return Object.fromEntries(Object.entries(vars).map(([k, v]) => [varName(k), v]));
 }
 
-export { resolveMode };
+export { resolveMode, themePresets };
 
 // --- System preference ---------------------------------------------------------------
 
@@ -68,40 +69,3 @@ export function applyCachedTheme() {
     // ignore a corrupt cache
   }
 }
-
-/** Presets shown in Settings. */
-export const themePresets: { name: string; theme: Omit<GlobalTheme, "mode"> & { mode?: GlobalTheme["mode"] } }[] = [
-  { name: "Default", theme: {} },
-  { name: "Ocean", theme: { accent: "#0284c7" } },
-  { name: "Forest", theme: { accent: "#15803d", radius: "sm" } },
-  { name: "Rose", theme: { accent: "#e11d48", radius: "lg" } },
-  { name: "Amber", theme: { accent: "#d97706" } },
-  { name: "Graphite", theme: { accent: "#52525b", radius: "sm" } },
-  {
-    name: "Midnight",
-    theme: { mode: "dark", accent: "#7c9cff", background: "#0b1020", surface: "#121a2e", text: "#e3e8f7" },
-  },
-  {
-    name: "Paper",
-    theme: {
-      mode: "light",
-      accent: "#9a3412",
-      background: "#f6f1e7",
-      surface: "#fffdf8",
-      text: "#2b2118",
-      font: "serif",
-    },
-  },
-  {
-    name: "Terminal",
-    theme: {
-      mode: "dark",
-      accent: "#22c55e",
-      background: "#0a0a0a",
-      surface: "#111111",
-      text: "#d4d4d4",
-      font: "mono",
-      radius: "none",
-    },
-  },
-];

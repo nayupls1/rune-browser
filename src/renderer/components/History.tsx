@@ -571,8 +571,8 @@ const styles = stylex.create({
   diff: { maxHeight: 420, overflow: "auto", fontFamily: font.mono, fontSize: 12, lineHeight: 1.5 },
   hunkHead: { paddingInline: space.sm, backgroundColor: colors.surfaceHover, color: colors.muted },
   line: { whiteSpace: "pre", paddingRight: space.sm, minWidth: "fit-content" },
-  linePlus: { backgroundColor: "color-mix(in oklab, transparent, #16a34a 16%)" },
-  lineMinus: { backgroundColor: "color-mix(in oklab, transparent, #dc2626 16%)" },
+  linePlus: { backgroundColor: `color-mix(in oklab, transparent, ${colors.success} 16%)` },
+  lineMinus: { backgroundColor: `color-mix(in oklab, transparent, ${colors.danger} 16%)` },
   sign: { display: "inline-block", width: 18, textAlign: "center", color: colors.muted, userSelect: "none" },
   more: {
     alignSelf: "center",

@@ -1,6 +1,7 @@
 // Helpers for web tabs shared by the renderer and the website agent.
 import type { PageChange, PageChangeAction, PageChangeSpec, PageScope } from "./api";
 import { searchEngines, type Settings } from "./settings";
+import { base } from "./theme";
 
 /** Computed styles reported for picked and inspected elements. */
 export const inspectedStyles = [
@@ -230,7 +231,7 @@ export function pageChangesCss(changes: readonly PageChange[]) {
   );
   if (changes.some((c) => c.action === "button")) {
     rules.unshift(
-      `button.rune-button { font: 500 13px/1.2 system-ui, sans-serif; padding: 5px 12px; margin: 4px; border-radius: 6px; border: 1px solid rgba(0,0,0,.15); background: #6d4aff; color: #fff; cursor: pointer; }`,
+      `button.rune-button { font: 500 13px/1.2 system-ui, sans-serif; padding: 5px 12px; margin: 4px; border-radius: 6px; border: 1px solid rgba(0,0,0,.15); background: ${base.light.accent}; color: #fff; cursor: pointer; }`,
     );
   }
   return rules.join("\n");

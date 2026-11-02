@@ -369,7 +369,7 @@ const styles = stylex.create({
     paddingInline: 3,
     borderRadius: 4,
     backgroundColor: colors.accent,
-    color: "#ffffff",
+    color: colors.accentText,
     fontFamily: font.sans,
     fontSize: 9,
     fontWeight: 700,

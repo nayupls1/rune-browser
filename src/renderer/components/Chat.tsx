@@ -269,8 +269,8 @@ const styles = stylex.create({
     borderWidth: 0,
     borderRadius: radius.full,
     backgroundColor: {
-      default: "color-mix(in oklab, transparent, #dc2626 14%)",
-      ":hover": "color-mix(in oklab, transparent, #dc2626 24%)",
+      default: `color-mix(in oklab, transparent, ${colors.danger} 14%)`,
+      ":hover": `color-mix(in oklab, transparent, ${colors.danger} 24%)`,
     },
     color: colors.danger,
     cursor: "pointer",
