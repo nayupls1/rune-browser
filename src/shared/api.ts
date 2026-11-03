@@ -58,10 +58,27 @@ export interface RuneBridge {
     minimize: () => void;
     toggleMaximize: () => void;
     close: () => void;
+    /** Closes the window without keeping it to reopen (its last tab went to another window). */
+    discard: () => void;
     toggleFullScreen: () => void;
     /** Quits Rune Browser (Ctrl+Shift+Q). */
     quit: () => void;
     onMaximized: (fn: (maximized: boolean) => void) => () => void;
+    /** This window's id (shared/windows.ts) and whether it's private. */
+    id: string;
+    private: boolean;
+    /** What this window was opened for, asked once when it starts: a new tab (Ctrl+N), or nothing (its tabs are there). */
+    takeIntent: () => Promise<"new-tab" | "startup" | null>;
+    /** Opens a window: with these tabs moved into it (dragged out, "Move to new window"), else with a new tab. */
+    open: (options?: { private?: boolean; tabIds?: string[]; at?: { x: number; y: number } }) => Promise<string | null>;
+    /** The other open windows (not private ones from a normal window, nor the other way around), to move tabs to. */
+    others: () => Promise<{ id: string; title: string }[]>;
+    /** Brings a window to the front. */
+    focus: (windowId: string) => void;
+    /** Windows closed lately, newest first (reopened with their tabs). */
+    closed: () => Promise<{ id: string; closedAt: number; tabs: number }[]>;
+    /** Opens the window closed last again (or this one); false if there's none. */
+    reopen: (windowId?: string) => Promise<boolean>;
   };
   /** Asks for a folder (a system dialog); null if none was picked. */
   pickFolder: (title: string) => Promise<string | null>;
@@ -204,6 +221,8 @@ export interface RuneBridge {
     /** Asks for a folder; null when none was picked. */
     loadUnpacked: () => Promise<InstallResult | null>;
     setEnabled: (id: string, enabled: boolean) => Promise<void>;
+    /** Lets it run in private windows too. */
+    setAllowPrivate: (id: string, allowed: boolean) => Promise<void>;
     /** Allows or blocks one of its permissions (the extension restarts with it). */
     setPermission: (id: string, permission: string, allowed: boolean) => Promise<void>;
     setPinned: (id: string, pinned: boolean) => Promise<void>;
@@ -228,8 +247,19 @@ export interface RuneBridge {
 export const WEB_PARTITION = "persist:web";
 /** Web tabs of each workspace get their own session (cookies, logins); the first workspace keeps the original one. */
 export const webPartition = (workspaceId: string) =>
-  workspaceId === DEFAULT_WORKSPACE ? WEB_PARTITION : `persist:web-${workspaceId}`;
-export const WEB_PARTITION_PATTERN = /^persist:web(-[\w-]+)?$/;
+  workspaceId === PRIVATE_WORKSPACE
+    ? PRIVATE_PARTITION
+    : workspaceId === DEFAULT_WORKSPACE
+      ? WEB_PARTITION
+      : `persist:web-${workspaceId}`;
+export const WEB_PARTITION_PATTERN = /^persist:(web(-[\w-]+)?|private-web)$/;
+/**
+ * Private windows' web tabs: one session, wiped when the last private window closes and whenever
+ * Rune Browser starts. (Electron runs no extensions in a session kept in memory only.) It stands
+ * in for a workspace wherever web sessions are per workspace.
+ */
+export const PRIVATE_WORKSPACE = "private";
+export const PRIVATE_PARTITION = "persist:private-web";
 /** Each app's preview gets its own session: apps all live on 127.0.0.1, and cookies don't separate ports. */
 export const appPartition = (appId: string) => `persist:app-${appId}`;
 export const APP_PARTITION_PATTERN = /^persist:app-[\w-]+$/;
@@ -389,6 +419,10 @@ export interface AppSummary {
   updatedAt: string;
   /** Closed apps (the library): when the tab was closed. Open tabs don't have it. */
   closedAt?: string;
+  /** The window it's in (shared/windows.ts); null until it's given one. */
+  windowId: string | null;
+  /** In a private window: a web tab whose pages keep nothing, which agents don't see. */
+  private: boolean;
 }
 
 /** A tab's own icon as an image: a base64 data URL. */
@@ -695,9 +729,10 @@ export interface SharedTab {
  */
 export function shareRefusal(
   recipient: Pick<AppSummary, "id" | "kind" | "workspaceId">,
-  source: Pick<AppSummary, "id" | "kind" | "workspaceId" | "name"> | null | undefined,
+  source: Pick<AppSummary, "id" | "kind" | "workspaceId" | "name" | "private"> | null | undefined,
 ) {
-  if (!source) return "That tab doesn't exist anymore.";
+  // Agents don't see private windows at all, not even their tabs' names.
+  if (!source || source.private) return "That tab doesn't exist anymore.";
   if (source.id === recipient.id) return "That's this tab itself.";
   if (source.workspaceId !== recipient.workspaceId) return `“${source.name}” is in another workspace.`;
   if (recipient.kind === "app" && source.kind === "web") {

@@ -10,14 +10,8 @@
 // redacted, and saved requests carry their credentials sealed with a key only
 // this process uses.
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
-import {
-  ipcMain,
-  webContents,
-  type BrowserWindow,
-  type IpcMainInvokeEvent,
-  type Session,
-  type WebContents,
-} from "electron";
+import { ipcMain, webContents, type IpcMainInvokeEvent, type Session, type WebContents } from "electron";
+import type { AppWindows } from "./windows";
 import type {
   NetworkFilter,
   NetworkRule,
@@ -58,7 +52,7 @@ interface CompiledRule {
 }
 
 export interface NetworkOptions {
-  getWindow: () => BrowserWindow | undefined;
+  windows: AppWindows;
   /** The session of a workspace's web tabs (set up on first use). */
   webSession: (workspaceId: string) => Session;
   /** The workspace a web tab session belongs to, or undefined for other sessions. */
@@ -70,7 +64,7 @@ export interface NetworkOptions {
 }
 
 export function setupNetwork(options: NetworkOptions) {
-  const { getWindow } = options;
+  const { windows } = options;
   const budget = new BodyBudget();
   const logs = new Map<number, TrafficLog>();
   /** What marks a tab's requests as answered by a response override: DevTools request id → its title. */
@@ -98,7 +92,7 @@ export function setupNetwork(options: NetworkOptions) {
       id,
       setTimeout(() => {
         notifyTimers.delete(id);
-        getWindow()?.webContents.send("rune:network-changed", id);
+        windows.broadcast("rune:network-changed", id);
       }, 300),
     );
   };
@@ -459,7 +453,7 @@ export function setupNetwork(options: NetworkOptions) {
 
   // --- IPC from the Rune Browser window ----------------------------------------------------------
 
-  const fromWindow = (event: IpcMainInvokeEvent | Electron.IpcMainEvent) => event.sender === getWindow()?.webContents;
+  const fromWindow = (event: IpcMainInvokeEvent | Electron.IpcMainEvent) => windows.isUi(event.sender);
   /** A web tab of the window that asks. */
   const guest = (event: IpcMainInvokeEvent, id: unknown) => {
     const target = typeof id === "number" ? webContents.fromId(id) : undefined;

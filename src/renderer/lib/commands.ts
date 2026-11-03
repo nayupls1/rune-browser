@@ -38,7 +38,9 @@ import {
   closeTab,
   reopenApp,
   reopenClosedTab,
+  isPrivate,
 } from "./store";
+import { newPrivateWindow, newWindow, reopenWindow } from "./windows";
 import { isSidebarCollapsed, toggleSidebar } from "./layout";
 import { removeFromSplit, rotateSplit, splitOf, splitWith, unsplit, visibleTabs } from "./splits";
 import { pageOf } from "./webtabs";
@@ -474,6 +476,36 @@ function runeCommands(): Command[] {
       run: () => newWebTab(),
     },
     {
+      id: "window.new",
+      title: "New window",
+      keys: "window.new",
+      icon: "app-window",
+      group: "Rune Browser",
+      keywords: "browser open",
+      run: () => newWindow(),
+    },
+    {
+      id: "window.private",
+      title: "New private window",
+      keys: "window.private",
+      icon: "hat-glasses",
+      group: "Rune Browser",
+      keywords: "incognito private browsing",
+      run: () => newPrivateWindow(),
+    },
+    ...(isPrivate
+      ? []
+      : [
+          {
+            id: "window.reopen",
+            title: "Reopen closed window",
+            icon: "app-window",
+            group: "Rune Browser",
+            keywords: "restore undo close window",
+            run: () => reopenWindow(),
+          },
+        ]),
+    {
       id: "tabs.unload",
       title: "Unload other tabs",
       icon: "moon",
@@ -743,6 +775,10 @@ function routed(query: string, best: number): Command[] {
   return list;
 }
 
+/** What a private window leaves out: agents, apps (theirs are built by agents) and workspaces. */
+const notInPrivate =
+  /^(tab\.agent|tab\.newChat|tab\.move:|tab\.delete|new\.app|new\.workspace|workspace:|route\.(ask|build)|library:|action:|app\.|open\.workspace-settings)/;
+
 /** Everything the bar can do right now, in the order it shows them without a query. */
 export function commands(query: string): Command[] {
   const current = currentWorkspace()?.id;
@@ -789,5 +825,6 @@ export function commands(query: string): Command[] {
   ];
   const q = query.trim().toLowerCase();
   const best = q ? Math.max(0, ...list.map((c) => scoreOf(q, c))) : 0;
-  return [...list, ...routed(query, best)];
+  const all = [...list, ...routed(query, best)];
+  return isPrivate ? all.filter((c) => !notInPrivate.test(c.id)) : all;
 }

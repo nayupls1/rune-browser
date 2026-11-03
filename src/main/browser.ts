@@ -4,7 +4,7 @@
 // by the built-in extension, see extensions/builtin.ts). Also clearing
 // browsing data, sites' cookies, and reading other browsers' settings for
 // Import. The renderer sends the settings whenever they change.
-import { app, ipcMain, webContents, type BrowserWindow, type Session, type WebContents } from "electron";
+import { app, ipcMain, webContents, type Session, type WebContents } from "electron";
 import { existsSync, mkdirSync } from "node:fs";
 import { extname, join } from "node:path";
 import { Schema } from "effect";
@@ -23,6 +23,7 @@ import { DEFAULT_WORKSPACE } from "../shared/api";
 import { hostOf } from "../shared/web";
 import * as cdp from "./cdp";
 import { browserProfiles } from "./extensions/browsers";
+import type { AppWindows } from "./windows";
 
 const decode = Schema.decodeUnknownSync(BrowserSettings);
 
@@ -30,7 +31,7 @@ const decode = Schema.decodeUnknownSync(BrowserSettings);
 const SITE_DATA = ["localStorage", "indexedDB", "serviceWorkers", "fileSystems", "webSQL", "backgroundFetch"] as const;
 
 export interface BrowserOptions {
-  getWindow: () => BrowserWindow | undefined;
+  windows: AppWindows;
   /** The session of a workspace's web tabs (set up on first use). */
   webSession: (workspaceId: string) => Session;
   /** Whether a session is a workspace's web tab session. */
@@ -49,7 +50,7 @@ export interface BrowserProfileSettings {
 export function setupBrowser(options: BrowserOptions) {
   let browser = defaultBrowserSettings();
   const sessions = new Set<Session>();
-  const fromWindow = (sender: WebContents) => sender === options.getWindow()?.webContents;
+  const fromWindow = (sender: WebContents) => options.windows.isUi(sender);
   const validWorkspace = (id: unknown): id is string => typeof id === "string" && /^[\w-]+$/.test(id);
   const guests = () =>
     webContents

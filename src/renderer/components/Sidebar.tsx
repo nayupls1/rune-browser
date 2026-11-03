@@ -30,6 +30,7 @@ import {
   workspaceTabs,
   closeTab,
   reopenApp,
+  isPrivate,
 } from "../lib/store";
 import {
   draggedSplit,
@@ -68,6 +69,15 @@ import { IconPicker, TabIcon } from "./TabIcon";
 import { toast } from "./Toast";
 import { Button } from "./ui";
 import { withKeys } from "../lib/shortcuts";
+import {
+  moveToNewWindow,
+  moveToWindow,
+  newPrivateWindow,
+  newWindow,
+  otherWindows,
+  takeTab,
+  tearOff,
+} from "../lib/windows";
 
 /**
  * What the list shows, in the tabs' order: tab ids, and "split:<id>" for a
@@ -96,6 +106,8 @@ const tiles = () => workspaceTabs().filter(isTile);
 const isField = (target: EventTarget | null) =>
   target instanceof HTMLElement && !!target.closest("input, textarea, [contenteditable]");
 
+const privateWindow = () => isPrivate;
+
 /** Width of the collapsed sidebar: icons only. */
 const RAIL_WIDTH = 52;
 
@@ -104,8 +116,16 @@ export function Sidebar() {
   const [library, setLibrary] = createSignal<AppSummary[]>([]);
   const newItems = (): (MenuItem | "separator")[] => [
     { label: "New web tab", icon: "globe", onSelect: () => newWebTab() },
-    { label: "New app", icon: "sparkles", onSelect: () => newApp() },
-    ...(library().length
+    // Apps are built by agents, which private windows don't have.
+    ...(isPrivate ? [] : [{ label: "New app", icon: "sparkles", onSelect: () => newApp() }]),
+    "separator",
+    { label: withKeys("New window", "window.new"), icon: "app-window", onSelect: () => void newWindow() },
+    {
+      label: withKeys("New private window", "window.private"),
+      icon: "hat-glasses",
+      onSelect: () => void newPrivateWindow(),
+    },
+    ...(library().length && !isPrivate
       ? [
           "separator" as const,
           ...library()
@@ -124,17 +144,29 @@ export function Sidebar() {
   return (
     <>
       <nav
-        {...stylex.attrs(styles.root, compact() && styles.rootCompact)}
+        {...stylex.attrs(styles.root, compact() && styles.rootCompact, privateWindow() && styles.rootPrivate)}
         style={{ width: `${compact() ? RAIL_WIDTH : sidebarWidth()}px` }}
         data-sidebar={compact() ? "collapsed" : "expanded"}
+        data-private-window={isPrivate ? "" : undefined}
         // Files, links and text dropped on the tab bar open in new tabs (not on fields: they take the text).
         onDragOver={(e) => {
+          if (isForeignTabDrag(e.dataTransfer)) {
+            e.preventDefault();
+            e.dataTransfer!.dropEffect = "move";
+            return;
+          }
           if (isField(e.target) || !hasDroppable(e.dataTransfer)) return;
           e.preventDefault();
           e.dataTransfer!.dropEffect = "copy";
           setDropTarget({ kind: "list" });
         }}
         onDrop={(e) => {
+          // A tab dragged here from another window (dropped below the tabs): it comes here, last.
+          const tab = tabFromElsewhere(e.dataTransfer);
+          if (tab) {
+            e.preventDefault();
+            return void takeTab(tab);
+          }
           if (isField(e.target) || !hasDroppable(e.dataTransfer)) return;
           e.preventDefault();
           setDropTarget(null);
@@ -188,13 +220,18 @@ export function Sidebar() {
         <Show when={newMenu()}>
           {(position) => <ContextMenu items={newItems()} position={position()} onClose={() => setNewMenu()} />}
         </Show>
-        <WorkspaceName />
+        {/* A private window has no workspaces: its tabs all share one session that keeps nothing. */}
+        <Show when={!isPrivate}>
+          <WorkspaceName />
+        </Show>
         {/* At the very bottom: collapse, the workspaces in the middle, Settings (a column when collapsed). */}
         <div {...stylex.attrs(styles.footer, compact() && styles.footerCompact)} data-sidebar-footer>
           <Show when={!compact()}>
             <CollapseButton />
           </Show>
-          <WorkspaceBar />
+          <Show when={!isPrivate} fallback={<span {...stylex.attrs(styles.footerSpacer)} />}>
+            <WorkspaceBar />
+          </Show>
           <SettingsLink />
           <Show when={compact()}>
             <CollapseButton />
@@ -588,6 +625,16 @@ function SplitGroup(props: { splitId: string }) {
   );
 }
 
+/** A tab being dragged in from another window (this window's own drags are in draggedTab). */
+function tabFromElsewhere(dt: DataTransfer | null) {
+  if (draggedTab() || draggedSplit() || !dt?.types.includes(TAB_DRAG_TYPE)) return null;
+  const id = dt.getData(TAB_DRAG_TYPE);
+  return id && !id.startsWith("split:") ? id : null;
+}
+/** While dragging over, the data itself can't be read: only that it's a tab. */
+const isForeignTabDrag = (dt: DataTransfer | null) =>
+  !draggedTab() && !draggedSplit() && !!dt?.types.includes(TAB_DRAG_TYPE);
+
 /** Where a dragged tab would land: before or after which tab. */
 const [dropAt, setDropAt] = createSignal<{ id: string; side: "before" | "after" } | null>(null);
 
@@ -656,6 +703,9 @@ function Item(props: { app: AppSummary; tile?: boolean }) {
     setEditing(true);
   };
 
+  // The other windows it can move to, fresh each time the menu opens.
+  const [windowsToMoveTo, setWindowsToMoveTo] = createSignal<{ id: string; title: string }[]>([]);
+  createEffect(on(menu, (open) => open && void otherWindows().then(setWindowsToMoveTo)));
   const menuItems = (): (MenuItem | "separator")[] => [
     { label: "Rename", icon: "pencil", onSelect: rename },
     { label: "Change icon…", icon: "shapes", onSelect: () => setIconPicker(menu() ?? { x: 0, y: 0 }) },
@@ -691,22 +741,39 @@ function Item(props: { app: AppSummary; tile?: boolean }) {
       disabled: !neighbour(1),
       onSelect: () => void moveTab(props.app.id, neighbour(1)!.id, "after"),
     },
-    ...workspaces
-      .filter((w) => w.id !== props.app.workspaceId)
-      .map((w) => ({
-        label: `Move to ${w.name}`,
-        icon: "folder-input",
-        onSelect: () => void moveApp(props.app.id, w.id),
-      })),
+    ...(isPrivate
+      ? []
+      : workspaces
+          .filter((w) => w.id !== props.app.workspaceId)
+          .map((w) => ({
+            label: `Move to ${w.name}`,
+            icon: "folder-input",
+            onSelect: () => void moveApp(props.app.id, w.id),
+          }))),
     {
-      label: "New chat",
-      icon: "message-square-plus",
-      disabled: running() || !states[props.app.id]?.messages.length,
-      onSelect: () =>
-        void newChat(props.app.id).catch((err) =>
-          toast({ message: err instanceof Error ? err.message : String(err), kind: "error" }),
-        ),
+      label: "Move to new window",
+      icon: "app-window",
+      disabled: apps.length < 2,
+      onSelect: () => void moveToNewWindow([props.app.id]),
     },
+    ...windowsToMoveTo().map((w) => ({
+      label: `Move to window “${w.title.length > 40 ? `${w.title.slice(0, 40)}…` : w.title}”`,
+      icon: "square-arrow-out-up-right",
+      onSelect: () => void moveToWindow([props.app.id], w.id),
+    })),
+    ...(isPrivate
+      ? []
+      : [
+          {
+            label: "New chat",
+            icon: "message-square-plus",
+            disabled: running() || !states[props.app.id]?.messages.length,
+            onSelect: () =>
+              void newChat(props.app.id).catch((err) =>
+                toast({ message: err instanceof Error ? err.message : String(err), kind: "error" }),
+              ),
+          },
+        ]),
     "separator",
     {
       label: props.app.kind === "app" ? "Close (the app is kept)" : "Close tab",
@@ -778,11 +845,22 @@ function Item(props: { app: AppSummary; tile?: boolean }) {
         e.dataTransfer!.effectAllowed = "move";
         setDraggedTab(props.app.id);
       }}
-      onDragEnd={() => {
+      onDragEnd={(e) => {
         setDraggedTab(null);
         setDropAt(null);
+        // Let go outside the window (and not on another window, which takes it itself): it tears off into a new one.
+        tearOff(props.app.id, e);
       }}
       onDragOver={(e) => {
+        if (isForeignTabDrag(e.dataTransfer)) {
+          // A tab from another window: it would land here.
+          e.preventDefault();
+          e.stopPropagation();
+          e.dataTransfer!.dropEffect = "move";
+          const r = e.currentTarget.getBoundingClientRect();
+          setDropAt({ id: props.app.id, side: e.clientY < r.top + r.height / 2 ? "before" : "after" });
+          return;
+        }
         if (!draggedTab() && !draggedSplit()) {
           // A file, link or text from outside: a web tab opens it, an app tab leaves it to a new tab.
           if (!hasDroppable(e.dataTransfer)) return;
@@ -803,6 +881,14 @@ function Item(props: { app: AppSummary; tile?: boolean }) {
       onDrop={(e) => {
         const id = draggedTab();
         const group = draggedSplit();
+        const foreign = tabFromElsewhere(e.dataTransfer);
+        if (foreign) {
+          e.preventDefault();
+          e.stopPropagation();
+          const at = dropAt();
+          setDropAt(null);
+          return void takeTab(foreign, at ?? undefined);
+        }
         if (!id && !group) {
           if (!hasDroppable(e.dataTransfer)) return;
           e.preventDefault();
@@ -896,6 +982,9 @@ const styles = stylex.create({
     overflowY: "auto",
   },
   rootCompact: { paddingInline: 8 },
+  footerSpacer: { flex: 1 },
+  // A private window's sidebar is tinted, so it's never mistaken for a normal one.
+  rootPrivate: { backgroundImage: "linear-gradient(rgb(76 29 149 / 0.12), rgb(76 29 149 / 0.12))" },
   naming: { display: "flex", alignItems: "center", gap: space.sm, flexShrink: 0 },
   collapse: {
     display: "grid",

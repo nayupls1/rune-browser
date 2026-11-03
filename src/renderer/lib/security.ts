@@ -15,7 +15,9 @@ export { requests as permissionRequests };
 /** Bumps when secrets or remembered permissions change. */
 export { version as securityVersion };
 
+// Agents ask in the normal windows: a private window has nothing to do with them.
 watchTopic(topics.permissions, (msg) => {
+  if (window.rune.window.private) return;
   if (msg.type === "permission-request")
     setRequests((list) => (list.some((r) => r.id === msg.request.id) ? list : [...list, msg.request]));
   else if (msg.type === "permission-resolved") setRequests((list) => list.filter((r) => r.id !== msg.id));
@@ -26,7 +28,7 @@ watchTopic(topics.activity, (msg) => {
 });
 
 // What was asked while disconnected.
-onConnected(() => void api.pendingPermissions().then(setRequests, () => {}));
+onConnected(() => !window.rune.window.private && void api.pendingPermissions().then(setRequests, () => {}));
 
 export async function answerPermission(id: string, allow: boolean, remember: boolean | "workspace") {
   setRequests((list) => list.filter((r) => r.id !== id));

@@ -3,9 +3,13 @@
 import { createSignal } from "solid-js";
 import { Socket, type TopicMessage } from "../../shared/hub";
 
+// The window's id: requests about its tabs come here (Hub.ts).
 const socket = new Socket(
-  `${window.rune.serverUrl.replace(/^http/, "ws")}/api/ws?role=renderer&token=${encodeURIComponent(window.rune.token)}`,
+  `${window.rune.serverUrl.replace(/^http/, "ws")}/api/ws?role=renderer&window=${encodeURIComponent(window.rune.window.id)}&token=${encodeURIComponent(window.rune.token)}`,
 );
+
+/** Tells the server which tabs this window has (agents' requests about them come here). */
+export const reportTabs = (ids: string[]) => socket.setTabs(ids);
 
 const [connected, setConnected] = createSignal(false);
 socket.onConnection(setConnected);

@@ -41,7 +41,8 @@ showing one that can't, like other browsers (`shared/insecure.ts`).
   without trying.
 - **The warning:** **Go back** returns to the page before; **Continue to site** opens it over HTTP until Rune Browser
   restarts, or for good with "Don't warn me about this site again". Settings → Browser → Privacy and security lists those sites (with a
-  remove button) and has a switch that turns the whole thing off.
+  remove button) and has a switch that turns the whole thing off. "Until Rune Browser restarts" is per window, and a
+  private window doesn't offer "for good" (it remembers nothing).
 - **Not for local addresses:** this computer and the private network (`localhost`, `*.localhost`, private, link-local
   and VPN ranges, IPv6 local addresses, names without a dot, `.local`, `.lan`, `.home`, `.home.arpa`, `.internal`) are never
   upgraded or warned about. App previews aren't web tabs, so they aren't affected either.
@@ -54,7 +55,7 @@ showing one that can't, like other browsers (`shared/insecure.ts`).
 **Default browser.** Rune Browser can be the system's default browser (`main/defaultBrowser.ts`), so links and web files from other apps open in it:
 
 - **Registered as a browser:** the installers declare http and https links and `.html`, `.htm`, `.xhtml`, `.shtml`, `.pdf`, `.svg` and `.webp` files (`shared/defaultBrowser.ts`): on Windows in the registry, so it's in Default apps and "Open with" (`build/installer.nsh`, removed again when uninstalled); on macOS in its Info.plist; on Linux in the `.desktop` file. It never takes files over by itself.
-- **One copy:** launching it again (which is what opening a link does) hands the links and files to the running window, where each opens in a new tab, and quits. macOS sends them as events instead. Links it's started with open once the window is ready. Anything that isn't a web link or an existing web file is ignored, and on Windows links come after `--`, so they can't pass switches to Chromium.
+- **One copy:** launching it again (which is what opening a link does) hands the links and files to the running Rune Browser, where each opens in a new tab of the normal window used last (never a private one; with none open, the last one comes back or an empty one opens), and quits. macOS sends them as events instead. Links it's started with open once the window is ready. Anything that isn't a web link or an existing web file is ignored, and on Windows links come after `--`, so they can't pass switches to Chromium.
 - **Settings → Browser → Default browser** shows whether it's the default. **Make default** sets it on Linux (`xdg-mime`, for links and web pages; an AppImage first writes its own `.desktop` file to `~/.local/share/applications`), asks macOS, which confirms with the user, and on Windows opens Settings at Rune Browser's default apps, since only the user can choose there. Runs from source can't be the default.
 
 **Error pages** are Chromium's (`shared/loadErrors.ts`, `components/LoadError.tsx`): "This site can't be reached" and
@@ -184,7 +185,7 @@ endpoint, grouped by host, with its parameters, request body and responses (`sha
 
 ## Extensions
 
-Web tabs run Chrome extensions (Manifest V3 and V2) with Electron's extension support. Each workspace's session loads its own copy, so an extension only sees the tabs of its workspace and keeps separate data there (`chrome.storage.sync` is the exception: one copy per extension, shared). Settings → Extensions lists them. You can add one from the Chrome Web Store (link or ID), load an unpacked folder, or import from a browser. Store extensions update every 5 hours.
+Web tabs run Chrome extensions (Manifest V3 and V2) with Electron's extension support. Each workspace's session loads its own copy, so an extension only sees the tabs of its workspace and keeps separate data there (`chrome.storage.sync` is the exception: one copy per extension, shared). Private windows' session loads only the extensions allowed there ("Allow in private windows" in their details), and sees the private windows' tabs. An extension sees the tabs of its workspace in every window; the focused window's say which tab is active, and tabs it opens go to the window you used last. Settings → Extensions lists them. You can add one from the Chrome Web Store (link or ID), load an unpacked folder, or import from a browser. Store extensions update every 5 hours.
 
 **Import from your browser** (Settings → Extensions, or the puzzle menu in a web tab) reads the profiles of Chrome, Chromium, Brave, Edge and Vivaldi (including Flatpak and Snap installs). It offers what's turned on there. Store extensions are copied and keep their IDs. Unpacked ones are used from their folder. They come along with:
 
@@ -257,8 +258,9 @@ The rest of Chromium (settings, internal pages, everyday behavior) is in [Chromi
 | Print (Ctrl+P), save page (Ctrl+S)                                                                 | Same (.html with its files, or .htm alone)                                   |
 | DevTools, console, inspect (F12, Ctrl+Shift+I/J/C, macOS Cmd+Option+I/J/C)                         | Same                                                                         |
 | Full screen (F11, macOS Cmd+Ctrl+F), close window (Ctrl+Shift+W, Alt+F4), quit (Ctrl+Shift+Q)      | Same (macOS quits with Cmd+Q)                                                |
+| Reopen closed tab (Ctrl+Shift+T) after closing a window                                            | Same: reopens the window with its tabs                                       |
 | History (Ctrl+H, macOS Cmd+Y)                                                                      | Same                                                                         |
-| Ctrl+click or middle click on a link; Ctrl+Shift+click, Shift+click                                | Same: a background tab; a tab that's shown (one window, so no new window)    |
+| Ctrl+click or middle click on a link; Ctrl+Shift+click, Shift+click                                | Same: a background tab; a tab that's shown (Shift+click: not a new window)   |
 | Address bar: Ctrl+Enter (www. and .com), Alt+Enter or Shift+Enter (macOS Cmd+Enter: new tab)       | Same                                                                         |
 | Search tabs (Ctrl+Shift+A)                                                                         | Same, in the command bar                                                     |
 | View source (Ctrl+U, macOS Cmd+Option+U)                                                           | Different: DevTools' Sources panel (Electron can't show view-source: pages)  |
@@ -267,7 +269,7 @@ The rest of Chromium (settings, internal pages, everyday behavior) is in [Chromi
 | Bookmarks bar (Ctrl+Shift+B)                                                                       | Different: shows or hides the sidebar (no bookmarks)                         |
 | Search in the address bar (Ctrl+K)                                                                 | Different: the command bar, which also searches                              |
 | Bookmark manager (Ctrl+Shift+O)                                                                    | Not yet: no bookmarks                                                        |
-| New window (Ctrl+N), private window (Ctrl+Shift+N)                                                 | Not yet: one window                                                          |
+| New window (Ctrl+N), private window (Ctrl+Shift+N)                                                 | Same (see [Windows](interface.md#windows))                                   |
 | Open file (Ctrl+O)                                                                                 | Not yet                                                                      |
 | Clear browsing data (Ctrl+Shift+Delete), task manager (Shift+Esc), caret browsing (F7)             | Not yet                                                                      |
 | Home (Alt+Home), menu (Alt+F, F10), focus toolbar (Alt+Shift+T)                                    | Not applicable: no home page or menu                                         |

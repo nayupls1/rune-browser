@@ -4,7 +4,7 @@
 import { normalizeSplits, SPLIT_MAX_TABS, type TabSplit } from "../../shared/api";
 import { toast } from "../components/Toast";
 import { api } from "./api";
-import { apps, appById, selectApp, selectedId, showSplits, workspaceById, workspaces } from "./store";
+import { allApps, appById, selectApp, selectedId, showSplits, workspaceById, workspaces } from "./store";
 
 export type SplitSide = "left" | "right" | "top" | "bottom";
 
@@ -36,7 +36,10 @@ const without = (split: TabSplit, tabId: string): TabSplit => {
 async function save(workspaceId: string, splits: TabSplit[]) {
   const clean = normalizeSplits(
     splits,
-    apps.filter((a) => a.workspaceId === workspaceId).map((a) => a.id),
+    // Every window's tabs: a split of another window's tabs stays as it is.
+    allApps()
+      .filter((a) => a.workspaceId === workspaceId)
+      .map((a) => a.id),
   );
   showSplits(workspaceId, clean);
   try {

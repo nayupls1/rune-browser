@@ -39,6 +39,7 @@ import {
   openTabs,
   selectedId,
   workspaceTabs,
+  isPrivate,
 } from "./lib/store";
 import { colors, font, radius, space } from "./theme.stylex";
 
@@ -49,16 +50,26 @@ export default function App() {
     startShortcuts();
     await loadSettings().catch((err) => console.error("Loading settings failed:", err));
     void loadProviders().catch((err) => console.error("Loading providers failed:", err));
+    let intent: Awaited<ReturnType<typeof loadApps>> = null;
     try {
-      await loadApps();
+      intent = await loadApps();
     } finally {
       // Links from other apps open as tabs from now on (the ones Rune Browser was started with first).
       window.rune.web.linksReady();
     }
-    await runStartup().catch((err) => console.error("Opening the startup pages failed:", err));
+    // Only the first window at launch: not new windows, nor a reopened or reloaded one.
+    if (intent === "startup")
+      await runStartup().catch((err) => console.error("Opening the startup pages failed:", err));
   });
 
   const isSelected = (id: string) => selectedId() === id;
+
+  // The window's title (taskbars, other windows' "Move to window" menus): the tab on screen.
+  createEffect(() => {
+    const name = appById(selectedId())?.name;
+    const base = isPrivate ? "Rune Browser (Private)" : "Rune Browser";
+    document.title = name ? `${name} – ${base}` : base;
+  });
 
   // Every tab of the split on screen is shown, not only the one selected.
   createEffect(() => {
@@ -141,9 +152,11 @@ export default function App() {
                     : `Nothing in ${currentWorkspace()?.name ?? "this workspace"} yet`}
                 </p>
                 <div {...stylex.attrs(styles.emptyActions)}>
-                  <Button variant="primary" onClick={() => newApp()}>
-                    + New app
-                  </Button>
+                  <Show when={!isPrivate}>
+                    <Button variant="primary" onClick={() => newApp()}>
+                      + New app
+                    </Button>
+                  </Show>
                   <Button onClick={() => newWebTab()}>+ New web tab</Button>
                 </div>
               </div>

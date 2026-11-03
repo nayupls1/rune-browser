@@ -97,7 +97,13 @@ export const settingsSections: SettingsSection[] = [
     group: "browser",
     keywords: "links open from other apps",
   },
-  { id: "browser-startup", label: "On startup", icon: "power", group: "browser", keywords: "start pages new tab" },
+  {
+    id: "browser-startup",
+    label: "On startup",
+    icon: "power",
+    group: "browser",
+    keywords: "start pages new tab windows restore",
+  },
   { id: "browser-languages", label: "Languages", icon: "languages", group: "browser", keywords: "spell check" },
   { id: "browser-downloads", label: "Downloads", icon: "download", group: "browser", keywords: "folder location" },
   {

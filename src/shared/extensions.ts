@@ -16,6 +16,8 @@ export interface ExtensionInfo {
   /** data: URL of its icon. */
   icon: string | null;
   enabled: boolean;
+  /** Runs in private windows too. */
+  allowPrivate: boolean;
   /** Shown in the toolbar of web tabs (otherwise in the extensions menu). */
   pinned: boolean;
   source: ExtensionSource;

@@ -2,8 +2,10 @@
 // into its tab while you look at another one. Everything the server changes
 // (agent output, app status, the tab and workspace lists) arrives on the hub.
 // Opened tabs of every workspace stay loaded until they're unloaded for being
-// idle (lib/unload.ts); the sidebar shows the current workspace's.
-import { createSignal } from "solid-js";
+// idle (lib/unload.ts); the sidebar shows the current workspace's. Each window
+// has its own tabs (AppSummary.windowId): `apps` are this window's, the other
+// windows' are only known by name (allApps).
+import { createEffect, createRoot, createSignal } from "solid-js";
 import { createStore, produce, reconcile, unwrap } from "solid-js/store";
 import type {
   AgentChoice,
@@ -21,9 +23,10 @@ import type {
 import type { WorkspaceSettings } from "../../shared/settings";
 import { topics } from "../../shared/hub";
 import { FLAGS_VIEW, GPU_VIEW, URLS_VIEW, VERSION_VIEW } from "../../shared/internalPages";
+import { PRIVATE_WORKSPACE } from "../../shared/api";
 import { api } from "./api";
 import { attachmentsOf, clearAttachments } from "./attachments";
-import { onConnected, watchTopic } from "./realtime";
+import { onConnected, reportTabs, watchTopic } from "./realtime";
 import { settings } from "./settings";
 
 export interface TabState {
@@ -75,22 +78,37 @@ export function openSettings(section?: string) {
   return selectApp(SETTINGS_VIEW);
 }
 
+/** This window, and whether it's private (no agents, no apps, nothing kept). */
+export const windowId = window.rune.window.id;
+export const isPrivate = window.rune.window.private;
+
 const [apps, setApps] = createStore<AppSummary[]>([]);
+/** The other windows' tabs (a private window's only in that window): names for History, Activity, schedules. */
+const [others, setOthers] = createStore<AppSummary[]>([]);
 const [states, setStates] = createStore<Record<string, TabState>>({});
 const [selectedId, setSelectedId] = createSignal<string | null>(null);
 const [providers, setProviders] = createSignal<ProviderStatus[]>([]);
 const [workspaces, setWorkspaces] = createStore<WorkspaceInfo[]>([]);
-const [workspaceId, setWorkspaceId] = createSignal<string | null>(localStorage.getItem("rune.workspace"));
+const [workspaceId, setWorkspaceId] = createSignal<string | null>(
+  localStorage.getItem(`rune.workspace:${window.rune.window.id}`) ?? localStorage.getItem("rune.workspace"),
+);
 
 export { apps, providers, selectedId, states, workspaces };
 
 export const appById = (id: string | null) => (id ? apps.find((a) => a.id === id) : undefined);
+/** Every open tab this window may know about: its own and the other normal windows'. */
+export const allApps = () => [...apps, ...others];
+const isMine = (app: AppSummary) => app.windowId === windowId;
+/** The session a web tab's page uses: its workspace's, or the private windows' one. */
+export const sessionWorkspace = (app: Pick<AppSummary, "workspaceId" | "private"> | undefined) =>
+  app?.private ? PRIVATE_WORKSPACE : (app?.workspaceId ?? currentWorkspace()?.id ?? "default");
 export const workspaceById = (id: string | null) => (id ? workspaces.find((w) => w.id === id) : undefined);
 /** The workspace shown in the sidebar. */
 export const currentWorkspace = () => workspaceById(workspaceId()) ?? workspaces[0];
 const byPosition = (a: AppSummary, b: AppSummary) => a.position - b.position || a.createdAt.localeCompare(b.createdAt);
-/** The tabs of the current workspace, in the user's order. */
-export const workspaceTabs = () => apps.filter((a) => a.workspaceId === currentWorkspace()?.id).sort(byPosition);
+/** The tabs of the current workspace, in the user's order (a private window has no workspaces: all its tabs). */
+export const workspaceTabs = () =>
+  apps.filter((a) => isPrivate || a.workspaceId === currentWorkspace()?.id).sort(byPosition);
 export const isWebTab = (id: string | null) => appById(id)?.kind === "web";
 /** Tabs (app or web) as opposed to the Settings page. */
 export const isTab = (id: string | null): id is string => !!id && !isSettingsView(id);
@@ -139,8 +157,9 @@ const followsMode = (id: string) => appById(id)?.kind === "app" && !!states[id]?
 /** The app's mode, including a switch on its way. */
 export const appMode = (id: string): AppMode => pendingModes[id] ?? states[id]?.runtime?.mode ?? "dev";
 
+// Private windows have no agent.
 export const isAgentCollapsed = (id: string) =>
-  followsMode(id) ? appMode(id) === "live" : !(openChoice()[id] ?? openByDefault(id));
+  isPrivate || (followsMode(id) ? appMode(id) === "live" : !(openChoice()[id] ?? openByDefault(id)));
 
 /** Editing (dev server, agent open) or done (built and started, agent hidden). */
 export async function setAppMode(id: string, mode: AppMode) {
@@ -155,6 +174,7 @@ export async function setAppMode(id: string, mode: AppMode) {
 }
 
 export function setAgentCollapsed(id: string, value: boolean) {
+  if (isPrivate) return;
   if (followsMode(id))
     return void setAppMode(id, value ? "live" : "dev").catch((err) => console.error("Switching the mode failed:", err));
   const next = { ...openChoice() };
@@ -204,10 +224,51 @@ const emptyState = (): TabState => ({
   runtime: null,
 });
 
+/** A tab that came from the server: this window's, or another one's (it may have just moved there). */
 function upsertApp(app: AppSummary) {
+  if (!isMine(app)) {
+    if (appById(app.id)) leaveWindow(app.id);
+    const j = others.findIndex((a) => a.id === app.id);
+    if (app.private) {
+      if (j !== -1) setOthers((list) => list.filter((a) => a.id !== app.id));
+    } else if (j === -1) setOthers(others.length, app);
+    else setOthers(j, reconcile(app));
+    return;
+  }
+  // Moved here from another window (dragged in, "Move to window"): it's shown.
+  const movedIn = others.some((a) => a.id === app.id);
+  if (movedIn) setOthers((list) => list.filter((a) => a.id !== app.id));
   const i = apps.findIndex((a) => a.id === app.id);
   if (i === -1) setApps(apps.length, app);
   else setApps(i, reconcile(app));
+  if (movedIn) void selectApp(app.id);
+}
+
+/** All open tabs from the server: this window's, and the others'. */
+function setAllApps(list: AppSummary[]) {
+  for (const tab of [...apps]) {
+    const now = list.find((t) => t.id === tab.id);
+    if (!now) forgetApp(tab.id);
+    else if (!isMine(now)) leaveWindow(tab.id);
+  }
+  setApps(reconcile(list.filter(isMine)));
+  setOthers(reconcile(list.filter((t) => !isMine(t) && !t.private)));
+}
+
+/**
+ * A tab went to another window: it closes here (its page goes, its chat stays on
+ * the server). A window whose last tab left closes too, like in Chrome.
+ */
+function leaveWindow(id: string) {
+  const index = workspaceTabs().findIndex((a) => a.id === id);
+  setApps((list) => list.filter((a) => a.id !== id));
+  setOpened(opened().filter((x) => x !== id));
+  lastUsed.delete(id);
+  watchers.get(id)?.();
+  watchers.delete(id);
+  setStates(produce((s) => void delete s[id]));
+  if (!apps.length) return window.rune.window.discard();
+  if (selectedId() === id) selectNeighbour(workspaceTabs(), index);
 }
 
 /** After the selected tab went away (deleted, moved): its neighbour in the workspace, or nothing. */
@@ -218,6 +279,7 @@ function selectNeighbour(siblings: AppSummary[], index: number) {
 }
 
 function forgetApp(id: string) {
+  setOthers((list) => list.filter((a) => a.id !== id));
   const index = workspaceTabs().findIndex((a) => a.id === id);
   if (!appById(id)) return;
   setApps((list) => list.filter((a) => a.id !== id));
@@ -229,6 +291,9 @@ function forgetApp(id: string) {
   if (selectedId() === id) selectNeighbour(workspaceTabs(), index);
 }
 
+// The server asks this window about its own tabs only (agents' page tools).
+createRoot(() => createEffect(() => reportTabs(apps.map((a) => a.id))));
+
 // The tab list changes from elsewhere too (the agent names apps, duplicates…).
 watchTopic(topics.apps, (msg) => {
   if (msg.type === "app") upsertApp(msg.app);
@@ -237,7 +302,7 @@ watchTopic(topics.apps, (msg) => {
 onConnected(
   () =>
     void api.listApps().then(
-      (list) => setApps(reconcile(list)),
+      (list) => setAllApps(list),
       () => {},
     ),
 );
@@ -297,8 +362,14 @@ async function refreshDetail(id: string) {
 export async function loadApps() {
   const [spaces, list] = await Promise.all([api.workspaces(), api.listApps()]);
   setWorkspaces(reconcile(spaces));
-  setApps(reconcile(list));
+  setAllApps(list);
+  // A window that has tabs in another workspace only (a tab dragged out into it) shows that one.
+  if (!workspaceTabs().length && apps[0]) setCurrentWorkspace(apps[0].workspaceId);
   if (!selectedId()) await showWorkspace(currentWorkspace()!.id);
+  // A new window (Ctrl+N) starts with a new tab; the first one at launch does what On startup says (App.tsx).
+  const intent = await window.rune.window.takeIntent().catch(() => null);
+  if (intent === "new-tab") await newWebTab();
+  return intent;
 }
 
 export async function selectApp(id: string) {
@@ -338,7 +409,9 @@ function showNewTab(app: AppSummary) {
 }
 
 export async function newApp() {
-  const app = await api.createApp({ workspaceId: currentWorkspace()?.id });
+  // Apps are built by agents, which private windows don't have: a normal window gets it.
+  if (isPrivate) throw new Error("Private windows have web tabs only");
+  const app = await api.createApp({ workspaceId: currentWorkspace()?.id, windowId });
   showNewTab(app);
   return app;
 }
@@ -354,6 +427,7 @@ export async function newWebTab(url?: string, options: { workspaceId?: string; b
     kind: "web",
     url: url && /^(https?:\/\/|chrome-extension:\/\/|file:\/\/\/)/i.test(url) ? url : undefined,
     workspaceId: options.workspaceId ?? currentWorkspace()?.id,
+    windowId,
   });
   if (!options.background) showNewTab(app);
   else {
@@ -433,8 +507,8 @@ export async function deleteApp(id: string) {
   forgetApp(id);
 }
 
-/** Web tabs closed lately, newest last (Ctrl+Shift+T opens the last one again). */
-const recentlyClosed: { url: string; workspaceId: string }[] = [];
+/** Web tabs closed lately in this window, newest last (Ctrl+Shift+T opens the last one again). */
+const recentlyClosed: { url: string; workspaceId: string; at: number }[] = [];
 
 /**
  * Closes a tab, like in a browser. An app is kept with everything it has
@@ -446,27 +520,32 @@ export async function closeTab(id: string) {
   if (!tab) return;
   if (tab.kind === "app") await api.closeApp(id);
   else {
-    if (tab.url) recentlyClosed.push({ url: tab.url, workspaceId: tab.workspaceId });
+    // A private window doesn't remember what it closed: nothing of it is kept.
+    if (tab.url && !isPrivate) recentlyClosed.push({ url: tab.url, workspaceId: tab.workspaceId, at: Date.now() });
     if (recentlyClosed.length > 25) recentlyClosed.shift();
     await api.deleteApp(id);
   }
   forgetApp(id);
 }
 
-/** The web tab closed last, opened again. */
+/** What was closed last, opened again: a web tab of this window, or a window (with its tabs), like Chrome's Ctrl+Shift+T. */
 export async function reopenClosedTab() {
-  const last = recentlyClosed.pop();
-  if (last)
-    await newWebTab(last.url, {
-      workspaceId: workspaces.some((w) => w.id === last.workspaceId) ? last.workspaceId : currentWorkspace()?.id,
-    });
+  const last = recentlyClosed.at(-1);
+  const closedWindow = isPrivate ? undefined : (await window.rune.window.closed().catch(() => []))[0];
+  if (closedWindow && (!last || closedWindow.closedAt > last.at))
+    return void (await window.rune.window.reopen(closedWindow.id));
+  if (!last) return;
+  recentlyClosed.pop();
+  await newWebTab(last.url, {
+    workspaceId: workspaces.some((w) => w.id === last.workspaceId) ? last.workspaceId : currentWorkspace()?.id,
+  });
 }
 
 /** Opens an app from the library (closed app tabs) in the current workspace. */
 export async function reopenApp(id: string) {
   const workspace = currentWorkspace();
   if (!workspace) return;
-  const tab = await api.reopenApp(id, workspace.id);
+  const tab = await api.reopenApp(id, workspace.id, windowId);
   upsertApp(tab);
   await selectApp(tab.id);
 }
@@ -487,7 +566,7 @@ export async function reorderTabs(ids: string[]) {
     for (const tab of await api.reorderTabs(workspace.id, ids)) upsertApp(tab);
   } catch (err) {
     console.error("Saving the tab order failed:", err);
-    setApps(reconcile(await api.listApps()));
+    setAllApps(await api.listApps());
   }
 }
 
@@ -516,7 +595,9 @@ export async function moveApp(id: string, workspaceId: string) {
 
 // --- Workspaces --------------------------------------------------------------------------
 
-const WORKSPACE_TABS_KEY = "rune.workspaceTabs";
+// Each window has its own workspace on screen and last tab in each (kept for when it comes back).
+const WORKSPACE_KEY = `rune.workspace:${windowId}`;
+const WORKSPACE_TABS_KEY = `rune.workspaceTabs:${windowId}`;
 const lastTabs = (): Record<string, string> => {
   try {
     return JSON.parse(localStorage.getItem(WORKSPACE_TABS_KEY) ?? "{}");
@@ -525,11 +606,16 @@ const lastTabs = (): Record<string, string> => {
   }
 };
 function rememberTab(workspaceId: string, tabId: string) {
+  // A private window keeps nothing, not even which tab it was on.
+  if (isPrivate) return;
   localStorage.setItem(WORKSPACE_TABS_KEY, JSON.stringify({ ...lastTabs(), [workspaceId]: tabId }));
 }
 
 function setCurrentWorkspace(id: string) {
   setWorkspaceId(id);
+  if (isPrivate) return;
+  localStorage.setItem(WORKSPACE_KEY, id);
+  // New windows start in the workspace used last.
   localStorage.setItem("rune.workspace", id);
 }
 

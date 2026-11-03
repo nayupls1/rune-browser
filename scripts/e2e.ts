@@ -4230,6 +4230,206 @@ try {
     }
   });
 
+  await check("windows: new and private windows, tabs moved out and back, a closed window reopened", async () => {
+    const mainId = await page!.eval<string>("window.rune.window.id");
+    /** Closes a window from its own page: a moment later, so the answer gets back before the page is gone. */
+    const closeWindow = (win: Page) => win.eval("setTimeout(() => window.rune.window.close(), 50), true");
+    /** The page of another window, once it's open (found by the window id in its URL). */
+    const windowPage = async (match: (id: string) => boolean, label: string) => {
+      const target = await waitForValue(async () => {
+        const list = (await (await fetch(`http://127.0.0.1:${port}/json`)).json()) as { type: string; url: string }[];
+        return list.find((t) => {
+          const id = t.type === "page" && t.url.startsWith("app://") ? new URL(t.url).searchParams.get("window") : null;
+          return !!id && id !== mainId && match(id);
+        });
+      }, 20_000).catch(() => {
+        throw new Error(`no ${label} opened`);
+      });
+      const win = await Page.connect(port, 10_000, (t) => t.url === target.url);
+      await win.send("Runtime.enable");
+      win.on("Runtime.exceptionThrown", (e) =>
+        pageErrors.push(`${label}: ${e.exceptionDetails?.exception?.description ?? e.exceptionDetails?.text}`),
+      );
+      await win.send("Emulation.setFocusEmulationEnabled", { enabled: true });
+      await win.waitFor(`!!document.querySelector('[data-page-link="Settings"]')`, { label: `${label} to load` });
+      return { win, id: new URL(target.url).searchParams.get("window")! };
+    };
+    const windowGone = (id: string) =>
+      waitForValue(async () => {
+        const list = (await (await fetch(`http://127.0.0.1:${port}/json`)).json()) as { url: string }[];
+        return list.some((t) => t.url.includes(`window=${id}`)) ? undefined : true;
+      }, 15_000);
+    const tabsIn = (win: Page) =>
+      win.eval<string[]>(`[...document.querySelectorAll("nav li[data-app-id]")].map((li) => li.dataset.appId)`);
+    const keys = (win: Page, key: string, shift = false) =>
+      win.eval(
+        `window.dispatchEvent(new KeyboardEvent("keydown", { key: ${JSON.stringify(key)}, ${mod}: true, shiftKey: ${shift}, bubbles: true })), true`,
+      );
+    const opened: Page[] = [];
+    try {
+      // Ctrl+N: a normal window with a new tab of its own.
+      await keys(page!, "n");
+      const second = await windowPage((id) => id.startsWith("w-"), "new window");
+      opened.push(second.win);
+      await second.win.waitFor(`document.querySelectorAll("nav li[data-app-id]").length === 1`, {
+        label: "the new window's new tab",
+      });
+      const [secondTab] = await tabsIn(second.win);
+      if ((await tabsIn(page!)).includes(secondTab!)) throw new Error("the new window's tab is in the first one too");
+      if (await second.win.eval<boolean>(`!!document.querySelector("[data-private-badge]")`))
+        throw new Error("a normal window is marked private");
+
+      // Ctrl+Shift+N: a private window, marked as such, without agents, apps or workspaces.
+      await keys(page!, "N", true);
+      const priv = await windowPage((id) => id.startsWith("private-"), "private window");
+      opened.push(priv.win);
+      await priv.win.waitFor(`document.querySelectorAll("nav li[data-app-id]").length === 1`, {
+        label: "the private window's new tab",
+      });
+      const privateUi = await priv.win.eval<Record<string, unknown>>(`({
+          badge: !!document.querySelector("[data-private-badge]"),
+          tinted: document.querySelector("nav[data-sidebar]")?.hasAttribute("data-private-window"),
+          agent: !!document.querySelector("[data-agent-show]"),
+          workspaces: !!document.querySelector("[data-workspace-bar]"),
+          title: document.title,
+        })`);
+      if (!privateUi.badge || !privateUi.tinted) throw new Error(`not marked private: ${JSON.stringify(privateUi)}`);
+      if (privateUi.agent || privateUi.workspaces)
+        throw new Error(`agent or workspaces shown: ${JSON.stringify(privateUi)}`);
+      if (!String(privateUi.title).includes("Private")) throw new Error(`title: ${privateUi.title}`);
+      // Its "New tab" menu has no apps; Ctrl+J does nothing there.
+      await priv.win.eval(`document.querySelector("[data-new-tab]").click(), true`);
+      await priv.win.waitFor(`!!document.querySelector("[data-context-menu]")`, { label: "private new tab menu" });
+      const menu = await priv.win.eval<string>(`document.querySelector("[data-context-menu]").innerText`);
+      if (menu.includes("New app") || !menu.includes("New private window"))
+        throw new Error(`private New tab menu: ${menu}`);
+      await priv.win.eval(
+        `document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })), true`,
+      );
+      await priv.win.screenshot(join(outDir, "window-private.png"));
+
+      // A page in it sets a cookie; agents can't use the tab.
+      const [privTab] = await tabsIn(priv.win);
+      await priv.win.eval(
+        `window.__runeRpc("page.navigate", { tabId: ${JSON.stringify(privTab)}, url: ${JSON.stringify(`${site.url.origin}/second`)} })`,
+      );
+      await priv.win.waitFor(`document.querySelector("webview")?.getURL?.().includes("/second")`, {
+        label: "private page to load",
+        timeoutMs: 20_000,
+      });
+      const partition = await priv.win.eval<string>(`document.querySelector("webview").getAttribute("partition")`);
+      if (partition !== "persist:private-web") throw new Error(`private tab's session: ${partition}`);
+      await priv.win.eval(
+        `document.querySelector("webview").executeJavaScript('document.cookie = "private=1; max-age=3600"; document.cookie')`,
+      );
+      const refused = await apiCall(`/api/apps/${privTab}/chat`, { method: "POST", body: { prompt: "hi" } }).then(
+        () => false,
+        (err: Error) => err.message.includes("private"),
+      );
+      if (!refused) throw new Error("an agent started in a private tab");
+
+      // Extensions run there only when allowed.
+      const extensionsInPrivate = () =>
+        priv.win.eval<number>(
+          `window.rune.extensions.prepare("private").then(() => window.rune.extensions.actions("private", null)).then((a) => a.length)`,
+        );
+      const ext = (await page!.eval<{ extensions: { id: string }[] }>("window.rune.extensions.list()")).extensions[0];
+      if (ext) {
+        if ((await extensionsInPrivate()) !== 0) throw new Error("an extension runs in private windows unasked");
+        await page!.eval(`window.rune.extensions.setAllowPrivate(${JSON.stringify(ext.id)}, true)`);
+        await waitForValue(async () => ((await extensionsInPrivate()) > 0 ? true : undefined));
+        await page!.eval(`window.rune.extensions.setAllowPrivate(${JSON.stringify(ext.id)}, false)`);
+        await waitForValue(async () => ((await extensionsInPrivate()) === 0 ? true : undefined));
+      }
+
+      // Closing it deletes its tabs and its cookies.
+      await closeWindow(priv.win);
+      await windowGone(priv.id);
+      await waitForValue(async () =>
+        (await apiCall<{ private: boolean }[]>("/api/apps")).some((t) => t.private) ? undefined : true,
+      );
+      await keys(page!, "N", true);
+      const again = await windowPage((id) => id.startsWith("private-") && id !== priv.id, "second private window");
+      opened.push(again.win);
+      await again.win.waitFor(`document.querySelectorAll("nav li[data-app-id]").length === 1`, {
+        label: "the second private window's tab",
+      });
+      const [againTab] = await tabsIn(again.win);
+      await again.win.eval(
+        `window.__runeRpc("page.navigate", { tabId: ${JSON.stringify(againTab)}, url: ${JSON.stringify(`${site.url.origin}/second`)} })`,
+      );
+      await again.win.waitFor(`document.querySelector("webview")?.getURL?.().includes("/second")`, {
+        label: "page in the second private window",
+        timeoutMs: 20_000,
+      });
+      const cookie = await again.win.eval<string>(
+        `document.querySelector("webview").executeJavaScript("document.cookie")`,
+      );
+      if (cookie.includes("private=1")) throw new Error(`a closed private window's cookie is still there: ${cookie}`);
+      await closeWindow(again.win);
+      await windowGone(again.id);
+
+      // "Move to new window" from a tab's menu (a window's only tab has nothing to move from): it opens there, and leaves this one.
+      const staying = await apiCall<{ id: string }>("/api/apps", {
+        method: "POST",
+        body: { kind: "web", url: `${site.url.origin}/`, windowId: mainId },
+      });
+      const moving = await apiCall<{ id: string }>("/api/apps", {
+        method: "POST",
+        body: { kind: "web", url: `${site.url.origin}/second`, windowId: mainId },
+      });
+      await page!.waitFor(`!!document.querySelector('nav li[data-app-id="${moving.id}"]')`, { label: "tab to move" });
+      await page!.eval(`(() => {
+          const li = document.querySelector('nav li[data-app-id="${moving.id}"]');
+          const r = li.getBoundingClientRect();
+          li.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: r.left + 20, clientY: r.top + 10 }));
+          return true;
+        })()`);
+      await page!.waitFor(`!!document.querySelector("[data-context-menu]")`, { label: "tab menu" });
+      await click("[data-context-menu] button", "Move to new window");
+      const third = await windowPage((id) => id.startsWith("w-") && id !== second.id, "window of the moved tab");
+      opened.push(third.win);
+      await third.win.waitFor(`!!document.querySelector('nav li[data-app-id="${moving.id}"][aria-current="page"]')`, {
+        label: "the moved tab, shown in its new window",
+      });
+      await page!.waitFor(`!document.querySelector('nav li[data-app-id="${moving.id}"]')`, {
+        label: "the moved tab gone from the first window",
+      });
+
+      // And back, by dragging it onto the first window's tabs: its window had only it, so it closes.
+      await page!.eval(`(() => {
+          const target = document.querySelector("nav li[data-app-id]");
+          const dt = new DataTransfer();
+          dt.setData("application/x-rune-tab", ${JSON.stringify(moving.id)});
+          const r = target.getBoundingClientRect();
+          const at = { bubbles: true, cancelable: true, dataTransfer: dt, clientX: r.left + 20, clientY: r.bottom - 2 };
+          target.dispatchEvent(new DragEvent("dragover", at));
+          target.dispatchEvent(new DragEvent("drop", at));
+          return true;
+        })()`);
+      await page!.waitFor(`!!document.querySelector('nav li[data-app-id="${moving.id}"]')`, {
+        label: "the tab dropped back into the first window",
+      });
+      await windowGone(third.id);
+
+      // A closed window comes back with its tabs (Ctrl+Shift+T, as it's what was closed last).
+      await closeWindow(second.win);
+      await windowGone(second.id);
+      await keys(page!, "T", true);
+      const reopened = await windowPage((id) => id === second.id, "reopened window");
+      opened.push(reopened.win);
+      await reopened.win.waitFor(`!!document.querySelector('nav li[data-app-id="${secondTab}"]')`, {
+        label: "the reopened window's tab",
+      });
+      await closeWindow(reopened.win);
+      await windowGone(second.id);
+      for (const id of [moving.id, staying.id]) await apiCall(`/api/apps/${id}`, { method: "DELETE" });
+      return "Ctrl+N, Ctrl+Shift+N (marked, no agents, extensions when allowed, cookies gone), moved out by menu and back by drag, reopened";
+    } finally {
+      for (const win of opened) win.close();
+    }
+  });
+
   await check("no uncaught errors in the renderer", async () => {
     // Expected noise from Electron itself isn't an app bug.
     const real = pageErrors.filter((e) => !/Electron Security Warning/.test(e));

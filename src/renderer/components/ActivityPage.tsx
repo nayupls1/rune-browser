@@ -7,7 +7,7 @@ import type { AuditEntry } from "../../shared/api";
 import { topics } from "../../shared/hub";
 import { api } from "../lib/api";
 import { watchTopic } from "../lib/realtime";
-import { apps, currentWorkspace, workspaces } from "../lib/store";
+import { allApps, currentWorkspace, workspaces } from "../lib/store";
 import { colors, font, radius, space } from "../theme.stylex";
 import { Icon } from "./Icon";
 
@@ -63,7 +63,7 @@ export function ActivityPage() {
     (!tab() || e.tabId === tab()) &&
     (!actor() || e.actor === actor()) &&
     (!workspace() || !e.workspaceId || e.workspaceId === workspace());
-  const tabs = () => apps.filter((a) => !workspace() || a.workspaceId === workspace());
+  const tabs = () => allApps().filter((a) => !workspace() || a.workspaceId === workspace());
 
   const load = async (before?: number) => {
     const page = await api.audit({
@@ -84,7 +84,7 @@ export function ActivityPage() {
     }),
   );
 
-  const tabName = (id: string | null) => (id ? (apps.find((a) => a.id === id)?.name ?? "Deleted tab") : null);
+  const tabName = (id: string | null) => (id ? (allApps().find((a) => a.id === id)?.name ?? "Deleted tab") : null);
 
   return (
     <div {...stylex.attrs(styles.page)} data-activity>

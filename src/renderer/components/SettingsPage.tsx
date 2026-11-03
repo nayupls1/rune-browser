@@ -1525,6 +1525,14 @@ function ExtensionDetails(props: { info: ExtensionInfo; onBack: () => void }) {
             description="It talks to programs installed for it (native messaging)."
           />
         </Show>
+        <Row
+          label="Allow in private windows"
+          description="Private windows run only the extensions you allow there. It can then see what you do in them, and Rune Browser can't stop it from keeping that."
+        >
+          <span data-extension-private>
+            <Toggle checked={info().allowPrivate} onChange={(on) => void ext.setAllowPrivate(info().id, on)} />
+          </span>
+        </Row>
         <Show when={info().hasAction}>
           <Row label="Pin" description="Keeps it at the top of the extensions menu, in a web tab's top row.">
             <Toggle checked={info().pinned} onChange={(on) => void ext.setPinned(info().id, on)} />

@@ -371,6 +371,7 @@ export const make = Effect.gen(function* () {
     Effect.gen(function* () {
       const app = yield* apps.get(appId);
       if (!app) return yield* new AgentError({ status: 404, message: "Not found" });
+      if (app.private) return yield* new AgentError({ status: 400, message: "Agents don't work in private windows" });
       if (yield* FiberMap.has(running, appId)) {
         return yield* new AgentError({ status: 409, message: "The agent is already working on this tab" });
       }

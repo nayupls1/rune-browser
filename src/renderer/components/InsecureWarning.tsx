@@ -2,7 +2,7 @@
 // (shared/insecure.ts), like other browsers' warning: go back, or continue to
 // the site this time or always.
 import * as stylex from "@stylexjs/stylex";
-import { createSignal } from "solid-js";
+import { createSignal, Show } from "solid-js";
 import { insecureHostOf } from "../../shared/insecure";
 import { colors, font, radius, space } from "../theme.stylex";
 import { Icon } from "./Icon";
@@ -31,10 +31,13 @@ export function InsecureWarning(props: {
           numbers.
         </p>
         <p {...stylex.attrs(styles.url)}>{props.url}</p>
-        <label {...stylex.attrs(styles.always)}>
-          <Checkbox checked={always()} onChange={(e) => setAlways(e.currentTarget.checked)} data-insecure-always />
-          Don't warn me about {host()} again
-        </label>
+        {/* A private window keeps nothing: it can't remember a site either. */}
+        <Show when={!window.rune.window.private}>
+          <label {...stylex.attrs(styles.always)}>
+            <Checkbox checked={always()} onChange={(e) => setAlways(e.currentTarget.checked)} data-insecure-always />
+            Don't warn me about {host()} again
+          </label>
+        </Show>
         <div {...stylex.attrs(styles.actions)}>
           <Button variant="ghost" onClick={() => props.onContinue(always())} data-insecure-continue>
             Continue to site

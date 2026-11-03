@@ -43,6 +43,8 @@ export interface InstalledExtension {
   granted?: { permissions: string[]; origins: string[] };
   /** Permissions it asks for that the user blocked (in its details). */
   denied?: string[];
+  /** Runs in private windows too (off unless the user allows it, like Chrome's "Allow in Incognito"). */
+  allowPrivate?: boolean;
   /** chrome.storage.local data imported from another browser, copied into each workspace before its first start. */
   seed?: string;
 }
@@ -256,6 +258,7 @@ export function describe(entry: InstalledExtension, error: string | null, hasNat
     description: info?.description ?? "",
     icon: info ? imageDataUrl(entry.path, iconPath(m.icons, 48) ?? iconPath(actionOf(m)?.default_icon, 48)) : null,
     enabled: entry.enabled,
+    allowPrivate: entry.allowPrivate === true,
     pinned: entry.pinned,
     source: entry.source,
     path: entry.path,

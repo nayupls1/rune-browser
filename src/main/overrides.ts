@@ -6,7 +6,8 @@
 //
 // The Rune Browser window sends the list (lib/webtabs.ts), with tab-scoped
 // overrides resolved to their tab's webContents.
-import { ipcMain, type BrowserWindow, type Session, type WebContents } from "electron";
+import { ipcMain, type Session, type WebContents } from "electron";
+import type { AppWindows } from "./windows";
 import type { ResponseOverride } from "../shared/api";
 import {
   answerHeaders,
@@ -36,7 +37,7 @@ interface Tab {
 const API_TYPES = ["XHR", "Fetch", "EventSource"];
 
 export interface OverridesOptions {
-  getWindow: () => BrowserWindow | undefined;
+  windows: AppWindows;
   /** The workspace a web tab session belongs to; app previews have none and aren't intercepted. */
   workspaceOf: (session: Session) => string | undefined;
   /** A request of a tab was answered by an override (DevTools' Network request id), for its log. */
@@ -238,7 +239,7 @@ export function setupOverrides(options: OverridesOptions) {
   }
 
   ipcMain.on("rune:network-overrides", (event, value: unknown) => {
-    if (event.sender !== options.getWindow()?.webContents || !Array.isArray(value)) return;
+    if (!options.windows.isUi(event.sender) || !Array.isArray(value)) return;
     set(value as Active[]);
   });
 

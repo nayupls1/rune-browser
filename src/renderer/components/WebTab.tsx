@@ -6,7 +6,7 @@
 import * as stylex from "@stylexjs/stylex";
 import type { DidFailLoadEvent, PageFaviconUpdatedEvent, PageTitleUpdatedEvent, WebviewTag } from "electron";
 import { createEffect, createSignal, For, on, onCleanup, Show, untrack } from "solid-js";
-import { DEFAULT_WORKSPACE, webPartition, type ElementInfo, type PageContext } from "../../shared/api";
+import { webPartition, type ElementInfo, type PageContext } from "../../shared/api";
 import { isExtensionUrl } from "../../shared/extensions";
 import { insecureAction, insecureHostOf, isInsecureUrl } from "../../shared/insecure";
 import {
@@ -26,7 +26,16 @@ import { addPick, clearPicks, isPicking, picksOf, removePick, setPickingIn } fro
 import { searchEngine, settings } from "../lib/settings";
 import { allowInsecure, insecurePolicy } from "../lib/insecure";
 import { sendWithShares } from "../lib/sharing";
-import { appById, isAgentCollapsed, setAgentCollapsed, states, stopAgent, updatePage } from "../lib/store";
+import {
+  appById,
+  isAgentCollapsed,
+  isPrivate,
+  sessionWorkspace,
+  setAgentCollapsed,
+  states,
+  stopAgent,
+  updatePage,
+} from "../lib/store";
 import { openInternalPage } from "../lib/internalPages";
 import {
   cachedOverride,
@@ -71,8 +80,9 @@ export function WebTab(props: { appId: string; active: boolean }) {
   // A tab that was unloaded comes back where it was (lib/unload.ts).
   const restoring = untrack(() => takeSavedPage(props.appId));
   const initialUrl = untrack(() => restoring?.url ?? appById(props.appId)?.url ?? "");
-  // The workspace's session (cookies, logins). A tab moved to another workspace is closed and reopened with the new one.
-  const workspaceId = untrack(() => appById(props.appId)?.workspaceId ?? DEFAULT_WORKSPACE);
+  // The workspace's session (cookies, logins), or the private windows' one that keeps nothing. A tab moved to
+  // another workspace is closed and reopened with the new one.
+  const workspaceId = untrack(() => sessionWorkspace(appById(props.appId)));
   const partition = webPartition(workspaceId);
   // Set by open() below: an insecure first page may be tried over HTTPS, or not loaded at all.
   const [src, setSrc] = createSignal("");
@@ -880,7 +890,7 @@ export function WebTab(props: { appId: string; active: boolean }) {
                 return null;
               }
             }}
-            workspaceId={() => appById(props.appId)?.workspaceId ?? DEFAULT_WORKSPACE}
+            workspaceId={() => sessionWorkspace(appById(props.appId))}
             onClose={() => setNetworkOpen(false)}
           />
         </Show>
@@ -933,7 +943,13 @@ const isUnsafe = (workspaceId: string, url: string) =>
 function StartPage(props: { onGo: (input: string) => boolean }) {
   return (
     <div {...stylex.attrs(styles.start)}>
-      <Icon name="globe" size={36} {...stylex.attrs(styles.startIcon)} />
+      <Show when={isPrivate} fallback={<Icon name="globe" size={36} {...stylex.attrs(styles.startIcon)} />}>
+        <Icon name="hat-glasses" size={36} {...stylex.attrs(styles.startIcon)} />
+        <p {...stylex.attrs(styles.startText, styles.startPrivate)} data-private-start>
+          You're in a private window. When you close it, its history, cookies and site data are deleted, and agents
+          don't see it. Files you download stay.
+        </p>
+      </Show>
       <p {...stylex.attrs(styles.startText)}>Search or enter an address above.</p>
       <div {...stylex.attrs(styles.startLinks)}>
         <For each={["news.ycombinator.com", "wikipedia.org", "github.com"]}>
@@ -1163,6 +1179,7 @@ const styles = stylex.create({
   },
   startIcon: { color: colors.accent },
   startText: { margin: 0, fontSize: font.md },
+  startPrivate: { maxWidth: 420, textAlign: "center", lineHeight: 1.5, color: colors.text },
   startLinks: { display: "flex", flexWrap: "wrap", justifyContent: "center", gap: space.sm },
   startLink: {
     paddingBlock: 6,

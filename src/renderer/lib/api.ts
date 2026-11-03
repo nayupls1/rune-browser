@@ -87,8 +87,10 @@ export const api = {
     request<Settings>("/api/settings", { method: "PUT", body: JSON.stringify(settings) }),
 
   listApps: () => request<AppSummary[]>("/api/apps"),
-  createApp: (body: { kind?: TabKind; url?: string; workspaceId?: string } = {}) => post<AppSummary>("/api/apps", body),
+  createApp: (body: { kind?: TabKind; url?: string; workspaceId?: string; windowId?: string } = {}) =>
+    post<AppSummary>("/api/apps", body),
   moveApp: (id: string, workspaceId: string) => post<AppSummary>(`/api/apps/${id}/move`, { workspaceId }),
+  moveToWindow: (id: string, windowId: string) => post<AppSummary>(`/api/apps/${id}/window`, { windowId }),
   setTabIcon: (id: string, icon: string | null) =>
     request<AppSummary>(`/api/apps/${id}/icon`, { method: "PUT", body: JSON.stringify({ icon }) }),
   setTabPinned: (id: string, pinned: boolean) =>
@@ -114,7 +116,8 @@ export const api = {
   deleteApp: (id: string) => request<void>(`/api/apps/${id}`, { method: "DELETE" }),
   closeApp: (id: string) => post<AppSummary | { deleted: true }>(`/api/apps/${id}/close`),
   library: () => request<AppSummary[]>("/api/library"),
-  reopenApp: (id: string, workspaceId: string) => post<AppSummary>(`/api/apps/${id}/reopen`, { workspaceId }),
+  reopenApp: (id: string, workspaceId: string, windowId?: string) =>
+    post<AppSummary>(`/api/apps/${id}/reopen`, { workspaceId, windowId }),
   duplicateApp: (id: string) => post<AppSummary>(`/api/apps/${id}/duplicate`),
   updatePage: (id: string, page: { url?: string; title?: string; favicon?: string | null }) =>
     request<AppSummary>(`/api/apps/${id}/page`, { method: "PATCH", body: JSON.stringify(page) }),

@@ -4,7 +4,7 @@
 // while it runs (a second launch) goes to the running window as a new tab, and
 // so do links and files it's started with. Settings shows whether it's the
 // default and makes it the default (each system has its own way).
-import { app, ipcMain, shell, type BrowserWindow, type WebContents } from "electron";
+import { app, ipcMain, shell, type WebContents } from "electron";
 import { execFile } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -19,6 +19,7 @@ import {
   type DefaultBrowserStatus,
 } from "../shared/defaultBrowser";
 import { appImageDesktopEntry, desktopExecArg, linksFromArgs, webLink, withoutLinks } from "./links";
+import type { AppWindows } from "./windows";
 
 const run = promisify(execFile);
 
@@ -48,29 +49,30 @@ export function claimSingleInstance() {
 export const restartArgs = () => withoutLinks(process.argv.slice(1), process.cwd(), isFile);
 
 /**
- * Opens links from other apps in the window as new tabs: the ones it was
- * started with once the window is ready, later ones right away (a second
- * launch, macOS' open-url and open-file events). `showWindow` brings up a
- * window when there's none (macOS keeps running without one).
+ * Opens links from other apps as new tabs in the window used last (never a
+ * private one): the ones it was started with once that window is ready, later
+ * ones right away (a second launch, macOS' open-url and open-file events).
+ * `showWindow` brings up a normal window when there's none (macOS keeps running
+ * without one, and only private windows may be open).
  */
-export function setupLinks(options: { getWindow: () => BrowserWindow | undefined; showWindow: () => void }) {
+export function setupLinks(options: { windows: AppWindows; showWindow: () => void }) {
   const pending = linksFromArgs(process.argv, process.cwd(), isFile);
-  /** The window's page, once it has loaded and takes links (lib/webtabs.ts). */
-  let ready: WebContents | undefined;
+  /** The windows' pages that have loaded and take links (lib/webtabs.ts). */
+  const ready = new Set<WebContents>();
   const offscreen = process.env.RUNE_OFFSCREEN === "1";
   /** Quitting: a link then mustn't bring up a new window (the server is stopping). */
   let quitting = false;
   app.on("before-quit", () => (quitting = true));
 
   const flush = () => {
-    const win = options.getWindow();
-    if (!win || win.webContents !== ready || !pending.length) return;
+    const win = options.windows.current("normal");
+    if (!win || !ready.has(win.webContents) || !pending.length) return;
     win.webContents.send("rune:open-links", pending.splice(0));
   };
 
   const open = (links: string[]) => {
     pending.push(...links);
-    const win = options.getWindow();
+    const win = options.windows.current("normal");
     if (!win) return quitting ? undefined : options.showWindow();
     if (!offscreen) {
       if (win.isMinimized()) win.restore();
@@ -96,16 +98,18 @@ export function setupLinks(options: { getWindow: () => BrowserWindow | undefined
     open(linksFromArgs(["--", path], process.cwd(), isFile));
   });
 
-  const fromWindow = (sender: WebContents) => sender === options.getWindow()?.webContents;
+  const fromWindow = (sender: WebContents) => options.windows.isUi(sender);
   app.on("browser-window-created", (_event, win) => {
     // A reload: the page takes links again once it says so (not for loads inside it: pages, popups).
-    win.webContents.on("did-start-navigation", (details) => {
-      if (details.isMainFrame && !details.isSameDocument && ready === win.webContents) ready = undefined;
+    const contents = win.webContents;
+    contents.on("did-start-navigation", (details) => {
+      if (details.isMainFrame && !details.isSameDocument) ready.delete(contents);
     });
+    contents.once("destroyed", () => ready.delete(contents));
   });
   ipcMain.on("rune:links-ready", (event) => {
     if (!fromWindow(event.sender)) return;
-    ready = event.sender;
+    ready.add(event.sender);
     flush();
   });
 

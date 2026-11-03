@@ -18,7 +18,8 @@ const push = () => window.rune.web.setInsecurePolicy(insecurePolicy());
 /** Opens `host` over HTTP from now on: until Rune Browser restarts, or for good (listed in Settings → Web tabs). */
 export function allowInsecure(host: string, always: boolean) {
   if (!host) return;
-  if (always) {
+  // A private window doesn't remember the site: it's allowed until Rune Browser restarts.
+  if (always && !window.rune.window.private) {
     updateSettings((s) => ({
       ...s,
       web: { ...s.web, insecureAllowed: [...new Set([...s.web.insecureAllowed, host])] },

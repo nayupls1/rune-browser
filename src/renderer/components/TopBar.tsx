@@ -12,6 +12,7 @@ import {
   appById,
   apps,
   isAgentCollapsed,
+  isPrivate,
   isTab,
   newWebTab,
   selectApp,
@@ -50,8 +51,19 @@ export function NavRow(props: { compact: boolean }) {
   return (
     <div {...stylex.attrs(styles.nav, props.compact && styles.navCompact)} data-titlebar data-nav-row>
       <WindowControls />
+      <Show when={isPrivate}>
+        {/* Clearly marked, like Chrome's incognito: nothing of it is kept, and agents don't see it. */}
+        <span
+          {...stylex.attrs(styles.privateBadge, props.compact && styles.privateBadgeCompact)}
+          title="Private window: its history, cookies and site data are gone when it closes, and agents don't see it"
+          data-private-badge
+        >
+          <Icon name="hat-glasses" size={15} />
+          <Show when={!props.compact}>Private</Show>
+        </span>
+      </Show>
       <Show when={!props.compact}>
-        <Show when={tabId()}>
+        <Show when={tabId() && !isPrivate}>
           <button
             type="button"
             title={withKeys(agentHidden() ? "Show the agent" : "Hide the agent", "agent.toggle")}
@@ -386,6 +398,21 @@ const spin = stylex.keyframes({ from: { transform: "rotate(0deg)" }, to: { trans
 const pulse = stylex.keyframes({ "0%": { opacity: 1 }, "50%": { opacity: 0.35 }, "100%": { opacity: 1 } });
 
 const styles = stylex.create({
+  privateBadge: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 5,
+    flexShrink: 0,
+    height: 24,
+    paddingInline: 8,
+    borderRadius: 999,
+    // Fixed colors: it reads as "private" whatever the theme.
+    backgroundColor: "#2e1f5e",
+    color: "#e4dcff",
+    fontSize: font.sm,
+    fontWeight: 600,
+  },
+  privateBadgeCompact: { paddingInline: 5 },
   nav: {
     display: "flex",
     alignItems: "center",

@@ -913,7 +913,11 @@ export const tabTools = Effect.fn(function* (env: ToolEnv) {
   const others = Effect.gen(function* () {
     const self = yield* apps.get(env.tabId);
     const all = yield* apps.list();
-    return { self, tabs: self ? all.filter((t) => t.workspaceId === self.workspaceId && t.id !== self.id) : [] };
+    // Private windows' tabs aren't there for agents.
+    return {
+      self,
+      tabs: self ? all.filter((t) => t.workspaceId === self.workspaceId && t.id !== self.id && !t.private) : [],
+    };
   });
 
   return [

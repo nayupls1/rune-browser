@@ -7,6 +7,7 @@ import type { NetworkEntry, NetworkEntrySummary, ReplayResult, SavedRequest } fr
 import { topics } from "../../shared/hub";
 import { api } from "../lib/api";
 import { watchTopic } from "../lib/realtime";
+import { isPrivate } from "../lib/store";
 import { colors, font, radius, space } from "../theme.stylex";
 import { confirmDialog } from "./ConfirmDialog";
 import { Icon } from "./Icon";
@@ -63,16 +64,19 @@ export function NetworkPanel(props: {
           >
             Requests
           </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={isSaved()}
-            onClick={() => setView("saved")}
-            {...stylex.attrs(styles.tab, isSaved() && styles.tabActive)}
-            data-network-saved-tab
-          >
-            Saved
-          </button>
+          {/* Saved requests and rules are kept: a private window keeps nothing. */}
+          <Show when={!isPrivate}>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={isSaved()}
+              onClick={() => setView("saved")}
+              {...stylex.attrs(styles.tab, isSaved() && styles.tabActive)}
+              data-network-saved-tab
+            >
+              Saved
+            </button>
+          </Show>
         </div>
         <Show when={isRequests()}>
           <input
@@ -313,10 +317,12 @@ function RequestDetail(props: {
               <Show
                 when={naming()}
                 fallback={
-                  <Button onClick={() => setNaming(true)} data-network-save>
-                    <Icon name="bookmark" size={13} />
-                    Save
-                  </Button>
+                  <Show when={!isPrivate}>
+                    <Button onClick={() => setNaming(true)} data-network-save>
+                      <Icon name="bookmark" size={13} />
+                      Save
+                    </Button>
+                  </Show>
                 }
               >
                 <input
@@ -331,10 +337,12 @@ function RequestDetail(props: {
                   data-network-save-name
                 />
               </Show>
-              <Button onClick={() => void block(e())} data-network-block>
-                <Icon name="shield-ban" size={13} />
-                Block like this
-              </Button>
+              <Show when={!isPrivate}>
+                <Button onClick={() => void block(e())} data-network-block>
+                  <Icon name="shield-ban" size={13} />
+                  Block like this
+                </Button>
+              </Show>
               <span {...stylex.attrs(styles.spacer)} />
               <label
                 {...stylex.attrs(styles.check)}
