@@ -36,6 +36,7 @@ import {
   parseShortcut,
   shortcutMatches,
   webStoreId,
+  type DnrRule,
   type ExtensionAction,
   type ExtensionTabRequest,
   type ExtensionTabs,
@@ -69,6 +70,8 @@ export interface ExtensionsOptions {
   workspaceOf: (s: Session) => string | undefined;
   /** Holds back a tab's navigation to an insecure page and hands it to the tab; true if it did. */
   holdInsecure: (contents: WebContents, url: string) => boolean;
+  /** More rules for the built-in extension after the network rules (the browser settings'), numbered from `firstId`. */
+  moreRules?: (firstId: number) => DnrRule[];
 }
 
 const UPDATE_INTERVAL = 5 * 60 * 60 * 1000;
@@ -189,12 +192,14 @@ export function setupExtensions(options: ExtensionsOptions) {
     actionsChanged,
     commandsOf,
     // Electron's own user agent, without Rune Browser's name.
-    rules: (s) =>
-      networkRulesToDnr(
+    rules: (s) => {
+      const rules = networkRulesToDnr(
         networkRules,
         options.workspaceOf(s) ?? "",
         app.userAgentFallback.replace(/ RuneBrowser\/\S+/gi, ""),
-      ),
+      );
+      return [...rules, ...(options.moreRules?.(rules.length + 1) ?? [])];
+    },
     whenLoaded: (s, id) => loading.get(stateKey(s, id)) ?? Promise.resolve(),
     reload: (s, id) => {
       const entry = registry.get(id);
@@ -504,6 +509,11 @@ export function setupExtensions(options: ExtensionsOptions) {
     const before = JSON.stringify(networkRules);
     networkRules = rules;
     if (JSON.stringify(rules) === before) return;
+    rulesChanged();
+  }
+
+  /** The rules changed: every session's built-in extension applies them again. */
+  function rulesChanged() {
     for (const s of sessions()) void attached.get(s)!.then(() => pushRules(s));
   }
 
@@ -960,6 +970,7 @@ export function setupExtensions(options: ExtensionsOptions) {
     menuItems,
     handleInput,
     setNetworkRules,
+    rulesChanged,
     /** A site in a web tab wants a username and password: what an extension (a password manager) answers. */
     authRequired: (contents: WebContents, url: string, info: Parameters<typeof apis.authRequired>[3]) =>
       attached.has(contents.session) ? apis.authRequired(contents.session, contents, url, info) : Promise.resolve(null),

@@ -2,7 +2,8 @@
 // badge in the address field when a page isn't at its actual size.
 import * as stylex from "@stylexjs/stylex";
 import { createEffect, on, Show } from "solid-js";
-import { closeFind, findOf, findStep, search, zoom, zoomOf } from "../lib/pageTools";
+import { defaultZoom } from "../lib/browser";
+import { closeFind, findOf, findStep, search, zoom, zoomKnown, zoomOf } from "../lib/pageTools";
 import { shortcutLabel } from "../lib/shortcuts";
 import { colors, font, radius, space } from "../theme.stylex";
 import { Icon } from "./Icon";
@@ -92,14 +93,14 @@ export function FindBar(props: { tabId: string }) {
   );
 }
 
-/** "110%" in the address field while the page is zoomed; a click goes back to the actual size. */
+/** "110%" in the address field while a web page is zoomed (to other than the default zoom); a click goes back. */
 export function ZoomBadge(props: { tabId: string }) {
   const percent = () => Math.round(zoomOf(props.tabId) * 100);
   return (
-    <Show when={percent() !== 100}>
+    <Show when={zoomKnown(props.tabId) && percent() !== Math.round(defaultZoom() * 100)}>
       <button
         type="button"
-        title={`Zoom: ${percent()}%. Click for the actual size${shortcutLabel("zoom.reset") ? ` (${shortcutLabel("zoom.reset")})` : ""}`}
+        title={`Zoom: ${percent()}%. Click for the default size${shortcutLabel("zoom.reset") ? ` (${shortcutLabel("zoom.reset")})` : ""}`}
         onClick={() => zoom(props.tabId, 0)}
         {...stylex.attrs(styles.zoom)}
         data-zoom={percent()}

@@ -30,6 +30,7 @@ import {
   webPartition,
 } from "../shared/api";
 import { join } from "node:path";
+import { setupBrowser } from "./browser";
 import { setupExtensions } from "./extensions";
 import { setupDevtools } from "./devtools";
 import { setupNetwork } from "./network";
@@ -45,7 +46,7 @@ const isFileUrl = (url: string) => /^file:\/\//i.test(url);
 /** Where Rune Browser serves apps (see the server's runtime). */
 const isAppUrl = (url: string) => /^http:\/\/(127\.0\.0\.1|localhost):\d+(\/|$)/i.test(url);
 
-// Websites get the harmless permissions only (no camera, location, notifications…).
+// Websites get the harmless permissions, and what their site settings allow (camera, location, notifications…).
 const allowedPermissions = new Set(["fullscreen", "clipboard-sanitized-write", "pointerLock"]);
 
 export function setupWebTabs(
@@ -71,11 +72,18 @@ export function setupWebTabs(
     send("rune:insecure", { contentsId: contents.id, url });
     return true;
   };
+  const browser = setupBrowser({
+    getWindow,
+    webSession: (workspaceId) => webSession(webPartition(workspaceId)),
+    isWebSession: (s) => webSessions.has(s),
+    rulesChanged: () => extensions.rulesChanged(),
+  });
   const extensions = setupExtensions({
     getWindow,
     webSession: (workspaceId) => webSession(webPartition(workspaceId)),
     workspaceOf: (s) => webSessions.get(s),
     holdInsecure,
+    moreRules: (firstId) => browser.rules(firstId),
   });
   /** Websites, and the pages of the extensions running in that session. */
   const isTabUrl = (s: Electron.Session, url: string) => isWebUrl(url) || extensions.isExtensionPage(s, url);
@@ -119,6 +127,7 @@ export function setupWebTabs(
       if (!web && !preview) return event.preventDefault();
       if (web) {
         webSession(partition);
+        browser.webPreferences(prefs);
         // Extension pages in iframes (password managers' fill-in menus…) get the extension APIs too.
         prefs.nodeIntegrationInSubFrames = true;
       } else lockDown(session.fromPartition(partition));
@@ -132,7 +141,10 @@ export function setupWebTabs(
     network.watch(contents);
     overrides.track(contents);
     devtools.track(contents);
-    if (!isPreview()) extensions.trackGuest(contents);
+    if (!isPreview()) {
+      extensions.trackGuest(contents);
+      browser.trackGuest(contents);
+    }
     contents.setWindowOpenHandler(({ url, disposition }) => {
       openTab(contents.session, url, disposition === "background-tab");
       return { action: "deny" };
@@ -220,13 +232,24 @@ export function setupWebTabs(
   function lockDown(s: Electron.Session) {
     if (lockedDown.has(s)) return;
     lockedDown.add(s);
-    // Extension pages also get what their manifest asks for (clipboardRead, notifications).
-    const allowed = (permission: string, url: string | undefined) =>
-      allowedPermissions.has(permission) || (webSessions.has(s) && extensions.allowsPermission(s, permission, url));
+    // Extension pages also get what their manifest asks for (clipboardRead, notifications), and
+    // websites what their site settings allow (Settings → Browser → Site settings).
+    const allowed = (permission: string, url: string | undefined, mediaTypes?: readonly string[]) =>
+      allowedPermissions.has(permission) ||
+      (webSessions.has(s) &&
+        (extensions.allowsPermission(s, permission, url) || browser.permission(permission, url, mediaTypes) === true));
     s.setPermissionRequestHandler((_contents, permission, callback, details) =>
-      callback(allowed(permission, details.requestingUrl)),
+      callback(allowed(permission, details.requestingUrl, "mediaTypes" in details ? details.mediaTypes : undefined)),
     );
-    s.setPermissionCheckHandler((_contents, permission, requestingOrigin) => allowed(permission, requestingOrigin));
+    s.setPermissionCheckHandler((_contents, permission, requestingOrigin, details) =>
+      allowed(
+        permission,
+        requestingOrigin,
+        "mediaType" in details && details.mediaType && details.mediaType !== "unknown"
+          ? [details.mediaType]
+          : undefined,
+      ),
+    );
   }
 
   /** The session of a workspace's web tabs, set up on first use. Maps to the workspace. */
@@ -240,6 +263,7 @@ export function setupWebTabs(
     // A plain Chrome user agent: some sites turn away unknown browsers. Google's
     // sign-in gets Electron's instead (see signInRule).
     s.setUserAgent(webUserAgent());
+    browser.setupSession(s);
     return s;
   }
 

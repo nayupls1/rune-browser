@@ -22,6 +22,7 @@ import { startUnloading } from "./lib/unload";
 import { startWindowChrome } from "./lib/windowChrome";
 import { startShortcuts } from "./lib/shortcuts";
 import { loadSettings } from "./lib/settings";
+import { runStartup } from "./lib/browser";
 import { Icon } from "./components/Icon";
 import { dropTarget, hasFiles, openDropped, setDropTarget } from "./lib/drops";
 import {
@@ -54,6 +55,7 @@ export default function App() {
       // Links from other apps open as tabs from now on (the ones Rune Browser was started with first).
       window.rune.web.linksReady();
     }
+    await runStartup().catch((err) => console.error("Opening the startup pages failed:", err));
   });
 
   const isSelected = (id: string) => selectedId() === id;

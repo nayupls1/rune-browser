@@ -1,7 +1,11 @@
 // What the browser does to a tab's page from the keyboard and the address
 // bar: find in page (components/FindBar.tsx) and zoom. Pages of the same site
-// share their zoom within a workspace, like in Chromium.
+// share their zoom, like in Chromium, and web pages' sites keep it (the browser
+// settings' page zoom).
+import { createEffect, createRoot, on } from "solid-js";
 import { createStore } from "solid-js/store";
+import { defaultZoom, rememberZoom, zoomForUrl } from "./browser";
+import { settings } from "./settings";
 import { pageOf } from "./webtabs";
 
 // --- Find in page ------------------------------------------------------------------
@@ -85,6 +89,8 @@ const [zooms, setZooms] = createStore<Record<string, number>>({});
 
 /** The page's zoom (1 = actual size). */
 export const zoomOf = (tabId: string) => zooms[tabId] ?? 1;
+/** Whether the page's zoom is known (it has loaded a page). */
+export const zoomKnown = (tabId: string) => zooms[tabId] !== undefined;
 
 /** Reads the page's zoom again (after a navigation: another site may have another). */
 export function syncZoom(tabId: string) {
@@ -96,13 +102,50 @@ export function syncZoom(tabId: string) {
   }
 }
 
-/** Zooms in (1), out (-1) or back to the actual size (0). */
+/** A web page got its site's zoom (after a navigation), or the default zoom. */
+export function applySiteZoom(tabId: string, url: string) {
+  const view = viewOf(tabId);
+  if (!view) return;
+  try {
+    const factor = zoomForUrl(url);
+    if (Math.abs(view.getZoomFactor() - factor) > 0.001) view.setZoomFactor(factor);
+    setZooms(tabId, factor);
+  } catch {
+    // not ready
+  }
+}
+
+// A changed default zoom (or a site's, from Settings) applies to the open web pages right away.
+createRoot(() =>
+  createEffect(
+    on(
+      () => JSON.stringify(settings().browser.zoom),
+      () => {
+        for (const id of Object.keys(zooms)) {
+          const page = pageOf(id);
+          if (!page?.act) continue;
+          try {
+            applySiteZoom(id, page.view()?.getURL() ?? "");
+          } catch {
+            // not ready
+          }
+        }
+      },
+      { defer: true },
+    ),
+  ),
+);
+
+/** Zooms in (1), out (-1) or back to the default size (0). Web pages' sites remember it. */
 export function zoom(tabId: string, direction: 1 | -1 | 0) {
   const view = viewOf(tabId);
   if (!view) return false;
-  const factor = direction === 0 ? 1 : nextZoom(view.getZoomFactor(), direction);
+  // Only web tabs act for the website agent; app previews keep their zoom to themselves.
+  const web = !!pageOf(tabId)?.act;
+  const factor = direction === 0 ? (web ? defaultZoom() : 1) : nextZoom(view.getZoomFactor(), direction);
   view.setZoomFactor(factor);
   setZooms(tabId, factor);
+  if (web) rememberZoom(view.getURL(), factor);
   // The site's other tabs zoom with it.
   setTimeout(() => {
     for (const id of Object.keys(zooms)) if (id !== tabId) syncZoom(id);

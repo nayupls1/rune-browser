@@ -593,6 +593,10 @@ export interface DnrRule {
     urlFilter?: string;
     regexFilter?: string;
     requestDomains?: string[];
+    excludedRequestDomains?: string[];
+    initiatorDomains?: string[];
+    excludedInitiatorDomains?: string[];
+    domainType?: "firstParty" | "thirdParty";
     resourceTypes: string[];
     isUrlFilterCaseSensitive: false;
   };

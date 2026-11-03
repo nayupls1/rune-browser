@@ -1,6 +1,7 @@
 // The user's settings, loaded from the server and saved back (debounced) on change.
 import { createEffect, createRoot, createSignal } from "solid-js";
 import { topics } from "../../shared/hub";
+import { searchEngineOf } from "../../shared/browser";
 import { defaultSettings, type Settings } from "../../shared/settings";
 import { api } from "./api";
 import { watchTopic } from "./realtime";
@@ -9,6 +10,9 @@ import { applyCachedTheme, applyGlobalTheme, systemDark } from "./theme";
 const [settings, setSettingsSignal] = createSignal<Settings>(defaultSettings());
 const [settingsLoaded, setSettingsLoaded] = createSignal(false);
 export { settings, settingsLoaded };
+
+/** The search engine of the browser settings: its name and URL (%s for the words). */
+export const searchEngine = () => searchEngineOf(settings().browser);
 
 // Safe mode leaves the theme out (a broken one could make the UI unusable).
 if (!window.rune.safeMode) applyCachedTheme();

@@ -50,6 +50,14 @@ const bridge: RuneBridge = {
     get: () => ipcRenderer.invoke("rune:default-browser-get"),
     make: () => ipcRenderer.invoke("rune:default-browser-make"),
   },
+  browser: {
+    setSettings: (settings) => ipcRenderer.send("rune:browser-settings", settings),
+    clearData: (workspaceIds, what) => ipcRenderer.invoke("rune:browser-clear-data", workspaceIds, what),
+    siteData: (workspaceId) => ipcRenderer.invoke("rune:browser-site-data", workspaceId),
+    clearSite: (workspaceIds, site) => ipcRenderer.invoke("rune:browser-clear-site", workspaceIds, site),
+    detectImports: () => ipcRenderer.invoke("rune:browser-import-detect"),
+    info: () => ipcRenderer.invoke("rune:browser-info"),
+  },
   web: {
     clearWorkspace: (workspaceId) => ipcRenderer.invoke("rune:clear-workspace", workspaceId),
     onOpenTab: (fn) => {

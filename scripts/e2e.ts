@@ -97,7 +97,7 @@ const electron = await launchElectron(
 
 // A small website for the web tab checks. /feed loads its data from /api/feed
 // with credentials of every kind (a cookie, a key in the URL, a bearer token).
-const siteSeen: { url: string; authorization: string | null; cookie: string | null }[] = [];
+const siteSeen: { url: string; authorization: string | null; cookie: string | null; dnt: string | null }[] = [];
 const feedPage = `<title>Feed</title><h1>Feed</h1><p id="status">Loading…</p><script>
   document.cookie = "sid=cookie-secret-1; path=/";
   fetch("/api/feed?page=1&api_key=key-secret-2", { headers: { Authorization: "Bearer bearer-secret-3" } })
@@ -134,6 +134,7 @@ const site = Bun.serve({
         url: req.url,
         authorization: req.headers.get("authorization"),
         cookie: req.headers.get("cookie"),
+        dnt: req.headers.get("dnt"),
       });
       return Response.json({
         items: [
@@ -2622,8 +2623,8 @@ try {
       await waitForValue(async () => ((await url()) === "http://insecure.example/?again" ? true : undefined), 15_000);
       if (await page!.eval<boolean>(`!!${warning}`)) throw new Error("warned about an allowed site");
 
-      // Settings → Web tabs lists it; removing it warns again.
-      await openSettingsAt("web");
+      // Settings → Privacy and security lists it; removing it warns again.
+      await openSettingsAt("browser-privacy");
       await page!.waitFor(`!!document.querySelector('[data-insecure-allowed="insecure.example"]')`, {
         label: "allowed site in settings",
       });
@@ -3223,6 +3224,259 @@ try {
   });
 
   await check(
+    "browser settings: their own section, site controls, permissions, JavaScript, Do Not Track, fonts, zoom, search, clearing data, import",
+    async () => {
+      let step = "start";
+      try {
+        return await browserChecks();
+      } catch (err) {
+        throw new Error(`${step}: ${(err as Error).message}`);
+      }
+      async function browserChecks() {
+        type Browser = {
+          search: { engine: string };
+          sites: Record<string, Record<string, string>>;
+          fonts: { size: number };
+          languages: { preferred: string[] };
+          zoom: { default: number };
+        };
+        const savedBrowser = async () => (await apiCall<{ browser: Browser }>("/api/settings")).browser;
+        const choose = (selector: string, value: string) =>
+          page!.eval(`(() => {
+          const el = document.querySelector(${JSON.stringify(selector)});
+          if (!el) throw new Error("not found: " + ${JSON.stringify(selector)});
+          el.value = ${JSON.stringify(value)};
+          el.dispatchEvent(new Event("change", { bubbles: true }));
+          return true;
+        })()`);
+        const confirm = async () => {
+          await page!.waitFor(`!!document.querySelector("[data-confirm-dialog]")`, { label: "confirm dialog" });
+          await click("[data-confirm-dialog] [data-confirm]");
+        };
+
+        // Settings: the browser's settings are a group of their own, apart from Rune Browser's.
+        step = "settings groups";
+        await openSettingsAt("browser-privacy");
+        const groups = await page!.eval<Record<string, string[]>>(`(() => {
+        const out = {}; let group = "";
+        for (const el of document.querySelector('[aria-label="Settings categories"]').querySelectorAll("span, button")) {
+          if (el.tagName === "SPAN" && !el.closest("button")) group = el.textContent.trim();
+          else if (el.dataset.settingsNav) (out[group] ??= []).push(el.dataset.settingsNav);
+        }
+        return out;
+      })()`);
+        for (const id of [
+          "browser-privacy",
+          "browser-sites",
+          "browser-search",
+          "browser-startup",
+          "browser-appearance",
+          "browser-languages",
+          "browser-downloads",
+          "browser-import",
+          "browser-reset",
+          "extensions",
+        ])
+          if (!groups.Browser?.includes(id)) throw new Error(`browser group: ${JSON.stringify(groups)}`);
+        if (
+          groups["Rune Browser"]?.some((id) => id.startsWith("browser-")) ||
+          !groups["Rune Browser"]?.includes("agent")
+        )
+          throw new Error(`Rune Browser's group: ${JSON.stringify(groups)}`);
+        await shot("settings-browser-privacy.png");
+
+        // A web tab on the test site: its feed page loads with JavaScript and sets a cookie.
+        step = "feed page";
+        const count = await page!.eval<number>(`document.querySelectorAll("nav li").length`);
+        await newTab("New web tab");
+        const tabId = await page!.waitFor<string>(
+          `document.querySelectorAll("nav li").length === ${count + 1} && document.querySelector("nav li:last-of-type").dataset.appId`,
+          { label: "web tab" },
+        );
+        const tab = `[data-web-tab="${tabId}"]`;
+        const inPage = <T>(code: string) => inView<T>(tab, code);
+        const go = async (url: string, title: string) => {
+          await page!.waitFor(`!!document.querySelector('${chromeFor(tab)} [data-address]')`, { label: "address bar" });
+          await page!.eval(`(() => {
+          const input = document.querySelector('${chromeFor(tab)} [data-address]');
+          input.value = ${JSON.stringify(url)};
+          input.dispatchEvent(new InputEvent("input", { bubbles: true }));
+          input.form.requestSubmit();
+          return true;
+        })()`);
+          await page!.waitFor(
+            `document.querySelector('nav li[data-app-id="${tabId}"]')?.innerText.includes(${JSON.stringify(title)})`,
+            {
+              timeoutMs: 20_000,
+              label: title,
+            },
+          );
+        };
+        const status = () => inPage<string>(`document.getElementById("status")?.textContent ?? ""`);
+        const reloadFeed = async () => {
+          await inPage(`location.reload(), true`);
+          await Bun.sleep(300);
+          await waitForValue(async () =>
+            (await inPage<string>(`document.readyState`)) === "complete" ? true : undefined,
+          );
+        };
+        await go(`${site.url.origin}/feed`, "Feed");
+        await waitForValue(async () => ((await status()) === "Loaded 2 items" ? true : undefined), 15_000);
+        if (!(await inPage<string>(`document.cookie`)).includes("sid=")) throw new Error("no cookie set");
+        // Sites can't use notifications until you allow them.
+        step = "notifications refused";
+        const before = await inPage<string>(`Notification.permission`);
+        if (before === "granted") throw new Error("notifications allowed by default");
+
+        // The site controls in the address bar: allow notifications, block JavaScript.
+        step = "site controls";
+        await click(`${chromeFor(tab)} [data-site-info-button]`);
+        await page!.waitFor(`!!document.querySelector('[data-site-info="127.0.0.1"]')`, { label: "site controls" });
+        await choose('[data-site-info-setting="notifications"]', "allow");
+        await choose('[data-site-info-setting="javascript"]', "block");
+        await page!.waitFor(`!!document.querySelector("[data-site-info-reload]")`, { label: "reload to apply" });
+        await shot("site-info.png");
+        await waitForValue(async () => {
+          const b = await savedBrowser();
+          return b.sites["127.0.0.1"]?.javascript === "block" && b.sites["127.0.0.1"]?.notifications === "allow"
+            ? true
+            : undefined;
+        });
+        await click("[data-site-info-reload]");
+        await Bun.sleep(500);
+        await waitForValue(async () =>
+          (await inPage<string>(`document.readyState`)) === "complete" ? true : undefined,
+        );
+        await Bun.sleep(800);
+        if ((await status()) !== "Loading…") throw new Error(`JavaScript ran although it's blocked: ${await status()}`);
+        const after = await inPage<string>(`Notification.permission`);
+        if (after !== "granted") throw new Error(`notifications: ${after}`);
+        await page!.eval(
+          `document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })), true`,
+        );
+
+        // Back to the default: JavaScript runs again.
+        step = "JavaScript back";
+        await click(`${chromeFor(tab)} [data-site-info-button]`);
+        await page!.waitFor(`!!document.querySelector('[data-site-info="127.0.0.1"]')`, { label: "site controls" });
+        await choose('[data-site-info-setting="javascript"]', "");
+        await click("[data-site-info-reload]");
+        await page!.eval(
+          `document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })), true`,
+        );
+        await waitForValue(async () => ((await status()) === "Loaded 2 items" ? true : undefined), 15_000);
+
+        // Do Not Track goes out with requests once it's on.
+        step = "Do Not Track";
+        await openSettingsAt("browser-privacy");
+        await click('[data-do-not-track] [role="switch"]');
+        await waitForValue(async () =>
+          (await apiCall<{ browser: { privacy: { doNotTrack: boolean } } }>("/api/settings")).browser.privacy.doNotTrack
+            ? true
+            : undefined,
+        );
+        await click(`nav li[data-app-id="${tabId}"]`);
+        await waitForValue(async () => {
+          await reloadFeed();
+          return siteSeen.at(-1)?.dnt === "1" ? true : undefined;
+        }, 15_000);
+        await openSettingsAt("browser-privacy");
+        await click('[data-do-not-track] [role="switch"]');
+
+        // Fonts: a bigger default size, in the open page too.
+        step = "fonts";
+        await openSettingsAt("browser-appearance");
+        await choose("[data-font-size]", "20");
+        await shot("settings-browser-fonts.png");
+        const fontSize = await waitForValue(async () => {
+          const size = await inPage<string>(`getComputedStyle(document.body).fontSize`);
+          return size === "20px" ? size : undefined;
+        }, 10_000).catch(async () => inPage<string>(`getComputedStyle(document.body).fontSize`));
+        if (fontSize !== "20px") throw new Error(`font size in the open page: ${fontSize}`);
+
+        // Page zoom: the default applies to open pages; a site's own zoom is remembered.
+        step = "page zoom";
+        await choose("[data-default-zoom]", "1.25");
+        await page!.waitFor(`Math.abs(document.querySelector('${tab} webview').getZoomFactor() - 1.25) < 0.01`, {
+          label: "default zoom in the open page",
+        });
+        await choose("[data-default-zoom]", "1");
+        await choose("[data-font-size]", "16");
+
+        // Site settings: all sites (with the test site's cookies), and one site's page.
+        step = "site settings";
+        await openSettingsAt("browser-sites");
+        await page!.waitFor(`!!document.querySelector('[data-site-row="127.0.0.1"]')`, {
+          label: "the test site in all sites",
+        });
+        await shot("settings-browser-sites.png");
+        await click('[data-site-row="127.0.0.1"]');
+        await page!.waitFor(`!!document.querySelector('[data-site-details="127.0.0.1"]')`, { label: "site details" });
+        await page!.waitFor(`document.querySelector('[data-site-details="127.0.0.1"]').innerText.includes("cookie")`, {
+          label: "the site's cookies",
+        });
+        await click("[data-reset-site]");
+        await waitForValue(async () => ((await savedBrowser()).sites["127.0.0.1"] ? undefined : true));
+        await click("[data-site-back]");
+
+        // Search engine: a custom one is used by the address bar.
+        step = "search engine";
+        await openSettingsAt("browser-search");
+        await choose("[data-search-engine]", "custom");
+        await page!.waitFor(`!!document.querySelector("[data-search-url]")`, { label: "custom engine fields" });
+        await type("[data-search-name]", "Test search");
+        await type("[data-search-url]", `${site.url.origin}/act-done?q=%s`);
+        await click(`nav li[data-app-id="${tabId}"]`);
+        await go("rune settings", "Searched");
+        const results = await inPage<string>(`document.querySelector("h1").textContent`);
+        if (results !== "Results for rune settings") throw new Error(`searched: ${results}`);
+
+        // Clearing cookies and site data of this workspace.
+        step = "clearing data";
+        await openSettingsAt("browser-privacy");
+        await click("[data-clear-data]");
+        await confirm();
+        await click(`nav li[data-app-id="${tabId}"]`);
+        await waitForValue(async () => ((await inPage<string>(`document.cookie`)) === "" ? true : undefined), 10_000);
+
+        // Import from another browser: the fixture profile's search engine, a site's permission, fonts, languages.
+        step = "import";
+        await openSettingsAt("browser-import");
+        await page!.waitFor(`!!document.querySelector('[data-import-part="search"]:not(:disabled)')`, {
+          label: "the profile's settings",
+          timeoutMs: 15_000,
+        });
+        await shot("settings-browser-import.png");
+        await click("[data-import-run]");
+        const imported = await waitForValue(async () => {
+          const b = await savedBrowser();
+          return b.search.engine === "google" && b.sites["imported.example.com"]?.notifications === "allow"
+            ? b
+            : undefined;
+        });
+        if (imported.fonts.size !== 18 || imported.languages.preferred.join(",") !== "de-DE,en-US")
+          throw new Error(`imported: ${JSON.stringify(imported)}`);
+
+        // Reset: the browser settings go back to their defaults.
+        step = "reset";
+        await openSettingsAt("browser-reset");
+        await click("[data-reset-browser]");
+        await confirm();
+        await waitForValue(async () => {
+          const b = await savedBrowser();
+          return b.search.engine === "duckduckgo" && !Object.keys(b.sites).length && b.fonts.size === 16
+            ? true
+            : undefined;
+        });
+        // Its tab goes, so later checks don't find its pages.
+        await apiCall(`/api/apps/${tabId}`, { method: "DELETE" });
+        await page!.waitFor(`!document.querySelector('nav li[data-app-id="${tabId}"]')`, { label: "tab closed" });
+        return `groups ${Object.keys(groups).join(" / ")}; notifications ${before} → ${after}; JavaScript blocked and back; DNT sent; font ${fontSize}; searched; cookies cleared; imported and reset`;
+      }
+    },
+  );
+
+  await check(
     "updates: About shows the version, that runs from source don't update, and the channel is remembered",
     async () => {
       await openSettingsAt("about");
@@ -3704,7 +3958,7 @@ try {
 
   await check("default browser: links and files from other apps open as tabs in the running window", async () => {
     // Settings says whether Rune Browser is the default (runs from source can't be).
-    await openSettingsAt("web");
+    await openSettingsAt("browser-default");
     await page!.waitFor(`document.querySelector("[data-default-browser]")?.dataset.defaultBrowser === "unsupported"`, {
       label: "default browser row",
     });
@@ -3834,10 +4088,10 @@ try {
 
     // Settings pages: Chromium's sub-pages, and the address of the one shown.
     await enterAddress("chrome://settings/search");
-    await page!.waitFor(`document.querySelector("[data-settings-shell]")?.dataset.settingsShell === "web"`, {
-      label: "chrome://settings/search → Settings: Web tabs",
+    await page!.waitFor(`document.querySelector("[data-settings-shell]")?.dataset.settingsShell === "browser-search"`, {
+      label: "chrome://settings/search → Settings: Search engine",
     });
-    await addressShows("rune://settings/web");
+    await addressShows("rune://settings/browser-search");
     await enterAddress("chrome://extensions");
     await page!.waitFor(`document.querySelector("[data-settings-shell]")?.dataset.settingsShell === "extensions"`, {
       label: "chrome://extensions → Settings: Extensions",

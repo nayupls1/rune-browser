@@ -24,7 +24,7 @@ import {
   type ProviderStatus,
 } from "../../shared/api";
 import type { DefaultBrowserStatus } from "../../shared/defaultBrowser";
-import { searchEngines, type GlobalTheme, type Settings } from "../../shared/settings";
+import type { GlobalTheme, Settings } from "../../shared/settings";
 import { api } from "../lib/api";
 import { topics } from "../../shared/hub";
 import type { ExtensionInfo, InstallResult } from "../../shared/extensions";
@@ -64,6 +64,7 @@ import { internalUrlOfView, openInternalPage } from "../lib/internalPages";
 import { registerChrome, type TabChrome } from "../lib/tabChrome";
 import { ShortcutSettings } from "./ShortcutSettings";
 import { ApiMapPage } from "./ApiMapPage";
+import { BrowserSection } from "./BrowserSettings";
 import { HistoryPage } from "./History";
 import { ModsPage } from "./ModsPage";
 import { SchedulesPage } from "./SchedulesPage";
@@ -141,7 +142,12 @@ export function SettingsShell(props: { view: string }) {
           <Icon name="settings" size={18} {...stylex.attrs(styles.accent)} />
           Settings
         </div>
+        <span {...stylex.attrs(styles.navGroup)}>Rune Browser</span>
         <For each={group("settings")}>{(section) => <Item section={section} />}</For>
+        <span {...stylex.attrs(styles.navGroup)} data-settings-group="browser">
+          Browser
+        </span>
+        <For each={group("browser")}>{(section) => <Item section={section} />}</For>
         <span {...stylex.attrs(styles.navGroup)}>Activity and history</span>
         <For each={group("pages")}>{(section) => <Item section={section} />}</For>
         <div {...stylex.attrs(styles.navEnd)}>
@@ -234,6 +240,9 @@ export function SettingsPage(props: { section: string }) {
         </Match>
         <Match when={props.section === "about"}>
           <AboutSection />
+        </Match>
+        <Match when={props.section.startsWith("browser-")}>
+          <BrowserSection section={props.section} />
         </Match>
       </Switch>
     </div>
@@ -397,19 +406,7 @@ function AgentSection() {
 function WebSection() {
   return (
     <>
-      <Section title="Browsing" icon="globe" anchor="web">
-        <DefaultBrowserRow />
-        <Row label="Search engine" description="Used when the address bar input isn't a URL.">
-          <Select
-            value={settings().web.searchEngine}
-            onChange={(e) => set("web", { searchEngine: e.currentTarget.value as Settings["web"]["searchEngine"] })}
-            xstyle={styles.select}
-          >
-            <For each={Object.entries(searchEngines)}>
-              {([key, engine]) => <option value={key}>{engine.label}</option>}
-            </For>
-          </Select>
-        </Row>
+      <Section title="Site customizations" icon="paintbrush" anchor="web">
         <Row
           label="Site customizations and page changes"
           description="Apply the changes the agent made to websites (hidden, restyled or added elements, CSS and JavaScript)."
@@ -424,52 +421,42 @@ function WebSection() {
         >
           <PageChangeRows />
         </Row>
-        <Row
-          label="Warn before insecure sites"
-          description="Open http:// pages over HTTPS when they can be, and warn before showing a site that has no secure version. Local addresses (this computer, your network) are never warned about."
-        >
-          <Toggle checked={settings().web.warnInsecure} onChange={(warnInsecure) => set("web", { warnInsecure })} />
-        </Row>
-        <Show when={settings().web.insecureAllowed.length}>
-          <Row label="Allowed insecure sites" description="Sites you chose to open over HTTP without a warning." wide>
-            <div {...stylex.attrs(styles.siteList)}>
-              <For each={settings().web.insecureAllowed}>
-                {(host) => (
-                  <div {...stylex.attrs(styles.siteControls)} data-insecure-allowed={host}>
-                    <span {...stylex.attrs(styles.siteHost)}>{host}</span>
-                    <button
-                      type="button"
-                      title={`Warn about ${host} again`}
-                      onClick={() => disallowInsecure(host)}
-                      {...stylex.attrs(styles.iconButton)}
-                    >
-                      <Icon name="trash" size={15} />
-                    </button>
-                  </div>
-                )}
-              </For>
-            </div>
-          </Row>
-        </Show>
       </Section>
+    </>
+  );
+}
 
-      <Section title="Tabs" icon="layers" anchor="tabs">
-        <Row
-          label="Unload idle tabs"
-          description="Tabs you haven't looked at for a while close their page to save memory, and come back where you left them (scroll position, what you typed). Pinned tabs (Keep loaded), tabs playing sound and tabs whose agent is working stay loaded."
-        >
-          <Select
-            value={String(settings().tabs.unloadAfterMinutes)}
-            onChange={(e) => set("tabs", { unloadAfterMinutes: Number(e.currentTarget.value) })}
-            xstyle={styles.select}
-            data-unload-after
-          >
-            <For each={unloadChoices(settings().tabs.unloadAfterMinutes)}>
-              {([minutes, label]) => <option value={minutes}>{label}</option>}
+/** Plain HTTP: try HTTPS and warn (Settings → Browser → Privacy and security). */
+export function InsecureRows() {
+  return (
+    <>
+      <Row
+        label="Warn before insecure sites"
+        description="Open http:// pages over HTTPS when they can be, and warn before showing a site that has no secure version. Local addresses (this computer, your network) are never warned about."
+      >
+        <Toggle checked={settings().web.warnInsecure} onChange={(warnInsecure) => set("web", { warnInsecure })} />
+      </Row>
+      <Show when={settings().web.insecureAllowed.length}>
+        <Row label="Allowed insecure sites" description="Sites you chose to open over HTTP without a warning." wide>
+          <div {...stylex.attrs(styles.siteList)}>
+            <For each={settings().web.insecureAllowed}>
+              {(host) => (
+                <div {...stylex.attrs(styles.siteControls)} data-insecure-allowed={host}>
+                  <span {...stylex.attrs(styles.siteHost)}>{host}</span>
+                  <button
+                    type="button"
+                    title={`Warn about ${host} again`}
+                    onClick={() => disallowInsecure(host)}
+                    {...stylex.attrs(styles.iconButton)}
+                  >
+                    <Icon name="trash" size={15} />
+                  </button>
+                </div>
+              )}
             </For>
-          </Select>
+          </div>
         </Row>
-      </Section>
+      </Show>
     </>
   );
 }
@@ -569,7 +556,7 @@ const defaultBrowserText: Record<"default" | Extract<DefaultBrowserStatus, { how
 };
 
 /** Whether Rune Browser is the system's default browser, and making it the default (main/defaultBrowser.ts). */
-function DefaultBrowserRow() {
+export function DefaultBrowserRow() {
   const [status, { mutate, refetch }] = createResource(() => window.rune.defaultBrowser.get());
   const [making, setMaking] = createSignal(false);
   // Back from the system's settings (Windows) or its confirmation (macOS).
@@ -1764,7 +1751,7 @@ function SandboxRows() {
   );
 }
 
-const unloadChoices = (current: number): [number, string][] => {
+export const unloadChoices = (current: number): [number, string][] => {
   const choices: [number, string][] = [
     [5, "After 5 minutes"],
     [15, "After 15 minutes"],
@@ -1776,7 +1763,7 @@ const unloadChoices = (current: number): [number, string][] => {
   return choices.some(([m]) => m === current) ? choices : [[current, `After ${current} minutes`], ...choices];
 };
 
-function Section(props: { title: string; icon: string; anchor?: string; children: JSX.Element }) {
+export function Section(props: { title: string; icon: string; anchor?: string; children: JSX.Element }) {
   return (
     <section {...stylex.attrs(styles.section)} data-section={props.anchor}>
       <h2 {...stylex.attrs(styles.sectionTitle)}>
@@ -1788,7 +1775,7 @@ function Section(props: { title: string; icon: string; anchor?: string; children
   );
 }
 
-function Row(props: { label: string; description?: string; wide?: boolean; children?: JSX.Element }) {
+export function Row(props: { label: string; description?: string; wide?: boolean; children?: JSX.Element }) {
   return (
     <div {...stylex.attrs(styles.row, props.wide && styles.rowWide)}>
       <div {...stylex.attrs(styles.rowText, props.wide && styles.rowTextWide)}>
@@ -1802,7 +1789,7 @@ function Row(props: { label: string; description?: string; wide?: boolean; child
   );
 }
 
-function Segmented<T extends string>(props: { value: T; options: [T, string][]; onChange: (value: T) => void }) {
+export function Segmented<T extends string>(props: { value: T; options: [T, string][]; onChange: (value: T) => void }) {
   return (
     <div {...stylex.attrs(styles.segmented)} role="radiogroup">
       <For each={props.options}>
@@ -1825,7 +1812,7 @@ function Segmented<T extends string>(props: { value: T; options: [T, string][]; 
   );
 }
 
-function Toggle(props: { checked: boolean; onChange: (checked: boolean) => void }) {
+export function Toggle(props: { checked: boolean; onChange: (checked: boolean) => void }) {
   return (
     <button
       type="button"

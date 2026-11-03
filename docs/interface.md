@@ -57,7 +57,7 @@ Tabs aren't moved in the DOM for this (a webview that moves reloads): every tab 
 
 ## Tab unloading
 
-Tabs that haven't been on screen for a while are unloaded: their page (a web page or an app's preview) closes and frees its memory (Settings → Tabs: after 30 minutes by default, or never). They're dimmed in the sidebar and come back where you left them when opened: the same page, scroll position (the window's and scrolled containers') and what you typed, put back through the fields' own setters so frameworks notice. Passwords, hidden and file inputs and card fields aren't kept, and the rest lives only in memory (`lib/pagestate.ts`).
+Tabs that haven't been on screen for a while are unloaded: their page (a web page or an app's preview) closes and frees its memory (Settings → Performance, memory saver: after 30 minutes by default, or never). They're dimmed in the sidebar and come back where you left them when opened: the same page, scroll position (the window's and scrolled containers') and what you typed, put back through the fields' own setters so frameworks notice. Passwords, hidden and file inputs and card fields aren't kept, and the rest lives only in memory (`lib/pagestate.ts`).
 
 - **Never unloaded:** tabs on screen (in a split, all of its tabs), tabs whose agent is working, pages playing sound, and pinned tabs ("Keep loaded" in a tab's menu, saved with the tab: `PUT /api/apps/:id/pinned`).
 - **By hand:** "Unload" in a tab's menu, or "Unload other tabs" in the command bar.
@@ -66,7 +66,7 @@ Tabs that haven't been on screen for a while are unloaded: their page (a web pag
 
 ## Settings
 
-Settings has a sidebar of its own on the left, one category at a time on the right (`components/SettingsPage.tsx`, the list in `lib/settingsSections.ts`): Appearance, Workspace, Agent, Providers, Apps, Web tabs, Network, Extensions, Secrets, Permissions, About, and Rune Browser's pages: History, Schedules, Mods and Activity. Each category is also in the command bar ("Settings: Apps"), and the pages keep their own commands ("Open History").
+Settings has a sidebar of its own on the left, one category at a time on the right (`components/SettingsPage.tsx`, the list in `lib/settingsSections.ts`): Rune Browser's own (Appearance, Workspace, Agent, Providers, Apps, Site customizations, Network, Secrets, Permissions, Keyboard shortcuts), the browser settings in a group of their own (Autofill and passwords, Privacy and security, Site settings, Performance, Fonts and zoom, Search engine, Default browser, On startup, Languages, Downloads, Import bookmarks and settings, Reset settings, Extensions; see Browsing), Rune Browser's pages (History, Schedules, Mods and Activity) and About. Each category is also in the command bar ("Settings: Apps"), and the pages keep their own commands ("Open History").
 
 Tabs are put in order by dragging them up or down (or "Move up"/"Move down" in their menu). The order is saved per workspace (`PUT /api/workspaces/:id/order`); new tabs, copies and tabs moved in from another workspace go last.
 

@@ -43,10 +43,19 @@ describe("internal pages", () => {
   });
 
   test("Chromium's settings pages map to Settings categories", () => {
-    const known = ["appearance", "web", "extensions", "permissions", "about", "network"];
-    expect(settingsCategoryOf("search", known)).toBe("web");
-    expect(settingsCategoryOf("onStartup", known)).toBe("web");
-    expect(settingsCategoryOf("content/camera", known)).toBe("permissions");
+    const known = [
+      "appearance",
+      "web",
+      "extensions",
+      "browser-search",
+      "browser-startup",
+      "browser-sites",
+      "about",
+      "network",
+    ];
+    expect(settingsCategoryOf("search", known)).toBe("browser-search");
+    expect(settingsCategoryOf("onStartup", known)).toBe("browser-startup");
+    expect(settingsCategoryOf("content/camera", known)).toBe("browser-sites");
     expect(settingsCategoryOf("network", known)).toBe("network");
     expect(settingsCategoryOf("", known)).toBe("");
     expect(settingsCategoryOf("nonsense", known)).toBe("");

@@ -2,6 +2,7 @@
 // so older saved settings keep working when options are added.
 import { Effect, Schema } from "effect";
 import { providerIds } from "./api";
+import { BrowserSettings } from "./browser";
 
 const withDefault = <S extends Schema.Top>(value: S["Encoded"]) =>
   Schema.withDecodingDefaultKey<S>(Effect.succeed(value));
@@ -34,15 +35,6 @@ export const GlobalTheme = Schema.Struct({
 });
 export type GlobalTheme = typeof GlobalTheme.Type;
 
-export const searchEngines = {
-  duckduckgo: { label: "DuckDuckGo", url: "https://duckduckgo.com/?q=%s" },
-  google: { label: "Google", url: "https://www.google.com/search?q=%s" },
-  bing: { label: "Bing", url: "https://www.bing.com/search?q=%s" },
-  brave: { label: "Brave Search", url: "https://search.brave.com/search?q=%s" },
-  kagi: { label: "Kagi", url: "https://kagi.com/search?q=%s" },
-} as const;
-export const SearchEngine = Schema.Literals(Object.keys(searchEngines) as (keyof typeof searchEngines)[]);
-
 const ProviderSettings = Schema.Struct({
   enabled: Schema.Boolean.pipe(withDefault(true)),
   /** Path to the CLI; empty to find it on PATH (Claude: the bundled one). */
@@ -74,8 +66,9 @@ export const Settings = Schema.Struct({
     codex: ProviderSettings.pipe(withDefault({})),
     opencode: ProviderSettings.pipe(withDefault({})),
   }).pipe(withDefault({})),
+  /** What a browser lets you set (Settings → Browser): search, startup, privacy, site settings, fonts… */
+  browser: BrowserSettings.pipe(withDefault({})),
   web: Schema.Struct({
-    searchEngine: SearchEngine.pipe(withDefault("duckduckgo")),
     /** Apply site customizations (CSS/JS overrides) in web tabs. */
     overrides: Schema.Boolean.pipe(withDefault(true)),
     /** Keep web tabs' recent network traffic (in memory, bounded) for the Network panel and the website agent. */

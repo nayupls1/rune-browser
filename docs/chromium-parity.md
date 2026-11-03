@@ -18,7 +18,7 @@ Rune Browser's pages have rune:// addresses, and chrome:// addresses open the on
 rune://settings, chrome://extensions rune://extensions; `about:version` works too). rune://rune-urls lists them, with
 Chromium's pages and how each fares here. They're defined in `shared/internalPages.ts` and shown in Settings (the
 address bar shows their rune:// address); Chromium's settings pages map to Settings' categories
-(chrome://settings/search is Settings → Web tabs).
+(chrome://settings/search is Settings → Browser → Search engine).
 
 | Chromium                                                                                          | Rune Browser   | Note                                                                                       |
 | ------------------------------------------------------------------------------------------------- | -------------- | ------------------------------------------------------------------------------------------ |
@@ -33,7 +33,7 @@ address bar shows their rune:// address); Chromium's settings pages map to Setti
 | chrome://downloads                                                                                | Not yet        | Downloads and a downloads page are on their way                                            |
 | chrome://bookmarks                                                                                | Not yet        | Bookmarks are on their way                                                                 |
 | chrome://password-manager                                                                         | Not yet        | No password manager yet: password manager extensions (Bitwarden, 1Password) work           |
-| chrome://settings/content                                                                         | Not yet        | Site permissions are on their way                                                          |
+| chrome://settings/content                                                                         | Matched        | rune://settings/browser-sites: site settings                                               |
 | chrome://inspect                                                                                  | Different      | DevTools open from the page (F12)                                                          |
 | chrome://crashes                                                                                  | Different      | Rune Browser tells you when it crashed, with a report to send                              |
 | chrome://accessibility                                                                            | Not applicable | A Chromium developer page                                                                  |
@@ -58,21 +58,24 @@ the flags out, in case one keeps Rune Browser from starting. Flags that Electron
 
 Chromium's settings, by its own sections. Browser settings get their own part of Settings, apart from Rune Browser's.
 
-| Chromium                            | Rune Browser   | Note                                                                                |
-| ----------------------------------- | -------------- | ----------------------------------------------------------------------------------- |
-| Search engine                       | Matched        | Settings → Web tabs                                                                 |
-| Extensions                          | Matched        | Settings → Extensions (rune://extensions)                                           |
-| About Chrome                        | Matched        | Settings → About: version, updates, release channel                                 |
-| Appearance                          | Different      | Rune Browser's themes (Settings → Appearance); page zoom is per site and workspace  |
-| Performance (Memory Saver)          | Different      | Tab unloading (Settings → Web tabs → Tabs)                                          |
-| On startup                          | Different      | Tabs come back as they were, per workspace; a choice is on its way                  |
-| Privacy and security, site settings | Not yet        | Being worked on; today pages get only harmless permissions                          |
-| Autofill and passwords              | Not yet        | Password manager extensions work                                                    |
-| Downloads                           | Not yet        | Being worked on; today each download asks where to save it                          |
-| Default browser                     | Matched        | Settings → Web tabs: Make default; links and web files from other apps open as tabs |
-| Languages, spell check              | Not yet        | Spell check follows the system's language                                           |
-| Accessibility, System, Reset        | Not yet        | Hardware acceleration switches are in rune://flags                                  |
-| You and Google (sync, sign-in)      | Not applicable | No Google account                                                                   |
+| Chromium                       | Rune Browser   | Note                                                                                              |
+| ------------------------------ | -------------- | ------------------------------------------------------------------------------------------------- |
+| Autofill and passwords         | Different      | Settings → Browser: no password store of its own; password manager extensions work                |
+| Privacy and security           | Matched        | Clear browsing data (all time only), the insecure-site warning, third-party cookies, Do Not Track |
+| Site settings                  | Matched        | Location, camera, microphone, notifications, MIDI, clipboard, JavaScript, images, sound; per site |
+| Performance (Memory Saver)     | Matched        | Settings → Browser → Performance (tab unloading)                                                  |
+| Appearance                     | Different      | Fonts and page zoom in Settings → Browser → Fonts and zoom; themes are Rune Browser's Appearance  |
+| Search engine                  | Matched        | Settings → Browser → Search engine, or your own URL                                               |
+| Default browser                | Matched        | Settings → Browser → Default browser; links and web files from other apps open as tabs            |
+| On startup                     | Matched        | Continue, a new tab, or specific pages (your tabs stay in the sidebar)                            |
+| Languages, spell check         | Matched        | Preferred languages for websites, spell check and its dictionaries (macOS: the system's)          |
+| Downloads                      | Matched        | Settings → Browser → Downloads: the folder, or ask every time                                     |
+| Import bookmarks and settings  | Different      | Settings from Chromium-based browsers; no bookmarks or passwords (see Browsing)                   |
+| Reset settings                 | Matched        | Settings → Browser → Reset settings                                                               |
+| Extensions                     | Matched        | Settings → Browser → Extensions (rune://extensions)                                               |
+| About Chrome                   | Matched        | Settings → About: version, updates, release channel                                               |
+| Accessibility, System          | Not yet        | Hardware acceleration switches are in rune://flags                                                |
+| You and Google (sync, sign-in) | Not applicable | No Google account                                                                                 |
 
 ## Keyboard shortcuts
 

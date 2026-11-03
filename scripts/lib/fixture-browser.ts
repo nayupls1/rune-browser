@@ -230,6 +230,17 @@ export function writeFixtureBrowser(root: string): FixtureBrowser {
         // Chrome keeps one per platform ("linux:", "windows:", "mac:").
         commands: { [`${shortcutPlatform}:Alt+Shift+U`]: { command_name: "bump", extension: id, global: false } },
       },
+      // Browser settings to import (Settings → Browser → Import bookmarks and settings).
+      default_search_provider_data: {
+        template_url_data: { short_name: "Google", url: "{google:baseURL}search?q={searchTerms}" },
+      },
+      profile: {
+        content_settings: {
+          exceptions: { notifications: { "https://imported.example.com:443,*": { setting: 1 } } },
+        },
+      },
+      webkit: { webprefs: { default_font_size: 18 } },
+      intl: { accept_languages: "de-DE,en-US" },
     }),
   );
   writeLevelDb(join(profile, "Local Extension Settings", id), { greeting: "hello from chrome" });
