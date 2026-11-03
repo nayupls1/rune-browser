@@ -154,7 +154,8 @@ export function WebTab(props: { appId: string; active: boolean }) {
   // --- Insecure pages (shared/insecure.ts) -----------------------------------------------
 
   /** The http:// page the tab warns about instead of showing it, and the HTTPS version that was tried. */
-  const [insecure, setInsecure] = createSignal<{ url: string; attempt: string | null } | null>(null);
+  // `onPage`: the HTTPS version is the page the tab already shows (it sent the tab to its own http:// version).
+  const [insecure, setInsecure] = createSignal<{ url: string; attempt: string | null; onPage?: boolean } | null>(null);
   /** Trying an http:// page's HTTPS version: if it fails, the tab warns instead. */
   let upgrading: { from: string; to: string; host: string; timer: ReturnType<typeof setTimeout> } | null = null;
   /** The webview has shown a page (one that loaded, not an error): there's something to go back to. */
@@ -173,7 +174,11 @@ export function WebTab(props: { appId: string; active: boolean }) {
     pendingUrl = null;
     const action = insecureAction(target, insecurePolicy());
     if (action.kind === "allow") return load(target);
-    if (action.kind === "warn") return warn(target, null);
+    if (action.kind === "warn") {
+      // A page still loading would replace the warning when it commits.
+      if (webview && ready) webview.stop();
+      return warn(target, null);
+    }
     const from = target;
     upgrading = {
       from,
@@ -189,10 +194,10 @@ export function WebTab(props: { appId: string; active: boolean }) {
     load(action.url);
   }
 
-  function warn(url: string, attempt: string | null) {
+  function warn(url: string, attempt: string | null, onPage = false) {
     stopUpgrading();
     setLoadError();
-    setInsecure({ url, attempt });
+    setInsecure({ url, attempt, onPage });
     if (!editing) setAddress(url);
     // The agent waiting for the page gets its answer (lib/webtabs.ts: navigate, settle).
     loaded();
@@ -212,7 +217,7 @@ export function WebTab(props: { appId: string; active: boolean }) {
     const warning = insecure();
     setInsecure(null);
     if (!warning) return;
-    const onAttempt = !!warning.attempt && sameUrl(pageUrl(), warning.attempt);
+    const onAttempt = !warning.onPage && !!warning.attempt && sameUrl(pageUrl(), warning.attempt);
     if (onAttempt && webview!.canGoBack()) return webview!.goBack();
     if (committed && !onAttempt) {
       if (!editing) setAddress(currentUrl());
@@ -246,7 +251,7 @@ export function WebTab(props: { appId: string; active: boolean }) {
       if (upgrading && insecureHostOf(url) === upgrading.host) return warn(upgrading.from, upgrading.to);
       // A secure page sending the tab to its own http:// version: trying HTTPS again would only go round.
       const action = insecureAction(url, insecurePolicy());
-      if (action.kind === "upgrade" && sameUrl(action.url, pageUrl())) return warn(url, action.url);
+      if (action.kind === "upgrade" && sameUrl(action.url, pageUrl())) return warn(url, action.url, true);
       if (!editing) setAddress(url);
       open(url);
     }),
@@ -614,6 +619,11 @@ export function WebTab(props: { appId: string; active: boolean }) {
     view.addEventListener("did-start-loading", () => {
       setLoading(true);
       setLoadError();
+    });
+    // Another page asked for (a link, the agent, an extension) while the HTTPS version was being tried: what
+    // happens to that one isn't the attempt's.
+    view.addEventListener("did-start-navigation", (e) => {
+      if (upgrading && e.isMainFrame && !e.isInPlace && !sameUrl(e.url, upgrading.to)) stopUpgrading();
     });
     view.addEventListener("did-stop-loading", () => {
       setLoading(false);
