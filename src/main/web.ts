@@ -58,19 +58,23 @@ export function setupWebTabs(windows: AppWindows, onApiCall?: (workspaceId: stri
     windows.of(contents)?.webContents.send(channel, ...args);
   const shortcuts = setupShortcuts(windows);
   // Plain HTTP (shared/insecure.ts): what a page navigates to itself, and redirects, are held
-  // back here; the tab (components/WebTab.tsx) tries HTTPS or warns. The windows send the policy.
-  let insecurePolicy: InsecurePolicy = { enabled: true, allowed: [] };
+  // back here; the tab (components/WebTab.tsx) tries HTTPS or warns. Each window sends its policy
+  // (the sites allowed until a restart are that window's).
+  const insecurePolicies = new Map<number, InsecurePolicy>();
   ipcMain.on("rune:insecure-policy", (event, value: unknown) => {
     if (!windows.isUi(event.sender) || !value || typeof value !== "object") return;
     const v = value as { enabled?: unknown; allowed?: unknown };
-    insecurePolicy = {
+    const sender = event.sender;
+    if (!insecurePolicies.has(sender.id)) sender.once("destroyed", () => insecurePolicies.delete(sender.id));
+    insecurePolicies.set(sender.id, {
       enabled: v.enabled !== false,
       allowed: Array.isArray(v.allowed) ? v.allowed.filter((h): h is string => typeof h === "string") : [],
-    };
+    });
   });
   /** Holds back a web tab's navigation to an insecure page; true if it did. The tab's window warns. */
   const holdInsecure = (contents: WebContents, url: string) => {
-    if (insecureAction(url, insecurePolicy).kind === "allow") return false;
+    const policy = insecurePolicies.get(windows.of(contents)?.webContents.id ?? -1) ?? { enabled: true, allowed: [] };
+    if (insecureAction(url, policy).kind === "allow") return false;
     sendTo(contents, "rune:insecure", { contentsId: contents.id, url });
     return true;
   };

@@ -41,7 +41,8 @@ showing one that can't, like other browsers (`shared/insecure.ts`).
   without trying.
 - **The warning:** **Go back** returns to the page before; **Continue to site** opens it over HTTP until Rune Browser
   restarts, or for good with "Don't warn me about this site again". Settings → Browser → Privacy and security lists those sites (with a
-  remove button) and has a switch that turns the whole thing off.
+  remove button) and has a switch that turns the whole thing off. "Until Rune Browser restarts" is per window, and a
+  private window doesn't offer "for good" (it remembers nothing).
 - **Not for local addresses:** this computer and the private network (`localhost`, `*.localhost`, private, link-local
   and VPN ranges, IPv6 local addresses, names without a dot, `.local`, `.lan`, `.home`, `.home.arpa`, `.internal`) are never
   upgraded or warned about. App previews aren't web tabs, so they aren't affected either.
