@@ -606,11 +606,14 @@ const lastTabs = (): Record<string, string> => {
   }
 };
 function rememberTab(workspaceId: string, tabId: string) {
+  // A private window keeps nothing, not even which tab it was on.
+  if (isPrivate) return;
   localStorage.setItem(WORKSPACE_TABS_KEY, JSON.stringify({ ...lastTabs(), [workspaceId]: tabId }));
 }
 
 function setCurrentWorkspace(id: string) {
   setWorkspaceId(id);
+  if (isPrivate) return;
   localStorage.setItem(WORKSPACE_KEY, id);
   // New windows start in the workspace used last.
   localStorage.setItem("rune.workspace", id);

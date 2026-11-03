@@ -28,6 +28,8 @@ export const orDieAll = <T extends Record<string, Fn>>(repo: T) =>
 const migrate = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   yield* sql.unsafe("PRAGMA foreign_keys = ON");
+  // Deleted rows are overwritten, not left in free pages: a closed private window's tabs leave nothing behind.
+  yield* sql.unsafe("PRAGMA secure_delete = ON");
   yield* sql.unsafe(`
     CREATE TABLE IF NOT EXISTS apps (
       id         TEXT PRIMARY KEY,

@@ -853,6 +853,7 @@ const windowRoutes = HttpRouter.add(
           changed.adopted++;
         }
       }
+      if (changed.deleted) yield* apps.checkpoint();
       return json(changed);
     }),
   ),

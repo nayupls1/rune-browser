@@ -132,6 +132,8 @@ export const make = Effect.gen(function* () {
 
   const repo = {
     setHomeWindow: (id: string | null) => Effect.sync(() => void (homeWindow = id)),
+    /** Writes the write-ahead log into the database and empties it (after private tabs were deleted: nothing of them stays there). */
+    checkpoint: () => sql.unsafe("PRAGMA wal_checkpoint(TRUNCATE)").pipe(Effect.asVoid),
 
     /** The open tabs. */
     list: () =>

@@ -45,6 +45,8 @@ export interface AppWindows {
   broadcast(channel: string, ...args: unknown[]): void;
   /** Whether a window is private. */
   isPrivate(win: BrowserWindow | undefined): boolean;
+  /** Calls `fn` when a window gets the focus. */
+  onFocus(fn: () => void): void;
 }
 
 interface Live {
@@ -78,6 +80,9 @@ export function createWindowManager(options: WindowManagerOptions) {
   let lastSession: SavedWindow | null = null;
   let quitting = false;
   let server: ServerHandle | undefined;
+  /** Windows being opened (their tabs move first): the server must not take those tabs away meanwhile. */
+  const opening = new Set<string>();
+  const focusListeners = new Set<() => void>();
 
   const byId = (id: string) => [...live.values()].find((w) => w.id === id);
   const entryOf = (win: BrowserWindow | undefined) => (win ? live.get(win.id) : undefined);
@@ -110,7 +115,7 @@ export function createWindowManager(options: WindowManagerOptions) {
   let syncing: Promise<unknown> = Promise.resolve();
   function sync(forget: string[] = [], open = [...live.values()].map((w) => w.id)) {
     const body = {
-      open,
+      open: [...new Set([...open, ...opening])],
       closed: [...closed.map((w) => w.id), ...(lastSession ? [lastSession.id] : [])],
       forget,
     };
@@ -188,7 +193,10 @@ export function createWindowManager(options: WindowManagerOptions) {
     const sendMaximized = () => win.webContents.send("rune:maximized", win.isMaximized());
     win.on("maximize", sendMaximized);
     win.on("unmaximize", sendMaximized);
-    win.on("focus", () => (focusOrder = [...focusOrder.filter((id) => id !== entry.id), entry.id]));
+    win.on("focus", () => {
+      focusOrder = [...focusOrder.filter((id) => id !== entry.id), entry.id];
+      for (const fn of focusListeners) fn();
+    });
     const moved = () => !entry.private && saveSoon();
     win.on("resize", moved);
     win.on("move", moved);
@@ -232,11 +240,16 @@ export function createWindowManager(options: WindowManagerOptions) {
   async function openNew(isPrivate: boolean, tabIds: string[] = [], at?: { x: number; y: number }, newTab = true) {
     const id = newWindowId(isPrivate);
     let moved = 0;
-    for (const tabId of tabIds.slice(0, 50)) {
-      await api(`/api/apps/${encodeURIComponent(tabId)}/window`, { method: "POST", body: { windowId: id } }).then(
-        () => moved++,
-        (err) => console.warn("Moving a tab to the new window failed:", err),
-      );
+    opening.add(id);
+    try {
+      for (const tabId of tabIds.slice(0, 50)) {
+        await api(`/api/apps/${encodeURIComponent(tabId)}/window`, { method: "POST", body: { windowId: id } }).then(
+          () => moved++,
+          (err) => console.warn("Moving a tab to the new window failed:", err),
+        );
+      }
+    } finally {
+      opening.delete(id);
     }
     if (tabIds.length && !moved) return null;
     if (!isPrivate && lastSession) {
@@ -294,6 +307,7 @@ export function createWindowManager(options: WindowManagerOptions) {
       for (const w of live.values()) if (!w.win.isDestroyed()) w.win.webContents.send(channel, ...args);
     },
     isPrivate: (win) => !!entryOf(win)?.private,
+    onFocus: (fn) => void focusListeners.add(fn),
   };
 
   const senderOf = (event: IpcMainEvent | IpcMainInvokeEvent) =>

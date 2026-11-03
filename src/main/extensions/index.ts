@@ -146,7 +146,9 @@ export function setupExtensions(options: ExtensionsOptions) {
         clearTimeout(timer);
         resolve(value);
       });
-      const win = windowFor(typeof request.workspaceId === "string" ? request.workspaceId : null);
+      // Selecting or closing a tab: the window it's in. Anything else: the one used last.
+      const tab = typeof request.tabId === "number" ? webContents.fromId(request.tabId) : undefined;
+      const win = windows.of(tab) ?? windowFor(typeof request.workspaceId === "string" ? request.workspaceId : null);
       if (!win) {
         pending.delete(requestId);
         clearTimeout(timer);
@@ -221,6 +223,8 @@ export function setupExtensions(options: ExtensionsOptions) {
 
   type DistributiveOmit<T, K extends keyof any> = T extends unknown ? Omit<T, K> : never;
 
+  // The focused window says which tab is active: another window getting the focus changes that.
+  windows.onFocus(() => mergeTabs());
   ipcMain.on("rune:extensions-tabs", (event, value: ExtensionTabs) => {
     if (!windows.isUi(event.sender) || !value || typeof value !== "object" || !value.workspaces) return;
     const sender = event.sender;

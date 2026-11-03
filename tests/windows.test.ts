@@ -4,6 +4,7 @@
 // agents' page requests going to the window a tab is in (Hub.ts).
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Effect } from "effect";
+import { join } from "node:path";
 import type { AppSummary, AppDetail, WorkspaceInfo } from "../src/shared/api";
 import { shareRefusal } from "../src/shared/api";
 import { make as makeHub } from "../src/server/Hub";
@@ -137,7 +138,11 @@ describe("the server's windows", () => {
     const web = await tab({ kind: "web", url: "https://example.com/", windowId: "w-one" });
     expect(web.windowId).toBe("w-one");
     expect(web.private).toBe(false);
-    const priv = await tab({ kind: "web", url: "https://example.org/", windowId: "private-one" });
+    const priv = await tab({ kind: "web", url: "https://private-secret.example/", windowId: "private-one" });
+    await server.api(`/api/apps/${priv.id}/page`, {
+      method: "PATCH",
+      json: { url: "https://private-secret.example/inbox", title: "Private secret inbox" },
+    });
     expect(priv.private).toBe(true);
     await expect(tab({ kind: "app", windowId: "private-one" })).rejects.toThrow("400");
     await expect(tab({ kind: "web", windowId: "not a window" })).rejects.toThrow("400");
@@ -181,6 +186,11 @@ describe("the server's windows", () => {
     const kept = await tab({ kind: "web", url: "https://kept.example/", windowId: "w-closed" });
 
     const result = await syncWindows(["w-one", "w-two"], ["w-closed"], ["w-forgotten"]);
+    // Nothing of the private tab is left in the database's files either.
+    for (const name of ["rune.sqlite", "rune.sqlite-wal"]) {
+      const file = Bun.file(join(server.dataDir, name));
+      if (await file.exists()) expect(Buffer.from(await file.arrayBuffer()).includes("private-secret")).toBe(false);
+    }
     expect(result.deleted).toBeGreaterThanOrEqual(2); // the private tab and the forgotten web tab
     const now = await tabs();
     expect(now.some((t) => t.private)).toBe(false);
