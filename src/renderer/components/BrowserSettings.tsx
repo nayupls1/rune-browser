@@ -33,6 +33,8 @@ import {
   type SiteDecision,
   type SiteSettingKey,
 } from "../../shared/browser";
+import { clearRanges } from "../../shared/visits";
+import { api } from "../lib/api";
 import { setSiteSetting, siteShown, showSite, updateBrowser } from "../lib/browser";
 import { ZOOM_FACTORS } from "../lib/pageTools";
 import { settings, updateSettings } from "../lib/settings";
@@ -61,21 +63,35 @@ const systemInfo = () => createResource(() => window.rune.browser.info())[0];
 // --- Privacy and security -----------------------------------------------------------------------
 
 export function PrivacySection() {
+  const [history, setHistory] = createSignal(true);
+  const [range, setRange] = createSignal<(typeof clearRanges)[number]["id"]>("all");
   const [cookies, setCookies] = createSignal(true);
   const [cache, setCache] = createSignal(true);
   const [everywhere, setEverywhere] = createSignal<"this" | "all">("this");
   const [clearing, setClearing] = createSignal(false);
+  const nothing = () => !history() && !cookies() && !cache();
   const clear = async () => {
     const all = everywhere() === "all";
-    const what = [cookies() ? "cookies and other site data" : null, cache() ? "cached images and files" : null]
+    const period = clearRanges.find((r) => r.id === range())!;
+    const what = [
+      history() ? `browsing history (${period.label.toLowerCase()})` : null,
+      cookies() ? "cookies and other site data" : null,
+      cache() ? "cached images and files" : null,
+    ]
       .filter(Boolean)
-      .join(" and ");
+      .join(", ")
+      .replace(/, ([^,]*)$/, " and $1");
     const where = all ? "every workspace" : `the workspace ${currentWorkspace()?.name ?? ""}`.trim();
     if (!(await confirmDialog(`Clear ${what} of ${where}?`, { confirmLabel: "Clear data", danger: true }))) return;
     setClearing(true);
     try {
       const ids = all ? workspaces.map((w) => w.id) : [currentWorkspace()!.id];
-      await window.rune.browser.clearData(ids, { cookies: cookies(), cache: cache() });
+      if (history())
+        await api.clearVisits(
+          all ? null : ids[0]!,
+          period.ms === null ? null : new Date(Date.now() - period.ms).toISOString(),
+        );
+      if (cookies() || cache()) await window.rune.browser.clearData(ids, { cookies: cookies(), cache: cache() });
       toast({ message: "Browsing data cleared", kind: "success" });
     } catch (err) {
       toast({ title: "Clearing browsing data failed", message: String(err), kind: "error" });
@@ -86,16 +102,25 @@ export function PrivacySection() {
   return (
     <>
       <Section title="Clear browsing data" icon="trash" anchor="browser-clear">
+        <Row label="Browsing history" description="The pages you visited: History and the address bar's suggestions.">
+          <Checkbox checked={history()} onChange={(e) => setHistory(e.currentTarget.checked)} data-clear-history />
+        </Row>
         <Row label="Cookies and other site data" description="Signs you out of most sites. Extensions keep their data.">
           <Checkbox checked={cookies()} onChange={(e) => setCookies(e.currentTarget.checked)} data-clear-cookies />
         </Row>
         <Row label="Cached images and files" description="Frees space; some sites load more slowly the next time.">
           <Checkbox checked={cache()} onChange={(e) => setCache(e.currentTarget.checked)} data-clear-cache />
         </Row>
-        <Row
-          label="Where"
-          description="Each workspace has its own cookies and logins. Everything is cleared (all time)."
-        >
+        <Row label="Time range" description="For browsing history. Cookies and cached files are cleared for all time.">
+          <Select
+            value={range()}
+            onChange={(e) => setRange(e.currentTarget.value as (typeof clearRanges)[number]["id"])}
+            data-clear-range
+          >
+            <For each={clearRanges}>{(r) => <option value={r.id}>{r.label}</option>}</For>
+          </Select>
+        </Row>
+        <Row label="Where" description="Each workspace has its own history, cookies and logins.">
           <Segmented
             value={everywhere()}
             options={[
@@ -106,12 +131,7 @@ export function PrivacySection() {
           />
         </Row>
         <Row label="">
-          <Button
-            variant="danger"
-            disabled={clearing() || (!cookies() && !cache())}
-            onClick={() => void clear()}
-            data-clear-data
-          >
+          <Button variant="danger" disabled={clearing() || nothing()} onClick={() => void clear()} data-clear-data>
             {clearing() ? "Clearing…" : "Clear data"}
           </Button>
         </Row>

@@ -2,6 +2,7 @@
 // this window; agent output and app status arrive on the hub (realtime.ts).
 import type { Settings } from "../../shared/settings";
 import type { Endpoint, EndpointHost } from "../../shared/endpoints";
+import type { Visit, VisitSuggestion } from "../../shared/visits";
 import type { GalleryResult, InstalledMod, Mod, ModExtension, ModReview } from "../../shared/mods";
 import type {
   ChatFile,
@@ -173,6 +174,31 @@ export const api = {
       method: "DELETE",
     }),
   deleteSecret: (id: string) => request<void>(`/api/secrets/${id}`, { method: "DELETE" }),
+
+  /** Browsing history (shared/visits.ts): a workspace's visits (every workspace's with null), newest first. */
+  visits: (query: { workspaceId: string | null; search?: string; before?: number; limit?: number }) => {
+    const params = new URLSearchParams();
+    if (query.workspaceId) params.set("workspace", query.workspaceId);
+    if (query.search) params.set("search", query.search);
+    if (query.before) params.set("before", String(query.before));
+    if (query.limit) params.set("limit", String(query.limit));
+    return request<Visit[]>(`/api/visits?${params}`);
+  },
+  suggestVisits: (workspaceId: string, q: string, limit = 5) =>
+    request<VisitSuggestion[]>(
+      `/api/visits/suggest?workspace=${encodeURIComponent(workspaceId)}&q=${encodeURIComponent(q)}&limit=${limit}`,
+    ),
+  deleteVisits: (workspaceId: string | null, ids: number[]) =>
+    post<{ removed: number }>(
+      `/api/visits/delete${workspaceId ? `?workspace=${encodeURIComponent(workspaceId)}` : ""}`,
+      { ids },
+    ),
+  /** Deletes the history since a time (ISO), or all of it (null). */
+  clearVisits: (workspaceId: string | null, since: string | null) =>
+    post<{ removed: number }>(
+      `/api/visits/clear${workspaceId ? `?workspace=${encodeURIComponent(workspaceId)}` : ""}`,
+      { since },
+    ),
 
   permissions: () => request<PermissionGrant[]>("/api/permissions"),
   setPermission: (subject: string, action: PermissionAction, resource: string, decision: "allow" | "deny") =>

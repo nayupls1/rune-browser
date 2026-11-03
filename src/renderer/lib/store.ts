@@ -45,7 +45,10 @@ export interface TabState {
 /** Pseudo tab ids for Rune Browser's own pages, all shown in Settings (its sidebar lists them). */
 export const SETTINGS_VIEW = "settings";
 export const ACTIVITY_VIEW = "activity";
+/** Browsing history (Ctrl+H). */
 export const HISTORY_VIEW = "history";
+/** Snapshots of apps, customizations and settings, to undo changes. */
+export const SNAPSHOTS_VIEW = "snapshots";
 export const SCHEDULES_VIEW = "schedules";
 export const MODS_VIEW = "mods";
 /** rune://version, rune://gpu, rune://flags and rune://rune-urls (shared/internalPages.ts). */
@@ -55,6 +58,7 @@ const settingsViews = [
   SETTINGS_VIEW,
   ACTIVITY_VIEW,
   HISTORY_VIEW,
+  SNAPSHOTS_VIEW,
   SCHEDULES_VIEW,
   MODS_VIEW,
   VERSION_VIEW,
@@ -403,6 +407,8 @@ export async function openTab(id: string) {
 
 function showNewTab(app: AppSummary) {
   upsertApp(app);
+  // One of another workspace (opened from history): its workspace comes along, like selectApp.
+  if (app.workspaceId !== currentWorkspace()?.id) setCurrentWorkspace(app.workspaceId);
   watch(app.id);
   setStates(app.id, { ...emptyState(), loaded: true });
   rememberTab(app.workspaceId, app.id);
@@ -452,7 +458,15 @@ const pendingPages = new Map<string, { url?: string; title?: string; favicon?: s
 export function updatePage(id: string, page: { url?: string; title?: string; favicon?: string | null }) {
   const app = appById(id);
   if (!app) return;
-  const next = { ...pendingPages.get(id), ...page };
+  let pending = pendingPages.get(id);
+  // Another page: what's waiting belongs to the last one, so it goes first (history records each
+  // page with its own title). Unless the last page had no title yet: it was a redirect.
+  if (pending?.title && page.url !== undefined && page.url !== (pending.url ?? app.url)) {
+    // Not shown: the tab is already on the next page.
+    api.updatePage(id, pending).catch(() => {});
+    pending = undefined;
+  }
+  const next = { ...pending, ...page };
   pendingPages.set(id, next);
   // Show it right away; the server decides the name (renamed tabs keep theirs).
   setApps(

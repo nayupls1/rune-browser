@@ -77,16 +77,21 @@ export function setupShortcuts(windows: AppWindows) {
   const send = (contents: WebContents, event: ShortcutEvent) =>
     windows.of(contents)?.webContents.send("rune:shortcut", event);
 
-  ipcMain.on("rune:shortcuts", (event, bindings: unknown) => {
-    if (!windows.isUi(event.sender) || !bindings || typeof bindings !== "object") return;
+  /** A menu item runs its shortcut in the window in front. */
+  const runInWindow = (id: string) =>
+    windows.current()?.webContents.send("rune:shortcut", { id } satisfies ShortcutEvent);
+
+  ipcMain.on("rune:shortcuts", (event, next: unknown) => {
+    if (!windows.isUi(event.sender) || !next || typeof next !== "object") return;
     const valid: Record<string, string[]> = {};
-    for (const [id, keys] of Object.entries(bindings))
+    for (const [id, keys] of Object.entries(next))
       if (Array.isArray(keys)) valid[id] = keys.filter((k): k is string => typeof k === "string").slice(0, 10);
     bindings = valid;
     keymap = keymapOf(valid);
+    setupMenu(runInWindow, valid);
   });
 
-  setupMenu((id) => windows.current()?.webContents.send("rune:shortcut", { id } satisfies ShortcutEvent));
+  setupMenu(runInWindow, bindings);
 
   return {
     /** A shortcut's first keys as an Electron accelerator (shown in menus), if it has any. */
@@ -151,15 +156,16 @@ const toKey = (input: Input) => ({
  * reloads Rune Browser itself on Ctrl+R and zooms it on Ctrl+Plus; those keys
  * are the tabs'. Linux and Windows show no menu, so they get none (editing
  * keys work without one; new windows are in the sidebar's New tab menu); macOS
- * keeps its app, File (new tabs and windows), Edit and Window menus.
+ * keeps its app, File (new tabs and windows), Edit and Window menus, and has
+ * History like Chrome's (with the keys the user chose for it).
  */
-function setupMenu(run: (shortcut: string) => void) {
+function setupMenu(run: (shortcut: string) => void, bindings: Record<string, readonly string[]>) {
   if (process.platform !== "darwin") {
     Menu.setApplicationMenu(null);
     return;
   }
   // Shown with their keys, which the window handles itself (lib/shortcuts.ts).
-  const item = (label: string, id: string, accelerator: string) => ({
+  const item = (label: string, id: string, accelerator: string | undefined) => ({
     label,
     accelerator,
     registerAccelerator: false,
@@ -179,6 +185,16 @@ function setupMenu(run: (shortcut: string) => void) {
         ],
       },
       { role: "editMenu" },
+      {
+        label: "History",
+        submenu: [
+          item(
+            "Show All History",
+            "open.history",
+            bindings["open.history"]?.find((k) => !/(Browser|Mouse)\w+$/.test(k)),
+          ),
+        ],
+      },
       {
         label: "Window",
         submenu: [{ role: "minimize" }, { role: "zoom" }, { type: "separator" }, { role: "front" }],

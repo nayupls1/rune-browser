@@ -673,8 +673,8 @@ try {
     );
     await click(`${chromeFor(appTab())} [data-history-button]`);
 
-    // The History page has everything in the workspace.
-    await openSettingsAt("history");
+    // The Snapshots page has everything in the workspace.
+    await openSettingsAt("snapshots");
     await page!.waitFor(`document.querySelectorAll("[data-history-page] [data-snapshot]").length >= 3`, {
       label: "history page",
     });
@@ -2669,6 +2669,108 @@ try {
     return `GET /api/feed with ${Object.keys(endpoint.query).join(", ")}`;
   });
 
+  await check(
+    "browsing history: Ctrl+H, by day, searched, opened, removed, cleared; suggested by the address bar",
+    async () => {
+      if (!webTabId) throw new Error("needs the web tab");
+      const tab = `[data-web-tab="${webTabId}"]`;
+      const workspaceId = (await apiCall<{ id: string; workspaceId: string }[]>("/api/apps")).find(
+        (a) => a.id === webTabId,
+      )?.workspaceId;
+      const visits = () =>
+        apiCall<{ id: number; url: string; title: string }[]>(`/api/visits?workspace=${workspaceId}`);
+      await click(`nav li[data-app-id="${webTabId}"]`);
+      await page!.eval(
+        `document.querySelector('${tab} webview').executeJavaScript(${JSON.stringify(`location.href = ${JSON.stringify(`${site.url.origin}/second?history`)}; true`)})`,
+      );
+      await waitForValue(
+        async () =>
+          (await visits()).some((v) => v.url.endsWith("/second?history") && v.title === "Second page")
+            ? true
+            : undefined,
+        15_000,
+      );
+
+      // Ctrl+H (macOS Cmd+Y) opens History: today's pages, newest first.
+      const mac = process.platform === "darwin";
+      await page!.eval(
+        `window.dispatchEvent(new KeyboardEvent("keydown", { key: "${mac ? "y" : "h"}", code: "${mac ? "KeyY" : "KeyH"}", ${mod}: true, bubbles: true })), true`,
+      );
+      await page!.waitFor(
+        `document.querySelector("[data-settings-shell]")?.dataset.settingsShell === "history" && !!document.querySelector("[data-browsing-history] [data-visit]")`,
+        { label: "History page" },
+      );
+      const heading = await page!.eval<string>(`document.querySelector("[data-history-day] h2").textContent`);
+      if (!heading.startsWith("Today")) throw new Error(`first day: ${heading}`);
+      const titles = await page!.eval<string[]>(
+        `[...document.querySelectorAll("[data-browsing-history] [data-visit-link]")].map((a) => a.innerText)`,
+      );
+      if (!titles[0]?.includes("Second page") || !titles.some((t) => t.includes("Test site")))
+        throw new Error(`visits: ${titles.join(" | ")}`);
+      await shot("browsing-history.png");
+
+      // Search.
+      await type("[data-history-search]", "second");
+      await page!.waitFor(
+        `(() => { const rows = [...document.querySelectorAll("[data-browsing-history] [data-visit-link]")]; return rows.length > 0 && rows.every((a) => (a.innerText + a.href).toLowerCase().includes("second")) && !rows.some((a) => a.innerText.includes("Test site")); })()`,
+        { label: "search results" },
+      );
+
+      // A visit opens in a new tab.
+      const count = await page!.eval<number>(`document.querySelectorAll("nav li").length`);
+      await click("[data-browsing-history] [data-visit-link]");
+      const opened = await page!.waitFor<string>(
+        `document.querySelectorAll("nav li").length === ${count + 1} && !document.querySelector("[data-settings-shell]") && document.querySelector('nav li[aria-current="page"]')?.dataset.appId`,
+        { label: "opened in a new tab" },
+      );
+      await apiCall(`/api/apps/${opened}`, { method: "DELETE" });
+
+      // The address bar suggests pages from history.
+      await click(`nav li[data-app-id="${webTabId}"]`);
+      const address = `${chromeFor(tab)} [data-address]`;
+      await page!.eval(`document.querySelector('${address}').focus(), true`);
+      await type(address, "Test si");
+      await page!.waitFor(
+        `[...document.querySelectorAll('[data-suggestions] [data-suggestion^="history:"]')].some((b) => b.innerText.includes("Test site"))`,
+        { label: "history suggestion" },
+      );
+      await shot("history-suggestions.png");
+      await page!.eval(
+        `document.querySelector('${address}').dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })), true`,
+      );
+
+      // Removing one visit.
+      await openSettingsAt("history");
+      await page!.waitFor(`!!document.querySelector("[data-browsing-history] [data-visit]")`, { label: "visits" });
+      const before = (await visits()).length;
+      const removedId = await page!.eval<string>(
+        `document.querySelector("[data-browsing-history] [data-visit]").dataset.visit`,
+      );
+      await click("[data-browsing-history] [data-visit-remove]");
+      await page!.waitFor(`!document.querySelector('[data-browsing-history] [data-visit="${removedId}"]')`, {
+        label: "removed",
+      });
+      await waitForValue(async () => ((await visits()).length === before - 1 ? true : undefined));
+
+      // Clearing all of it: "Clear browsing data" in Privacy and security, history only.
+      await click("[data-history-clear]");
+      await page!.waitFor(`!!document.querySelector("[data-clear-history]")`, { label: "clear browsing data" });
+      for (const other of ["[data-clear-cookies]", "[data-clear-cache]"])
+        if (await page!.eval<boolean>(`document.querySelector(${JSON.stringify(other)}).checked`)) await click(other);
+      const range = await page!.eval<string>(`document.querySelector("[data-clear-range]").value`);
+      if (range !== "all") throw new Error(`time range: ${range}`);
+      await shot("clear-browsing-data.png");
+      await click("[data-clear-data]");
+      await page!.waitFor(`!!document.querySelector("[data-confirm-dialog]")`, { label: "confirm" });
+      await click("[data-confirm-dialog] [data-confirm]");
+      await waitForValue(async () => ((await visits()).length ? undefined : true));
+      await openSettingsAt("history");
+      await page!.waitFor(`!!document.querySelector("[data-history-empty]")`, { label: "empty history" });
+      if ((await visits()).length) throw new Error("visits left after clearing");
+      return `${before} visits, search, open, suggest, remove, clear`;
+    },
+  );
+
   if (agentPrompt && webTabId) {
     await check("website agent customizes a picked element", async () => {
       const tab = `[data-web-tab="${webTabId}"]`;
@@ -4589,6 +4691,9 @@ try {
       label: "chrome://extensions → Settings: Extensions",
     });
     await addressShows("rune://extensions");
+    await enterAddress("chrome://history");
+    await page!.waitFor(`!!document.querySelector("[data-browsing-history]")`, { label: "chrome://history → History" });
+    await addressShows("rune://history");
 
     // The list of them all; an address that isn't a page lands there.
     await enterAddress("chrome://dino");
@@ -4596,9 +4701,11 @@ try {
       label: "rune://rune-urls",
     });
     if (
-      await page!.eval<boolean>(`document.querySelector('[data-chromium-url="history"]')?.dataset.status !== "not-yet"`)
+      await page!.eval<boolean>(
+        `document.querySelector('[data-chromium-url="bookmarks"]')?.dataset.status !== "not-yet"`,
+      )
     )
-      throw new Error("chrome://history isn't listed as not there yet");
+      throw new Error("chrome://bookmarks isn't listed as not there yet");
     await shot("internal-urls.png");
     await click('[data-rune-url="version"] button');
     await page!.waitFor(`!!document.querySelector('[data-internal-page="version"]')`, { label: "a link in the list" });

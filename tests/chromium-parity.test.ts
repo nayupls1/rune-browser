@@ -65,7 +65,8 @@ describe("internal pages", () => {
     expect(internalUrlOf({ settings: "extensions" })).toBe("rune://extensions");
     expect(internalUrlOf({ settings: "appearance" })).toBe("rune://settings/appearance");
     expect(internalUrlOf({ view: "gpu" })).toBe("rune://gpu");
-    expect(internalUrlOf({ view: "history" })).toBe("rune://snapshots");
+    expect(internalUrlOf({ view: "snapshots" })).toBe("rune://snapshots");
+    expect(internalUrlOf({ view: "history" })).toBe("rune://history");
     expect(internalUrlOf({ newTab: true })).toBe("rune://newtab");
   });
 
@@ -75,7 +76,8 @@ describe("internal pages", () => {
     for (const page of chromiumPages.filter((p) => p.status === "matched" && !p.host.includes("/")))
       expect(parseInternalUrl(`chrome://${page.host}`)?.page).toBeDefined();
     // Pages other work is bringing aren't claimed yet.
-    for (const host of ["history", "bookmarks"]) expect(parseInternalUrl(`rune://${host}`)?.page).toBeUndefined();
+    for (const host of ["bookmarks"]) expect(parseInternalUrl(`rune://${host}`)?.page).toBeUndefined();
+    expect(parseInternalUrl("chrome://history")?.page?.target).toEqual({ view: "history" });
     expect(parseInternalUrl("chrome://downloads")?.page?.target).toEqual({ view: "downloads" });
   });
 

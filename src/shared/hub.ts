@@ -44,6 +44,8 @@ export const topics = {
   schedules: "schedules",
   /** Mods were installed, turned on or off, or removed (refetch). */
   mods: "mods",
+  /** Browsing history changed: a page was visited, visits were deleted (refetch). */
+  visits: "visits",
 } as const;
 
 export const isValidTopic = (topic: unknown): topic is string =>
@@ -91,6 +93,8 @@ export type ServerMessage =
   | { type: "settings"; topic: string; settings: Settings }
   | { type: "network-changed"; topic: string; what: "rules" | "requests" | "overrides" }
   | { type: "mods-changed"; topic: string }
+  /** A workspace's browsing history changed (null: every workspace's). */
+  | { type: "visits-changed"; topic: string; workspaceId: string | null }
   | { type: "rpc"; id: number; method: string; params: unknown };
 
 export type TopicMessage = Exclude<ServerMessage, { type: "rpc" }>;

@@ -18,6 +18,7 @@ import {
   duplicateApp,
   DOWNLOADS_VIEW,
   HISTORY_VIEW,
+  SNAPSHOTS_VIEW,
   isAgentCollapsed,
   MODS_VIEW,
   isTab,
@@ -400,7 +401,7 @@ function currentTabCommands(id: string): Command[] {
         id: "app.snapshot",
         title: "Save a snapshot",
         subtitle: app.name,
-        icon: "history",
+        icon: "rotate-ccw-clock",
         group: "App",
         keywords: "history version checkpoint",
         run: async () => {
@@ -572,10 +573,18 @@ function runeCommands(): Command[] {
     {
       id: "open.history",
       title: "Open History",
-      icon: "history",
+      icon: "rotate-ccw-clock",
       group: "Rune Browser",
-      keywords: "undo restore snapshots versions",
+      keywords: "browsing visited pages sites",
       run: () => selectApp(HISTORY_VIEW),
+    },
+    {
+      id: "open.snapshots",
+      title: "Open Snapshots",
+      icon: "file-clock",
+      group: "Rune Browser",
+      keywords: "history undo restore versions changes",
+      run: () => selectApp(SNAPSHOTS_VIEW),
     },
     {
       id: "open.schedules",

@@ -527,7 +527,7 @@ export function WorkspaceBadge(props: { workspace: WorkspaceInfo }) {
   );
 }
 
-/** Settings (and the pages in it: Downloads, History, Schedules, Mods, Activity), at the bottom right of the sidebar. */
+/** Settings (and the pages in it: Downloads, History, Snapshots, Schedules, Mods, Activity), at the bottom right of the sidebar. */
 function SettingsLink() {
   const selected = () => isSettingsView(selectedId());
   return (

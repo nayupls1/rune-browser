@@ -82,6 +82,12 @@ export const internalPages: InternalPage[] = [
     description: "Everything you downloaded, by day: open, show in folder, retry.",
     target: { view: "downloads" },
   },
+  {
+    host: "history",
+    title: "History",
+    description: "The pages you visited, by day: search, open again, delete.",
+    target: { view: "history" },
+  },
   // Rune Browser's own pages.
   {
     host: "activity",
@@ -93,7 +99,7 @@ export const internalPages: InternalPage[] = [
     host: "snapshots",
     title: "Snapshots",
     description: "The snapshots of apps and site changes, to undo a change or go back to a version.",
-    target: { view: "history" },
+    target: { view: "snapshots" },
   },
   {
     host: "schedules",
@@ -147,7 +153,7 @@ export const chromiumPages: ChromiumPage[] = [
   { host: "flags", status: "matched", note: "rune://flags, a chosen set of Chromium's flags" },
   { host: "chrome-urls", status: "matched", note: "rune://rune-urls" },
   { host: "newtab", status: "matched", note: "rune://newtab opens a new web tab" },
-  { host: "history", status: "not-yet", note: "Browsing history is on its way" },
+  { host: "history", status: "matched", note: "rune://history" },
   { host: "downloads", status: "matched", note: "rune://downloads" },
   { host: "bookmarks", status: "not-yet", note: "Bookmarks are on their way" },
   {

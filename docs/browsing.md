@@ -87,9 +87,9 @@ Browser's own settings (`components/BrowserSettings.tsx`, `shared/browser.ts`). 
 settings; cookies and site data stay per workspace. The renderer sends them to the main process whenever they change
 (`main/browser.ts`), which puts them into effect in web tabs:
 
-- **Privacy and security:** clear cookies and other site data and/or the cache, of this workspace or all of them
-  (extensions keep their data, like in Chrome); the warning before insecure sites; block third-party cookies; send Do
-  Not Track.
+- **Privacy and security:** clear browsing history (of a time range), cookies and other site data and/or the cache, of
+  this workspace or all of them (extensions keep their data, like in Chrome); the warning before insecure sites; block
+  third-party cookies; send Do Not Track.
 - **Site settings:** location, camera, microphone, notifications, MIDI devices, clipboard, screen sharing, your device
   use (idle detection), window management, fonts, file editing, embedded content (storage access) and local network
   access (permissions: sites can ask, or not; see [Site permission prompts](#site-permission-prompts)), JavaScript, images and sound (content: allowed or not), each with a default and per site. A site is a
@@ -163,6 +163,17 @@ Sites can ask for the permissions above, and you decide, like in Chrome (`shared
 - **Limits:** device pickers (USB, HID, serial, Bluetooth) aren't supported, and those requests are refused. Uses in
   frames of other sites, which the script can't reach, show as in use until the page goes away; stopping one reloads
   the page. App previews keep only the harmless permissions (full screen, pointer lock, writing to the clipboard).
+
+## Browsing history
+
+Web tabs keep a history of the pages they visited, like other browsers (`db/Visits.ts`, `shared/visits.ts`). Each workspace has its own, like a browser profile.
+
+- **What's recorded:** websites and local files a web tab goes to, with the page's title, icon and the time. Blank, extension and `data:` pages aren't, a change of only the `#hash` isn't another visit, and a page that moves on before it has a title, within a moment, was a redirect: only where it went is recorded. The server records a visit when a tab reports a new address (`PATCH /api/apps/:id/page`, or opening a tab at an address). Visits stay when their tab is closed, go with their workspace, and are kept for 90 days.
+- **The History page** (Ctrl+H, macOS Cmd+Y; the command bar's "Open History"; Settings → History; macOS: History → Show All History): visits grouped by day, newest first, searchable by title and address, for the current workspace or all of them. A click opens the page in a new tab (Ctrl+click or a middle click: in the background).
+- **Deleting:** a visit's ×, or [clear browsing data](#browser-settings) (the History page's "Clear browsing data" opens it): browsing history of the last hour, 24 hours, 7 days, 4 weeks, or all time, in this workspace or every workspace, along with cookies and the cache if you like. Clearing history is in Activity (`history.clear`), without the pages.
+- **The address bar** suggests pages from the workspace's history as you type (`GET /api/visits/suggest`): the site you're typing first, then pages whose title matches, then the rest, the often and recently visited ones higher.
+- **Private windows** record no history, the address bar there suggests none, and their History page shows none.
+- **Agents** don't see browsing history, and extensions' `chrome.history` stays empty.
 
 ## Network
 
@@ -324,7 +335,7 @@ The rest of Chromium (settings, internal pages, everyday behavior) is in [Chromi
 | DevTools, console, inspect (F12, Ctrl+Shift+I/J/C, macOS Cmd+Option+I/J/C)                         | Same                                                                         |
 | Full screen (F11, macOS Cmd+Ctrl+F), close window (Ctrl+Shift+W, Alt+F4), quit (Ctrl+Shift+Q)      | Same (macOS quits with Cmd+Q)                                                |
 | Reopen closed tab (Ctrl+Shift+T) after closing a window                                            | Same: reopens the window with its tabs                                       |
-| History (Ctrl+H, macOS Cmd+Y)                                                                      | Same                                                                         |
+| History (Ctrl+H, macOS Cmd+Y)                                                                      | Same: browsing history, per workspace                                        |
 | Downloads (Ctrl+J, macOS Cmd+Shift+J)                                                              | Same: the Downloads page, a downloads button and warnings before risky files |
 | Ctrl+click or middle click on a link; Ctrl+Shift+click, Shift+click                                | Same: a background tab; a tab that's shown (Shift+click: not a new window)   |
 | Address bar: Ctrl+Enter (www. and .com), Alt+Enter or Shift+Enter (macOS Cmd+Enter: new tab)       | Same                                                                         |

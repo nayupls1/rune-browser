@@ -45,7 +45,7 @@ the same agent can hide, restyle or add things, and those changes stay.
   before reaching anything beyond it; secrets never reach agents; web pages
   never reach an agent that has tools. Everything agents and apps do is in
   Activity.
-- **Nothing is lost.** Every change is a snapshot in History, with its diff,
+- **Nothing is lost.** Every change is saved as a snapshot, with its diff,
   to undo or restore, including the app's data.
 
 |                                                                    |                                                                 |

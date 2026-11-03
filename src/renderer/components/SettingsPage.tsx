@@ -1,6 +1,6 @@
 // Settings: a sidebar of categories (appearance, the current workspace,
 // agent defaults and providers, apps, web tabs and their network and
-// extensions, secrets and permissions) and Rune Browser's pages (History,
+// extensions, secrets and permissions) and Rune Browser's pages (History, Snapshots,
 // Schedules, Mods, Activity), with the chosen one beside it.
 import * as stylex from "@stylexjs/stylex";
 import {
@@ -46,6 +46,7 @@ import {
   deleteWorkspace,
   editWorkspaceSettings,
   HISTORY_VIEW,
+  SNAPSHOTS_VIEW,
   MODS_VIEW,
   newWebTab,
   openSettings,
@@ -66,6 +67,7 @@ import { registerChrome, type TabChrome } from "../lib/tabChrome";
 import { ShortcutSettings } from "./ShortcutSettings";
 import { ApiMapPage } from "./ApiMapPage";
 import { BrowserSection } from "./BrowserSettings";
+import { BrowsingHistoryPage } from "./BrowsingHistory";
 import { HistoryPage } from "./History";
 import { DownloadsPage } from "./Downloads";
 import { ModsPage } from "./ModsPage";
@@ -86,7 +88,7 @@ import { Button, Select } from "./ui";
 
 /**
  * Settings: a sidebar of categories on the left, the chosen one on the right.
- * Rune Browser's pages (Downloads, History, Schedules, Mods, Activity) are categories too.
+ * Rune Browser's pages (Downloads, History, Snapshots, Schedules, Mods, Activity) are categories too.
  */
 export function SettingsShell(props: { view: string }) {
   const current = () =>
@@ -162,6 +164,9 @@ export function SettingsShell(props: { view: string }) {
             <DownloadsPage />
           </Match>
           <Match when={props.view === HISTORY_VIEW}>
+            <BrowsingHistoryPage />
+          </Match>
+          <Match when={props.view === SNAPSHOTS_VIEW}>
             <HistoryPage />
           </Match>
           <Match when={props.view === SCHEDULES_VIEW}>

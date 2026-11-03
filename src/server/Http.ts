@@ -42,6 +42,7 @@ import { isIcon } from "./icons";
 import { Network } from "./db/Network";
 import { ResponseOverrides } from "./db/ResponseOverrides";
 import { Endpoints } from "./db/Endpoints";
+import { Visits } from "./db/Visits";
 import { describeEndpoint, type Observation } from "../shared/endpoints";
 import { Settings } from "./db/Settings";
 import { PageChanges, pageChangeError } from "./db/PageChanges";
@@ -495,6 +496,7 @@ const appRoutes = HttpRouter.addAll([
           kind === "web" ? (input.url ?? null) : null,
           input.windowId ?? null,
         );
+        if (kind === "web" && input.url) yield* visited({ ...app, url: null }, { url: input.url });
         yield* publishApp(app);
         return json(app, 201);
       }),
@@ -678,8 +680,10 @@ const appRoutes = HttpRouter.addAll([
             favicon: Schema.optionalKey(Schema.NullOr(str(8000))),
           }),
         );
-        const tab = yield* apps.updateWebTab(yield* param("id"), page);
-        if (!tab) return yield* fail(404, "Not found");
+        const before = yield* apps.get(yield* param("id"));
+        const tab = before && (yield* apps.updateWebTab(before.id, page));
+        if (!before || !tab) return yield* fail(404, "Not found");
+        yield* visited(before, page);
         return json(tab);
       }),
     ),
@@ -2083,6 +2087,7 @@ const workspaceRoutes = HttpRouter.addAll([
         yield* (yield* Network).removeWorkspace(id);
         yield* (yield* ResponseOverrides).removeWorkspace(id);
         yield* (yield* Endpoints).remove(id);
+        yield* (yield* Visits).clear(id, null);
         yield* workspaces.remove(id);
         yield* youDid(null, "workspace.delete", space.name);
         yield* snapshot("settings", `Deleted the workspace ${space.name}`);
@@ -2558,6 +2563,103 @@ const networkRoutes = HttpRouter.addAll([
   ),
 ]);
 
+// --- Browsing history ----------------------------------------------------------------
+
+const publishVisits = (workspaceId: string | null) =>
+  Effect.gen(function* () {
+    yield* (yield* Hub).publish({ type: "visits-changed", topic: topics.visits, workspaceId });
+  });
+
+/** A web tab went somewhere (`tab` as it was before): history records it (shared/visits.ts), unless it's private. */
+const visited = (
+  tab: { id: string; workspaceId: string; kind: string; url: string | null; private: boolean },
+  page: { url?: string; title?: string; favicon?: string | null },
+) =>
+  Effect.gen(function* () {
+    if (tab.kind !== "web" || tab.private) return;
+    if (yield* (yield* Visits).record(tab, page)) yield* publishVisits(tab.workspaceId);
+  });
+
+/** `?workspace=`: one workspace's history; without it, every workspace's. */
+const optionalWorkspace = Effect.gen(function* () {
+  const req = yield* HttpServerRequest.HttpServerRequest;
+  const id = new URL(req.url, "http://localhost").searchParams.get("workspace");
+  if (id) yield* ensureWorkspace(id);
+  return id || null;
+});
+
+const visitRoutes = HttpRouter.addAll([
+  HttpRouter.route(
+    "GET",
+    "/api/visits",
+    handle(
+      Effect.gen(function* () {
+        const workspaceId = yield* optionalWorkspace;
+        const params = new URL((yield* HttpServerRequest.HttpServerRequest).url, "http://localhost").searchParams;
+        const before = Number(params.get("before")) || undefined;
+        const limit = Math.min(Math.max(Number(params.get("limit")) || 100, 1), 500);
+        const search = (params.get("search") ?? "").slice(0, 200);
+        return json(yield* (yield* Visits).list({ workspaceId, search, before, limit }));
+      }),
+    ),
+  ),
+  // The address bar's suggestions from a workspace's history.
+  HttpRouter.route(
+    "GET",
+    "/api/visits/suggest",
+    handle(
+      Effect.gen(function* () {
+        const workspaceId = yield* workspaceParam;
+        const params = new URL((yield* HttpServerRequest.HttpServerRequest).url, "http://localhost").searchParams;
+        const query = (params.get("q") ?? "").trim().slice(0, 200);
+        const limit = Math.min(Math.max(Number(params.get("limit")) || 5, 1), 20);
+        return json(query ? yield* (yield* Visits).suggest(workspaceId, query, limit) : []);
+      }),
+    ),
+  ),
+  // Deletes single visits by id.
+  HttpRouter.route(
+    "POST",
+    "/api/visits/delete",
+    handle(
+      Effect.gen(function* () {
+        const workspaceId = yield* optionalWorkspace;
+        const { ids } = yield* decodeBody(
+          Schema.Struct({ ids: Schema.Array(Schema.Int).check(Schema.isMaxLength(1000)) }),
+        );
+        const removed = yield* (yield* Visits).remove(ids, workspaceId);
+        if (removed) {
+          yield* youDid(workspaceId && workspaceScope(workspaceId), "history.delete", `${removed} visits`);
+          yield* publishVisits(workspaceId);
+        }
+        return json({ removed });
+      }),
+    ),
+  ),
+  // Clears the history since a time (everything without one): the workspace's, or every workspace's.
+  HttpRouter.route(
+    "POST",
+    "/api/visits/clear",
+    handle(
+      Effect.gen(function* () {
+        const workspaceId = yield* optionalWorkspace;
+        const { since } = yield* decodeBody(Schema.Struct({ since: Schema.NullOr(str(40)) }));
+        if (since !== null && Number.isNaN(Date.parse(since))) return yield* fail(400, "since must be a time");
+        const from = since === null ? null : new Date(since).toISOString();
+        const removed = yield* (yield* Visits).clear(workspaceId, from);
+        yield* youDid(
+          workspaceId && workspaceScope(workspaceId),
+          "history.clear",
+          from ? `since ${from}` : "all time",
+          `${removed} visits`,
+        );
+        yield* publishVisits(workspaceId);
+        return json({ removed });
+      }),
+    ),
+  ),
+]);
+
 // --- The API endpoint map -----------------------------------------------------------
 
 /** Whether the map leaves a host out (Settings: a site turned off covers its subdomains). */
@@ -2691,6 +2793,7 @@ export const routes = Layer.mergeAll(
   networkRoutes,
   overrideRoutes,
   endpointRoutes,
+  visitRoutes,
   guard,
 );
 

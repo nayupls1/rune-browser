@@ -312,7 +312,7 @@ function Workbench(props: { appId: string; active: boolean }) {
           </button>
           <button
             type="button"
-            title="History: undo changes, restore earlier versions"
+            title="Snapshots: undo changes, restore earlier versions"
             disabled={!state().project}
             onClick={() => setHistoryOpen((o) => !o)}
             {...stylex.attrs(styles.iconButton, historyOpen() && styles.iconButtonOn)}

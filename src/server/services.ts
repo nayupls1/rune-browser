@@ -14,6 +14,7 @@ import * as ResponseOverrides from "./db/ResponseOverrides";
 import * as PageChanges from "./db/PageChanges";
 import * as Settings from "./db/Settings";
 import * as Sites from "./db/Sites";
+import * as Visits from "./db/Visits";
 import * as Workspaces from "./db/Workspaces";
 import * as History from "./history/History";
 import * as Hub from "./Hub";
@@ -56,6 +57,7 @@ export const core = (config: ServerConfigShape) =>
         Network.layer,
         ResponseOverrides.layer,
         Endpoints.layer,
+        Visits.layer,
         Hub.layer,
         AiTokens.tokensLayer,
       ),
