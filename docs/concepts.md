@@ -76,7 +76,7 @@ this keep their old `.rune/data.sqlite`: it moves there on first start.
 
 - **Look at it:** the database button in an app tab lists the tables and pages through their rows, with search.
 - **Export:** a `.tar.gz` with the database, every table as JSON and the files.
-- **Delete:** stops the app, deletes its database and files and restarts it. A snapshot is taken first, so History can bring them back.
+- **Delete:** stops the app, deletes its database and files and restarts it. A snapshot is taken first, so Snapshots can bring them back.
 - **Snapshots:** an app's data is part of its snapshots (`@data/…`). Undo and restore leave it alone unless asked.
 - **Other apps' data:** an app can read (never write) another app's tables in the same workspace, after you allow it:
 
@@ -121,7 +121,7 @@ that work on the preview or the web page, and DevTools (below). File editing is 
 
 **Code for the agent.** A tab can have code attached for its agent (the folder button next to the composer; `workspace/Sources.ts`, `/api/apps/:id/sources`): folders of yours, used in place, and Git repositories (the same links as cloning an app, with your own Git credentials), cloned into `<data>/sources/` and pulled again from their chip. Both agents get `list_sources`, `list_source_files`, `read_source_file`, `search_source` and `source_git` (status, log, diff, show, blame) to find where a problem they saw in a page or a trace comes from, and `edit_source_file` / `write_source_file` to fix it:
 
-- **Every change asks first,** with its diff in the dialog (permission `agent.source`, rememberable per folder). Changes to your folders aren't in Rune Browser's History: undo them with your own Git. Changes to a cloned repository stay in Rune Browser's clone; nothing is pushed.
+- **Every change asks first,** with its diff in the dialog (permission `agent.source`, rememberable per folder). Changes to your folders aren't in Rune Browser's snapshots: undo them with your own Git. Changes to a cloned repository stay in Rune Browser's clone; nothing is pushed.
 - **Never read or written:** paths outside the source (symlinks too), files that hold credentials (`.env`, keys, `.npmrc`, `credentials.json`…; `.env.example` is fine) and `.git`'s internals. Dependencies and builds are left out of listings and searches. Rune Browser's own data, a whole disk or your home folder can't be attached.
 - Removing a source deletes Rune Browser's clone, never your folder. Every call is in Activity.
 
@@ -230,7 +230,7 @@ Anything an app or agent does beyond its own sandbox needs your OK:
 
 Rune Browser asks in a dialog; you can remember the answer. Unanswered requests are denied after a while. Settings → Permissions lists remembered decisions, each revocable.
 
-**Full access** (Settings → Agent → Permissions, after a warning) lets agents do all of this without asking: what the website agent does on sites (customizing, acting with your logins, confirming purchases and messages, sending requests), reading other tabs, using other apps' tools and data, scheduling. Apps' own requests (AI, global secrets, other apps' data from their servers) still ask. While it's on, the agent sidebar shows a red "Full access" badge (click it to go back to asking) and working agents a red dot in the tab list. Every request allowed this way is in Activity (`permission.auto`), and History can still undo what an agent changed in apps and customizations (not what it did on websites).
+**Full access** (Settings → Agent → Permissions, after a warning) lets agents do all of this without asking: what the website agent does on sites (customizing, acting with your logins, confirming purchases and messages, sending requests), reading other tabs, using other apps' tools and data, scheduling. Apps' own requests (AI, global secrets, other apps' data from their servers) still ask. While it's on, the agent sidebar shows a red "Full access" badge (click it to go back to asking) and working agents a red dot in the tab list. Every request allowed this way is in Activity (`permission.auto`), and Snapshots can still undo what an agent changed in apps and customizations (not what it did on websites).
 
 The **Activity** page (in Settings) is the audit log: who, what, which tab and when. It records:
 
@@ -244,9 +244,9 @@ Values are never logged.
 
 Agents' processes don't get Rune Browser's own environment variables (`RUNE_*`). In particular they don't get the API token, so they can't call Rune Browser's API around these checks.
 
-## History
+## Snapshots
 
-Every change is saved as a snapshot you can look at and take back (Settings → History; the clock button in an app tab). A snapshot covers one of:
+Every change is saved as a snapshot you can look at and take back (Settings → Snapshots; the clock button in an app tab). The pages you visited are in History instead (see [Browsing](browsing.md#browsing-history)). A snapshot covers one of:
 
 - an **app**: its project files (without `node_modules`, builds, `.git`) and its data (see App data). SQLite databases are copied consistently even while the app runs, and the timeline shows how their tables' row counts changed;
 - the **site customizations** and **page changes** the website agent (or you) made;
@@ -259,11 +259,11 @@ Each entry shows who made the change (which agent, you, Rune Browser) and its fi
 - **Undo this change** reverts only that step. It refuses if those files were changed again since.
 - **Restore this version** puts everything back the way it was then.
 
-- **Restore everything to here** (on the History page) puts Rune Browser back to that moment in one step: its settings, the site customizations and every app of the workspace (or of all of them, with "All workspaces"), each as its own restore that can be undone. Apps made since are left as they are.
+- **Restore everything to here** (on the Snapshots page) puts Rune Browser back to that moment in one step: its settings, the site customizations and every app of the workspace (or of all of them, with "All workspaces"), each as its own restore that can be undone. Apps made since are left as they are.
 
 Both keep the app's current data unless you tick "also its data". Restoring or undoing first saves the current state, so it can be undone too. When an app crashes, its tab offers to undo the agent's last change.
 
-If something breaks Rune Browser's own UI, **safe mode** starts it without the theme and site customizations. Start it with `--safe-mode` or press Ctrl+Alt+Shift+S, undo the change in History, then restart normally.
+If something breaks Rune Browser's own UI, **safe mode** starts it without the theme and site customizations. Start it with `--safe-mode` or press Ctrl+Alt+Shift+S, undo the change in Snapshots, then restart normally.
 
 When Rune Browser crashes, the next start says so; when its background server stops or its window keeps crashing, it says so right away. Either way you can copy the details or open a GitHub issue with them filled in (your folder paths and tokens are left out, and nothing is sent unless you submit the issue). Crash reports (minidumps) stay on your computer, in the profile's `Crashpad` folder, and what went wrong is logged in `logs/crashes.log`: processes that died and their exit codes, the server stopping, errors the app survived.
 

@@ -3,14 +3,17 @@
 // with suggestions as you type, and the tab's own tools. Pages get the whole
 // content area. Each tab provides what's shown here (lib/tabChrome.ts).
 import * as stylex from "@stylexjs/stylex";
-import { createEffect, createSignal, For, on, Show, type JSX } from "solid-js";
+import { createEffect, createMemo, createSignal, For, on, onCleanup, Show, type JSX } from "solid-js";
 import { Portal } from "solid-js/web";
 import { normalizeUrl } from "../../shared/web";
 import { isExtensionUrl } from "../../shared/extensions";
+import { displayUrl, type VisitSuggestion } from "../../shared/visits";
+import { api } from "../lib/api";
 import { searchEngine } from "../lib/settings";
 import {
   appById,
   apps,
+  currentWorkspace,
   isAgentCollapsed,
   isPrivate,
   isTab,
@@ -35,8 +38,13 @@ interface Suggestion {
   icon: () => JSX.Element;
   title: string;
   detail: string;
+  /** Pages from history: their address (Alt+Enter opens it in a new tab). */
+  url?: string;
   run: () => void;
 }
+
+/** History suggestions shown at once (open tabs come first). */
+const HISTORY_SUGGESTIONS = 5;
 
 /**
  * The strip the window is dragged by, like Zen Browser's: the close button
@@ -128,12 +136,17 @@ export function NavRow(props: { compact: boolean }) {
   );
 }
 
-/** The address of the tab on screen, with suggestions: open tabs (all workspaces), the URL, a search. */
+/**
+ * The address of the tab on screen, with suggestions: open tabs (all workspaces), pages
+ * from the workspace's history, the URL, a search.
+ */
 export function AddressBar() {
   const chrome = () => chromeOf(selectedId());
   const [text, setText] = createSignal("");
   const [editing, setEditing] = createSignal(false);
-  const [active, setActive] = createSignal(0);
+  // The suggestion picked with the arrow keys or the mouse (by key: pages from history arrive
+  // later and move the others), or the first.
+  const [picked, setPicked] = createSignal<string>();
   const [rect, setRect] = createSignal<DOMRect>();
   let input!: HTMLInputElement;
 
@@ -161,6 +174,26 @@ export function AddressBar() {
   const loadingShown = () => !editing() && !!chrome()?.loading();
   const notSecure = () => !editing() && !!chrome()?.notSecure?.();
   const query = () => (editing() ? text().trim() : "");
+
+  // Pages from history for what's typed, fetched after a short pause (none in private windows).
+  // Until the answer comes, the last ones that still match stay, so the list doesn't flicker.
+  const [visited, setVisited] = createSignal<VisitSuggestion[]>([]);
+  let historyTimer: ReturnType<typeof setTimeout> | undefined;
+  createEffect(
+    on([query, () => currentWorkspace()?.id], ([q, workspaceId]) => {
+      clearTimeout(historyTimer);
+      if (!q || !workspaceId || isPrivate) return setVisited([]);
+      historyTimer = setTimeout(() => {
+        api.suggestVisits(workspaceId, q, HISTORY_SUGGESTIONS + 3).then(
+          (pages) => query() === q && setVisited(pages),
+          () => {},
+        );
+      }, 60);
+    }),
+  );
+  onCleanup(() => clearTimeout(historyTimer));
+  const matches = (page: VisitSuggestion, words: string[]) =>
+    words.every((w) => page.title.toLowerCase().includes(w) || page.url.toLowerCase().includes(w));
   const suggestions = (): Suggestion[] => {
     const q = query();
     if (!q) return [];
@@ -195,6 +228,21 @@ export function AddressBar() {
         run: () => void selectApp(tab.id),
       });
     }
+    // Pages from history, but not the ones open in a tab or the address typed.
+    const shown = new Set([target, ...tabs.map((t) => t.url)]);
+    const words = lower.split(/\s+/).filter(Boolean);
+    const pages = visited()
+      .filter((p) => !shown.has(p.url) && matches(p, words))
+      .slice(0, HISTORY_SUGGESTIONS);
+    for (const page of pages)
+      out.push({
+        key: `history:${page.url}`,
+        icon: () => <TabIcon tab={{ kind: "web", icon: null, favicon: page.favicon, url: page.url }} size={14} />,
+        title: page.title || displayUrl(page.url),
+        detail: displayUrl(page.url).slice(0, 80),
+        url: page.url,
+        run: () => open(page.url),
+      });
     out.push({
       key: "search",
       icon: () => <Icon name="search" size={14} />,
@@ -202,8 +250,11 @@ export function AddressBar() {
       detail: `Search with ${searchEngine().label}`,
       run: () => open(normalizeUrl(q, searchEngine().url)),
     });
-    // Typed words (not an address): the matching tabs first, then the search.
-    if (searching && !tabs.length) out.unshift(out.pop()!);
+    // Typed words (not an address): the matching tabs first, then the search, unless a page
+    // from history is the site being typed ("git" → github.com).
+    const typedSite = (url: string) =>
+      displayUrl(url).toLowerCase().startsWith(lower) || displayUrl(url).toLowerCase().startsWith(`www.${lower}`);
+    if (searching && !tabs.length && !(pages[0] && typedSite(pages[0].url))) out.unshift(out.pop()!);
     // A bare path ("/act") is more likely part of an open tab's address than a local file: tabs first.
     if (!searching && tabs.length && /^file:/i.test(target) && !/^file:/i.test(q))
       out.splice(tabs.length, 0, out.shift()!);
@@ -251,15 +302,23 @@ export function AddressBar() {
       ? `https://www.${typed}.com/`
       : chosen?.key === "go"
         ? chosen.title
-        : isExtensionUrl(typed)
-          ? typed
-          : normalizeUrl(typed, searchEngine().url);
+        : chosen?.url
+          ? chosen.url
+          : isExtensionUrl(typed)
+            ? typed
+            : normalizeUrl(typed, searchEngine().url);
     if (newTab && !openInternalPage(target)) void newWebTab(target);
     else if (!newTab) open(target, typed);
     finish();
     return true;
   };
-  const list = () => suggestions();
+  const list = createMemo(() => suggestions());
+  const active = () =>
+    Math.max(
+      0,
+      list().findIndex((s) => s.key === picked()),
+    );
+  const setActive = (i: number) => setPicked(list()[i]?.key);
   const isActive = (i: number) => i === active();
 
   return (
@@ -322,7 +381,7 @@ export function AddressBar() {
             setRect(e.currentTarget.parentElement!.getBoundingClientRect());
           }
           setText(e.currentTarget.value);
-          setActive(0);
+          setPicked(undefined);
         }}
         onKeyDown={(e) => {
           const n = list().length;
@@ -331,7 +390,7 @@ export function AddressBar() {
           if (!n) return;
           if (e.key === "ArrowDown" || e.key === "ArrowUp") {
             e.preventDefault();
-            setActive((i) => (i + (e.key === "ArrowDown" ? 1 : n - 1)) % n);
+            setActive((active() + (e.key === "ArrowDown" ? 1 : n - 1)) % n);
           }
         }}
         {...stylex.attrs(styles.addressInput)}

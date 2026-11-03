@@ -652,6 +652,10 @@ export function WebTab(props: { appId: string; active: boolean }) {
         setCurrentUrl(view.getURL());
         if (!editing) setAddress(view.getURL());
       }
+      // A page shown again from the back/forward cache doesn't report its title: browsing history needs it.
+      const title = view.getTitle();
+      if (ready && title && title !== view.getURL() && !/^file:/i.test(view.getURL()))
+        updatePage(props.appId, { title });
       updateHistory();
       loaded();
     });

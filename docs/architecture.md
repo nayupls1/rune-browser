@@ -18,7 +18,7 @@ src/
     services.ts      How the services are wired together
     Http.ts          Routes, auth (token + origin), MCP endpoint
     Hub.ts           WebSocket hub: pushes agent output, app status, logs; RPC to the renderer
-    db/              Host database (workspaces, tabs, chat, settings, site customizations)
+    db/              Host database (workspaces, tabs, chat, settings, browsing history, site customizations)
     providers/       Claude, Codex, OpenCode drivers behind one event stream
     agent/           Agent turns, prompts, Rune Browser's MCP tools
     history/         Snapshots: content store, diffs, undo and restore
@@ -57,7 +57,7 @@ folder:
 
 - **Storage:** `db/` keeps the host database (`rune.sqlite`, SQLite through
   `effect/sql`): workspaces, tabs, chats, settings, sites, page changes,
-  network rules, response overrides. `security/Vault.ts` encrypts secrets with the key Electron
+  network rules, response overrides, browsing history. `security/Vault.ts` encrypts secrets with the key Electron
   keeps in the OS keychain.
 - **Security:** `security/Permissions.ts` asks the user (and remembers),
   `security/Audit.ts` records what agents and apps did, `security/Secrets.ts`

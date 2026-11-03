@@ -31,7 +31,7 @@ import { dropTarget, hasFiles, openDropped, setDropTarget } from "./lib/drops";
 import {
   appById,
   currentWorkspace,
-  HISTORY_VIEW,
+  SNAPSHOTS_VIEW,
   isSettingsView,
   selectApp,
   loadApps,
@@ -131,11 +131,15 @@ export default function App() {
           <div role="status" {...stylex.attrs(styles.safeMode)} data-safe-mode data-titlebar>
             <Icon name="life-buoy" size={16} />
             <span {...stylex.attrs(styles.safeModeText)}>
-              <strong>Safe mode.</strong> Your theme and site customizations are off. Undo what broke things in History,
-              then restart normally.
+              <strong>Safe mode.</strong> Your theme and site customizations are off. Undo what broke things in
+              Snapshots, then restart normally.
             </span>
-            <button type="button" onClick={() => void selectApp(HISTORY_VIEW)} {...stylex.attrs(styles.safeModeButton)}>
-              Open History
+            <button
+              type="button"
+              onClick={() => void selectApp(SNAPSHOTS_VIEW)}
+              {...stylex.attrs(styles.safeModeButton)}
+            >
+              Open Snapshots
             </button>
             <button type="button" onClick={() => window.rune.relaunch(false)} {...stylex.attrs(styles.safeModeButton)}>
               Restart normally

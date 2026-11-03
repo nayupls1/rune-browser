@@ -1,5 +1,5 @@
 // The host database (rune.sqlite): workspaces, tabs, chat history, settings,
-// site customizations, secrets, permissions and the audit log. Apps keep
+// browsing history, site customizations, secrets, permissions and the audit log. Apps keep
 // their own data inside their project folders.
 import { join } from "node:path";
 import { SqliteClient } from "@effect/sql-sqlite-bun";
@@ -313,6 +313,21 @@ const migrate = Effect.gen(function* () {
       UNIQUE (workspace_id, host, method, path, operation)
     )`);
   yield* sql.unsafe("CREATE INDEX IF NOT EXISTS api_endpoints_host ON api_endpoints (workspace_id, host)");
+  // Browsing history (db/Visits.ts): pages web tabs visited. Kept when their tab is closed.
+  yield* sql.unsafe(`
+    CREATE TABLE IF NOT EXISTS visits (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      workspace_id TEXT NOT NULL,
+      tab_id       TEXT,
+      url          TEXT NOT NULL,
+      title        TEXT NOT NULL DEFAULT '',
+      favicon      TEXT,
+      visited_at   TEXT NOT NULL,
+      search       TEXT NOT NULL DEFAULT ''
+    )`);
+  yield* sql.unsafe("CREATE INDEX IF NOT EXISTS visits_workspace ON visits (workspace_id, id)");
+  yield* sql.unsafe("CREATE INDEX IF NOT EXISTS visits_tab ON visits (tab_id, id)");
+  yield* sql.unsafe("CREATE INDEX IF NOT EXISTS visits_at ON visits (visited_at)");
 });
 
 export const layer = Layer.unwrap(

@@ -1,7 +1,7 @@
-// History in the UI: the timeline of snapshots (who changed what, when), each
-// with its files and line diffs, and the two ways back: undo just that change,
-// or restore everything to that version. Used by the History page and the
-// app tab's history panel.
+// Snapshots in the UI: the timeline (who changed what, when), each with its
+// files and line diffs, and the two ways back: undo just that change, or
+// restore everything to that version. Used by the Snapshots page and the app
+// tab's history panel. Browsing history is BrowsingHistory.tsx.
 import * as stylex from "@stylexjs/stylex";
 import { createEffect, createResource, createSignal, For, on, onCleanup, Show } from "solid-js";
 import { appOfTarget, type HistoryEntry, type HistoryFile } from "../../shared/api";
@@ -343,7 +343,7 @@ function FileDiff(props: { file: HistoryFile; open: boolean }) {
   );
 }
 
-/** The History page (sidebar): everything in the current workspace, or one thing. */
+/** The Snapshots page (Settings): everything in the current workspace, or one thing. */
 export function HistoryPage() {
   const [target, setTarget] = createSignal("");
   const [everywhere, setEverywhere] = createSignal(false);
@@ -354,7 +354,7 @@ export function HistoryPage() {
       <header {...stylex.attrs(styles.header)}>
         <h1 {...stylex.attrs(styles.title)}>
           <Icon name="file-clock" size={24} {...stylex.attrs(styles.accent)} />
-          History
+          Snapshots
         </h1>
         <p {...stylex.attrs(styles.muted)}>
           Every change agents and you make is saved: apps with their data, site customizations and settings. Undo a
