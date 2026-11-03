@@ -235,7 +235,14 @@ export function FlagsPage() {
                 xstyle={styles.select}
                 data-flag-select
               >
-                <For each={flag.options}>{(o) => <option value={o.value}>{o.label}</option>}</For>
+                <For each={flag.options}>
+                  {/* selected too: a row made again (after a search) gets its value before its options. */}
+                  {(o) => (
+                    <option value={o.value} selected={o.value === value(flag.id)}>
+                      {o.label}
+                    </option>
+                  )}
+                </For>
               </Select>
             </div>
           )}

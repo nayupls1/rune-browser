@@ -3824,6 +3824,10 @@ try {
       { label: "searching the flags" },
     );
     await type("[data-flags-search]", "");
+    // The row comes back with its value.
+    await page!.waitFor(`document.querySelector('[data-flag="enable-quic"] select')?.value === "disabled"`, {
+      label: "the flag's value after the search",
+    });
     await shot("internal-flags.png");
     await click("[data-flags-reset]");
     await page!.waitFor(`!document.querySelector("[data-flags-relaunch]")`, { label: "flags reset" });
