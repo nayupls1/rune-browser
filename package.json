@@ -2,7 +2,7 @@
   "name": "rune-browser",
   "productName": "Rune Browser",
   "desktopName": "rune-browser.desktop",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A desktop browser where coding agents build your own small apps, on your own Claude, Codex or OpenCode login",
   "license": "MIT",
   "author": "nayupls1",
