@@ -13,8 +13,8 @@ export async function freePort() {
   });
 }
 
-/** `dataDir`: an existing one (e.g. an old database to migrate); removed on stop either way. */
-export async function startServer(options: { dataDir?: string } = {}) {
+/** `dataDir`: an existing one (e.g. an old database to migrate); removed on stop either way. `env`: more for the server. */
+export async function startServer(options: { dataDir?: string; env?: Record<string, string> } = {}) {
   const dataDir = options.dataDir ?? mkdtempSync(join(tmpdir(), "rune-server-test-"));
   const token = crypto.randomUUID();
   // The free port can be taken by someone else before the server binds it: then
@@ -29,6 +29,7 @@ export async function startServer(options: { dataDir?: string } = {}) {
         RUNE_DATA_DIR: dataDir,
         RUNE_ALLOWED_ORIGIN: "app://rune",
         RUNE_TOKEN: token,
+        ...options.env,
       },
       stdout: "ignore",
       stderr: "inherit",

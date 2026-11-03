@@ -18,6 +18,7 @@ import type { ShortcutEvent } from "../../shared/api";
 import { settings } from "./settings";
 import {
   appById,
+  BOOKMARKS_VIEW,
   closeTab,
   currentWorkspace,
   DOWNLOADS_VIEW,
@@ -45,6 +46,7 @@ import { splitOf } from "./splits";
 import { chromeOf, focusAddress } from "./tabChrome";
 import { pageOf, tabOfContents } from "./webtabs";
 import { findStep, openFind, zoom } from "./pageTools";
+import { bookmarkAllTabs, bookmarkTab, canBookmark, toggleBookmarksBar } from "./bookmarks";
 import { newPrivateWindow, newWindow } from "./windows";
 
 export const platform = keyPlatform(window.rune.window.platform);
@@ -204,6 +206,13 @@ const actions: Record<string, Action> = {
   "window.close": { run: () => window.rune.window.close() },
   "app.quit": { run: () => window.rune.window.quit() },
 
+  "bookmark.page": { when: (ctx) => canBookmark(appById(ctx.tabId)?.url), run: (ctx) => bookmarkTab(ctx.tabId!) },
+  "bookmark.all": {
+    when: () => workspaceTabs().some((t) => t.kind === "web" && canBookmark(t.url)),
+    run: () => bookmarkAllTabs(),
+  },
+  "open.bookmarks": { run: () => selectApp(BOOKMARKS_VIEW) },
+  "bookmarks.bar": { run: () => toggleBookmarksBar() },
   "open.history": { run: () => selectApp(HISTORY_VIEW) },
   "open.downloads": { run: () => selectApp(DOWNLOADS_VIEW) },
   "open.settings": { run: () => openSettings() },

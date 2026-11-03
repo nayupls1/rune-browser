@@ -46,6 +46,7 @@ import {
 } from "../../shared/extensions";
 import { PRIVATE_WORKSPACE, type NetworkRule } from "../../shared/api";
 import type { AppWindows } from "../windows";
+import type { BookmarkChange } from "../../shared/bookmarks";
 import { createApis } from "./apis";
 import { builtinExtensionDir } from "./builtin";
 import { detectBrowsers, importExtensions, platform, storageFolders } from "./browsers";
@@ -73,6 +74,8 @@ export interface ExtensionsOptions {
   holdInsecure: (contents: WebContents, url: string) => boolean;
   /** More rules for the built-in extension after the network rules (the browser settings'), numbered from `firstId`. */
   moreRules?: (firstId: number) => DnrRule[];
+  /** Rune Browser's server, once it's started (chrome.bookmarks reads and changes the bookmarks there). */
+  server: () => { url: string; token: string } | undefined;
 }
 
 const UPDATE_INTERVAL = 5 * 60 * 60 * 1000;
@@ -213,6 +216,7 @@ export function setupExtensions(options: ExtensionsOptions) {
       return [...rules, ...(options.moreRules?.(rules.length + 1) ?? [])];
     },
     whenLoaded: (s, id) => loading.get(stateKey(s, id)) ?? Promise.resolve(),
+    server: options.server,
     reload: (s, id) => {
       const entry = registry.get(id);
       if (!entry) return;
@@ -259,6 +263,12 @@ export function setupExtensions(options: ExtensionsOptions) {
       }
     }
   }
+  // What the server said about changed bookmarks, from one window's hub connection (each window
+  // gets the same messages; the first one open passes them on).
+  ipcMain.on("rune:extensions-bookmarks-changed", (event, change: BookmarkChange) => {
+    if (event.sender !== windows.all()[0]?.webContents || !change || typeof change !== "object") return;
+    apis.bookmarksChanged(change);
+  });
   ipcMain.on("rune:extensions-reply", (event, requestId: unknown, value: unknown) => {
     if (!windows.isUi(event.sender) || typeof requestId !== "string") return;
     const resolve = pending.get(requestId);

@@ -33,6 +33,15 @@ import {
   type Manifest,
 } from "../../shared/extensions";
 import {
+  findNode,
+  recentBookmarks,
+  searchBookmarks,
+  walk,
+  withoutChildren,
+  type BookmarkChange,
+  type BookmarkNode,
+} from "../../shared/bookmarks";
+import {
   dispatch,
   keepAlive,
   type ActionState,
@@ -80,6 +89,8 @@ export interface ApiEnv {
   reload: (s: Session, id: string) => void;
   /** Resolves when the extension finished loading in the session. */
   whenLoaded: (s: Session, id: string) => Promise<void>;
+  /** Rune Browser's server (bookmarks live there), once it's started. */
+  server: () => { url: string; token: string } | undefined;
 }
 
 type DistributiveOmit<T, K extends keyof any> = T extends unknown ? Omit<T, K> : never;
@@ -158,6 +169,42 @@ export function createApis(env: ApiEnv) {
   const hasPermission = (s: Session, id: string, permission: string) =>
     allPermissions(s, id).permissions.includes(permission);
   const hostAccess = (s: Session, id: string, url: string) => matchesAny(allPermissions(s, id).origins, url);
+
+  // --- chrome.bookmarks: Rune Browser's bookmarks, kept by the server ------------------------------
+
+  async function bookmarksApi<T>(ctx: Context, path: string, method = "GET", body?: unknown): Promise<T> {
+    if (!hasPermission(ctx.session, ctx.extensionId, "bookmarks"))
+      throw err("Access to bookmarks requires the 'bookmarks' permission.");
+    const server = env.server();
+    if (!server) throw err("Bookmarks aren't available yet.");
+    const res = await fetch(`${server.url}${path}`, {
+      method,
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${server.token}` },
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    });
+    const text = await res.text();
+    if (!res.ok) {
+      let message = text;
+      try {
+        message = (JSON.parse(text) as { error?: string }).error ?? text;
+      } catch {
+        // the text then
+      }
+      throw err(message);
+    }
+    return (text ? JSON.parse(text) : undefined) as T;
+  }
+  const bookmarkTree = (ctx: Context) => bookmarksApi<BookmarkNode>(ctx, "/api/bookmarks");
+  const bookmarkOf = async (ctx: Context, id: unknown) => {
+    const node = findNode(await bookmarkTree(ctx), String(id));
+    if (!node) throw err("Can't find bookmark for id.");
+    return node;
+  };
+  /** Only the fields that were given (the server tells undefined from missing). */
+  const given = (o: Record<string, unknown> | undefined, keys: string[]) =>
+    Object.fromEntries(
+      keys.flatMap((k) => (o?.[k] === undefined || o[k] === null ? [] : [[k, k === "parentId" ? String(o[k]) : o[k]]])),
+    );
 
   /** The page of its side panel (the one it set, or the manifest's), or null. */
   function sidePanelUrl(s: Session, id: string) {
@@ -838,6 +885,59 @@ export function createApis(env: ApiEnv) {
       nativePorts.delete(key);
     },
 
+    // chrome.bookmarks
+    "bookmarks.getTree": async (ctx) => [await bookmarkTree(ctx)],
+    "bookmarks.getSubTree": async (ctx, id: unknown) => [await bookmarkOf(ctx, id)],
+    "bookmarks.getChildren": async (ctx, id: unknown) =>
+      ((await bookmarkOf(ctx, id)).children ?? []).map(withoutChildren),
+    "bookmarks.get": async (ctx, ids: unknown) => {
+      const root = await bookmarkTree(ctx);
+      return (Array.isArray(ids) ? ids : [ids]).map((id) => {
+        const node = findNode(root, String(id));
+        if (!node) throw err("Can't find bookmark for id.");
+        return withoutChildren(node);
+      });
+    },
+    "bookmarks.getRecent": async (ctx, count: unknown) => {
+      if (typeof count !== "number" || count < 1) throw err("numberOfItems needs to be at least 1.");
+      return recentBookmarks(await bookmarkTree(ctx), count).map(withoutChildren);
+    },
+    "bookmarks.search": async (ctx, query: unknown) => {
+      if (typeof query !== "string" && (!query || typeof query !== "object")) throw err("Invalid query.");
+      return searchBookmarks(await bookmarkTree(ctx), query as string).map(withoutChildren);
+    },
+    "bookmarks.create": async (ctx, details: Record<string, unknown> | undefined) =>
+      withoutChildren(
+        await bookmarksApi<BookmarkNode>(
+          ctx,
+          "/api/bookmarks",
+          "POST",
+          given(details, ["parentId", "index", "title", "url"]),
+        ),
+      ),
+    "bookmarks.update": async (ctx, id: unknown, changes: Record<string, unknown> | undefined) =>
+      withoutChildren(
+        await bookmarksApi<BookmarkNode>(
+          ctx,
+          `/api/bookmarks/${encodeURIComponent(String(id))}`,
+          "PATCH",
+          given(changes, ["title", "url"]),
+        ),
+      ),
+    "bookmarks.move": async (ctx, id: unknown, destination: Record<string, unknown> | undefined) =>
+      withoutChildren(
+        await bookmarksApi<BookmarkNode>(
+          ctx,
+          `/api/bookmarks/${encodeURIComponent(String(id))}`,
+          "PATCH",
+          given(destination, ["parentId", "index"]),
+        ),
+      ),
+    "bookmarks.remove": async (ctx, id: unknown) =>
+      void (await bookmarksApi(ctx, `/api/bookmarks/${encodeURIComponent(String(id))}`, "DELETE")),
+    "bookmarks.removeTree": async (ctx, id: unknown) =>
+      void (await bookmarksApi(ctx, `/api/bookmarks/${encodeURIComponent(String(id))}?recursive=1`, "DELETE")),
+
     // The rest
     "idle.queryState": (_ctx, seconds: number) => powerMonitor.getSystemIdleState(Math.max(15, Number(seconds) || 60)),
     "downloads.download": (ctx, options: { url?: unknown }) => {
@@ -1032,6 +1132,7 @@ export function createApis(env: ApiEnv) {
     ["downloads.", ["downloads"]],
     ["search.", ["search"]],
     ["sidePanel.", ["sidePanel"]],
+    ["bookmarks.", ["bookmarks"]],
     ["system.cpu", ["system.cpu"]],
     ["system.memory", ["system.memory"]],
     ["system.display", ["system.display"]],
@@ -1449,12 +1550,35 @@ export function createApis(env: ApiEnv) {
     });
   }
 
+  /** Bookmarks changed (the renderer passes on what the server said): chrome.bookmarks' events. */
+  function bookmarksChanged(change: BookmarkChange) {
+    for (const s of env.sessions()) {
+      const send = (event: string, args: unknown[]) =>
+        emit(s, event, (id) => (hasPermission(s, id, "bookmarks") ? args : null));
+      if (change.kind === "created") send("bookmarks.onCreated", [change.id, withoutChildren(change.node)]);
+      else if (change.kind === "removed")
+        send("bookmarks.onRemoved", [change.id, { parentId: change.parentId, index: change.index, node: change.node }]);
+      else if (change.kind === "changed")
+        send("bookmarks.onChanged", [change.id, { title: change.title, ...(change.url ? { url: change.url } : {}) }]);
+      else if (change.kind === "moved") {
+        const { parentId, index, oldParentId, oldIndex } = change;
+        send("bookmarks.onMoved", [change.id, { parentId, index, oldParentId, oldIndex }]);
+      } else {
+        send("bookmarks.onImportBegan", []);
+        for (const top of change.nodes)
+          for (const node of walk(top)) send("bookmarks.onCreated", [node.id, withoutChildren(node)]);
+        send("bookmarks.onImportEnded", []);
+      }
+    }
+  }
+
   return {
     handle,
     authRequired,
     tabObject,
     trackGuest,
     tabsChanged,
+    bookmarksChanged,
     watchCookies,
     menuItems,
     hasPermission,

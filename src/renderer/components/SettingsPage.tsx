@@ -36,6 +36,7 @@ import { disallowInsecure } from "../lib/insecure";
 import { checkForUpdates, installUpdate, setUpdateChannel, updateInfo } from "../lib/updates";
 import {
   ACTIVITY_VIEW,
+  BOOKMARKS_VIEW,
   FLAGS_VIEW,
   GPU_VIEW,
   URLS_VIEW,
@@ -66,6 +67,7 @@ import { internalUrlOfView, openInternalPage } from "../lib/internalPages";
 import { registerChrome, type TabChrome } from "../lib/tabChrome";
 import { ShortcutSettings } from "./ShortcutSettings";
 import { ApiMapPage } from "./ApiMapPage";
+import { BookmarksPage } from "./BookmarksPage";
 import { BrowserSection } from "./BrowserSettings";
 import { BrowsingHistoryPage } from "./BrowsingHistory";
 import { HistoryPage } from "./History";
@@ -189,6 +191,9 @@ export function SettingsShell(props: { view: string }) {
           </Match>
           <Match when={props.view === URLS_VIEW}>
             <RuneUrlsPage />
+          </Match>
+          <Match when={props.view === BOOKMARKS_VIEW}>
+            <BookmarksPage />
           </Match>
         </Switch>
       </div>

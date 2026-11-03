@@ -111,6 +111,8 @@ chrome.commands.onCommand.addListener((command, tab) => {
     chrome.storage.local.set({ command, tabUrl: (tabs[0] && tabs[0].url) || null, commandTab: (tab && tab.url) || null });
   });
 });
+// Rune Browser's bookmarks: what was made last (by anyone) is noted.
+chrome.bookmarks.onCreated.addListener((id, node) => chrome.storage.local.set({ bookmarked: node.title }));
 chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
   if (change.status === "complete" && tab.url && tab.url.includes("/second")) chrome.action.setBadgeText({ tabId, text: "2nd" });
 });
@@ -177,7 +179,7 @@ export interface FixtureBrowser {
   name: string;
 }
 
-/** Writes a Chromium user data folder with one profile ("Work") and the fixture extension, pinned, with a changed shortcut and saved data. */
+/** Writes a Chromium user data folder with one profile ("Work"): the fixture extension, pinned, with a changed shortcut and saved data, and bookmarks. */
 export function writeFixtureBrowser(root: string): FixtureBrowser {
   const { publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
   const der = publicKey.export({ type: "spki", format: "der" });
@@ -203,6 +205,7 @@ export function writeFixtureBrowser(root: string): FixtureBrowser {
       "contextMenus",
       "declarativeNetRequest",
       "history",
+      "bookmarks",
       "webRequest",
       "webRequestAuthProvider",
     ],
@@ -244,5 +247,23 @@ export function writeFixtureBrowser(root: string): FixtureBrowser {
     }),
   );
   writeLevelDb(join(profile, "Local Extension Settings", id), { greeting: "hello from chrome" });
+  // Its bookmarks, to import: one on the bar, a folder in other bookmarks.
+  writeFileSync(
+    join(profile, "Bookmarks"),
+    JSON.stringify({
+      roots: {
+        bookmark_bar: { children: [{ type: "url", name: "Chrome docs", url: "https://developer.chrome.com/docs" }] },
+        other: {
+          children: [
+            {
+              type: "folder",
+              name: "Reading list",
+              children: [{ type: "url", name: "An essay", url: "https://essay.example/" }],
+            },
+          ],
+        },
+      },
+    }),
+  );
   return { dirs: `Chromium=${root}`, extensionId: id, name };
 }

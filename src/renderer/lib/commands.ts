@@ -9,6 +9,7 @@ import { api } from "./api";
 import { searchEngine, settings, updateSettings } from "./settings";
 import {
   ACTIVITY_VIEW,
+  BOOKMARKS_VIEW,
   SCHEDULES_VIEW,
   apps,
   newChat,
@@ -56,6 +57,20 @@ import { openInternalPage } from "./internalPages";
 import { internalUrlOf, isInternalUrl } from "../../shared/internalPages";
 import { isShareCode } from "../../shared/mods";
 import { confirmDialog } from "../components/ConfirmDialog";
+import { openBookmarkImport } from "../components/BookmarksPage";
+import { allBookmarks } from "../../shared/bookmarks";
+import {
+  bookmarkAllTabs,
+  bookmarkOf,
+  bookmarkTab,
+  bookmarkTree,
+  canBookmark,
+  exportBookmarks,
+  faviconFor,
+  isBookmarksBarShown,
+  openBookmark,
+  toggleBookmarksBar,
+} from "./bookmarks";
 import { toast } from "../components/Toast";
 
 export interface Command {
@@ -700,6 +715,81 @@ function splitCommands(id: string, typed: boolean): Command[] {
   return list;
 }
 
+/** Bookmarking, the bookmarks page and bar, and (when something is typed) the bookmarks themselves. */
+function bookmarkCommands(typed: boolean): Command[] {
+  const id = selectedId();
+  const url = isTab(id) ? apps.find((a) => a.id === id)?.url : undefined;
+  const list: Command[] = [];
+  if (isTab(id) && canBookmark(url))
+    list.push({
+      id: "bookmark.page",
+      title: bookmarkOf(url) ? "Edit this tab's bookmark" : "Bookmark this tab",
+      keys: "bookmark.page",
+      icon: "star",
+      group: "Bookmarks",
+      keywords: "favorite save star",
+      run: () => bookmarkTab(id),
+    });
+  list.push(
+    {
+      id: "bookmark.all",
+      title: "Bookmark all tabs",
+      keys: "bookmark.all",
+      icon: "folder-plus",
+      group: "Bookmarks",
+      keywords: "favorite save folder",
+      run: () => bookmarkAllTabs(),
+    },
+    {
+      id: "open.bookmarks",
+      title: "Open Bookmarks",
+      keys: "open.bookmarks",
+      icon: "bookmark",
+      group: "Bookmarks",
+      keywords: "manager favorites organize",
+      run: () => selectApp(BOOKMARKS_VIEW),
+    },
+    {
+      id: "bookmarks.bar",
+      title: isBookmarksBarShown() ? "Hide the bookmarks bar" : "Show the bookmarks bar",
+      keys: "bookmarks.bar",
+      icon: "panel-top",
+      group: "Bookmarks",
+      keywords: "toggle toolbar",
+      run: toggleBookmarksBar,
+    },
+    {
+      id: "bookmarks.import",
+      title: "Import bookmarks…",
+      icon: "download",
+      group: "Bookmarks",
+      keywords: "chrome firefox safari edge brave html migrate",
+      run: openBookmarkImport,
+    },
+    {
+      id: "bookmarks.export",
+      title: "Export bookmarks",
+      icon: "upload",
+      group: "Bookmarks",
+      keywords: "html file backup save",
+      run: () => exportBookmarks(),
+    },
+  );
+  if (typed)
+    for (const node of allBookmarks(bookmarkTree()))
+      list.push({
+        id: `bookmark:${node.id}`,
+        title: node.title || node.url!,
+        subtitle: node.url!.replace(/^https?:\/\//, "").slice(0, 80),
+        icon: "star",
+        favicon: faviconFor(node.url),
+        group: "Bookmark",
+        keywords: node.url,
+        run: () => openBookmark(node, "tab"),
+      });
+  return list;
+}
+
 /** For free text: open it, ask about it, build it or search for it. */
 function routed(query: string, best: number): Command[] {
   const text = query.trim();
@@ -823,6 +913,7 @@ export function commands(query: string): Command[] {
         run: () => showWorkspace(w.id),
       })),
     ...runeCommands(),
+    ...bookmarkCommands(!!query.trim()),
     {
       id: "tab.reopen",
       title: "Reopen closed tab",

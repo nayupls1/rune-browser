@@ -144,6 +144,13 @@ describe("the keymap", () => {
     // The agent moved off Chromium's downloads key.
     expect(on(linux, key("i", "KeyI", { ctrl: true }))).toBe("agent.toggle");
     expect(on(mac, key("i", "KeyI", { meta: true }))).toBe("agent.toggle");
+    // Bookmarks have Chromium's keys; pinning has none of its own.
+    expect(on(linux, key("d", "KeyD", { ctrl: true }))).toBe("bookmark.page");
+    expect(on(mac, key("d", "KeyD", { meta: true }))).toBe("bookmark.page");
+    expect(on(windows, key("D", "KeyD", { ctrl: true, shift: true }))).toBe("bookmark.all");
+    expect(on(linux, key("O", "KeyO", { ctrl: true, shift: true }))).toBe("open.bookmarks");
+    expect(on(mac, key("∫", "KeyB", { alt: true, meta: true }))).toBe("open.bookmarks");
+    expect(resolveBindings("linux")["tab.pin"]).toEqual([]);
     expect(on(linux, key("2", "Digit2", { ctrl: true, alt: true }))).toBe("workspace.select-2");
   });
 

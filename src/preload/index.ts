@@ -146,6 +146,7 @@ const bridge: RuneBridge = {
     update: () => ipcRenderer.invoke("rune:extensions-update"),
     setTabs: (tabs) => ipcRenderer.send("rune:extensions-tabs", tabs),
     reply: (requestId, value) => ipcRenderer.send("rune:extensions-reply", requestId, value),
+    bookmarksChanged: (change) => ipcRenderer.send("rune:extensions-bookmarks-changed", change),
     onChanged: listen("rune:extensions-changed"),
     onActionsChanged: listen("rune:extensions-actions-changed"),
     onTabRequest: listen("rune:extensions-tab"),

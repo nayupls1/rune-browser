@@ -30,6 +30,9 @@ import { DownloadsButton } from "./Downloads";
 import { Icon } from "./Icon";
 import { TabIcon } from "./TabIcon";
 import { WindowControls } from "./WindowControls";
+import { BookmarksMenuButton } from "./Bookmarks";
+import { allBookmarks, samePage, type BookmarkNode } from "../../shared/bookmarks";
+import { bookmarkTree } from "../lib/bookmarks";
 import { withKeys } from "../lib/shortcuts";
 import { openInternalPage } from "../lib/internalPages";
 
@@ -38,13 +41,14 @@ interface Suggestion {
   icon: () => JSX.Element;
   title: string;
   detail: string;
-  /** Pages from history: their address (Alt+Enter opens it in a new tab). */
+  /** The address it opens (a bookmark, a page from history): Alt+Enter opens it in a new tab. */
   url?: string;
   run: () => void;
 }
 
 /** History suggestions shown at once (open tabs come first). */
 const HISTORY_SUGGESTIONS = 5;
+const BOOKMARK_SUGGESTIONS = 4;
 
 /**
  * The strip the window is dragged by, like Zen Browser's: the close button
@@ -91,6 +95,7 @@ export function NavRow(props: { compact: boolean }) {
           {(extensions) => extensions()}
         </Show>
         <DownloadsButton />
+        <BookmarksMenuButton />
         <span {...stylex.attrs(styles.spacer)} />
         <button
           type="button"
@@ -228,11 +233,32 @@ export function AddressBar() {
         run: () => void selectApp(tab.id),
       });
     }
-    // Pages from history, but not the ones open in a tab or the address typed.
-    const shown = new Set([target, ...tabs.map((t) => t.url)]);
+    // Bookmarks, then pages from history, for every word typed (in the name or the address without
+    // its scheme); none of them twice, nor the pages open in a tab or the address typed.
     const words = lower.split(/\s+/).filter(Boolean);
+    const shown = new Set([target, ...tabs.flatMap((t) => (t.url ? [t.url] : []))].map(samePage));
+    const bare = (url: string) => url.replace(/^https?:\/\/(www\.)?/i, "").toLowerCase();
+    const startsWith = (b: BookmarkNode) => b.title.toLowerCase().startsWith(lower) || bare(b.url!).startsWith(lower);
+    const marks: BookmarkNode[] = [];
+    for (const mark of allBookmarks(bookmarkTree())
+      .filter((b) => words.every((w) => b.title.toLowerCase().includes(w) || bare(b.url!).includes(w)))
+      .sort((a, b) => Number(!startsWith(a)) - Number(!startsWith(b)))) {
+      if (marks.length === BOOKMARK_SUGGESTIONS) break;
+      if (shown.has(samePage(mark.url!))) continue;
+      shown.add(samePage(mark.url!));
+      marks.push(mark);
+    }
+    for (const mark of marks)
+      out.push({
+        key: `bookmark:${mark.id}`,
+        icon: () => <Icon name="star" size={14} />,
+        title: mark.title || displayUrl(mark.url!),
+        detail: `Bookmark · ${displayUrl(mark.url!).slice(0, 70)}`,
+        url: mark.url,
+        run: () => open(mark.url!),
+      });
     const pages = visited()
-      .filter((p) => !shown.has(p.url) && matches(p, words))
+      .filter((p) => !shown.has(samePage(p.url)) && matches(p, words))
       .slice(0, HISTORY_SUGGESTIONS);
     for (const page of pages)
       out.push({
@@ -250,11 +276,11 @@ export function AddressBar() {
       detail: `Search with ${searchEngine().label}`,
       run: () => open(normalizeUrl(q, searchEngine().url)),
     });
-    // Typed words (not an address): the matching tabs first, then the search, unless a page
-    // from history is the site being typed ("git" → github.com).
+    // Typed words (not an address): the matching tabs and bookmarks first, then the search, unless
+    // a page from history is the site being typed ("git" → github.com).
     const typedSite = (url: string) =>
       displayUrl(url).toLowerCase().startsWith(lower) || displayUrl(url).toLowerCase().startsWith(`www.${lower}`);
-    if (searching && !tabs.length && !(pages[0] && typedSite(pages[0].url))) out.unshift(out.pop()!);
+    if (searching && !tabs.length && !marks.length && !(pages[0] && typedSite(pages[0].url))) out.unshift(out.pop()!);
     // A bare path ("/act") is more likely part of an open tab's address than a local file: tabs first.
     if (!searching && tabs.length && /^file:/i.test(target) && !/^file:/i.test(q))
       out.splice(tabs.length, 0, out.shift()!);
@@ -423,6 +449,7 @@ export function AddressBar() {
                   onClick={() => run(s)}
                   {...stylex.attrs(styles.suggestion, isActive(i()) && styles.suggestionOn)}
                   data-suggestion={s.key}
+                  data-suggestion-url={s.url}
                 >
                   <span {...stylex.attrs(styles.suggestionIcon)}>{s.icon()}</span>
                   <span {...stylex.attrs(styles.suggestionTitle)}>{s.title}</span>

@@ -75,10 +75,11 @@ describe("internal pages", () => {
     expect(new Set(names).size).toBe(names.length);
     for (const page of chromiumPages.filter((p) => p.status === "matched" && !p.host.includes("/")))
       expect(parseInternalUrl(`chrome://${page.host}`)?.page).toBeDefined();
-    // Pages other work is bringing aren't claimed yet.
-    for (const host of ["bookmarks"]) expect(parseInternalUrl(`rune://${host}`)?.page).toBeUndefined();
+    // A page Rune Browser doesn't have yet isn't claimed.
+    expect(parseInternalUrl("rune://password-manager")?.page).toBeUndefined();
     expect(parseInternalUrl("chrome://history")?.page?.target).toEqual({ view: "history" });
     expect(parseInternalUrl("chrome://downloads")?.page?.target).toEqual({ view: "downloads" });
+    expect(parseInternalUrl("chrome://bookmarks")?.page?.target).toEqual({ view: "bookmarks" });
   });
 
   test("GPU status reads like chrome://gpu", () => {

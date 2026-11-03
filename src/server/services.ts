@@ -6,6 +6,7 @@ import * as Mcp from "./agent/Mcp";
 import * as Ai from "./ai/Ai";
 import * as AiTokens from "./ai/AiTokens";
 import { ServerConfig, type ServerConfigShape } from "./Config";
+import * as Bookmarks from "./bookmarks/Bookmarks";
 import * as Apps from "./db/Apps";
 import * as Db from "./db/Db";
 import * as Endpoints from "./db/Endpoints";
@@ -46,7 +47,7 @@ export const core = (config: ServerConfigShape) =>
     Layer.provideMerge(ChatFiles.layer),
     Layer.provideMerge(Secrets.layer),
     Layer.provideMerge(Permissions.layer),
-    Layer.provideMerge(Layer.mergeAll(Vault.layer, Audit.layer)),
+    Layer.provideMerge(Layer.mergeAll(Vault.layer, Audit.layer, Bookmarks.layer)),
     Layer.provideMerge(
       Layer.mergeAll(
         Apps.layer,

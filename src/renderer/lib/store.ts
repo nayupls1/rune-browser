@@ -51,6 +51,7 @@ export const HISTORY_VIEW = "history";
 export const SNAPSHOTS_VIEW = "snapshots";
 export const SCHEDULES_VIEW = "schedules";
 export const MODS_VIEW = "mods";
+export const BOOKMARKS_VIEW = "bookmarks";
 /** rune://version, rune://gpu, rune://flags and rune://rune-urls (shared/internalPages.ts). */
 export { FLAGS_VIEW, GPU_VIEW, URLS_VIEW, VERSION_VIEW };
 export const DOWNLOADS_VIEW = "downloads";
@@ -61,6 +62,7 @@ const settingsViews = [
   SNAPSHOTS_VIEW,
   SCHEDULES_VIEW,
   MODS_VIEW,
+  BOOKMARKS_VIEW,
   VERSION_VIEW,
   GPU_VIEW,
   FLAGS_VIEW,

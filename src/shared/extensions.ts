@@ -227,10 +227,7 @@ const PERMISSIONS: Record<string, PermissionAbout> = {
   activeTab: full("Use the page you're on when you invoke it"),
   alarms: full("Run tasks on a schedule"),
   background: full("Keep running in the background"),
-  bookmarks: limited(
-    "Read and change your bookmarks",
-    "Rune Browser has no bookmarks: it sees none and can't add any.",
-  ),
+  bookmarks: full("Read and change your bookmarks"),
   browsingData: limited(
     "Clear your browsing data",
     "Clearing browsing data isn't available to extensions: those requests fail.",

@@ -64,6 +64,7 @@ import { loadUsage } from "../lib/sitePermissions";
 import { FindBar, ZoomBadge } from "./FindBar";
 import { LoadErrorPage } from "./LoadError";
 import { describeLoadError, type LoadError } from "../../shared/loadErrors";
+import { BookmarkStar } from "./Bookmarks";
 import { applySiteZoom, foundInPage } from "../lib/pageTools";
 import { siteForUrl } from "../lib/browser";
 
@@ -784,6 +785,7 @@ export function WebTab(props: { appId: string; active: boolean }) {
               <SiteStatusIcon contentsId={contentsId()} url={currentUrl()} />
             </button>
           </Show>
+          <BookmarkStar tabId={props.appId} url={currentUrl()} />
           <Show when={overridesHere().length}>
             <button
               type="button"
