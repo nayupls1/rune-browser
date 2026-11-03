@@ -1,6 +1,6 @@
-// The browser settings (Settings → Browser) put into effect in web tabs: site
-// permissions, sound, fonts, languages and spell check, downloads, and the
-// rules for JavaScript, images, third-party cookies and Do Not Track (applied
+// The browser settings (Settings → Browser) put into effect in web tabs:
+// sound, fonts, languages and spell check, downloads, and the rules for
+// JavaScript, images, third-party cookies and Do Not Track (applied
 // by the built-in extension, see extensions/builtin.ts). Also clearing
 // browsing data, sites' cookies, and reading other browsers' settings for
 // Import. The renderer sends the settings whenever they change.
@@ -13,7 +13,6 @@ import {
   browserSettingsFromChrome,
   coversHost,
   defaultBrowserSettings,
-  permissionAllowed,
   siteOf,
   siteSetting,
   type ImportedBrowserSettings,
@@ -37,6 +36,8 @@ export interface BrowserOptions {
   isWebSession: (session: Session) => boolean;
   /** The rules (browserRules) changed. */
   rulesChanged: () => void;
+  /** Sites' settings or the defaults changed (site permissions, main/sitePermissions.ts). */
+  sitesChanged: () => void;
 }
 
 export interface BrowserProfileSettings {
@@ -167,12 +168,6 @@ export function setupBrowser(options: BrowserOptions) {
     contents.on("did-navigate", () => applySound(contents));
   }
 
-  // --- Permissions --------------------------------------------------------------------------------
-
-  /** Whether a site gets a permission (site settings); null: not one of them. */
-  const permission = (permission: string, url: string | undefined, mediaTypes?: readonly string[]) =>
-    permissionAllowed(browser, siteOf(hostOf(url)), permission, mediaTypes);
-
   // --- Settings from the renderer -----------------------------------------------------------------
 
   function update(next: BrowserSettings) {
@@ -182,6 +177,7 @@ export function setupBrowser(options: BrowserOptions) {
       JSON.stringify(pick(before)) !== JSON.stringify(pick(next));
     if (changed((b) => b.languages)) for (const s of sessions) applyLanguages(s);
     if (changed((b) => [b.defaults.sound, b.sites])) for (const c of guests()) applySound(c);
+    if (changed((b) => [b.defaults, b.sites])) options.sitesChanged();
     if (changed((b) => [b.fonts.size, b.fonts.fixedSize])) for (const c of guests()) void applyFontSizes(c);
     if (changed((b) => browserRulesToDnr(b, 1))) options.rulesChanged();
   }
@@ -270,7 +266,8 @@ export function setupBrowser(options: BrowserOptions) {
     setupSession,
     webPreferences,
     trackGuest,
-    permission,
+    /** The settings in effect (site permissions read their sites' settings). */
+    settings: () => browser,
     /** The rules for the built-in extension, numbered from `firstId`. */
     rules: (firstId: number) => browserRulesToDnr(browser, firstId),
     /** Where downloads go (Settings → Browser → Downloads), made if it's missing. */

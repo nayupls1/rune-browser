@@ -39,6 +39,7 @@ import { setupDownloads } from "./downloads";
 import { setupNetwork } from "./network";
 import { setupOverrides } from "./overrides";
 import { setupShortcuts } from "./shortcuts";
+import { setupSitePermissions } from "./sitePermissions";
 import { buildContextMenu } from "./contextMenu";
 import type { Observation } from "../shared/endpoints";
 import { insecureAction, type InsecurePolicy } from "../shared/insecure";
@@ -50,7 +51,8 @@ const isFileUrl = (url: string) => /^file:\/\//i.test(url);
 /** Where Rune Browser serves apps (see the server's runtime). */
 const isAppUrl = (url: string) => /^http:\/\/(127\.0\.0\.1|localhost):\d+(\/|$)/i.test(url);
 
-// Websites get the harmless permissions, and what their site settings allow (camera, location, notifications…).
+// App previews get the harmless permissions only (no camera, location, notifications…). Websites ask
+// the user, remembered in their site settings (sitePermissions.ts).
 const allowedPermissions = new Set(["fullscreen", "clipboard-sanitized-write", "pointerLock"]);
 
 export function setupWebTabs(windows: AppWindows, onApiCall?: (workspaceId: string, observation: Observation) => void) {
@@ -84,6 +86,12 @@ export function setupWebTabs(windows: AppWindows, onApiCall?: (workspaceId: stri
     webSession: (workspaceId) => webSession(webPartition(workspaceId)),
     isWebSession: (s) => webSessions.has(s),
     rulesChanged: () => extensions.rulesChanged(),
+    sitesChanged: () => sitePermissions.sitesChanged(),
+  });
+  const sitePermissions = setupSitePermissions({
+    windows,
+    workspaceOf: (s) => webSessions.get(s),
+    settings: () => browser.settings(),
   });
   const extensions = setupExtensions({
     windows,
@@ -166,6 +174,7 @@ export function setupWebTabs(windows: AppWindows, onApiCall?: (workspaceId: stri
     if (!isPreview()) {
       extensions.trackGuest(contents);
       browser.trackGuest(contents);
+      sitePermissions.track(contents);
     }
     contents.setWindowOpenHandler(({ url, disposition }) => {
       openTab(contents, url, disposition === "background-tab");
@@ -255,24 +264,34 @@ export function setupWebTabs(windows: AppWindows, onApiCall?: (workspaceId: stri
   function lockDown(s: Electron.Session) {
     if (lockedDown.has(s)) return;
     lockedDown.add(s);
-    // Extension pages also get what their manifest asks for (clipboardRead, notifications), and
-    // websites what their site settings allow (Settings → Browser → Site settings).
-    const allowed = (permission: string, url: string | undefined, mediaTypes?: readonly string[]) =>
-      allowedPermissions.has(permission) ||
-      (webSessions.has(s) &&
-        (extensions.allowsPermission(s, permission, url) || browser.permission(permission, url, mediaTypes) === true));
-    s.setPermissionRequestHandler((_contents, permission, callback, details) =>
-      callback(allowed(permission, details.requestingUrl, "mediaTypes" in details ? details.mediaTypes : undefined)),
+    s.setPermissionRequestHandler((_contents, permission, callback) => callback(allowedPermissions.has(permission)));
+    s.setPermissionCheckHandler((_contents, permission) => allowedPermissions.has(permission));
+  }
+
+  /**
+   * Websites get what their site settings allow and are asked for the rest (Settings → Browser → Site
+   * settings, sitePermissions.ts); extension pages also get what their manifest asks for (clipboardRead,
+   * notifications).
+   */
+  function askForPermissions(s: Electron.Session) {
+    s.setPermissionRequestHandler((contents, permission, callback, details) => {
+      if (extensions.allowsPermission(s, permission, details.requestingUrl)) return callback(true);
+      void sitePermissions.request(s, contents, permission, details).then(callback);
+    });
+    s.setPermissionCheckHandler(
+      (contents, permission, requestingOrigin, details) =>
+        extensions.allowsPermission(s, permission, requestingOrigin) ||
+        sitePermissions.check(s, contents, permission, requestingOrigin, details),
     );
-    s.setPermissionCheckHandler((_contents, permission, requestingOrigin, details) =>
-      allowed(
-        permission,
-        requestingOrigin,
-        "mediaType" in details && details.mediaType && details.mediaType !== "unknown"
-          ? [details.mediaType]
-          : undefined,
-      ),
-    );
+    s.setDisplayMediaRequestHandler((request, callback) => {
+      void sitePermissions.pickScreen(s, request).then((streams) => {
+        try {
+          callback(streams);
+        } catch (err) {
+          console.warn("Answering a page's screen sharing failed:", err);
+        }
+      });
+    });
   }
 
   /** The session of a workspace's web tabs, set up on first use. Maps to the workspace. */
@@ -298,7 +317,7 @@ export function setupWebTabs(windows: AppWindows, onApiCall?: (workspaceId: stri
           ? DEFAULT_WORKSPACE
           : partition.slice(WEB_PARTITION.length + 1),
     );
-    lockDown(s);
+    askForPermissions(s);
     void extensions.attach(s);
     // A plain Chrome user agent: some sites turn away unknown browsers. Google's
     // sign-in gets Electron's instead (see signInRule).

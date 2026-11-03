@@ -1,20 +1,31 @@
 // The site controls of a web tab, from its address bar (like Chrome's site
-// information): what the site may use and do, its zoom, its cookies, and a
-// link to its page in Settings → Browser → Site settings.
+// information): what the page is using right now (with Stop), what the site
+// may use and do, its zoom, its cookies, and a link to its page in Settings →
+// Browser → Site settings.
 import * as stylex from "@stylexjs/stylex";
 import { createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
-import { inheritedLabel, siteSettingKeys, siteSettings, type SiteDecision } from "../../shared/browser";
+import {
+  inheritedLabel,
+  siteSettingKeys,
+  siteSettings,
+  type SiteDecision,
+  type SiteSettingKey,
+} from "../../shared/browser";
 import { setSiteSetting, showSite } from "../lib/browser";
 import { settings } from "../lib/settings";
 import { openSettings } from "../lib/store";
 import { colors, font, radius, space } from "../theme.stylex";
 import { confirmDialog } from "./ConfirmDialog";
 import { Icon } from "./Icon";
+import { InUseRows, permissionNote } from "./SitePermissions";
 
 export function SiteInfoPopover(props: {
   site: string;
   workspaceId: string;
+  /** The tab's page (what it uses and was refused, components/SitePermissions.tsx). */
+  contentsId: number | null;
+  url: string;
   position: { x: number; y: number };
   onReload: () => void;
   onClose: () => void;
@@ -27,6 +38,11 @@ export function SiteInfoPopover(props: {
   const cookies = () => data()?.find((d) => d.site === props.site)?.cookies ?? 0;
   const own = () => settings().browser.sites[props.site] ?? {};
   const zoom = () => settings().browser.zoom.sites[props.site];
+  // Private windows don't get what normal windows allowed (like Chrome's incognito): they ask.
+  const privateNote = (key: SiteSettingKey) =>
+    window.rune.window.private && siteSettings[key].kind === "permission" && own()[key] === "allow"
+      ? "Asks in private windows"
+      : "";
 
   onMount(() => {
     const rect = panel.getBoundingClientRect();
@@ -75,11 +91,17 @@ export function SiteInfoPopover(props: {
           </button>
         </div>
         <div {...stylex.attrs(styles.list)}>
+          <InUseRows contentsId={props.contentsId} url={props.url} />
           <For each={siteSettingKeys}>
             {(key) => (
-              <label {...stylex.attrs(styles.row)}>
+              <label {...stylex.attrs(styles.row)} data-site-info-row={key}>
                 <Icon name={siteSettings[key].icon} size={14} {...stylex.attrs(styles.rowIcon)} />
-                <span {...stylex.attrs(styles.rowLabel)}>{siteSettings[key].label}</span>
+                <span {...stylex.attrs(styles.rowLabel)}>
+                  {siteSettings[key].label}
+                  <Show when={permissionNote(props.contentsId, props.url, key) || privateNote(key)}>
+                    {(note) => <span {...stylex.attrs(styles.rowMeta)}>{note()}</span>}
+                  </Show>
+                </span>
                 <select
                   // Saved with the settings: a private window keeps nothing, so it shows them only.
                   disabled={window.rune.window.private}
@@ -93,7 +115,10 @@ export function SiteInfoPopover(props: {
                   data-site-info-setting={key}
                 >
                   <option value="">{inheritedLabel(settings().browser, props.site, key)}</option>
-                  <option value="allow">Allow</option>
+                  {/* Screen sharing always asks, with its picker. */}
+                  <Show when={key !== "screen"}>
+                    <option value="allow">Allow</option>
+                  </Show>
                   <option value="block">Block</option>
                 </select>
               </label>

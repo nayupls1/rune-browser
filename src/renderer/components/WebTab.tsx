@@ -59,6 +59,8 @@ import { toast } from "./Toast";
 import { changesFor, PageChangesPopover } from "./PageChanges";
 import { OverridesPopover, overridesFor } from "./ResponseOverrides";
 import { SiteInfoPopover } from "./SiteInfo";
+import { PermissionPrompt, SiteStatusIcon, siteStatusTitle, siteUsage } from "./SitePermissions";
+import { loadUsage } from "../lib/sitePermissions";
 import { FindBar, ZoomBadge } from "./FindBar";
 import { LoadErrorPage } from "./LoadError";
 import { describeLoadError, type LoadError } from "../../shared/loadErrors";
@@ -103,6 +105,10 @@ export function WebTab(props: { appId: string; active: boolean }) {
   const [prepared, setPrepared] = createSignal(false);
   void window.rune.extensions.prepare(workspaceId).finally(() => setPrepared(true));
   const host = () => hostOf(currentUrl());
+  // The site settings button shows what the page uses right now, or was refused (components/SitePermissions.tsx).
+  const siteLive = () => (siteUsage(contentsId(), currentUrl())?.inUse.length ?? 0) > 0;
+  const siteRefused = () => !siteLive() && (siteUsage(contentsId(), currentUrl())?.blocked.length ?? 0) > 0;
+  createEffect(on(contentsId, (id) => id !== null && loadUsage(id)));
   const collapsed = () => isAgentCollapsed(props.appId);
   const state = () => states[props.appId];
 
@@ -758,15 +764,20 @@ export function WebTab(props: { appId: string; active: boolean }) {
           <Show when={siteForUrl(currentUrl())}>
             <button
               type="button"
-              title="Site settings: what this site may use and do, its cookies and data"
+              title={
+                siteStatusTitle(contentsId(), currentUrl()) ??
+                "Site settings: what this site may use and do, its cookies and data"
+              }
               onClick={(e) => {
                 const r = e.currentTarget.getBoundingClientRect();
                 setSiteMenu(siteMenu() ? undefined : { x: r.left, y: r.bottom + 6 });
               }}
-              {...stylex.attrs(styles.customized)}
+              {...stylex.attrs(styles.customized, siteLive() && styles.siteLive, siteRefused() && styles.siteRefused)}
               data-site-info-button
+              data-site-in-use={siteUsage(contentsId(), currentUrl())?.inUse.join(" ") ?? ""}
+              data-site-blocked={siteUsage(contentsId(), currentUrl())?.blocked.join(" ") ?? ""}
             >
-              <Icon name="sliders-horizontal" size={13} />
+              <SiteStatusIcon contentsId={contentsId()} url={currentUrl()} />
             </button>
           </Show>
           <Show when={overridesHere().length}>
@@ -840,6 +851,7 @@ export function WebTab(props: { appId: string; active: boolean }) {
             <div {...stylex.attrs(styles.banner)}>Click an element to pick it · Esc to cancel</div>
           </Show>
           <FindBar tabId={props.appId} />
+          <PermissionPrompt contentsId={contentsId()} />
           <Show when={marker()} keyed>
             {(m) => (
               <span {...stylex.attrs(styles.marker)} style={{ left: `${m.x}px`, top: `${m.y}px` }} data-agent-marker />
@@ -900,6 +912,8 @@ export function WebTab(props: { appId: string; active: boolean }) {
           <SiteInfoPopover
             site={site()}
             workspaceId={workspaceId}
+            contentsId={contentsId()}
+            url={currentUrl()}
             position={siteMenu()!}
             onReload={() => webview?.reload()}
             onClose={() => setSiteMenu()}
@@ -1070,6 +1084,15 @@ const styles = stylex.create({
     fontWeight: 600,
     cursor: "pointer",
   },
+  siteLive: {
+    width: "auto",
+    gap: 2,
+    gridAutoFlow: "column",
+    paddingInline: 5,
+    backgroundColor: { default: colors.accentSoft, ":hover": colors.accentSoft },
+    color: colors.accent,
+  },
+  siteRefused: { color: colors.danger },
   customizedOn: { color: colors.accent, backgroundColor: { default: colors.accentSoft, ":hover": colors.accentSoft } },
   agentButton: {
     display: "inline-flex",

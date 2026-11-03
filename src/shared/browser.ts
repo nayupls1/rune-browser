@@ -39,6 +39,33 @@ export const siteSettings = {
   notifications: { label: "Notifications", kind: "permission", icon: "bell", about: "Send notifications" },
   midi: { label: "MIDI devices", kind: "permission", icon: "piano", about: "Use your MIDI devices" },
   clipboard: { label: "Clipboard", kind: "permission", icon: "clipboard", about: "See text and images you copied" },
+  screen: { label: "Screen sharing", kind: "permission", icon: "monitor-up", about: "Share your screen" },
+  idle: {
+    label: "Your device use",
+    kind: "permission",
+    icon: "activity",
+    about: "Know when you're actively using this device",
+  },
+  windows: {
+    label: "Window management",
+    kind: "permission",
+    icon: "app-window",
+    about: "Manage windows on all your displays",
+  },
+  fonts: { label: "Fonts", kind: "permission", icon: "type", about: "Use the fonts on your computer" },
+  files: { label: "File editing", kind: "permission", icon: "file-pen", about: "Edit files on your device" },
+  storage: {
+    label: "Embedded content",
+    kind: "permission",
+    icon: "cookie",
+    about: "Let embedded sites use info they've saved about you",
+  },
+  localNetwork: {
+    label: "Local network access",
+    kind: "permission",
+    icon: "network",
+    about: "Look for and connect to any device on your local network",
+  },
   javascript: { label: "JavaScript", kind: "content", icon: "braces", about: "Run JavaScript" },
   images: { label: "Images", kind: "content", icon: "image", about: "Show images" },
   sound: { label: "Sound", kind: "content", icon: "volume-2", about: "Play sound" },
@@ -97,6 +124,13 @@ export const BrowserSettings = Schema.Struct({
     notifications: PermissionDefault,
     midi: PermissionDefault,
     clipboard: PermissionDefault,
+    screen: PermissionDefault,
+    idle: PermissionDefault,
+    windows: PermissionDefault,
+    fonts: PermissionDefault,
+    files: PermissionDefault,
+    storage: PermissionDefault,
+    localNetwork: PermissionDefault,
     javascript: ContentDefault,
     images: ContentDefault,
     sound: ContentDefault,
@@ -243,43 +277,84 @@ export function withSiteZoom(browser: BrowserSettings, host: string, factor: num
   return { ...browser, zoom: { ...browser.zoom, sites } };
 }
 
+/** Chromium's permission names (Electron's) that are site settings. */
+const permissionKeys: Record<string, SiteSettingKey> = {
+  geolocation: "location",
+  "geolocation-approximate": "location",
+  notifications: "notifications",
+  midi: "midi",
+  midiSysex: "midi",
+  "clipboard-read": "clipboard",
+  "deprecated-sync-clipboard-read": "clipboard",
+  "display-capture": "screen",
+  "idle-detection": "idle",
+  "window-management": "windows",
+  "local-fonts": "fonts",
+  fileSystem: "files",
+  "storage-access": "storage",
+  "local-network-access": "localNetwork",
+  "local-network": "localNetwork",
+  "loopback-network": "localNetwork",
+  // Choosing the speakers comes with the microphone, as in Chromium.
+  "speaker-selection": "microphone",
+};
+
 /** Chromium's permission names (Electron's) as site settings; media asks for the camera and microphone. */
 export function permissionSettings(permission: string, mediaTypes: readonly string[] = []): SiteSettingKey[] | null {
-  switch (permission) {
-    case "geolocation":
-      return ["location"];
-    case "notifications":
-      return ["notifications"];
-    case "midi":
-    case "midiSysex":
-      return ["midi"];
-    case "clipboard-read":
-      return ["clipboard"];
-    case "media": {
-      const keys: SiteSettingKey[] = [];
-      if (mediaTypes.includes("video")) keys.push("camera");
-      if (mediaTypes.includes("audio")) keys.push("microphone");
-      return keys.length ? keys : ["camera", "microphone"];
-    }
-    default:
-      return null;
+  if (permission === "media") {
+    const keys: SiteSettingKey[] = [];
+    if (mediaTypes.includes("video")) keys.push("camera");
+    if (mediaTypes.includes("audio")) keys.push("microphone");
+    return keys.length ? keys : ["camera", "microphone"];
   }
+  const key = permissionKeys[permission];
+  return key ? [key] : null;
 }
 
 /**
- * Whether a site gets a permission: allowed for it, or not. Sites that may ask
- * aren't asked yet (there's no prompt), so they're refused too until you allow
- * them in their site settings. Null: not a site setting.
+ * What Chromium allows without a setting (true): full screen, pointer and keyboard lock, writing to the
+ * clipboard, keeping the screen on, and motion sensors, protected content, background sync and payment
+ * handlers (allowed by default there). Anything else without a setting isn't supported (false): device
+ * pickers (USB, HID, serial, Bluetooth, NFC, smart cards), VR and AR, installing web apps, and opening
+ * other apps (links to them are navigations).
  */
-export function permissionAllowed(
+const fixedPermissions = new Set([
+  "fullscreen",
+  "pointerLock",
+  "keyboardLock",
+  "clipboard-sanitized-write",
+  "screen-wake-lock",
+  "persistent-storage",
+  "sensors",
+  "mediaKeySystem",
+  "background-sync",
+  "background-fetch",
+  "periodic-background-sync",
+  "payment-handler",
+]);
+
+/** The answer for a permission that isn't a site setting. */
+export const fixedPermissionAllowed = (permission: string) => fixedPermissions.has(permission);
+
+/**
+ * What a site gets for a permission: allowed, asked (the tab prompts), or
+ * blocked. Screen sharing can't be allowed for good (it always asks, with the
+ * picker). Null: not a site setting.
+ */
+export function permissionDecision(
   browser: Pick<BrowserSettings, "sites" | "defaults">,
   host: string,
   permission: string,
   mediaTypes?: readonly string[],
-): boolean | null {
+): SiteDefault | null {
   const keys = permissionSettings(permission, mediaTypes);
-  if (!keys || !host) return keys ? false : null;
-  return keys.every((k) => siteSetting(browser, host, k) === "allow");
+  if (!keys) return null;
+  if (!host) return "block";
+  const each = keys.map((k) => {
+    const value = siteSetting(browser, host, k);
+    return k === "screen" && value === "allow" ? "ask" : value;
+  });
+  return each.includes("block") ? "block" : each.includes("ask") ? "ask" : "allow";
 }
 
 // --- Privacy and content as declarativeNetRequest rules ----------------------------------------
@@ -455,6 +530,11 @@ const contentTypes: Record<string, SiteSettingKey> = {
   notifications: "notifications",
   midi_sysex: "midi",
   clipboard: "clipboard",
+  idle_detection: "idle",
+  window_placement: "windows",
+  local_fonts: "fonts",
+  file_system_write_guard: "files",
+  storage_access: "storage",
   javascript: "javascript",
   images: "images",
   sound: "sound",

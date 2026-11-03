@@ -74,7 +74,8 @@ export const settingsSections: SettingsSection[] = [
     label: "Site settings",
     icon: "sliders-horizontal",
     group: "browser",
-    keywords: "permissions location camera microphone notifications javascript images sound site data",
+    keywords:
+      "permissions location camera microphone notifications screen sharing clipboard midi fonts javascript images sound site data",
   },
   {
     id: "browser-performance",

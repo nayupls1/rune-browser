@@ -171,7 +171,10 @@ function DecisionSelect(props: { site: string; setting: SiteSettingKey; compact?
       data-site-setting={props.setting}
     >
       <option value="">{inheritedLabel(browser(), props.site, props.setting)}</option>
-      <option value="allow">Allow</option>
+      {/* Screen sharing always asks, with its picker. */}
+      <Show when={props.setting !== "screen"}>
+        <option value="allow">Allow</option>
+      </Show>
       <option value="block">Block</option>
     </Select>
   );
@@ -219,8 +222,9 @@ function SiteSettingsOverview() {
     <>
       <Section title="Permissions" icon="shield-check" anchor="browser-permissions">
         <p {...stylex.attrs(styles.note)}>
-          What sites may use. Rune Browser doesn't ask you yet when a site wants one, so sites get these only where you
-          allow them: from the site's settings below, or the site controls in the address bar.
+          What sites may use. A site that can ask gets a prompt in its tab the first time it wants one, and what you
+          choose there becomes the site's setting, which you can change below or from the site controls in the address
+          bar.
         </p>
         <For each={defaultsOf("permission")}>{(key) => <DefaultRow setting={key} />}</For>
       </Section>

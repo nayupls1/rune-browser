@@ -75,5 +75,10 @@ mac:
     - { ext: pdf, name: PDF document, role: Viewer, rank: Alternate }
     - { ext: svg, name: SVG image, role: Viewer, rank: Alternate }
     - { ext: webp, name: WebP image, role: Viewer, rank: Alternate }
+  # What macOS says when a website in a tab first wants the camera, microphone or location.
+  extendInfo:
+    NSCameraUsageDescription: Websites you allow can use your camera.
+    NSMicrophoneUsageDescription: Websites you allow can use your microphone.
+    NSLocationWhenInUseUsageDescription: Websites you allow can know your location.
   # Not signed yet (NAT-89): ad-hoc, so Apple Silicon runs it after "Open anyway".
   identity: "-"

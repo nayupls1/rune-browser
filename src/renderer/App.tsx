@@ -4,6 +4,7 @@ import { AgentSidebar } from "./components/AgentSidebar";
 import { AppTab } from "./components/AppTab";
 import { CommandBar } from "./components/CommandBar";
 import { AuthHost } from "./components/AuthDialog";
+import { ScreenPickHost } from "./components/SitePermissions";
 import { ConfirmHost } from "./components/ConfirmDialog";
 import { DownloadsPanel } from "./components/Downloads";
 import { ExtensionImportHost } from "./components/ExtensionImport";
@@ -118,6 +119,7 @@ export default function App() {
       <Sidebar />
       <ConfirmHost />
       <AuthHost />
+      <ScreenPickHost />
       <ExtensionImportHost />
       <PermissionHost />
       <ModReviewHost />

@@ -10,7 +10,9 @@ import {
   defaultBrowserSettings,
   describeImport,
   patternSite,
-  permissionAllowed,
+  fixedPermissionAllowed,
+  permissionDecision,
+  permissionSettings,
   searchEngineOf,
   siteOf,
   siteSetting,
@@ -73,23 +75,34 @@ describe("site settings", () => {
     expect(b.sites["example.com"]).toBeUndefined();
   });
 
-  test("permissions: only sites you allow get them (there's no prompt yet)", () => {
+  test("permissions: allowed sites get them, blocked ones don't, the rest are asked", () => {
     const b = withSites({
       "meet.example.com": { camera: "allow", microphone: "allow" },
-      "maps.example.com": { location: "allow" },
+      "maps.example.com": { location: "allow", camera: "block" },
+      "share.example.com": { screen: "allow" },
     });
-    expect(permissionAllowed(b, "meet.example.com", "media", ["video", "audio"])).toBe(true);
-    expect(permissionAllowed(b, "maps.example.com", "media", ["video"])).toBe(false);
-    expect(permissionAllowed(b, "maps.example.com", "geolocation")).toBe(true);
-    expect(permissionAllowed(b, "other.com", "notifications")).toBe(false);
-    // Camera allowed but not the microphone: asking for both is refused.
-    expect(permissionAllowed(withSites({ "a.com": { camera: "allow" } }), "a.com", "media", ["video", "audio"])).toBe(
-      false,
+    expect(permissionDecision(b, "meet.example.com", "media", ["video", "audio"])).toBe("allow");
+    expect(permissionDecision(b, "maps.example.com", "media", ["video"])).toBe("block");
+    expect(permissionDecision(b, "maps.example.com", "geolocation")).toBe("allow");
+    expect(permissionDecision(b, "other.com", "notifications")).toBe("ask");
+    // Camera allowed but not the microphone: asking for both asks.
+    expect(permissionDecision(withSites({ "a.com": { camera: "allow" } }), "a.com", "media", ["video", "audio"])).toBe(
+      "ask",
     );
-    // Not a site setting: the other checks decide.
-    expect(permissionAllowed(b, "meet.example.com", "fullscreen")).toBeNull();
+    // A default of block blocks without asking; screen sharing always asks unless it's blocked.
+    expect(permissionDecision({ ...b, defaults: { ...b.defaults, location: "block" } }, "x.com", "geolocation")).toBe(
+      "block",
+    );
+    expect(permissionDecision(b, "share.example.com", "display-capture")).toBe("ask");
+    // Not a site setting: allowed like in Chromium, or not supported.
+    expect(permissionDecision(b, "meet.example.com", "fullscreen")).toBeNull();
+    expect(fixedPermissionAllowed("fullscreen")).toBe(true);
+    expect(fixedPermissionAllowed("sensors")).toBe(true);
+    expect(fixedPermissionAllowed("usb")).toBe(false);
+    expect(permissionSettings("speaker-selection")).toEqual(["microphone"]);
+    expect(permissionSettings("media", ["audio"])).toEqual(["microphone"]);
     // No page: refused.
-    expect(permissionAllowed(b, "", "geolocation")).toBe(false);
+    expect(permissionDecision(b, "", "geolocation")).toBe("block");
   });
 });
 
