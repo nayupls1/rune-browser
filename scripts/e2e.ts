@@ -3759,6 +3759,223 @@ try {
     }
   });
 
+  /** Types into the address bar (the one in the sidebar) and presses Enter. */
+  const enterAddress = (text: string) =>
+    page!.eval(`(() => {
+      const input = document.querySelector("[data-address]");
+      input.focus();
+      input.value = ${JSON.stringify(text)};
+      input.dispatchEvent(new InputEvent("input", { bubbles: true }));
+      input.form.requestSubmit();
+      return true;
+    })()`);
+  const addressShows = (text: string) =>
+    page!.waitFor(`document.querySelector("[data-address]")?.value === ${JSON.stringify(text)}`, {
+      label: `the address bar showing ${text}`,
+    });
+
+  await check("internal pages: rune:// and chrome:// open Rune's pages; version, GPU, flags, the list", async () => {
+    await newTab("New web tab");
+    const blankTab = await page!.waitFor<string>(
+      `document.activeElement === document.querySelector("[data-address]") && document.querySelector('nav li[aria-current="page"]')?.dataset.appId`,
+      { label: "a new tab's address bar" },
+    );
+    // chrome:// addresses are rune:// pages; the address bar shows where you are.
+    await enterAddress("chrome://version");
+    await page!.waitFor(
+      `document.querySelector('[data-internal-page="version"] [data-row="version:Chromium"]')?.textContent.length > 3`,
+      { label: "rune://version with Chromium's version" },
+    );
+    await addressShows("rune://version");
+    const version = await page!.eval<string>(`document.querySelector('[data-internal-page="version"]').innerText`);
+    for (const part of ["Electron", "V8", "User agent", "Profile path"])
+      if (!version.includes(part)) throw new Error(`rune://version doesn't show ${part}`);
+    if (await page!.eval<boolean>(`!document.querySelector('[data-settings-nav="about"][aria-current="page"]')`))
+      throw new Error("About isn't highlighted for an internal page");
+    await shot("internal-version.png");
+
+    await enterAddress("rune://gpu");
+    await page!.waitFor(`!!document.querySelector('[data-internal-page="gpu"] [data-gpu-feature]')`, {
+      timeoutMs: 15_000,
+      label: "rune://gpu's feature status",
+    });
+    await addressShows("rune://gpu");
+    await shot("internal-gpu.png");
+
+    // Flags: set one, it's saved for the next start, and asks for a relaunch; reset.
+    await enterAddress("about:flags");
+    await page!.waitFor(`!!document.querySelector('[data-flag="enable-quic"]')`, { label: "rune://flags" });
+    await addressShows("rune://flags");
+    await page!.eval(`(() => {
+      const select = document.querySelector('[data-flag="enable-quic"] select');
+      select.value = "disabled";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+      return true;
+    })()`);
+    await page!.waitFor(
+      `document.querySelector('[data-flag="enable-quic"]')?.dataset.flagValue === "disabled" && !!document.querySelector("[data-flags-relaunch]")`,
+      { label: "the flag set, and a relaunch asked for" },
+    );
+    const saved = JSON.parse(readFileSync(join(profile, "flags.json"), "utf8"));
+    if (saved["enable-quic"] !== "disabled") throw new Error(`flags.json: ${JSON.stringify(saved)}`);
+    await type("[data-flags-search]", "dark mode");
+    await page!.waitFor(
+      `document.querySelectorAll("[data-flag]").length === 1 && !!document.querySelector('[data-flag="enable-force-dark"]')`,
+      { label: "searching the flags" },
+    );
+    await type("[data-flags-search]", "");
+    // The row comes back with its value.
+    await page!.waitFor(`document.querySelector('[data-flag="enable-quic"] select')?.value === "disabled"`, {
+      label: "the flag's value after the search",
+    });
+    await shot("internal-flags.png");
+    await click("[data-flags-reset]");
+    await page!.waitFor(`!document.querySelector("[data-flags-relaunch]")`, { label: "flags reset" });
+
+    // Settings pages: Chromium's sub-pages, and the address of the one shown.
+    await enterAddress("chrome://settings/search");
+    await page!.waitFor(`document.querySelector("[data-settings-shell]")?.dataset.settingsShell === "web"`, {
+      label: "chrome://settings/search → Settings: Web tabs",
+    });
+    await addressShows("rune://settings/web");
+    await enterAddress("chrome://extensions");
+    await page!.waitFor(`document.querySelector("[data-settings-shell]")?.dataset.settingsShell === "extensions"`, {
+      label: "chrome://extensions → Settings: Extensions",
+    });
+    await addressShows("rune://extensions");
+
+    // The list of them all; an address that isn't a page lands there.
+    await enterAddress("chrome://dino");
+    await page!.waitFor(`!!document.querySelector('[data-internal-page="rune-urls"] [data-rune-url="gpu"]')`, {
+      label: "rune://rune-urls",
+    });
+    if (
+      await page!.eval<boolean>(`document.querySelector('[data-chromium-url="history"]')?.dataset.status !== "not-yet"`)
+    )
+      throw new Error("chrome://history isn't listed as not there yet");
+    await shot("internal-urls.png");
+    await click('[data-rune-url="version"] button');
+    await page!.waitFor(`!!document.querySelector('[data-internal-page="version"]')`, { label: "a link in the list" });
+
+    // The command bar opens them too.
+    await runCommand("chrome://gpu", "route.open");
+    await page!.waitFor(`!!document.querySelector('[data-internal-page="gpu"]')`, {
+      label: "command bar → rune://gpu",
+    });
+    await apiCall(`/api/apps/${blankTab}`, { method: "DELETE" });
+    return "chrome://, about: and rune:// addresses; version, GPU, flags saved for the next start, settings pages, the list";
+  });
+
+  await check("load errors: a certificate that isn't valid warns first, unreachable sites say why", async () => {
+    // A site with a self-signed certificate (made with openssl, which CI's machines have).
+    const certDir = mkdtempSync(join(tempDir, "rune-e2e-cert-"));
+    const made = Bun.spawnSync(
+      [
+        "openssl",
+        "req",
+        "-x509",
+        "-newkey",
+        "rsa:2048",
+        "-nodes",
+        "-keyout",
+        join(certDir, "key.pem"),
+        "-out",
+        join(certDir, "cert.pem"),
+        "-days",
+        "2",
+        "-subj",
+        "/CN=127.0.0.1",
+      ],
+      { stdout: "ignore", stderr: "pipe" },
+    );
+    const insecure = made.success
+      ? Bun.serve({
+          hostname: "127.0.0.1",
+          port: 0,
+          tls: {
+            cert: readFileSync(join(certDir, "cert.pem"), "utf8"),
+            key: readFileSync(join(certDir, "key.pem"), "utf8"),
+          },
+          fetch: () =>
+            new Response(`<!doctype html><title>Self-signed site</title><h1>Behind a self-signed certificate</h1>`, {
+              headers: { "Content-Type": "text/html" },
+            }),
+        })
+      : null;
+    let tabId: string | undefined;
+    try {
+      await newTab("New web tab");
+      tabId = await page!.waitFor<string>(`document.querySelector('nav li[aria-current="page"]')?.dataset.appId`, {
+        label: "the new tab",
+      });
+      let tab = `[data-web-tab="${tabId}"]`;
+      // Nothing listens on this port: refused, with Chromium's words and a Reload button.
+      const closed = await new Promise<number>((resolve) => {
+        const srv = createServer().listen(0, "127.0.0.1", () => {
+          const { port } = srv.address() as { port: number };
+          srv.close(() => resolve(port));
+        });
+      });
+      await enterAddress(`http://127.0.0.1:${closed}/`);
+      await page!.waitFor(`document.querySelector('${tab} [data-load-error]')?.dataset.loadError === "network"`, {
+        timeoutMs: 20_000,
+        label: "the error page for a refused connection",
+      });
+      const refused = await page!.eval<string>(`document.querySelector('${tab} [data-load-error]').innerText`);
+      if (!refused.includes("refused to connect") || !refused.includes("ERR_CONNECTION_REFUSED"))
+        throw new Error(`the error page says: ${refused}`);
+      await addressShows(`http://127.0.0.1:${closed}/`);
+      await shot("load-error-network.png");
+      if (!insecure) {
+        // CI must cover the certificate warning; a computer without openssl only checks the rest.
+        const why = `openssl isn't available (${made.stderr.toString().trim()})`;
+        if (process.env.CI) throw new Error(why);
+        return `${why}: only the network error`;
+      }
+
+      // In a new tab, so the warning is its very first page.
+      await apiCall(`/api/apps/${tabId}`, { method: "DELETE" });
+      await newTab("New web tab");
+      tabId = await page!.waitFor<string>(
+        `document.querySelector('nav li[aria-current="page"]')?.dataset.appId !== ${JSON.stringify(tabId)} && document.querySelector('nav li[aria-current="page"]')?.dataset.appId`,
+        { label: "another new tab" },
+      );
+      tab = `[data-web-tab="${tabId}"]`;
+      const url = `https://127.0.0.1:${insecure.port}/`;
+      await enterAddress(url);
+      await page!.waitFor(`document.querySelector('${tab} [data-load-error]')?.dataset.loadError === "certificate"`, {
+        timeoutMs: 20_000,
+        label: "Your connection is not private",
+      });
+      const warning = await page!.eval<string>(`document.querySelector('${tab} [data-load-error]').innerText`);
+      if (!warning.includes("Your connection is not private") || !warning.includes("NET::ERR_CERT"))
+        throw new Error(`the warning says: ${warning}`);
+      await page!.waitFor(`document.querySelector("[data-address-bar]")?.dataset.addressIcon === "triangle-alert"`, {
+        label: "the address bar warns",
+      });
+      await click(`${tab} [data-load-error-advanced]`);
+      await page!.waitFor(
+        `document.querySelector('${tab} [data-certificate-details]')?.innerText.includes("127.0.0.1")`,
+        { label: "the certificate's details under Advanced" },
+      );
+      await shot("load-error-certificate.png");
+      await click(`${tab} [data-load-error-proceed]`);
+      await page!.waitFor(
+        `!document.querySelector('${tab} [data-load-error]') && document.querySelector('nav li[data-app-id="${tabId}"]')?.innerText.includes("Self-signed site")`,
+        { timeoutMs: 20_000, label: "the site, after Proceed" },
+      );
+      // Still marked as not secure while it's open.
+      await page!.waitFor(`document.querySelector("[data-address-bar]")?.dataset.addressIcon === "triangle-alert"`, {
+        label: "the address bar still warns",
+      });
+      return "refused connection, self-signed certificate: warning, details, proceed";
+    } finally {
+      if (tabId) await apiCall(`/api/apps/${tabId}`, { method: "DELETE" }).catch(() => {});
+      insecure?.stop(true);
+      rmSync(certDir, { recursive: true, force: true });
+    }
+  });
+
   await check("no uncaught errors in the renderer", async () => {
     // Expected noise from Electron itself isn't an app bug.
     const real = pageErrors.filter((e) => !/Electron Security Warning/.test(e));

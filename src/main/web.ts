@@ -24,6 +24,7 @@ import {
 import {
   APP_PARTITION_PATTERN,
   DEFAULT_WORKSPACE,
+  type CertificateProblem,
   WEB_PARTITION,
   WEB_PARTITION_PATTERN,
   webPartition,
@@ -34,6 +35,7 @@ import { setupDevtools } from "./devtools";
 import { setupNetwork } from "./network";
 import { setupOverrides } from "./overrides";
 import { setupShortcuts } from "./shortcuts";
+import { buildContextMenu } from "./contextMenu";
 import type { Observation } from "../shared/endpoints";
 import { insecureAction, type InsecurePolicy } from "../shared/insecure";
 
@@ -177,53 +179,41 @@ export function setupWebTabs(
     return accelerator ? { accelerator, registerAccelerator: false } : {};
   };
 
+  /** The search engine Settings picked (the renderer sends it), for "Search … for" in the menu. */
+  let searchEngine: { label: string; url: string } | undefined;
+  ipcMain.on("rune:search-engine", (event, value: unknown) => {
+    if (event.sender !== getWindow()?.webContents) return;
+    const v = value as { label?: unknown; url?: unknown } | null;
+    if (v && typeof v.label === "string" && typeof v.url === "string" && /^https:\/\/.*%s/.test(v.url))
+      searchEngine = { label: v.label.slice(0, 60), url: v.url };
+  });
+
   function contextMenu(contents: WebContents, params: ContextMenuParams): MenuItemConstructorOptions[] {
-    const items: MenuItemConstructorOptions[] = [];
     const history = contents.navigationHistory;
-    if (params.linkURL && isWebUrl(params.linkURL)) {
-      items.push(
-        { label: "Open link in new tab", click: () => openTab(contents.session, params.linkURL, true) },
-        { label: "Open link in browser", click: () => shell.openExternal(params.linkURL) },
-        { label: "Copy link address", click: () => clipboard.writeText(params.linkURL) },
-        { type: "separator" },
-      );
-    }
-    if (params.mediaType === "image" && params.srcURL) {
-      items.push(
-        { label: "Open image in new tab", click: () => openTab(contents.session, params.srcURL) },
-        { label: "Copy image", click: () => contents.copyImageAt(params.x, params.y) },
-        { type: "separator" },
-      );
-    }
-    if (params.isEditable) {
-      items.push(
-        { label: "Cut", enabled: params.editFlags.canCut, click: () => contents.cut() },
-        { label: "Copy", enabled: params.editFlags.canCopy, click: () => contents.copy() },
-        { label: "Paste", enabled: params.editFlags.canPaste, click: () => contents.paste() },
-        { label: "Select all", click: () => contents.selectAll() },
-        { type: "separator" },
-      );
-    } else if (params.selectionText) {
-      items.push({ label: "Copy", click: () => contents.copy() }, { type: "separator" });
-    }
-    const fromExtensions = extensions.menuItems(contents, params);
-    if (fromExtensions.length) items.push(...fromExtensions, { type: "separator" });
-    items.push(
-      { label: "Back", enabled: history.canGoBack(), click: () => history.goBack(), ...keys("nav.back") },
-      { label: "Forward", enabled: history.canGoForward(), click: () => history.goForward(), ...keys("nav.forward") },
-      { label: "Reload", click: () => contents.reload(), ...keys("nav.reload") },
-      { type: "separator" },
-      { label: "Save as…", click: () => void savePage(contents), ...keys("page.save") },
-      { label: "Print…", click: () => contents.print(), ...keys("page.print") },
-      { type: "separator" },
-      { label: "Open page in browser", click: () => shell.openExternal(contents.getURL()) },
-      {
-        label: "Inspect element",
-        click: () => contents.inspectElement(params.x, params.y),
-        ...keys("page.inspect"),
-      },
-    );
-    return items;
+    return buildContextMenu(params, {
+      openTab: (url, background) => openTab(contents.session, url, background),
+      openExternal: (url) => void shell.openExternal(url),
+      copyText: (text) => clipboard.writeText(text),
+      download: (url) => contents.downloadURL(url),
+      copyImageAt: (x, y) => contents.copyImageAt(x, y),
+      edit: (command) => contents[command](),
+      replaceMisspelling: (word) => contents.replaceMisspelling(word),
+      addToDictionary: (word) => void contents.session.addWordToSpellCheckerDictionary(word),
+      emoji: app.isEmojiPanelSupported() ? () => app.showEmojiPanel() : undefined,
+      canGoBack: history.canGoBack(),
+      canGoForward: history.canGoForward(),
+      back: () => history.goBack(),
+      forward: () => history.goForward(),
+      reload: () => contents.reload(),
+      savePage: () => void savePage(contents),
+      print: () => contents.print(),
+      viewSource: () => openDevTools(contents, "sources"),
+      inspect: (x, y) => contents.inspectElement(x, y),
+      pageUrl: contents.getURL(),
+      search: searchEngine,
+      keys,
+      extensionItems: extensions.menuItems(contents, params),
+    });
   }
 
   const lockedDown = new WeakSet<Electron.Session>();
@@ -249,7 +239,7 @@ export function setupWebTabs(
     void extensions.attach(s);
     // A plain Chrome user agent: some sites turn away unknown browsers. Google's
     // sign-in gets Electron's instead (see signInRule).
-    s.setUserAgent(app.userAgentFallback.replace(/ (RuneBrowser|Electron)\/\S+/gi, ""));
+    s.setUserAgent(webUserAgent());
     return s;
   }
 
@@ -300,6 +290,65 @@ export function setupWebTabs(
     );
   });
 
+  // A site's certificate isn't valid: the tab shows "Your connection is not private"
+  // (renderer: components/LoadError.tsx), and the user can go on to the site anyway, like
+  // in Chrome. That's remembered for the site and certificate in the workspace's session
+  // until Rune Browser quits. Pages and agents can't ask for it: only Rune Browser's window.
+  const certificateExceptions = new WeakMap<Electron.Session, Set<string>>();
+  const certificateProblems = new Map<number, CertificateProblem>();
+  const exceptionKey = (url: string, fingerprint: string) => {
+    try {
+      return `${new URL(url).host} ${fingerprint}`;
+    } catch {
+      return null;
+    }
+  };
+  app.on("certificate-error", (event, contents, url, error, certificate, callback, isMainFrame) => {
+    if (!webSessions.has(contents.session)) return;
+    event.preventDefault();
+    const key = exceptionKey(url, certificate.fingerprint);
+    if (key && certificateExceptions.get(contents.session)?.has(key)) return callback(true);
+    if (isMainFrame) {
+      if (!certificateProblems.has(contents.id))
+        contents.once("destroyed", () => certificateProblems.delete(contents.id));
+      certificateProblems.set(contents.id, {
+        url,
+        error,
+        subject: certificate.subjectName,
+        issuer: certificate.issuerName,
+        validFrom: certificate.validStart * 1000,
+        validUntil: certificate.validExpiry * 1000,
+        fingerprint: certificate.fingerprint,
+      });
+    }
+    callback(false);
+  });
+  const guestOf = (event: Electron.IpcMainInvokeEvent, id: unknown) => {
+    const target = typeof id === "number" ? webContents.fromId(id) : undefined;
+    return target && target.getType() === "webview" && target.hostWebContents === event.sender ? target : undefined;
+  };
+  /** The tab's last certificate problem, if it was for the site at `url` (a redirect may have changed the path). */
+  const problemFor = (target: WebContents | undefined, url: unknown) => {
+    const problem = target && certificateProblems.get(target.id);
+    if (!problem || typeof url !== "string") return undefined;
+    return exceptionKey(problem.url, "") === exceptionKey(url, "") ? problem : undefined;
+  };
+  ipcMain.handle(
+    "rune:certificate-problem",
+    (event, id: unknown, url: unknown) => problemFor(guestOf(event, id), url) ?? null,
+  );
+  ipcMain.handle("rune:certificate-proceed", (event, id: unknown, url: unknown) => {
+    const target = guestOf(event, id);
+    const problem = problemFor(target, url);
+    if (!target || !problem || !webSessions.has(target.session)) return false;
+    const key = exceptionKey(problem.url, problem.fingerprint);
+    if (!key) return false;
+    const exceptions = certificateExceptions.get(target.session) ?? new Set<string>();
+    exceptions.add(key);
+    certificateExceptions.set(target.session, exceptions);
+    return true;
+  });
+
   // A deleted workspace's cookies, logins and cache go with it.
   ipcMain.handle("rune:clear-workspace", async (event, workspaceId: unknown) => {
     if (event.sender !== getWindow()?.webContents || typeof workspaceId !== "string" || !/^[\w-]+$/.test(workspaceId))
@@ -324,9 +373,7 @@ export function setupWebTabs(
   });
 
   // DevTools for the user, like Chromium's F12, Ctrl+Shift+J (the console) and Ctrl+Shift+C (picking an element).
-  ipcMain.on("rune:open-devtools", (event, id: unknown, panel: unknown) => {
-    const target = typeof id === "number" ? webContents.fromId(id) : undefined;
-    if (!target || target.getType() !== "webview" || target.hostWebContents !== event.sender) return;
+  function openDevTools(target: WebContents, panel: unknown) {
     const show = () => {
       const call =
         panel === "console"
@@ -344,6 +391,11 @@ export function setupWebTabs(
     }
     target.once("devtools-opened", () => setTimeout(show, 300));
     target.openDevTools();
+  }
+  ipcMain.on("rune:open-devtools", (event, id: unknown, panel: unknown) => {
+    const target = typeof id === "number" ? webContents.fromId(id) : undefined;
+    if (!target || target.getType() !== "webview" || target.hostWebContents !== event.sender) return;
+    openDevTools(target, panel);
   });
 
   ipcMain.handle("rune:save-page", async (event, id: unknown) => {
@@ -391,6 +443,9 @@ export function setupWebTabs(
     windowInput: (input: Input) => extensions.handleInput(null, input),
   };
 }
+
+/** What web tabs tell sites: a plain Chrome user agent (see webSession). */
+export const webUserAgent = () => app.userAgentFallback.replace(/ (RuneBrowser|Electron)\/\S+/gi, "");
 
 /** Keeps the Rune Browser window on Rune Browser: links open as web tabs instead. */
 export function guardWindow(win: BrowserWindow, rendererOrigin: string, onInput?: (input: Input) => boolean) {

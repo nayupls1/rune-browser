@@ -1,14 +1,24 @@
 // Settings' categories, listed in its sidebar (components/SettingsPage.tsx)
 // and the command bar. `view`: Rune Browser's own pages, which are views of their
-// own (History…) shown inside Settings.
-import { ACTIVITY_VIEW, HISTORY_VIEW, MODS_VIEW, SCHEDULES_VIEW } from "./store";
+// own (History…) shown inside Settings. The internal pages (rune://version…)
+// aren't in the sidebar: About is highlighted while one is shown.
+import {
+  ACTIVITY_VIEW,
+  FLAGS_VIEW,
+  GPU_VIEW,
+  HISTORY_VIEW,
+  MODS_VIEW,
+  SCHEDULES_VIEW,
+  URLS_VIEW,
+  VERSION_VIEW,
+} from "./store";
 
 export interface SettingsSection {
   id: string;
   label: string;
   icon: string;
   view?: string;
-  group: "settings" | "pages" | "about";
+  group: "settings" | "pages" | "about" | "internal";
   /** More words the command bar finds it by. */
   keywords?: string;
 }
@@ -48,5 +58,37 @@ export const settingsSections: SettingsSection[] = [
   { id: "mods", label: "Mods", icon: "puzzle", view: MODS_VIEW, group: "pages" },
   { id: "api-map", label: "API map", icon: "waypoints", group: "pages", keywords: "endpoints api network sites" },
   { id: "activity", label: "Activity", icon: "scroll-text", view: ACTIVITY_VIEW, group: "pages" },
-  { id: "about", label: "About", icon: "info", group: "about" },
+  { id: "about", label: "About", icon: "info", group: "about", keywords: "version update" },
+  {
+    id: "version",
+    label: "Version",
+    icon: "info",
+    view: VERSION_VIEW,
+    group: "internal",
+    keywords: "rune://version chromium electron",
+  },
+  {
+    id: "gpu",
+    label: "GPU",
+    icon: "cpu",
+    view: GPU_VIEW,
+    group: "internal",
+    keywords: "rune://gpu graphics acceleration",
+  },
+  {
+    id: "flags",
+    label: "Flags",
+    icon: "flask-conical",
+    view: FLAGS_VIEW,
+    group: "internal",
+    keywords: "rune://flags experiments chromium",
+  },
+  {
+    id: "rune-urls",
+    label: "Rune URLs",
+    icon: "list",
+    view: URLS_VIEW,
+    group: "internal",
+    keywords: "rune:// chrome:// internal pages",
+  },
 ];

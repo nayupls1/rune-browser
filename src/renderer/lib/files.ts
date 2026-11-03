@@ -9,12 +9,14 @@ import { fileNameOf, fileUrl, isViewableFile } from "../../shared/web";
 import { api } from "./api";
 import { appById, currentWorkspace, newWebTab, selectApp } from "./store";
 import { pageOf } from "./webtabs";
+import { openInternalPage } from "./internalPages";
 
 /**
  * Opens a URL (a local file's, a website's) in a web tab: in `tabId` if it's
  * a web tab, else in a new one (in the background with `background`).
  */
 export async function openUrl(url: string, options: { tabId?: string; background?: boolean } = {}) {
+  if (openInternalPage(url)) return;
   const tab = options.tabId ? appById(options.tabId) : undefined;
   if (tab?.kind === "web") {
     await selectApp(tab.id);

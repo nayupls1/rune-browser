@@ -36,6 +36,10 @@ import { disallowInsecure } from "../lib/insecure";
 import { checkForUpdates, installUpdate, setUpdateChannel, updateInfo } from "../lib/updates";
 import {
   ACTIVITY_VIEW,
+  FLAGS_VIEW,
+  GPU_VIEW,
+  URLS_VIEW,
+  VERSION_VIEW,
   appById,
   currentWorkspace,
   deleteWorkspace,
@@ -55,6 +59,9 @@ import {
 } from "../lib/store";
 import { settingsSections } from "../lib/settingsSections";
 import { ActivityPage } from "./ActivityPage";
+import { FlagsPage, GpuPage, RuneUrlsPage, VersionPage } from "./InternalPages";
+import { internalUrlOfView, openInternalPage } from "../lib/internalPages";
+import { registerChrome, type TabChrome } from "../lib/tabChrome";
 import { ShortcutSettings } from "./ShortcutSettings";
 import { ApiMapPage } from "./ApiMapPage";
 import { HistoryPage } from "./History";
@@ -83,7 +90,8 @@ export function SettingsShell(props: { view: string }) {
     settingsSections.find((s) =>
       s.view ? s.view === props.view : props.view === SETTINGS_VIEW && s.id === settingsSection(),
     ) ?? settingsSections[0]!;
-  const isCurrent = (id: string) => current().id === id;
+  // The internal pages (rune://version…) aren't in the sidebar: they're About's.
+  const isCurrent = (id: string) => (current().group === "internal" ? "about" : current().id) === id;
   const open = (section: (typeof settingsSections)[number]) =>
     void (section.view ? selectApp(section.view) : openSettings(section.id));
   let main!: HTMLDivElement;
@@ -96,6 +104,23 @@ export function SettingsShell(props: { view: string }) {
     ),
   );
   const group = (name: string) => settingsSections.filter((s) => s.group === name);
+  // The address bar shows the page's rune:// address.
+  const chrome: TabChrome = {
+    url: () => internalUrlOfView(props.view),
+    icon: () => "settings",
+    canBack: () => false,
+    canForward: () => false,
+    loading: () => false,
+    back: () => {},
+    forward: () => {},
+    reload: () => {},
+  };
+  createEffect(
+    on(
+      () => props.view,
+      (view) => onCleanup(registerChrome(view, chrome)),
+    ),
+  );
   const Item = (p: { section: (typeof settingsSections)[number] }) => (
     <button
       type="button"
@@ -136,6 +161,18 @@ export function SettingsShell(props: { view: string }) {
           </Match>
           <Match when={props.view === ACTIVITY_VIEW}>
             <ActivityPage />
+          </Match>
+          <Match when={props.view === VERSION_VIEW}>
+            <VersionPage />
+          </Match>
+          <Match when={props.view === GPU_VIEW}>
+            <GpuPage />
+          </Match>
+          <Match when={props.view === FLAGS_VIEW}>
+            <FlagsPage />
+          </Match>
+          <Match when={props.view === URLS_VIEW}>
+            <RuneUrlsPage />
           </Match>
         </Switch>
       </div>
@@ -600,6 +637,21 @@ function AboutSection() {
           <dt>Versions</dt>
           <dd {...stylex.attrs(styles.dd, styles.mono)}>
             Electron {window.rune.versions.electron} · Chrome {window.rune.versions.chrome} · Bun {health()?.bun ?? "…"}
+          </dd>
+          <dt>Internal pages</dt>
+          <dd {...stylex.attrs(styles.dd, styles.internalLinks)}>
+            <For each={["rune://version", "rune://gpu", "rune://flags", "rune://rune-urls"]}>
+              {(url) => (
+                <button
+                  type="button"
+                  {...stylex.attrs(styles.internalLink)}
+                  onClick={() => openInternalPage(url)}
+                  data-internal-link={url}
+                >
+                  {url}
+                </button>
+              )}
+            </For>
           </dd>
         </dl>
       </Section>
@@ -2327,6 +2379,17 @@ const styles = stylex.create({
   presetDot: { width: 8, height: 8, borderRadius: radius.full, flexShrink: 0 },
   presetLine: { height: 3, flex: 1, borderRadius: 2, opacity: 0.6 },
   presetName: { fontSize: font.xs },
+  internalLinks: { display: "flex", flexWrap: "wrap", gap: space.md },
+  internalLink: {
+    padding: 0,
+    borderWidth: 0,
+    backgroundColor: "transparent",
+    color: colors.accent,
+    cursor: "pointer",
+    fontFamily: font.mono,
+    fontSize: font.xs,
+    textDecoration: { default: "none", ":hover": "underline" },
+  },
   about: {
     margin: 0,
     paddingBlock: space.md,

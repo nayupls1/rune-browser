@@ -27,7 +27,7 @@ import { settings } from "../lib/settings";
 import { allowInsecure, insecurePolicy } from "../lib/insecure";
 import { sendWithShares } from "../lib/sharing";
 import { appById, isAgentCollapsed, setAgentCollapsed, states, stopAgent, updatePage } from "../lib/store";
-import { showExtensionSettings } from "../lib/extensions";
+import { openInternalPage } from "../lib/internalPages";
 import {
   cachedOverride,
   pageChanges,
@@ -50,6 +50,8 @@ import { toast } from "./Toast";
 import { changesFor, PageChangesPopover } from "./PageChanges";
 import { OverridesPopover, overridesFor } from "./ResponseOverrides";
 import { FindBar, ZoomBadge } from "./FindBar";
+import { LoadErrorPage } from "./LoadError";
+import { describeLoadError, type LoadError } from "../../shared/loadErrors";
 import { foundInPage, syncZoom } from "../lib/pageTools";
 
 /** How long an http:// page's HTTPS version may take to answer before the tab warns instead. */
@@ -79,7 +81,8 @@ export function WebTab(props: { appId: string; active: boolean }) {
   // Opened from the command bar ("Network requests"): it's mostly for the agent.
   const networkOpen = () => networkTab() === props.appId;
   const setNetworkOpen = (open: boolean) => setNetworkTab(open ? props.appId : null);
-  const [loadError, setLoadError] = createSignal<string>();
+  /** The page didn't load: Chromium's error page for it (components/LoadError.tsx). */
+  const [loadError, setLoadError] = createSignal<LoadError & { url: string }>();
   const [menu, setMenu] = createSignal<MenuPosition>();
   const [overridesMenu, setOverridesMenu] = createSignal<MenuPosition>();
   const [contentsId, setContentsId] = createSignal<number | null>(null);
@@ -131,11 +134,8 @@ export function WebTab(props: { appId: string; active: boolean }) {
   };
 
   function go(input: string) {
-    // Chrome's extensions page is Rune Browser's.
-    if (/^chrome:\/\/extensions\/?$/i.test(input.trim())) {
-      showExtensionSettings();
-      return false;
-    }
+    // rune:// and chrome:// pages are Rune Browser's own, shown in Settings.
+    if (openInternalPage(input)) return true;
     const target = isExtensionUrl(input.trim()) ? input.trim() : normalizeUrl(input, settings().web.searchEngine);
     if (!target) return false;
     setAddress(target);
@@ -639,9 +639,17 @@ export function WebTab(props: { appId: string; active: boolean }) {
     view.addEventListener("did-fail-load", (e: DidFailLoadEvent) => {
       // The HTTPS version of an http:// page didn't load: the page has none (or a broken one).
       if (e.isMainFrame && upgrading && e.errorCode !== -3) return warn(upgrading.from, upgrading.to);
-      // -3 is an aborted load (e.g. a new navigation replaced it).
-      if (e.isMainFrame && e.errorCode !== -3)
-        setLoadError(`${e.errorDescription || "Failed to load"} (${e.validatedURL})`);
+      // -3 is an aborted load (e.g. a new navigation replaced it): no error.
+      const error = e.isMainFrame ? describeLoadError(e.errorCode, e.errorDescription, e.validatedURL) : null;
+      if (error) {
+        // A new tab whose first page failed may not have had dom-ready yet: the error page needs its id.
+        if (contentsId() === null)
+          try {
+            setContentsId(view.getWebContentsId());
+          } catch {}
+        setLoadError({ ...error, url: e.validatedURL });
+        if (!editing) setAddress(e.validatedURL);
+      }
       loaded();
     });
     view.addEventListener("did-navigate", (e) => {
@@ -693,7 +701,12 @@ export function WebTab(props: { appId: string; active: boolean }) {
   const overridesHere = () => overridesFor(props.appId, workspaceId, currentUrl());
 
   // The address bar says when the page isn't secure: shown over plain HTTP (not a local one), or warned about.
-  const notSecure = () => !!insecure() || isInsecureUrl(currentUrl());
+  // Plain HTTP, or a certificate that isn't valid (its warning, or a site the user went on to anyway).
+  const notSecure = () =>
+    !!insecure() ||
+    isInsecureUrl(currentUrl()) ||
+    loadError()?.kind === "certificate" ||
+    isUnsafe(workspaceId, currentUrl());
 
   // What the sidebar's top bar shows for this tab (components/TopBar.tsx): the address with the page's changes, and the extensions.
   onCleanup(
@@ -819,13 +832,26 @@ export function WebTab(props: { appId: string; active: boolean }) {
               <InsecureWarning url={warning.url} failed={!!warning.attempt} onBack={leave} onContinue={proceed} />
             )}
           </Show>
-          <Show when={loadError() && !insecure()}>
-            <div {...stylex.attrs(styles.banner, styles.bannerError)}>
-              {loadError()}
-              <button type="button" onClick={() => webview?.reload()} {...stylex.attrs(styles.bannerButton)}>
-                Retry
-              </button>
-            </div>
+          <Show when={insecure() ? undefined : loadError()} keyed>
+            {(error) => (
+              <LoadErrorPage
+                error={error}
+                url={error.url}
+                contentsId={contentsId()}
+                onReload={() => webview?.loadURL(error.url).catch(() => {})}
+                onBack={() => {
+                  setLoadError();
+                  if (webview?.canGoBack()) webview.goBack();
+                  else webview?.loadURL("about:blank").catch(() => {});
+                }}
+                onProceed={async () => {
+                  const id = contentsId();
+                  if (id === null || !(await window.rune.web.proceedAnyway(id, error.url))) return;
+                  markUnsafe(workspaceId, error.url);
+                  webview?.loadURL(error.url).catch(() => {});
+                }}
+              />
+            )}
           </Show>
         </div>
         <Show when={networkOpen()}>
@@ -866,6 +892,15 @@ export function WebTab(props: { appId: string; active: boolean }) {
     </div>
   );
 }
+
+// Sites the user went on to although their certificate isn't valid (main/web.ts remembers it
+// for the workspace until Rune Browser quits): the address bar warns while they're open.
+const [unsafeSites, setUnsafeSites] = createSignal<string[]>([]);
+const siteKey = (workspaceId: string, url: string) => `${workspaceId} ${hostOf(url)}`;
+const markUnsafe = (workspaceId: string, url: string) =>
+  setUnsafeSites((all) => [...new Set([...all, siteKey(workspaceId, url)])]);
+const isUnsafe = (workspaceId: string, url: string) =>
+  /^https:/i.test(url) && unsafeSites().includes(siteKey(workspaceId, url));
 
 function StartPage(props: { onGo: (input: string) => boolean }) {
   return (
@@ -1041,7 +1076,6 @@ const styles = stylex.create({
     boxShadow: "0 4px 14px rgb(0 0 0 / 0.18)",
     pointerEvents: "none",
   },
-  bannerError: { backgroundColor: colors.danger, pointerEvents: "auto" },
   agentBanner: {
     position: "absolute",
     bottom: space.md,

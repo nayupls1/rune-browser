@@ -27,6 +27,7 @@ import { Icon } from "./Icon";
 import { TabIcon } from "./TabIcon";
 import { WindowControls } from "./WindowControls";
 import { withKeys } from "../lib/shortcuts";
+import { openInternalPage } from "../lib/internalPages";
 
 interface Suggestion {
   key: string;
@@ -202,6 +203,7 @@ export function AddressBar() {
    * app on screen first (its preview); elsewhere it's a local file.
    */
   function open(target: string, typed?: string) {
+    if (openInternalPage(target)) return;
     const c = chrome();
     if (typed?.startsWith("/") && c?.go?.(typed)) return;
     if (!(c?.go && c.go(target))) void newWebTab(target);
@@ -240,8 +242,8 @@ export function AddressBar() {
         : isExtensionUrl(typed)
           ? typed
           : normalizeUrl(typed, settings().web.searchEngine);
-    if (newTab) void newWebTab(target);
-    else open(target, typed);
+    if (newTab && !openInternalPage(target)) void newWebTab(target);
+    else if (!newTab) open(target, typed);
     finish();
     return true;
   };
@@ -261,6 +263,7 @@ export function AddressBar() {
         finish();
       }}
       data-address-bar
+      data-address-icon={chrome()?.icon()}
     >
       {/* While the page loads, a spinner in place of its icon (the address bar is the toolbar). */}
       <Show

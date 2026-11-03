@@ -49,6 +49,8 @@ import { unloadOtherTabs } from "./unload";
 import { sendWithShares } from "./sharing";
 import { reviewMod } from "./mods";
 import { settingsSections } from "./settingsSections";
+import { openInternalPage } from "./internalPages";
+import { internalUrlOf, isInternalUrl } from "../../shared/internalPages";
 import { isShareCode } from "../../shared/mods";
 import { confirmDialog } from "../components/ConfirmDialog";
 import { toast } from "../components/Toast";
@@ -514,6 +516,18 @@ function runeCommands(): Command[] {
         keywords: `preferences ${section.keywords ?? ""}`,
         run: () => openSettings(section.id),
       })),
+    // The internal pages ("Open GPU", rune://gpu).
+    ...settingsSections
+      .filter((section) => section.group === "internal" && section.view)
+      .map((section): Command => ({
+        id: `open.${section.id}`,
+        title: `Open ${section.label}`,
+        subtitle: internalUrlOf({ view: section.view! }),
+        icon: section.icon,
+        group: "Rune Browser",
+        keywords: section.keywords,
+        run: () => selectApp(section.view!),
+      })),
     {
       id: "open.history",
       title: "Open History",
@@ -661,6 +675,18 @@ function routed(query: string, best: number): Command[] {
   const url = asUrl(text);
   const id = selectedId();
   const tab = isTab(id) ? apps.find((a) => a.id === id) : undefined;
+  if (url && isInternalUrl(url)) {
+    list.push({
+      id: "route.open",
+      title: `Open ${url}`,
+      subtitle: "Rune Browser's page",
+      icon: "settings",
+      group: "Web",
+      rank: 1000,
+      run: () => void openInternalPage(url),
+    });
+    return list;
+  }
   if (url) {
     list.push({
       id: "route.open",

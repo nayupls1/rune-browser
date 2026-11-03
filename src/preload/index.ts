@@ -32,6 +32,13 @@ const bridge: RuneBridge = {
     chrome: process.versions.chrome ?? "",
     node: process.versions.node ?? "",
   },
+  internals: {
+    version: () => ipcRenderer.invoke("rune:internals-version"),
+    gpu: () => ipcRenderer.invoke("rune:internals-gpu"),
+    flags: () => ipcRenderer.invoke("rune:internals-flags"),
+    setFlag: (id, value) => ipcRenderer.invoke("rune:internals-set-flag", id, value),
+    resetFlags: () => ipcRenderer.invoke("rune:internals-reset-flags"),
+  },
   updates: {
     get: () => ipcRenderer.invoke("rune:updates-get"),
     check: () => ipcRenderer.invoke("rune:updates-check"),
@@ -77,6 +84,9 @@ const bridge: RuneBridge = {
     setInsecurePolicy: (policy) => ipcRenderer.send("rune:insecure-policy", policy),
     onInsecure: listen("rune:insecure"),
     authReply: (requestId, value) => ipcRenderer.send("rune:auth-reply", requestId, value),
+    certificateProblem: (webContentsId, url) => ipcRenderer.invoke("rune:certificate-problem", webContentsId, url),
+    proceedAnyway: (webContentsId, url) => ipcRenderer.invoke("rune:certificate-proceed", webContentsId, url),
+    setSearchEngine: (engine) => ipcRenderer.send("rune:search-engine", engine),
   },
   extensions: {
     list: () => ipcRenderer.invoke("rune:extensions-list"),
