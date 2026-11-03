@@ -32,7 +32,7 @@ const arg = args[0];
 if (arg === "--daily") {
   await $`gh workflow run release.yml --ref master`;
   console.log(`✓ Started a daily release of master. The workflow builds, tests and publishes it: ${ACTIONS}`);
-} else if (arg) {
+} else if (arg !== undefined) {
   fail(`Unknown argument "${arg}". Set the version in ${PACKAGE} (in a PR), then run \`bun run release\`.`);
 } else {
   await $`git fetch origin master --quiet`;
