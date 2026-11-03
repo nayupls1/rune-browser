@@ -241,6 +241,8 @@ export function createWindowManager(options: WindowManagerOptions) {
 
   /** A new window: empty (it opens a new tab, unless it's for links), or with these tabs moved into it. */
   async function openNew(isPrivate: boolean, tabIds: string[] = [], at?: { x: number; y: number }, newTab = true) {
+    // Rune Browser is quitting: nothing new opens (it would outlive the cleanup).
+    if (quitting) return null;
     const id = newWindowId(isPrivate);
     let moved = 0;
     opening.add(id);
@@ -272,6 +274,7 @@ export function createWindowManager(options: WindowManagerOptions) {
 
   /** Opens a closed window again, with its tabs (the one closed last, if none is named). */
   async function reopen(id?: string) {
+    if (quitting) return false;
     const target = id ? closed.find((w) => w.id === id) : closed[0];
     const fromSession = !target && lastSession && (!id || lastSession.id === id) ? lastSession : null;
     const saved = target ?? fromSession;
@@ -382,7 +385,10 @@ export function createWindowManager(options: WindowManagerOptions) {
     }
   });
 
+  /** Quitting waits for this: private windows' cleanup (their windows closing could ask to quit again). */
+  let cleaning = false;
   app.on("before-quit", (event) => {
+    if (cleaning) return event.preventDefault();
     if (quitting) return;
     // Every window open now comes back at the next start.
     save();
@@ -390,9 +396,15 @@ export function createWindowManager(options: WindowManagerOptions) {
     if (![...live.values()].some((w) => w.private)) return;
     // Private windows' tabs and session go now, not at the next start (a few seconds at most).
     event.preventDefault();
+    cleaning = true;
     const normal = [...live.values()].filter((w) => !w.private).map((w) => w.id);
+    // Their pages stop before the session is wiped, so nothing is written to it afterwards.
+    for (const w of live.values()) if (w.private && !w.win.isDestroyed()) w.win.destroy();
     const done = Promise.all([sync([], () => normal), clearPrivate()]);
-    void Promise.race([done, new Promise((r) => setTimeout(r, 3000))]).finally(() => app.quit());
+    void Promise.race([done, new Promise((r) => setTimeout(r, 3000))]).finally(() => {
+      cleaning = false;
+      app.quit();
+    });
   });
 
   return {
