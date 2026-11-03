@@ -2533,6 +2533,8 @@ try {
           ...spec,
         };
         const db = new Database(join(profile, "data", "rune.sqlite"));
+        // The server writes too (browsing history on every page): wait for its lock, like it does.
+        db.run("PRAGMA busy_timeout = 5000");
         db.run("INSERT INTO response_overrides (id, workspace_id, spec) VALUES (?, ?, ?)", [
           id,
           workspaceId,
