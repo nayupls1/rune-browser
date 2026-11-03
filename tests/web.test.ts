@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Socket, type TopicMessage } from "../src/shared/hub";
 import type { AppSummary, PageContext, SiteOverride } from "../src/shared/api";
+import { searchEngines } from "../src/shared/browser";
 import { fileNameOf, fileUrl, hostOf, isViewableFile, normalizeUrl, overrideScript } from "../src/shared/web";
 import { contextSummary, withPageContext } from "../src/server/agent/prompts";
 import { startServer } from "./lib/server";
@@ -13,7 +14,9 @@ describe("address bar input", () => {
     expect(normalizeUrl("localhost:5173/x")).toBe("http://localhost:5173/x");
     expect(normalizeUrl("127.0.0.1:8080")).toBe("http://127.0.0.1:8080");
     expect(normalizeUrl("how do magnets work")).toBe("https://duckduckgo.com/?q=how%20do%20magnets%20work");
-    expect(normalizeUrl("solid.js signals", "google")).toBe("https://www.google.com/search?q=solid.js%20signals");
+    expect(normalizeUrl("solid.js signals", searchEngines.google.url)).toBe(
+      "https://www.google.com/search?q=solid.js%20signals",
+    );
     expect(normalizeUrl("   ")).toBe("");
   });
 

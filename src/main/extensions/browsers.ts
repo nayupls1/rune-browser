@@ -183,6 +183,12 @@ function candidate(profile: FoundProfile, entry: ProfileExtensionEntry, registry
   };
 }
 
+/** Every browser profile found, with its preferences (Settings → Browser → Import). */
+export const browserProfiles = () =>
+  browserDirs()
+    .flatMap(profilesOf)
+    .map((p) => ({ key: p.key, browser: p.browser, name: p.name, prefs: p.prefs }));
+
 let cache: FoundProfile[] = [];
 
 /** Every profile with extensions, in every browser found. */

@@ -12,7 +12,7 @@ open page and saves changes that apply on every visit. It gets only the page too
 - **What:** hide elements, restyle them (CSS declarations), replace their text, set an attribute, insert HTML next to or inside them, add a button with a click handler, or a stylesheet or script.
 - **Where:** a site (host; what the agent uses by default, so a change stays when you move around the site), a pattern (`*.example.com/*`, `example.com/docs/*`; `*.` also covers the bare domain), or one page (host and path, ignoring query and hash) when you ask for just that page. A change's scope can be changed from its row (click where it applies).
 - **Lasting:** they're applied on every load and in single-page apps on in-page navigation. A MutationObserver applies them to content the page adds later. CSS goes in through `insertCSS`, so pages' content security policies don't block it, and button handlers are compiled with the injected script rather than `eval`ed.
-- **Visible:** the paintbrush in the address bar lists every change on the page (and the site's CSS/JS override) with a switch and a remove button, and Settings → Web tabs lists all of them. Turning one off undoes it in place; only scripts need a reload, since what they did can't be taken back.
+- **Visible:** the paintbrush in the address bar lists every change on the page (and the site's CSS/JS override) with a switch and a remove button, and Settings → Site customizations lists all of them. Turning one off undoes it in place; only scripts need a reload, since what they did can't be taken back.
 - **Tools:** the website agent uses `add_page_change`, `update_page_change`, `remove_page_change` and `list_page_changes`, and asks per site or pattern first (`agent.site`). The API is `/api/page-changes`.
 - **History:** changes are part of the site customizations' snapshots (`@changes/<id>.json`). The agent improves an existing change rather than adding another, and has `list_snapshots`, `view_snapshot` and `restore_snapshot` (only the site it's on; the app builder has the same for its app). Agents can't delete snapshots.
 
@@ -40,7 +40,7 @@ showing one that can't, like other browsers (`shared/insecure.ts`).
   warning instead of the page (`components/InsecureWarning.tsx`). An address with a port of its own is warned about
   without trying.
 - **The warning:** **Go back** returns to the page before; **Continue to site** opens it over HTTP until Rune Browser
-  restarts, or for good with "Don't warn me about this site again". Settings → Web tabs lists those sites (with a
+  restarts, or for good with "Don't warn me about this site again". Settings → Browser → Privacy and security lists those sites (with a
   remove button) and has a switch that turns the whole thing off.
 - **Not for local addresses:** this computer and the private network (`localhost`, `*.localhost`, private, link-local
   and VPN ranges, IPv6 local addresses, names without a dot, `.local`, `.lan`, `.home`, `.home.arpa`, `.internal`) are never
@@ -55,7 +55,7 @@ showing one that can't, like other browsers (`shared/insecure.ts`).
 
 - **Registered as a browser:** the installers declare http and https links and `.html`, `.htm`, `.xhtml`, `.shtml`, `.pdf`, `.svg` and `.webp` files (`shared/defaultBrowser.ts`): on Windows in the registry, so it's in Default apps and "Open with" (`build/installer.nsh`, removed again when uninstalled); on macOS in its Info.plist; on Linux in the `.desktop` file. It never takes files over by itself.
 - **One copy:** launching it again (which is what opening a link does) hands the links and files to the running window, where each opens in a new tab, and quits. macOS sends them as events instead. Links it's started with open once the window is ready. Anything that isn't a web link or an existing web file is ignored, and on Windows links come after `--`, so they can't pass switches to Chromium.
-- **Settings → Web tabs** shows whether it's the default. **Make default** sets it on Linux (`xdg-mime`, for links and web pages; an AppImage first writes its own `.desktop` file to `~/.local/share/applications`), asks macOS, which confirms with the user, and on Windows opens Settings at Rune Browser's default apps, since only the user can choose there. Runs from source can't be the default.
+- **Settings → Browser → Default browser** shows whether it's the default. **Make default** sets it on Linux (`xdg-mime`, for links and web pages; an AppImage first writes its own `.desktop` file to `~/.local/share/applications`), asks macOS, which confirms with the user, and on Windows opens Settings at Rune Browser's default apps, since only the user can choose there. Runs from source can't be the default.
 
 **Error pages** are Chromium's (`shared/loadErrors.ts`, `components/LoadError.tsx`): "This site can't be reached" and
 the like, with Chromium's error code and Reload. A site whose certificate isn't valid gets "Your connection is not
@@ -78,6 +78,52 @@ The older **site override** (one stylesheet and script per hostname, `set_site_o
 Web tab logins are cookies, which are encrypted with a key from the same keychain, like Chrome's. The `EnableCookieEncryption` fuse is set in `electron-builder.yml` for the packaged app, and by `scripts/electron.ts` in `node_modules` for runs from source. As in Chrome, a site's local storage, IndexedDB and cache aren't encrypted. They sit in the 0700 profile folder.
 
 Web tabs say they're plain Chrome, because some sites turn away other browsers. Google's sign-in can tell that Rune Browser isn't Chrome, though, and refuses a browser that claims to be ("This browser or app may not be secure"). It accepts Electron when the user agent names it. So requests to `accounts.google.com` get Electron's own user agent, through the built-in extension that applies the network rules (`signInRule` in `src/shared/extensions.ts`).
+
+## Browser settings
+
+Settings → Browser has what a browser like Chrome lets you set, named and ordered like Chrome's and apart from Rune
+Browser's own settings (`components/BrowserSettings.tsx`, `shared/browser.ts`). They're global, like the rest of the
+settings; cookies and site data stay per workspace. The renderer sends them to the main process whenever they change
+(`main/browser.ts`), which puts them into effect in web tabs:
+
+- **Privacy and security:** clear cookies and other site data and/or the cache, of this workspace or all of them
+  (extensions keep their data, like in Chrome); the warning before insecure sites; block third-party cookies; send Do
+  Not Track.
+- **Site settings:** location, camera, microphone, notifications, MIDI devices and clipboard (permissions: sites can
+  ask, or not), JavaScript, images and sound (content: allowed or not), each with a default and per site. A site is a
+  host without `www.` and covers its subdomains; the most specific one wins. "All sites" lists the sites with their own
+  settings, zoom or cookies, and each site's page has its settings, zoom and a button that deletes its cookies and data.
+  The sliders button in a web tab's address bar has the same for the site on screen.
+- **Search engine:** DuckDuckGo, Google, Bing, Brave Search, Kagi, Ecosia, Startpage, or your own URL with `%s`.
+- **Default browser:** see above.
+- **On startup:** continue where you left off, a new tab, or specific pages (a tab already showing one is reused).
+- **Fonts and zoom:** font size, the four font families, the minimum size; the default page zoom (what Ctrl+0 goes
+  back to) and the zoom levels sites keep (zooming a page remembers it for its site).
+- **Languages:** the preferred languages websites see (`Accept-Language`), spell check and its dictionaries (with
+  suggestions and "Add to dictionary" in the context menu).
+- **Downloads:** the folder (files get a free name there, like Chrome's "file (1).pdf") or asking every time.
+- **Performance:** memory saver (unloading idle tabs, see Interface).
+- **Autofill and passwords:** Rune Browser has no password store of its own; a password manager extension does that.
+- **Import bookmarks and settings:** from the Chromium-based browsers extension import finds, their Preferences: search
+  engine, startup, site settings and defaults, third-party cookies and Do Not Track, zoom, fonts, languages and spell
+  check, downloads (`browserSettingsFromChrome`). Site settings and zoom levels are merged into yours; an exception
+  Chrome kept for one origin covers that host's subdomains here, like every site setting.
+- **Reset settings:** the browser settings go back to their defaults (cookies, logins and Rune Browser's settings stay).
+
+How they apply:
+
+- **Permissions** go through the web sessions' permission handlers. Rune Browser doesn't prompt yet, so a site gets a
+  permission only where you allow it; a default of "sites can ask" refuses like "don't allow" until then.
+- **JavaScript, images, third-party cookies and Do Not Track** are declarativeNetRequest rules of the built-in
+  extension, after the network rules (`browserRulesToDnr`): no-script `Content-Security-Policy` on blocked sites' pages and the frames they embed directly (frames those frames load aren't covered),
+  blocked image requests from blocked sites, `Cookie`/`Set-Cookie` removed from third-party requests, a `DNT: 1`
+  header. They take effect on the next load. Blocking third-party cookies this way stops them on the network; a
+  third-party frame's `document.cookie` still works.
+- **Sound** mutes a site's tabs when they navigate there.
+- **Fonts** are the webview's preferences when a tab's page is created; the font size also changes in open pages (over
+  the DevTools protocol, which only lets a page's font families be set once, so new families and minimum sizes apply
+  to new pages).
+- **Languages** set the sessions' `Accept-Language` and spell checker (macOS uses its own spell checker and languages).
 
 ## Network
 

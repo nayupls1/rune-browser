@@ -1,4 +1,5 @@
 // Types shared between the Bun server, the Electron main/preload and the renderer.
+import type { BrowserSettings, ImportedBrowserSettings } from "./browser";
 import type { Hunk } from "./diff";
 import type { DefaultBrowserStatus } from "./defaultBrowser";
 import type {
@@ -105,6 +106,21 @@ export interface RuneBridge {
     get: () => Promise<DefaultBrowserStatus>;
     /** Makes it the default (or opens the system's settings for it, on Windows); the status after. */
     make: () => Promise<DefaultBrowserStatus>;
+  };
+  /** The browser settings in web tabs (main/browser.ts). */
+  browser: {
+    /** The settings changed: they apply to web tabs. */
+    setSettings: (settings: BrowserSettings) => void;
+    /** Clears cookies and site data and/or the cache of these workspaces' web tabs (extensions keep theirs). */
+    clearData: (workspaceIds: string[], what: { cookies: boolean; cache: boolean }) => Promise<void>;
+    /** The sites with cookies in a workspace. */
+    siteData: (workspaceId: string) => Promise<{ site: string; cookies: number }[]>;
+    /** Clears a site's cookies and data (its subdomains' too) in these workspaces. */
+    clearSite: (workspaceIds: string[], site: string) => Promise<void>;
+    /** The settings other browsers' profiles have (Import). */
+    detectImports: () => Promise<{ key: string; browser: string; profile: string; found: ImportedBrowserSettings }[]>;
+    /** The system's languages, spell check's dictionaries and the Downloads folder. */
+    info: () => Promise<{ systemLanguages: string[]; spellcheckLanguages: string[]; downloadsFolder: string } | null>;
   };
   web: {
     /** Deletes the cookies and storage of a workspace's web tabs (the workspace was deleted). */

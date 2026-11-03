@@ -4,10 +4,9 @@
 // the agent (or a new app), anything else can be searched for.
 import { createSignal } from "solid-js";
 import { isImageIcon, type AppActionInfo, type AppSummary } from "../../shared/api";
-import { searchEngines } from "../../shared/settings";
 import { normalizeUrl } from "../../shared/web";
 import { api } from "./api";
-import { settings, updateSettings } from "./settings";
+import { searchEngine, settings, updateSettings } from "./settings";
 import {
   ACTIVITY_VIEW,
   SCHEDULES_VIEW,
@@ -129,9 +128,9 @@ const scoreOf = (query: string, command: Command) =>
 
 /** URLs and things that look like a domain, not searches. */
 export function asUrl(text: string) {
-  const engine = settings().web.searchEngine;
-  const url = normalizeUrl(text, engine);
-  return url && url !== searchEngines[engine].url.replace("%s", encodeURIComponent(text.trim())) ? url : null;
+  const search = searchEngine().url;
+  const url = normalizeUrl(text, search);
+  return url && url !== search.replace("%s", encodeURIComponent(text.trim())) ? url : null;
 }
 
 const isSentence = (text: string) => text.split(/\s+/).length >= 3;
@@ -739,7 +738,7 @@ function routed(query: string, best: number): Command[] {
     icon: "search",
     group: "Web",
     rank: forAgent ? 800 : 1,
-    run: () => newWebTab(normalizeUrl(text, settings().web.searchEngine)),
+    run: () => newWebTab(normalizeUrl(text, searchEngine().url)),
   });
   return list;
 }

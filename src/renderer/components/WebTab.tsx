@@ -23,7 +23,7 @@ import { fillScript, focusScript, keyCodeOf, scrollScript } from "../lib/browse"
 import { captureScript, restoreScript, takeSavedPage, type SavedPage } from "../lib/pagestate";
 import { cancelPickScript, pickScript, unmarkScript } from "../lib/picker";
 import { addPick, clearPicks, isPicking, picksOf, removePick, setPickingIn } from "../lib/picks";
-import { settings } from "../lib/settings";
+import { searchEngine, settings } from "../lib/settings";
 import { allowInsecure, insecurePolicy } from "../lib/insecure";
 import { sendWithShares } from "../lib/sharing";
 import { appById, isAgentCollapsed, setAgentCollapsed, states, stopAgent, updatePage } from "../lib/store";
@@ -49,10 +49,12 @@ import { NetworkPanel } from "./NetworkPanel";
 import { toast } from "./Toast";
 import { changesFor, PageChangesPopover } from "./PageChanges";
 import { OverridesPopover, overridesFor } from "./ResponseOverrides";
+import { SiteInfoPopover } from "./SiteInfo";
 import { FindBar, ZoomBadge } from "./FindBar";
 import { LoadErrorPage } from "./LoadError";
 import { describeLoadError, type LoadError } from "../../shared/loadErrors";
-import { foundInPage, syncZoom } from "../lib/pageTools";
+import { applySiteZoom, foundInPage } from "../lib/pageTools";
+import { siteForUrl } from "../lib/browser";
 
 /** How long an http:// page's HTTPS version may take to answer before the tab warns instead. */
 const UPGRADE_TIMEOUT_MS = 6_000;
@@ -85,6 +87,7 @@ export function WebTab(props: { appId: string; active: boolean }) {
   const [loadError, setLoadError] = createSignal<LoadError & { url: string }>();
   const [menu, setMenu] = createSignal<MenuPosition>();
   const [overridesMenu, setOverridesMenu] = createSignal<MenuPosition>();
+  const [siteMenu, setSiteMenu] = createSignal<MenuPosition>();
   const [contentsId, setContentsId] = createSignal<number | null>(null);
   // The webview waits for the workspace's extensions (never long).
   const [prepared, setPrepared] = createSignal(false);
@@ -136,7 +139,7 @@ export function WebTab(props: { appId: string; active: boolean }) {
   function go(input: string) {
     // rune:// and chrome:// pages are Rune Browser's own, shown in Settings.
     if (openInternalPage(input)) return true;
-    const target = isExtensionUrl(input.trim()) ? input.trim() : normalizeUrl(input, settings().web.searchEngine);
+    const target = isExtensionUrl(input.trim()) ? input.trim() : normalizeUrl(input, searchEngine().url);
     if (!target) return false;
     setAddress(target);
     open(target);
@@ -658,7 +661,7 @@ export function WebTab(props: { appId: string; active: boolean }) {
       setInsecure(null);
       committed = true;
       navigated(e.url, false);
-      syncZoom(props.appId);
+      applySiteZoom(props.appId, e.url);
       // A local file is named after itself, like in Chrome (text, images and PDFs have no title of their own).
       if (/^file:/i.test(e.url)) updatePage(props.appId, { title: fileNameOf(e.url) });
     });
@@ -742,6 +745,20 @@ export function WebTab(props: { appId: string; active: boolean }) {
       addressExtras: () => (
         <>
           <ZoomBadge tabId={props.appId} />
+          <Show when={siteForUrl(currentUrl())}>
+            <button
+              type="button"
+              title="Site settings: what this site may use and do, its cookies and data"
+              onClick={(e) => {
+                const r = e.currentTarget.getBoundingClientRect();
+                setSiteMenu(siteMenu() ? undefined : { x: r.left, y: r.bottom + 6 });
+              }}
+              {...stylex.attrs(styles.customized)}
+              data-site-info-button
+            >
+              <Icon name="sliders-horizontal" size={13} />
+            </button>
+          </Show>
           <Show when={overridesHere().length}>
             <button
               type="button"
@@ -868,6 +885,17 @@ export function WebTab(props: { appId: string; active: boolean }) {
           />
         </Show>
       </div>
+      <Show when={siteMenu() && siteForUrl(currentUrl())}>
+        {(site) => (
+          <SiteInfoPopover
+            site={site()}
+            workspaceId={workspaceId}
+            position={siteMenu()!}
+            onReload={() => webview?.reload()}
+            onClose={() => setSiteMenu()}
+          />
+        )}
+      </Show>
       <Show when={overridesMenu()}>
         {(position) => (
           <OverridesPopover

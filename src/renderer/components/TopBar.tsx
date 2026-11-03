@@ -5,10 +5,9 @@
 import * as stylex from "@stylexjs/stylex";
 import { createEffect, createSignal, For, on, Show, type JSX } from "solid-js";
 import { Portal } from "solid-js/web";
-import { searchEngines } from "../../shared/settings";
 import { normalizeUrl } from "../../shared/web";
 import { isExtensionUrl } from "../../shared/extensions";
-import { settings } from "../lib/settings";
+import { searchEngine } from "../lib/settings";
 import {
   appById,
   apps,
@@ -153,9 +152,8 @@ export function AddressBar() {
     if (!q) return [];
     const lower = q.toLowerCase();
     const out: Suggestion[] = [];
-    const target = isExtensionUrl(q) ? q : normalizeUrl(q, settings().web.searchEngine);
-    const searching =
-      target.startsWith(searchEngines[settings().web.searchEngine].url.split("%s")[0]!) && !/^https?:\/\//i.test(q);
+    const target = isExtensionUrl(q) ? q : normalizeUrl(q, searchEngine().url);
+    const searching = target.startsWith(searchEngine().url.split("%s")[0]!) && !/^https?:\/\//i.test(q);
     if (!searching)
       out.push({
         key: "go",
@@ -187,8 +185,8 @@ export function AddressBar() {
       key: "search",
       icon: () => <Icon name="search" size={14} />,
       title: q,
-      detail: `Search with ${searchEngines[settings().web.searchEngine].label}`,
-      run: () => open(normalizeUrl(q, settings().web.searchEngine)),
+      detail: `Search with ${searchEngine().label}`,
+      run: () => open(normalizeUrl(q, searchEngine().url)),
     });
     // Typed words (not an address): the matching tabs first, then the search.
     if (searching && !tabs.length) out.unshift(out.pop()!);
@@ -241,7 +239,7 @@ export function AddressBar() {
         ? chosen.title
         : isExtensionUrl(typed)
           ? typed
-          : normalizeUrl(typed, settings().web.searchEngine);
+          : normalizeUrl(typed, searchEngine().url);
     if (newTab && !openInternalPage(target)) void newWebTab(target);
     else if (!newTab) open(target, typed);
     finish();
@@ -259,7 +257,7 @@ export function AddressBar() {
         if (chosen) return run(chosen);
         const typed = text().trim();
         if (!typed) return;
-        open(isExtensionUrl(typed) ? typed : normalizeUrl(typed, settings().web.searchEngine), typed);
+        open(isExtensionUrl(typed) ? typed : normalizeUrl(typed, searchEngine().url), typed);
         finish();
       }}
       data-address-bar

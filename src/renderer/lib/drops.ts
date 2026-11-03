@@ -8,7 +8,7 @@ import { createSignal } from "solid-js";
 import { normalizeUrl } from "../../shared/web";
 import { openFile, openUrl } from "./files";
 import { draggedSplit, draggedTab, TAB_DRAG_TYPE } from "./layout";
-import { settings } from "./settings";
+import { searchEngine } from "./settings";
 
 /** Where a drag would open: a tab (its id), a new tab from the tab list, or a new tab from the window. */
 export type DropTarget = { kind: "tab"; id: string } | { kind: "list" } | { kind: "window"; tabId?: string };
@@ -49,7 +49,7 @@ function droppedUrl(dt: DataTransfer): string | null {
     .find((line) => line.trim() && !line.startsWith("#"));
   const text = (link ?? dt.getData("text/plain")).trim();
   if (!text || text.length > 4000) return null;
-  const url = normalizeUrl(text.split(/\r?\n/)[0]!, settings().web.searchEngine);
+  const url = normalizeUrl(text.split(/\r?\n/)[0]!, searchEngine().url);
   return /^(https?|file):\/\//i.test(url) ? url : null;
 }
 

@@ -24,8 +24,7 @@ import {
   appById,
 } from "./store";
 import { pageOf, pagesVersion, tabOfContents } from "./webtabs";
-import { searchEngines } from "../../shared/settings";
-import { settings } from "./settings";
+import { searchEngine } from "./settings";
 
 const bridge = window.rune.extensions;
 
@@ -106,9 +105,7 @@ bridge.onTabRequest(async (request) => {
   try {
     if (request.action === "open") {
       // chrome.search.query: the search engine from Settings.
-      const url = request.search
-        ? searchEngines[settings().web.searchEngine].url.replace("%s", encodeURIComponent(request.search))
-        : request.url;
+      const url = request.search ? searchEngine().url.replace("%s", encodeURIComponent(request.search)) : request.url;
       const app = await newWebTab(url || undefined, {
         workspaceId: request.workspaceId,
         background: !request.active || request.workspaceId !== currentWorkspace()?.id,

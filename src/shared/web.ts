@@ -1,7 +1,7 @@
 // Helpers for web tabs shared by the renderer and the website agent.
 import type { PageChange, PageChangeAction, PageChangeSpec, PageScope } from "./api";
+import { searchEngines } from "./browser";
 import { parseInternalUrl } from "./internalPages";
-import { searchEngines, type Settings } from "./settings";
 import { base } from "./theme";
 
 /** Computed styles reported for picked and inspected elements. */
@@ -64,9 +64,9 @@ export const isViewableFile = (name: string, mime = "") =>
  * Turns address bar input into a URL: URLs stay as they are, things that look
  * like a domain get https:// (http:// for local addresses), local paths become
  * file:// URLs, internal pages (chrome://, about:version) their rune:// address,
- * anything else is searched for.
+ * anything else is searched for (with the search URL's %s).
  */
-export function normalizeUrl(input: string, engine: Settings["web"]["searchEngine"] = "duckduckgo") {
+export function normalizeUrl(input: string, searchUrl: string = searchEngines.duckduckgo.url) {
   const text = input.trim();
   if (!text) return "";
   const internal = parseInternalUrl(text);
@@ -78,7 +78,7 @@ export function normalizeUrl(input: string, engine: Settings["web"]["searchEngin
   const looksLikeHost =
     !/\s/.test(text) && /^[\w-]+(\.[\w-]+)+(:\d+)?(\/.*)?$/.test(text) && /\.[a-z]{2,}(:\d+)?(\/|$)/i.test(text);
   if (looksLikeHost) return `https://${text}`;
-  return searchEngines[engine].url.replace("%s", encodeURIComponent(text));
+  return searchUrl.replace("%s", encodeURIComponent(text));
 }
 
 /**
