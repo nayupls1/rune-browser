@@ -50,6 +50,7 @@ export const SCHEDULES_VIEW = "schedules";
 export const MODS_VIEW = "mods";
 /** rune://version, rune://gpu, rune://flags and rune://rune-urls (shared/internalPages.ts). */
 export { FLAGS_VIEW, GPU_VIEW, URLS_VIEW, VERSION_VIEW };
+export const DOWNLOADS_VIEW = "downloads";
 const settingsViews = [
   SETTINGS_VIEW,
   ACTIVITY_VIEW,
@@ -60,6 +61,7 @@ const settingsViews = [
   GPU_VIEW,
   FLAGS_VIEW,
   URLS_VIEW,
+  DOWNLOADS_VIEW,
 ];
 /** Settings or one of the pages in it. */
 export const isSettingsView = (id: string | null) => !!id && settingsViews.includes(id);

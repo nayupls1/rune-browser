@@ -12,7 +12,16 @@
 // E2E_TIMEOUT_SCALE=2 doubles every wait, for slow machines (CI's Windows runners).
 //
 // Screenshots go to test-results/. Run `bun run build` first.
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -45,6 +54,8 @@ const profile = mkdtempSync(join(tempDir, "rune-e2e-"));
 // A browser to import extensions from (instead of the real ones on this computer).
 const browserDir = mkdtempSync(join(tempDir, "rune-e2e-browser-"));
 const fixture = writeFixtureBrowser(browserDir);
+// Where downloads go (instead of the real Downloads folder).
+const downloadsDir = mkdtempSync(join(tempDir, "rune-e2e-downloads-"));
 const onlyIndex = args.indexOf("--only");
 const only = onlyIndex === -1 ? undefined : args[onlyIndex + 1];
 
@@ -83,6 +94,7 @@ const electron = await launchElectron(
     RUNE_OFFSCREEN: visible ? undefined : "1",
     RUNE_BROWSER_DIRS: fixture.dirs,
     RUNE_EXTENSION_UPDATES: "0",
+    RUNE_DOWNLOADS_DIR: downloadsDir,
   },
   [
     ...(visible ? [] : ["--ozone-platform=headless", "--ozone-override-screen-size=1920,1080"]),
@@ -154,6 +166,29 @@ const site = Bun.serve({
          self.addEventListener("fetch", (e) => { if (new URL(e.request.url).pathname.startsWith("/api/")) e.respondWith(fetch(e.request)); });`,
         { headers: { "Content-Type": "text/javascript" } },
       );
+    }
+    // Files to download: slow.bin takes a few seconds (progress, pause), missing.bin fails.
+    if (path.startsWith("/download/")) {
+      const name = path.slice("/download/".length);
+      const headers = {
+        "Content-Disposition": `attachment; filename="${name}"`,
+        "Content-Type": "application/octet-stream",
+      };
+      if (name === "missing.bin") return new Response("gone", { status: 404, headers });
+      if (name === "slow.bin") {
+        const chunk = new Uint8Array(64 * 1024).fill(7);
+        let sent = 0;
+        const stream = new ReadableStream({
+          async pull(controller) {
+            if (sent >= 40) return controller.close();
+            await Bun.sleep(250);
+            controller.enqueue(chunk);
+            sent++;
+          },
+        });
+        return new Response(stream, { headers: { ...headers, "Content-Length": String(40 * chunk.length) } });
+      }
+      return new Response(`contents of ${name}`, { headers });
     }
     const body =
       path === "/feed"
@@ -1693,7 +1728,7 @@ try {
     return `page kept Ctrl+K, find 3 matches, zoom, mouse back/forward, Ctrl+T/W, Ctrl+1, recorded ${saved.join(", ")}`;
   });
 
-  await check("agent sidebar: closed on web tabs until opened (Ctrl+J), remembered per tab", async () => {
+  await check("agent sidebar: closed on web tabs until opened (Ctrl+I), remembered per tab", async () => {
     const count = await page!.eval<number>(`document.querySelectorAll("nav li").length`);
     await newTab("New web tab");
     const tabId = await page!.waitFor<string>(
@@ -1705,10 +1740,10 @@ try {
     });
     if (await page!.eval<boolean>(`!!document.querySelector("[data-agent-sidebar]")`))
       throw new Error("the agent sidebar is open on a new web tab");
-    const ctrlJ = () =>
-      page!.eval(`window.dispatchEvent(new KeyboardEvent("keydown", { key: "j", ${mod}: true, bubbles: true })), true`);
-    await ctrlJ();
-    await page!.waitFor(`!!document.querySelector('[data-agent-for="${tabId}"]')`, { label: "opened with Ctrl+J" });
+    const ctrlI = () =>
+      page!.eval(`window.dispatchEvent(new KeyboardEvent("keydown", { key: "i", ${mod}: true, bubbles: true })), true`);
+    await ctrlI();
+    await page!.waitFor(`!!document.querySelector('[data-agent-for="${tabId}"]')`, { label: "opened with Ctrl+I" });
     // Another tab and back: still open for this one.
     await click(`nav li[data-app-id="${webTabId}"]`);
     await page!.waitFor(
@@ -1717,11 +1752,173 @@ try {
     );
     await click(`nav li[data-app-id="${tabId}"]`);
     await page!.waitFor(`!!document.querySelector('[data-agent-for="${tabId}"]')`, { label: "still open" });
-    await ctrlJ();
-    await page!.waitFor(`!document.querySelector("[data-agent-sidebar]")`, { label: "closed with Ctrl+J" });
+    await ctrlI();
+    await page!.waitFor(`!document.querySelector("[data-agent-sidebar]")`, { label: "closed with Ctrl+I" });
     await apiCall(`/api/apps/${tabId}`, { method: "DELETE" });
     return "closed by default, opened, remembered, closed";
   });
+
+  await check(
+    "downloads: saved to the folder, progress, pause and cancel, risky files, the page (Ctrl+J)",
+    async () => {
+      if (!webTabId) throw new Error("needs the web tab");
+      const tab = `[data-web-tab="${webTabId}"]`;
+      const files = () => readdirSync(downloadsDir).sort();
+      const row = (selector: string) => `document.querySelector('${selector}')`;
+      const stateOf = (scope: string, name: string) =>
+        page!.eval<string | null>(
+          `[...document.querySelectorAll('${scope} [data-download]')].find((r) => r.innerText.includes(${JSON.stringify(name)}))?.dataset.downloadState ?? null`,
+        );
+      const waitState = (scope: string, name: string, state: string, timeoutMs = 15_000) =>
+        waitForValue(async () => ((await stateOf(scope, name)) === state ? true : undefined), timeoutMs).catch(
+          async () => {
+            throw new Error(`${name}: ${await stateOf(scope, name)} instead of ${state}`);
+          },
+        );
+      const actOn = (scope: string, name: string, action: string) =>
+        page!.eval(`(() => {
+        const row = [...document.querySelectorAll('${scope} [data-download]')].find((r) => r.innerText.includes(${JSON.stringify(name)}));
+        row.querySelector('[data-download-action="${action}"]').click();
+        return true;
+      })()`);
+      const download = (path: string) =>
+        page!.eval(
+          `document.querySelector('${tab} webview').downloadURL(${JSON.stringify(`${site.url.origin}${path}`)}), true`,
+        );
+      const closePanel = () =>
+        page!.eval(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })), true`);
+      const panel = "[data-downloads-panel]";
+
+      // Ctrl+J (Cmd+Shift+J on macOS) opens the page, also from inside a web page; nothing downloaded yet.
+      await click(`nav li[data-app-id="${webTabId}"]`);
+      await page!.waitFor(`!!document.querySelector('${tab} webview')`, { label: "web tab" });
+      await page!.eval(`(() => {
+      const view = document.querySelector('${tab} webview');
+      view.focus();
+      const modifiers = ${JSON.stringify(process.platform === "darwin" ? ["meta", "shift"] : [modKey])};
+      for (const type of ["keyDown", "keyUp"]) view.sendInputEvent({ type, keyCode: "J", modifiers });
+      return true;
+    })()`);
+      await page!.waitFor(`!!document.querySelector("[data-downloads-page] [data-downloads-empty]")`, {
+        label: "the downloads page, empty",
+      });
+      if (await page!.eval<boolean>(`!!document.querySelector("[data-downloads-button]")`))
+        throw new Error("the downloads button shows before anything was downloaded");
+
+      // A page's download goes to the downloads folder; a notice says so, the button shows it.
+      await click(`nav li[data-app-id="${webTabId}"]`);
+      await inView(tab, `location.href = ${JSON.stringify(`${site.url.origin}/download/report.txt`)}, true`);
+      await page!.waitFor(
+        `[...document.querySelectorAll('[data-toast="success"]')].some((t) => t.innerText.includes("report.txt"))`,
+        {
+          label: "a notice that it finished",
+        },
+      );
+      await page!.waitFor(`!!document.querySelector("[data-downloads-button] [data-downloads-unseen]")`, {
+        label: "the button's dot",
+      });
+      if (readFileSync(join(downloadsDir, "report.txt"), "utf8") !== "contents of report.txt")
+        throw new Error(`not saved: ${files().join(", ")}`);
+      // The same name again doesn't overwrite it.
+      await download("/download/report.txt");
+      await waitForValue(async () => (files().includes("report (1).txt") ? true : undefined));
+
+      // Progress, pause, resume and cancel, in the panel.
+      await download("/download/slow.bin");
+      await click("[data-downloads-button]");
+      await page!.waitFor(`!!${row(panel)}`, { label: "the panel" });
+      await waitState(panel, "slow.bin", "progressing");
+      await page!.waitFor(`!!document.querySelector("[data-downloads-button] svg")`, { label: "the button's ring" });
+      // How much arrived and how fast (the test site streams it without saying its size).
+      await waitForValue(async () =>
+        /\/s · [\d.]+ (kB|MB)/.test(await page!.eval<string>(`document.querySelector('${panel}').innerText`))
+          ? true
+          : undefined,
+      );
+      await shot("downloads-panel.png");
+      await actOn(panel, "slow.bin", "pause");
+      await waitState(panel, "slow.bin", "paused");
+      await actOn(panel, "slow.bin", "resume");
+      await waitState(panel, "slow.bin", "progressing");
+      await actOn(panel, "slow.bin", "cancel");
+      await waitState(panel, "slow.bin", "cancelled");
+      if (files().includes("slow.bin")) throw new Error("a cancelled download left its file");
+      await closePanel();
+      await page!.waitFor(`!${row(panel)}`, { label: "panel closed" });
+
+      // A program waits for an OK in the panel (it opens by itself), under a name that can't run.
+      await download("/download/setup.exe");
+      await page!.waitFor(`!!${row(`${panel} [data-download-state="warning"]`)}`, {
+        label: "the risky file's warning",
+      });
+      await waitForValue(async () => (files().some((f) => /^Unconfirmed \d+\.download$/.test(f)) ? true : undefined));
+      if (files().includes("setup.exe")) throw new Error("the risky file was saved under its name before it was kept");
+      await shot("downloads-warning.png");
+      await actOn(panel, "setup.exe", "keep");
+      await waitForValue(async () => (files().includes("setup.exe") ? true : undefined));
+      await waitState(panel, "setup.exe", "completed");
+      if (files().some((f) => f.startsWith("Unconfirmed"))) throw new Error("the unconfirmed file stayed");
+      // ...or is discarded.
+      await closePanel();
+      await download("/download/tool.exe");
+      await page!.waitFor(`!!${row(`${panel} [data-download-state="warning"]`)}`, { label: "the second warning" });
+      await actOn(panel, "tool.exe", "discard");
+      await waitState(panel, "tool.exe", "discarded");
+      await waitForValue(async () =>
+        !files().some((f) => f.startsWith("Unconfirmed")) && !files().includes("tool.exe") ? true : undefined,
+      );
+      await closePanel();
+
+      // A failed download says so, with Retry.
+      await download("/download/missing.bin");
+      await page!.waitFor(
+        `[...document.querySelectorAll('[data-toast="error"]')].some((t) => t.innerText.includes("missing.bin"))`,
+        {
+          label: "a notice that it failed",
+        },
+      );
+
+      // The page: by day, searchable; retry, remove, clear.
+      await click("[data-downloads-button]");
+      await click(`${panel} [data-downloads-all]`);
+      const pageSel = "[data-downloads-page]";
+      await page!.waitFor(`!!document.querySelector('${pageSel} [data-downloads-day="Today"]')`, {
+        label: "today's downloads",
+      });
+      await waitState(pageSel, "missing.bin", "interrupted");
+      await waitState(pageSel, "report (1).txt", "completed");
+      if (
+        !(await page!.eval<boolean>(
+          `!!document.querySelector('${pageSel} [data-download] [data-download-action="show"]')`,
+        ))
+      )
+        throw new Error("no Show in folder");
+      await shot("downloads-page.png");
+      await type("[data-downloads-search]", "setup");
+      await page!.waitFor(`document.querySelectorAll('${pageSel} [data-download]').length === 1`, {
+        label: "searched",
+      });
+      await type("[data-downloads-search]", "");
+      // Retry the cancelled one: it downloads again, in full.
+      await actOn(pageSel, "slow.bin", "retry");
+      await waitState(pageSel, "slow.bin", "completed", 30_000);
+      if (readFileSync(join(downloadsDir, "slow.bin")).length !== 40 * 64 * 1024)
+        throw new Error("the retry didn't finish");
+      await actOn(pageSel, "report (1).txt", "remove");
+      await page!.waitFor(
+        `![...document.querySelectorAll('${pageSel} [data-download]')].some((r) => r.innerText.includes("report (1).txt"))`,
+        {
+          label: "removed",
+        },
+      );
+      if (!files().includes("report (1).txt")) throw new Error("removing it from the list deleted the file");
+      await click("[data-downloads-clear]");
+      await page!.waitFor(`!!document.querySelector("[data-downloads-page] [data-downloads-empty]")`, {
+        label: "cleared",
+      });
+      return `saved ${files().join(", ")}; paused, cancelled, kept, discarded, failed, retried, searched, cleared`;
+    },
+  );
 
   await check("page changes: hide, rewrite, insert, buttons; dynamic content, toggles, removal, reloads", async () => {
     if (!webTabId) throw new Error("needs the web tab");
@@ -3664,9 +3861,9 @@ try {
     });
     await page!.waitFor(`!!document.querySelector('nav li[data-app-id="${tab.id}"]')`, { label: "tab in the sidebar" });
     await click(`nav li[data-app-id="${tab.id}"]`);
-    // The agent sidebar is closed on web tabs until it's opened (Ctrl+J).
+    // The agent sidebar is closed on web tabs until it's opened (Ctrl+I).
     await page!.eval(
-      `window.dispatchEvent(new KeyboardEvent("keydown", { key: "j", ${mod}: true, bubbles: true })), true`,
+      `window.dispatchEvent(new KeyboardEvent("keydown", { key: "i", ${mod}: true, bubbles: true })), true`,
     );
     const panel = `[data-agent-for="${tab.id}"]`;
     await page!.waitFor(`!!document.querySelector('${panel} [data-add-source]')`, { label: "add source button" });
@@ -3708,7 +3905,7 @@ try {
       });
       await click(`nav li[data-app-id="${tab.id}"]`);
       await page!.eval(
-        `window.dispatchEvent(new KeyboardEvent("keydown", { key: "j", ${mod}: true, bubbles: true })), true`,
+        `window.dispatchEvent(new KeyboardEvent("keydown", { key: "i", ${mod}: true, bubbles: true })), true`,
       );
       const panel = `[data-agent-for="${tab.id}"]`;
       await page!.waitFor(`!!document.querySelector('${panel} [data-composer]')`, { label: "composer" });
@@ -4297,7 +4494,7 @@ try {
       if (privateUi.agent || privateUi.workspaces)
         throw new Error(`agent or workspaces shown: ${JSON.stringify(privateUi)}`);
       if (!String(privateUi.title).includes("Private")) throw new Error(`title: ${privateUi.title}`);
-      // Its "New tab" menu has no apps; Ctrl+J does nothing there.
+      // Its "New tab" menu has no apps; Ctrl+I (the agent) does nothing there.
       await priv.win.eval(`document.querySelector("[data-new-tab]").click(), true`);
       await priv.win.waitFor(`!!document.querySelector("[data-context-menu]")`, { label: "private new tab menu" });
       const menu = await priv.win.eval<string>(`document.querySelector("[data-context-menu]").innerText`);
@@ -4448,6 +4645,7 @@ try {
     console.warn(`Couldn't remove ${profile}:`, err);
   }
   rmSync(browserDir, { recursive: true, force: true });
+  rmSync(downloadsDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
 }
 
 const failed = results.filter((r) => !r.ok);

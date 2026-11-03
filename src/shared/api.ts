@@ -17,6 +17,7 @@ import type { FlagsInfo } from "./flags";
 import type { GpuReport, VersionInfo } from "./internalPages";
 import type { WorkspaceSettings } from "./settings";
 import type { UpdateChannel, UpdateInfo } from "./updates";
+import type { DownloadAction, DownloadInfo, DownloadsChange } from "./downloads";
 
 export interface HealthResponse {
   ok: true;
@@ -138,6 +139,16 @@ export interface RuneBridge {
     detectImports: () => Promise<{ key: string; browser: string; profile: string; found: ImportedBrowserSettings }[]>;
     /** The system's languages, spell check's dictionaries and the Downloads folder. */
     info: () => Promise<{ systemLanguages: string[]; spellcheckLanguages: string[]; downloadsFolder: string } | null>;
+  };
+  /** Downloads of every session (main/downloads.ts). */
+  downloads: {
+    /** Newest first. */
+    list: () => Promise<DownloadInfo[]>;
+    /** Resolves to a problem to show, or null. */
+    act: (id: string, action: DownloadAction) => Promise<string | null>;
+    /** Removes what's finished from the list (the files stay). */
+    clear: () => Promise<void>;
+    onChanged: (fn: (change: DownloadsChange) => void) => () => void;
   };
   web: {
     /** Deletes the cookies and storage of a workspace's web tabs (the workspace was deleted). */

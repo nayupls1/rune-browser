@@ -5,6 +5,7 @@ import { AppTab } from "./components/AppTab";
 import { CommandBar } from "./components/CommandBar";
 import { AuthHost } from "./components/AuthDialog";
 import { ConfirmHost } from "./components/ConfirmDialog";
+import { DownloadsPanel } from "./components/Downloads";
 import { ExtensionImportHost } from "./components/ExtensionImport";
 import { PermissionHost } from "./components/PermissionHost";
 import { ModReviewHost } from "./components/ModsPage";
@@ -16,6 +17,7 @@ import { Sidebar } from "./components/Sidebar";
 import { ToastHost } from "./components/Toast";
 import { Button } from "./components/ui";
 import { WebTab } from "./components/WebTab";
+import "./lib/downloads";
 import "./lib/schedules";
 import "./lib/updates";
 import { startUnloading } from "./lib/unload";
@@ -120,6 +122,7 @@ export default function App() {
       <PermissionHost />
       <ModReviewHost />
       <CommandBar />
+      <DownloadsPanel />
       <ToastHost />
       <div {...stylex.attrs(styles.column)}>
         <Show when={window.rune.safeMode}>

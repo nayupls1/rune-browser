@@ -75,8 +75,8 @@ describe("internal pages", () => {
     for (const page of chromiumPages.filter((p) => p.status === "matched" && !p.host.includes("/")))
       expect(parseInternalUrl(`chrome://${page.host}`)?.page).toBeDefined();
     // Pages other work is bringing aren't claimed yet.
-    for (const host of ["history", "downloads", "bookmarks"])
-      expect(parseInternalUrl(`rune://${host}`)?.page).toBeUndefined();
+    for (const host of ["history", "bookmarks"]) expect(parseInternalUrl(`rune://${host}`)?.page).toBeUndefined();
+    expect(parseInternalUrl("chrome://downloads")?.page?.target).toEqual({ view: "downloads" });
   });
 
   test("GPU status reads like chrome://gpu", () => {

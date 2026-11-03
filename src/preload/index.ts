@@ -67,6 +67,12 @@ const bridge: RuneBridge = {
     detectImports: () => ipcRenderer.invoke("rune:browser-import-detect"),
     info: () => ipcRenderer.invoke("rune:browser-info"),
   },
+  downloads: {
+    list: () => ipcRenderer.invoke("rune:downloads-list"),
+    act: (id, action) => ipcRenderer.invoke("rune:downloads-act", id, action),
+    clear: () => ipcRenderer.invoke("rune:downloads-clear"),
+    onChanged: listen("rune:downloads-changed"),
+  },
   web: {
     clearWorkspace: (workspaceId) => ipcRenderer.invoke("rune:clear-workspace", workspaceId),
     onOpenTab: (fn) => {

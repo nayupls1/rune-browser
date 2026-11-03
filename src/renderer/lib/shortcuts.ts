@@ -20,6 +20,7 @@ import {
   appById,
   closeTab,
   currentWorkspace,
+  DOWNLOADS_VIEW,
   duplicateApp,
   HISTORY_VIEW,
   isPrivate,
@@ -204,6 +205,7 @@ const actions: Record<string, Action> = {
   "app.quit": { run: () => window.rune.window.quit() },
 
   "open.history": { run: () => selectApp(HISTORY_VIEW) },
+  "open.downloads": { run: () => selectApp(DOWNLOADS_VIEW) },
   "open.settings": { run: () => openSettings() },
   "open.extensions": { run: () => openSettings("extensions") },
   "open.shortcuts": { run: () => openSettings("shortcuts") },

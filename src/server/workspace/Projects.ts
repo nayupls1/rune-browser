@@ -81,7 +81,7 @@ export const make = Effect.gen(function* () {
   const scheduler = yield* Scheduler;
   const hub = yield* Hub;
 
-  // A built app opens finished, with the agent sidebar closed (editing is one click or Ctrl+J away).
+  // A built app opens finished, with the agent sidebar closed (editing is one click or Ctrl+I away).
   yield* apps.finishEditing();
 
   const publish = (summary: AppSummary | null) =>

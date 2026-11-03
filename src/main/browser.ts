@@ -5,8 +5,7 @@
 // browsing data, sites' cookies, and reading other browsers' settings for
 // Import. The renderer sends the settings whenever they change.
 import { app, ipcMain, webContents, type Session, type WebContents } from "electron";
-import { existsSync, mkdirSync } from "node:fs";
-import { extname, join } from "node:path";
+import { mkdirSync } from "node:fs";
 import { Schema } from "effect";
 import {
   BrowserSettings,
@@ -109,34 +108,13 @@ export function setupBrowser(options: BrowserOptions) {
     return app.getPath("downloads");
   };
 
-  /** A free file name in a folder, like Chrome's: "report.pdf", "report (1).pdf"… */
-  function freePath(folder: string, name: string) {
-    // Windows refuses its device names (CON, NUL…) and names ending in a dot or space.
-    let safe =
-      name
-        .replace(/[\\/:*?"<>|\x00-\x1f]+/g, "_")
-        .trim()
-        .replace(/[. ]+$/, "") || "download";
-    if (/^(con|prn|aux|nul|com\d|lpt\d)(\.|$)/i.test(safe)) safe = `_${safe}`;
-    const ext = extname(safe);
-    const base = safe.slice(0, safe.length - ext.length);
-    let path = join(folder, safe);
-    for (let i = 1; existsSync(path) && i < 1000; i++) path = join(folder, `${base} (${i})${ext}`);
-    return path;
-  }
-
   // --- Sessions and pages -------------------------------------------------------------------------
 
-  /** A workspace's web tab session: the languages, spell check and where downloads go. */
+  /** A workspace's web tab session: the languages and spell check (downloads are main/downloads.ts's). */
   function setupSession(s: Session) {
     if (sessions.has(s)) return;
     sessions.add(s);
     applyLanguages(s);
-    s.on("will-download", (_event, item) => {
-      const folder = downloadsFolder();
-      if (browser.downloads.ask) item.setSaveDialogOptions({ defaultPath: join(folder, item.getFilename()) });
-      else item.setSavePath(freePath(folder, item.getFilename()));
-    });
   }
 
   /** The fonts of a web tab's page, set when its webview is attached. */
@@ -295,6 +273,10 @@ export function setupBrowser(options: BrowserOptions) {
     permission,
     /** The rules for the built-in extension, numbered from `firstId`. */
     rules: (firstId: number) => browserRulesToDnr(browser, firstId),
+    /** Where downloads go (Settings → Browser → Downloads), made if it's missing. */
+    downloadsFolder,
+    /** Whether every download asks where to save. */
+    askWhereToSave: () => browser.downloads.ask,
   };
 }
 
