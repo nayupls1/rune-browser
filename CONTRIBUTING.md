@@ -26,6 +26,6 @@ bun fmt          # format the code
 bun run check    # formatting, typecheck, unit tests, build and e2e (headless)
 ```
 
-See the [README](README.md) for requirements and [docs/](docs/) for how it fits
+See the [README](README.md) for requirements and [apps/browser/docs/](apps/browser/docs/) for how it fits
 together. [CLAUDE.md](CLAUDE.md) has the conventions the code follows (it's
 written for coding agents, but it's the best summary for people too).

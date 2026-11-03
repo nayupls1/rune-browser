@@ -1,5 +1,7 @@
 # Typecheck, unit tests, build and e2e on Linux and Windows. Runs on pull
 # requests and master, and before every release (release.yml calls it).
+# Typecheck, tests and build run in every package (apps/*) through Turborepo;
+# e2e is the browser's (apps/browser).
 name: CI
 
 on:
@@ -29,9 +31,14 @@ jobs:
     env:
       # e2e: no agent logins on CI, so providers only need to be detected.
       CI: "1"
+      TURBO_TELEMETRY_DISABLED: "1"
     steps:
-      - uses: actions/checkout@v7
-      - uses: oven-sh/setup-bun@v2
+      # Actions are pinned to a commit (tags can be moved), with the version alongside.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Nothing here pushes, so the token isn't left in .git/config for later steps.
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: package.json
       - name: Linux sandboxes (bubblewrap, user namespaces for it and Chromium)
@@ -53,9 +60,9 @@ jobs:
           E2E_TIMEOUT_SCALE: ${{ runner.os == 'Windows' && '2' || '1' }}
       - name: Screenshots
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: screenshots-${{ matrix.os }}
-          path: test-results/
+          path: apps/browser/test-results/
           if-no-files-found: ignore
           retention-days: 7

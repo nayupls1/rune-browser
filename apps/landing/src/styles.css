@@ -1,0 +1,482 @@
+/* Rune's palette (apps/browser/docs/design-system.md), light and dark. */
+:root {
+  --bg: #f8f5f0;
+  --surface: #fffdfa;
+  --text: #2b211a;
+  --muted: color-mix(in oklab, var(--text) 64%, var(--bg));
+  --border: color-mix(in oklab, var(--surface) 88%, var(--text));
+  --accent: #c2461f;
+  --accent-text: #ffffff;
+  --accent-soft: color-mix(in oklab, var(--surface) 88%, var(--accent));
+
+  --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
+  --page: 72rem;
+  --gutter: clamp(1.25rem, 4vw, 3rem);
+  --radius: 14px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #171411;
+    --surface: #211d19;
+    --text: #f2ece3;
+    --border: color-mix(in oklab, var(--surface) 86%, var(--text));
+    --accent: #ec7748;
+    --accent-text: #000000;
+    --accent-soft: color-mix(in oklab, var(--surface) 78%, var(--accent));
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 1.0625rem;
+  line-height: 1.6;
+  text-rendering: optimizeLegibility;
+}
+
+img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+a {
+  color: var(--accent);
+  text-underline-offset: 0.2em;
+  text-decoration-thickness: 1px;
+}
+
+a:hover {
+  text-decoration-thickness: 2px;
+}
+
+:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+code {
+  font-family: var(--mono);
+  font-size: 0.875em;
+  background-color: var(--accent-soft);
+  padding: 0.1em 0.35em;
+  border-radius: 5px;
+  overflow-wrap: anywhere;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  line-height: 1.1;
+  text-wrap: balance;
+}
+
+h2 {
+  font-size: clamp(1.75rem, 3.2vw, 2.5rem);
+  font-weight: 750;
+  letter-spacing: -0.025em;
+}
+
+h3 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+p {
+  margin: 0;
+  text-wrap: pretty;
+}
+
+.skip {
+  position: absolute;
+  left: 1rem;
+  top: -4rem;
+  padding: 0.5rem 0.75rem;
+  background-color: var(--surface);
+  border-radius: 8px;
+  z-index: 1;
+}
+
+.skip:focus {
+  top: 1rem;
+}
+
+/* The bar */
+
+.bar,
+main,
+.foot {
+  max-width: var(--page);
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-block: 1.25rem;
+}
+
+.wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  color: var(--text);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  text-decoration: none;
+}
+
+.bar nav,
+.foot nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+}
+
+.bar nav a,
+.foot nav a {
+  color: var(--text);
+  text-decoration: none;
+}
+
+.bar nav a:hover,
+.foot nav a:hover {
+  color: var(--accent);
+}
+
+/* The hero: the headline, and the rune drawn in one stroke. */
+
+.hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(8rem, 15rem);
+  align-items: center;
+  gap: clamp(2rem, 6vw, 6rem);
+  padding-block: clamp(3rem, 9vw, 7rem) clamp(2.5rem, 6vw, 4.5rem);
+}
+
+.hero h1 {
+  max-width: 17ch;
+  font-size: clamp(2.5rem, 6.4vw, 5.25rem);
+  font-weight: 800;
+  letter-spacing: -0.045em;
+  line-height: 0.98;
+}
+
+.lede {
+  max-width: 38rem;
+  margin-top: 1.75rem;
+  font-size: clamp(1.125rem, 1.6vw, 1.3rem);
+  color: var(--muted);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1.75rem;
+  margin-top: 2.25rem;
+}
+
+.button {
+  display: inline-block;
+  padding: 0.85rem 1.4rem;
+  border-radius: 999px;
+  background-color: var(--accent);
+  color: var(--accent-text);
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.button:hover {
+  background-color: color-mix(in oklab, var(--accent) 88%, var(--text));
+}
+
+.quiet {
+  font-weight: 600;
+}
+
+.platforms {
+  margin-top: 1.25rem;
+  font-size: 0.9375rem;
+  color: var(--muted);
+}
+
+.rune {
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.rune path {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  .rune path {
+    animation: draw 1.6s cubic-bezier(0.65, 0, 0.35, 1) 0.15s both;
+  }
+
+  @keyframes draw {
+    from {
+      stroke-dashoffset: 1;
+    }
+  }
+}
+
+/* Screenshots */
+
+.shot {
+  margin: 0;
+}
+
+.shot img {
+  width: 100%;
+  border-radius: var(--radius);
+  border-width: 1px;
+  border-style: solid;
+  border-color: var(--border);
+  background-color: var(--surface);
+  box-shadow:
+    0 1px 2px color-mix(in oklab, var(--text) 8%, transparent),
+    0 24px 60px -24px color-mix(in oklab, #a62f19 35%, transparent);
+}
+
+.shot figcaption {
+  margin-top: 0.85rem;
+  font-size: 0.9375rem;
+  color: var(--muted);
+}
+
+.pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(1.25rem, 3vw, 2.5rem);
+  margin-top: clamp(3rem, 7vw, 5rem);
+}
+
+/* What it does */
+
+.features {
+  padding-top: clamp(4rem, 9vw, 7rem);
+}
+
+.features dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2.5rem clamp(2rem, 5vw, 4.5rem);
+  margin: 2.5rem 0 0;
+}
+
+.features dl > div {
+  padding-top: 1.25rem;
+  border-top-width: 2px;
+  border-top-style: solid;
+  border-top-color: var(--border);
+}
+
+.features dt {
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.features dd {
+  max-width: 34rem;
+  margin: 0.5rem 0 0;
+  color: var(--muted);
+}
+
+/* Safe by default: the one band in the rune's color. */
+
+.safety {
+  margin-top: clamp(4rem, 9vw, 7rem);
+  padding: clamp(2rem, 5vw, 3.5rem);
+  border-radius: calc(var(--radius) * 1.5);
+  background-color: var(--accent-soft);
+}
+
+.safety-lede {
+  max-width: 36rem;
+  margin-top: 1rem;
+  font-size: 1.125rem;
+}
+
+.safety ul {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem 3rem;
+  margin: 2rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.safety li {
+  position: relative;
+  padding-left: 1.75rem;
+}
+
+/* A small rune-shaped tick: the mark's arrow. */
+.safety li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.55em;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-top-width: 3px;
+  border-right-width: 3px;
+  border-top-style: solid;
+  border-right-style: solid;
+  border-color: var(--accent);
+  transform: rotate(45deg);
+}
+
+/* Install */
+
+.install {
+  padding-block: clamp(4rem, 9vw, 7rem) 2rem;
+}
+
+.install > p {
+  max-width: 40rem;
+  margin-top: 1rem;
+}
+
+.install h3 {
+  margin-top: 3rem;
+}
+
+table {
+  width: 100%;
+  margin-top: 2rem;
+  border-collapse: collapse;
+  font-size: 1rem;
+}
+
+th,
+td {
+  padding: 1rem 1.25rem 1rem 0;
+  text-align: left;
+  vertical-align: top;
+  border-bottom-width: 1px;
+  border-bottom-style: solid;
+  border-bottom-color: var(--border);
+}
+
+thead th {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+tbody th {
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+td:first-of-type {
+  white-space: nowrap;
+}
+
+.agents {
+  margin: 1rem 0 1.25rem;
+  padding-left: 1.25rem;
+}
+
+.agents li + li {
+  margin-top: 0.5rem;
+}
+
+/* Footer */
+
+.foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 1rem 2rem;
+  padding-block: 2.5rem 3rem;
+  margin-top: 3rem;
+  border-top-width: 1px;
+  border-top-style: solid;
+  border-top-color: var(--border);
+  font-size: 0.9375rem;
+  color: var(--muted);
+}
+
+/* Small screens */
+
+@media (max-width: 52rem) {
+  .hero {
+    grid-template-columns: 1fr;
+  }
+
+  .rune {
+    order: -1;
+    width: 4.5rem;
+  }
+
+  .pair,
+  .features dl,
+  .safety ul {
+    grid-template-columns: 1fr;
+  }
+
+  table,
+  thead,
+  tbody,
+  tr,
+  th,
+  td {
+    display: block;
+  }
+
+  thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  tr {
+    padding-block: 1rem;
+    border-bottom-width: 1px;
+    border-bottom-style: solid;
+    border-bottom-color: var(--border);
+  }
+
+  th,
+  td {
+    padding: 0.15rem 0;
+    border-bottom-width: 0;
+  }
+
+  td:first-of-type {
+    white-space: normal;
+  }
+}

@@ -1,0 +1,10 @@
+# Response headers for hosts that read this file (Cloudflare Pages, Netlify).
+# The CSP matches the meta tag the build adds (vite.config.ts), plus
+# frame-ancestors, which only works as a header.
+/*
+  Content-Security-Policy: default-src 'none'; img-src 'self'; style-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; upgrade-insecure-requests
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), interest-cohort=()
+  Cross-Origin-Opener-Policy: same-origin
+  Strict-Transport-Security: max-age=31536000; includeSubDomains

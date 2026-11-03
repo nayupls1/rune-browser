@@ -1,10 +1,19 @@
 # Rune Browser
 
-Electron + SolidJS (StyleX) desktop app; Bun server written with Effect v4 (SQLite; Claude Code, Codex, OpenCode as agents). See [docs/](docs/) for the architecture and concepts, [docs/releasing.md](docs/releasing.md) for releases.
+Electron + SolidJS (StyleX) desktop app; Bun server written with Effect v4 (SQLite; Claude Code, Codex, OpenCode as agents). See [apps/browser/docs/](apps/browser/docs/) for the architecture and concepts, [releasing.md](apps/browser/docs/releasing.md) for releases.
+
+## The repository
+
+A Bun workspace with Turborepo (`turbo.json`):
+
+- `apps/browser`: Rune Browser, the main package. Paths below (`src/…`, `scripts/…`, `tests/…`) are relative to it.
+- `apps/landing`: the website, one static Vite page with no JavaScript and a strict CSP (`default-src 'none'`: no scripts at all); keep it that way, no third-party scripts, fonts or trackers.
+
+Run commands from the repo's root: `bun run check`, `typecheck`, `test` and `build` go through Turborepo for every package; `dev`, `start`, `package`, `server`, `e2e` and `release` are the browser's (`dev:landing` for the website). Each package lists every dependency it imports in its own `package.json` (Bun's isolated linker doesn't hoist).
 
 ## Working in this repo
 
-- Work on a branch per piece of work and open a pull request against `master`; `master` only changes through pull requests, and CI (`bun run check` on Linux, Windows and macOS) must pass. PR titles become the release notes, so write them for users.
+- Work on a branch per piece of work and open a pull request against `master`; `master` only changes through pull requests, and CI (`bun run check` on Linux and Windows) must pass. PR titles become the release notes, so write them for users.
 - Never commit anything sensitive: secrets, tokens, credentials, personal data, local databases or `.data/`. Check the staged diff before committing.
 - No backward compatibility before 1.0: rename and reshape freely, without migrations or legacy fallbacks.
 - Several agents may work in this repo at the same time:
@@ -17,7 +26,7 @@ Electron + SolidJS (StyleX) desktop app; Bun server written with Effect v4 (SQLi
 
 - Auth is always the user's own logins (Claude subscription, Codex/ChatGPT, OpenCode). Never add an API-key path; `ANTHROPIC_API_KEY` is stripped from Claude's environment on purpose.
 - Don't show the user's account email anywhere in the UI. The plan type ("Claude Pro") is fine.
-- Secret values never reach agents, prompts, logs, process arguments or the API's responses (see docs/concepts.md: Secrets). Agent processes get the environment via `agentEnv()` (no `RUNE_*`); app processes get exactly what the Runtime/Sandbox give them.
+- Secret values never reach agents, prompts, logs, process arguments or the API's responses (see apps/browser/docs/concepts.md: Secrets). Agent processes get the environment via `agentEnv()` (no `RUNE_*`); app processes get exactly what the Runtime/Sandbox give them.
 - New capabilities that let an app or agent reach beyond its sandbox go through `Permissions.ask` and are recorded with `Audit.record`.
 - Untrusted input never reaches a provider that has tools of its own. This covers web pages (the website agent) and apps' AI requests: they run with `access: "none"`, where every provider has its file, shell, web and connector tools switched off.
 
@@ -26,7 +35,7 @@ Electron + SolidJS (StyleX) desktop app; Bun server written with Effect v4 (SQLi
 - Bun everywhere: `bun install`, `bun run <script>`.
 - Format with `bun fmt` before committing (settings in `bunfig.toml`); `bun run check` and CI fail on unformatted files. Type-check with `bun run typecheck` (`bun check`).
 - Verify changes with `bun run check` (formatting, typecheck, unit tests, build, e2e). Chain steps with `&&`, and don't hide failures behind pipes.
-  - For UI work, look at the screenshots in `test-results/`.
+  - For UI work, look at the screenshots in `apps/browser/test-results/`.
   - `bun run e2e --agent` exercises real agent runs. They use your own plan; it picks Haiku/low effort.
 - `scripts/lib/cdp.ts` is a small DevTools client for driving the running app if you need to inspect something e2e doesn't cover. Launch it headless as above.
 - StyleX:
