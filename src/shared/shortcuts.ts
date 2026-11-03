@@ -86,8 +86,8 @@ export const shortcutDefs: ShortcutDef[] = [
     page: "page",
   },
   { id: "tab.duplicate", label: "Duplicate tab", category: "Tabs", keys: [], page: "page" },
-  // Chromium bookmarks the page; pinning is how Rune Browser keeps a page.
-  { id: "tab.pin", label: "Pin or unpin tab", category: "Tabs", keys: ["Mod+D"], page: "page" },
+  // No keys of its own (Ctrl+D bookmarks, like in Chromium); its menu and the command bar pin, or give it keys in Settings.
+  { id: "tab.pin", label: "Pin or unpin tab", category: "Tabs", keys: [], page: "page" },
   { id: "tab.search", label: "Search tabs", category: "Tabs", keys: ["Mod+Shift+A"], page: "page" },
 
   // --- Navigation
@@ -214,6 +214,18 @@ export const shortcutDefs: ShortcutDef[] = [
   { id: "app.quit", label: "Quit", category: "Window", keys: ["Ctrl+Shift+Q"], mac: [], page: "reserved" },
 
   // --- Browser
+  { id: "bookmark.page", label: "Bookmark this tab", category: "Browser", keys: ["Mod+D"], page: "page" },
+  { id: "bookmark.all", label: "Bookmark all tabs", category: "Browser", keys: ["Mod+Shift+D"], page: "page" },
+  {
+    id: "open.bookmarks",
+    label: "Bookmarks",
+    category: "Browser",
+    keys: ["Mod+Shift+O"],
+    mac: ["Alt+Meta+B"],
+    page: "page",
+  },
+  // Chromium's Ctrl+Shift+B is the sidebar's.
+  { id: "bookmarks.bar", label: "Show or hide the bookmarks bar", category: "Browser", keys: [], page: "page" },
   { id: "open.history", label: "History", category: "Browser", keys: ["Mod+H"], mac: ["Meta+Y"], page: "page" },
   {
     id: "open.downloads",

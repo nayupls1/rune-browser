@@ -38,6 +38,9 @@ import { Permissions, WEBSITE_AGENT } from "./security/Permissions";
 import { Secrets } from "./security/Secrets";
 import { ServerConfig } from "./Config";
 import { Apps } from "./db/Apps";
+import { BookmarkError, Bookmarks } from "./bookmarks/Bookmarks";
+import { bookmarkSources } from "./bookmarks/sources";
+import { parseBookmarksHtml } from "../shared/bookmarks";
 import { isIcon } from "./icons";
 import { Network } from "./db/Network";
 import { ResponseOverrides } from "./db/ResponseOverrides";
@@ -2765,6 +2768,120 @@ const endpointRoutes = HttpRouter.addAll([
   ),
 ]);
 
+// --- Bookmarks (bookmarks/Bookmarks.ts) ----------------------------------------------------------
+
+const bookmarkError = (e: BookmarkError) => fail(e.status, e.message);
+
+const BookmarkIndex = Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0));
+
+const bookmarkRoutes = HttpRouter.addAll([
+  HttpRouter.route(
+    "GET",
+    "/api/bookmarks",
+    Effect.gen(function* () {
+      return json(yield* (yield* Bookmarks).tree);
+    }),
+  ),
+  HttpRouter.route(
+    "POST",
+    "/api/bookmarks",
+    handle(
+      Effect.gen(function* () {
+        const input = yield* decodeBody(
+          Schema.Struct({
+            parentId: Schema.optionalKey(str(40)),
+            index: Schema.optionalKey(BookmarkIndex),
+            title: Schema.optionalKey(str(10_000)),
+            url: Schema.optionalKey(str(10_000)),
+          }),
+        );
+        return json(yield* (yield* Bookmarks).create(input).pipe(Effect.catchTag("BookmarkError", bookmarkError)));
+      }),
+    ),
+  ),
+  // A new title or address, and/or a new place (chrome.bookmarks.update and move).
+  HttpRouter.route(
+    "PATCH",
+    "/api/bookmarks/:id",
+    handle(
+      Effect.gen(function* () {
+        const id = yield* param("id");
+        const input = yield* decodeBody(
+          Schema.Struct({
+            title: Schema.optionalKey(str(10_000)),
+            url: Schema.optionalKey(str(10_000)),
+            parentId: Schema.optionalKey(str(40)),
+            index: Schema.optionalKey(BookmarkIndex),
+          }),
+        );
+        return json(yield* (yield* Bookmarks).edit(id, input).pipe(Effect.catchTag("BookmarkError", bookmarkError)));
+      }),
+    ),
+  ),
+  // A page or an empty folder; ?recursive=1 for a folder with everything in it.
+  HttpRouter.route(
+    "DELETE",
+    "/api/bookmarks/:id",
+    handle(
+      Effect.gen(function* () {
+        const req = yield* HttpServerRequest.HttpServerRequest;
+        const recursive = new URL(req.url, "http://localhost").searchParams.get("recursive") === "1";
+        yield* (yield* Bookmarks)
+          .remove(yield* param("id"), recursive)
+          .pipe(Effect.catchTag("BookmarkError", bookmarkError));
+        return noContent;
+      }),
+    ),
+  ),
+  HttpRouter.route(
+    "GET",
+    "/api/bookmarks/export",
+    Effect.gen(function* () {
+      return HttpServerResponse.text(yield* (yield* Bookmarks).html, {
+        contentType: "text/html; charset=utf-8",
+        headers: { "Content-Disposition": 'attachment; filename="bookmarks.html"' },
+      });
+    }),
+  ),
+  // Other browsers' profiles with bookmarks, to import from.
+  HttpRouter.route(
+    "GET",
+    "/api/bookmarks/sources",
+    Effect.sync(() => json(bookmarkSources().map((f) => f.source))),
+  ),
+  // From a browser profile (its id from /sources), or an exported HTML file.
+  HttpRouter.route(
+    "POST",
+    "/api/bookmarks/import",
+    handle(
+      Effect.gen(function* () {
+        const input = yield* decodeBody(
+          Schema.Struct({ source: Schema.optionalKey(str(40)), html: Schema.optionalKey(str(50_000_000)) }),
+        );
+        const bookmarks = yield* Bookmarks;
+        if (input.html !== undefined) {
+          const data = parseBookmarksHtml(input.html);
+          if (!data.bar.length && !data.other.length) return yield* fail(400, "There are no bookmarks in that file.");
+          return json(
+            yield* bookmarks.importBookmarks("a file", data).pipe(Effect.catchTag("BookmarkError", bookmarkError)),
+          );
+        }
+        const found = bookmarkSources().find((f) => f.source.id === input.source);
+        if (!found) return yield* fail(404, "That browser profile isn't there anymore.");
+        const data = yield* Effect.try({
+          try: () => found.read(),
+          catch: (e) => new HttpFail({ status: 400, message: `Reading its bookmarks failed: ${e}` }),
+        });
+        return json(
+          yield* bookmarks
+            .importBookmarks(found.source.browser, data)
+            .pipe(Effect.catchTag("BookmarkError", bookmarkError)),
+        );
+      }),
+    ),
+  ),
+]);
+
 export const routes = Layer.mergeAll(
   health,
   ws,
@@ -2794,6 +2911,7 @@ export const routes = Layer.mergeAll(
   overrideRoutes,
   endpointRoutes,
   visitRoutes,
+  bookmarkRoutes,
   guard,
 );
 

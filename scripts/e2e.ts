@@ -3427,6 +3427,28 @@ try {
     if (stored.fromWorker !== 1) throw new Error("storage.sync didn't keep the value");
     if (siteSeen.length !== before) throw new Error("a blocked request reached the site");
 
+    // chrome.bookmarks is Rune Browser's bookmarks, and the worker hears about changes.
+    const options = `[data-web-tab="${optionsTab}"]`;
+    const made = await inView<{ id: string; found: number }>(
+      options,
+      `chrome.bookmarks.create({ title: "From the extension", url: "https://ext.example/" })
+        .then(async (node) => ({ id: node.id, found: (await chrome.bookmarks.search("from the extension")).length }))`,
+    );
+    if (made.found !== 1) throw new Error(`chrome.bookmarks.search found ${made.found}`);
+    const saved = await apiCall<{ children: { children: { id: string; title: string }[] }[] }>("/api/bookmarks");
+    if (!saved.children.some((f) => f.children.some((b) => b.id === made.id && b.title === "From the extension")))
+      throw new Error("the extension's bookmark isn't in Rune Browser's bookmarks");
+    await waitForValue(async () => {
+      const value = await inView<string | undefined>(
+        options,
+        `chrome.storage.local.get("bookmarked").then((r) => r.bookmarked)`,
+      );
+      return value === "From the extension" ? true : undefined;
+    }, 10_000).catch(() => {
+      throw new Error("chrome.bookmarks.onCreated didn't reach the extension's worker");
+    });
+    await inView(options, `chrome.bookmarks.remove(${JSON.stringify(made.id)}).then(() => true)`);
+
     // A site's sign-in: the extension fills it in (webRequest.onAuthRequired), else Rune Browser's dialog asks.
     const titleOf = () => inPage<string>("document.title");
     await page!.eval(
@@ -3453,7 +3475,7 @@ try {
       15_000,
     );
     if (byYou !== "Signed in as you") throw new Error(`sign-in in the dialog: ${byYou}`);
-    return `content script with Chrome's data, badge ${badge}, popup on ${popupUrl}, shortcut → ${stored.command}, onInstalled: ${stored.installed.reason}, sign-ins by the extension and the dialog`;
+    return `content script with Chrome's data, badge ${badge}, popup on ${popupUrl}, shortcut → ${stored.command}, onInstalled: ${stored.installed.reason}, bookmarks with their events, sign-ins by the extension and the dialog`;
   });
 
   await check(
@@ -4704,10 +4726,10 @@ try {
     });
     if (
       await page!.eval<boolean>(
-        `document.querySelector('[data-chromium-url="bookmarks"]')?.dataset.status !== "not-yet"`,
+        `document.querySelector('[data-chromium-url="password-manager"]')?.dataset.status !== "not-yet"`,
       )
     )
-      throw new Error("chrome://bookmarks isn't listed as not there yet");
+      throw new Error("chrome://password-manager isn't listed as not there yet");
     await shot("internal-urls.png");
     await click('[data-rune-url="version"] button');
     await page!.waitFor(`!!document.querySelector('[data-internal-page="version"]')`, { label: "a link in the list" });
@@ -4830,6 +4852,222 @@ try {
       rmSync(certDir, { recursive: true, force: true });
     }
   });
+
+  await check(
+    "bookmarks: the star and Ctrl+D, the bar and menu, address and command bar, the page, import from Chrome",
+    async () => {
+      type Node = { id: string; title: string; url?: string; children?: Node[] };
+      const tree = () => apiCall<Node>("/api/bookmarks");
+      const all = (n: Node): Node[] => [n, ...(n.children ?? []).flatMap(all)];
+      const find = async (title: string) => all(await tree()).find((n) => n.title === title);
+      const folderOf = async (id: string) => (await tree()).children!.find((f) => all(f).some((n) => n.id === id))?.id;
+      const tabApp = await apiCall<{ id: string }>("/api/apps", {
+        method: "POST",
+        body: { kind: "web", url: `${site.url.origin}/second` },
+      });
+      await page!.waitFor(`!!document.querySelector('nav li[data-app-id="${tabApp.id}"]')`, { label: "tab" });
+      await click(`nav li[data-app-id="${tabApp.id}"]`);
+      const tab = `[data-web-tab="${tabApp.id}"]`;
+      await page!.waitFor(
+        `document.querySelector('nav li[data-app-id="${tabApp.id}"]')?.innerText.includes("Second page")`,
+        {
+          timeoutMs: 20_000,
+          label: "page loaded",
+        },
+      );
+      const star = `[data-address-bar] [data-bookmark-star]`;
+      await page!.waitFor(`document.querySelector('${star}')?.dataset.bookmarkStar === "off"`, { label: "empty star" });
+
+      // The star bookmarks the page, and its popover renames it right away.
+      await click(star);
+      await page!.waitFor(`document.querySelector("[data-bookmark-editor]")?.innerText.includes("Bookmark added")`, {
+        label: "popover",
+      });
+      await type("[data-bookmark-name]", "My second page");
+      await shot("bookmark-popover.png");
+      await click("[data-bookmark-done]");
+      await page!.waitFor(`!document.querySelector("[data-bookmark-editor]")`, { label: "popover closed" });
+      const second = await waitForValue(async () => {
+        const n = await find("My second page");
+        return n?.url === `${site.url.origin}/second` ? n : undefined;
+      }).catch(async () => {
+        throw new Error(`the star's bookmark wasn't renamed: ${JSON.stringify(await tree())}`);
+      });
+      if ((await folderOf(second.id)) !== "1") throw new Error("the first bookmark isn't on the bookmarks bar");
+      await page!.waitFor(`document.querySelector('${star}')?.dataset.bookmarkStar === "on"`, { label: "filled star" });
+
+      // Ctrl+D in the page bookmarks it (and doesn't pin the tab any more); the popover moves it.
+      const press = (keyCode: string, modifiers: string[]) =>
+        page!.eval(`(() => {
+          const view = document.querySelector('${tab} webview');
+          view.focus();
+          for (const type of ["keyDown", "keyUp"]) view.sendInputEvent({ type, keyCode: ${JSON.stringify(keyCode)}, modifiers: ${JSON.stringify(modifiers)} });
+          return true;
+        })()`);
+      await page!.eval(`document.querySelector('${tab} webview').loadURL("${site.url.origin}/").catch(() => {}), true`);
+      await page!.waitFor(`document.querySelector('${star}')?.dataset.bookmarkStar === "off"`, {
+        timeoutMs: 20_000,
+        label: "another page",
+      });
+      await press("D", [modKey]);
+      await page!.waitFor(`!!document.querySelector("[data-bookmark-editor]")`, { label: "popover from Ctrl+D" });
+      await page!.eval(`(() => {
+        const select = document.querySelector("[data-bookmark-folder]");
+        select.value = "2";
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+        return true;
+      })()`);
+      await click("[data-bookmark-done]");
+      const testSite = await waitForValue(async () => {
+        const n = await find("Test site");
+        return n && (await folderOf(n.id)) === "2" ? n : undefined;
+      }).catch(async () => {
+        throw new Error(`Ctrl+D's bookmark isn't in other bookmarks: ${JSON.stringify(await tree())}`);
+      });
+      if (
+        await page!.eval<boolean>(
+          `document.querySelector('nav li[data-app-id="${tabApp.id}"]').hasAttribute("data-pinned")`,
+        )
+      )
+        throw new Error("Ctrl+D pinned the tab");
+
+      // The bookmarks bar, from the command bar: the bar's bookmark, and other bookmarks at its end.
+      await runCommand("show the bookmarks bar", "bookmarks.bar");
+      await page!.waitFor(`!!document.querySelector('[data-bookmarks-bar] [data-bar-item="${second.id}"]')`, {
+        label: "bookmark on the bar",
+      });
+      await click(`[data-bookmarks-bar] [data-bar-item="2"]`);
+      await page!.waitFor(`!!document.querySelector('[data-bookmarks-menu] [data-bookmark-item="${testSite.id}"]')`, {
+        label: "other bookmarks' menu",
+      });
+      await shot("bookmarks-bar.png");
+      await page!.eval(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })), true`);
+      await page!.waitFor(`!document.querySelector("[data-bookmarks-menu]")`, { label: "menu closed" });
+      // Clicking one on the bar opens it in the tab.
+      await click(`[data-bookmarks-bar] [data-bar-item="${second.id}"]`);
+      await page!.waitFor(`document.querySelector('${star}')?.dataset.bookmarkStar === "on"`, {
+        timeoutMs: 20_000,
+        label: "opened from the bar",
+      });
+
+      // The menu in the sidebar's top row.
+      await click("[data-bookmarks-button]");
+      await page!.waitFor(`!!document.querySelector('[data-bookmarks-menu] [data-bookmark-item="${second.id}"]')`, {
+        label: "bookmarks menu",
+      });
+      await shot("bookmarks-menu.png");
+      await click("[data-bookmarks-button]");
+      await page!.waitFor(`!document.querySelector("[data-bookmarks-menu]")`, { label: "menu closed again" });
+
+      // The address bar suggests bookmarks while typing; so does the command bar.
+      await page!.eval(`(() => {
+        const input = document.querySelector("[data-address]");
+        input.focus();
+        input.value = "my sec";
+        input.dispatchEvent(new InputEvent("input", { bubbles: true }));
+        return true;
+      })()`);
+      await page!.waitFor(`!!document.querySelector('[data-suggestions] [data-suggestion="bookmark:${second.id}"]')`, {
+        label: "bookmark suggested",
+      });
+      // A page that's bookmarked and in history is one row, the bookmark's (history answers a moment later).
+      await new Promise((r) => setTimeout(r, 300));
+      const urls = await page!.eval<string[]>(
+        `[...document.querySelectorAll("[data-suggestions] [data-suggestion-url]")].map((e) => e.dataset.suggestionUrl)`,
+      );
+      if (new Set(urls).size !== urls.length) throw new Error(`the same page suggested twice: ${urls.join(", ")}`);
+      await page!.eval(
+        `document.querySelector("[data-address]").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })), true`,
+      );
+      await page!.eval(
+        `window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", ${mod}: true, bubbles: true })), true`,
+      );
+      await page!.waitFor(`!!document.querySelector("[data-command-bar] input")`, { label: "command bar" });
+      await type("[data-command-bar] input", "my second page");
+      await page!.waitFor(`!!document.querySelector('[data-command-bar] [data-command="bookmark:${second.id}"]')`, {
+        label: "bookmark in the command bar",
+      });
+      await page!.eval(
+        `document.querySelector("[data-command-bar] input").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })), true`,
+      );
+
+      // The bookmarks page (Ctrl+Shift+O): import from the fixture Chrome profile.
+      await page!.eval(
+        `window.dispatchEvent(new KeyboardEvent("keydown", { key: "${process.platform === "darwin" ? "b" : "O"}", code: "Key${process.platform === "darwin" ? "B" : "O"}", ${mod}: true, ${process.platform === "darwin" ? "altKey" : "shiftKey"}: true, bubbles: true })), true`,
+      );
+      await page!.waitFor(`!!document.querySelector("[data-bookmarks-page]")`, { label: "bookmarks page" });
+      // Settings → Browser → Import has the same import (it opens the bookmarks page's).
+      await openSettingsAt("browser-import");
+      await click("[data-import-bookmarks]");
+      await page!.waitFor(`!!document.querySelector("[data-bookmarks-page]")`, { label: "bookmarks page again" });
+      await page!.waitFor(`!!document.querySelector("[data-bookmarks-import-dialog] [data-import-source]")`, {
+        label: "Chrome's profile offered",
+      });
+      await shot("bookmarks-import.png");
+      await click("[data-bookmarks-import-dialog] [data-import-source]");
+      await page!.waitFor(`!document.querySelector("[data-bookmarks-import-dialog]")`, { label: "imported" });
+      const imported = await waitForValue(async () => {
+        const root = await tree();
+        const bar = root.children!.find((f) => f.id === "1")!;
+        const folder = bar.children!.find((n) => n.title === "Imported from Chromium");
+        return folder?.children?.some((n) => n.title === "Chrome docs") ? folder : undefined;
+      }).catch(async () => {
+        throw new Error(`Chrome's bookmarks didn't come in: ${JSON.stringify(await tree())}`);
+      });
+      if (!(await find("An essay"))) throw new Error("other bookmarks weren't imported");
+      await page!.waitFor(`!!document.querySelector('[data-bookmarks-page] [data-bookmark-row="${imported.id}"]')`, {
+        label: "imported folder on the page",
+      });
+      await shot("bookmarks-page.png");
+
+      // Dragged to the top of the bar, before "My second page".
+      await page!.eval(`(() => {
+        const from = document.querySelector('[data-bookmark-row="${imported.id}"]');
+        const to = document.querySelector('[data-bookmark-row="${second.id}"]');
+        const dataTransfer = new DataTransfer();
+        from.dispatchEvent(new DragEvent("dragstart", { bubbles: true, dataTransfer }));
+        const r = to.getBoundingClientRect();
+        const at = { bubbles: true, cancelable: true, dataTransfer, clientX: r.left + 20, clientY: r.top + 3 };
+        to.dispatchEvent(new DragEvent("dragover", at));
+        to.dispatchEvent(new DragEvent("drop", at));
+        from.dispatchEvent(new DragEvent("dragend", { bubbles: true, dataTransfer }));
+        return true;
+      })()`);
+      await waitForValue(async () => {
+        const bar = (await tree()).children!.find((f) => f.id === "1")!;
+        return bar.children![0]?.id === imported.id ? true : undefined;
+      }).catch(() => {
+        throw new Error("dragging didn't reorder the bar");
+      });
+
+      // Renamed in place.
+      await click(`[data-bookmark-row="${second.id}"] [data-bookmark-edit]`);
+      await page!.waitFor(`!!document.querySelector('[data-bookmark-editing="${second.id}"]')`, { label: "editing" });
+      await type(`[data-bookmark-editing="${second.id}"] [data-edit-name]`, "Second, renamed");
+      await page!.eval(`document.querySelector('[data-bookmark-editing="${second.id}"]').requestSubmit(), true`);
+      await waitForValue(async () => ((await find("Second, renamed")) ? true : undefined));
+
+      // Search finds them in every folder; Delete removes one.
+      await type("[data-bookmarks-search]", "essay");
+      const essay = (await find("An essay"))!;
+      await page!.waitFor(`!!document.querySelector('[data-bookmark-row="${essay.id}"]')`, { label: "search result" });
+      await page!.eval(`(() => {
+        const row = document.querySelector('[data-bookmark-row="${essay.id}"]');
+        row.focus();
+        row.dispatchEvent(new KeyboardEvent("keydown", { key: "Delete", bubbles: true }));
+        return true;
+      })()`);
+      await waitForValue(async () => ((await find("An essay")) ? undefined : true)).catch(() => {
+        throw new Error("Delete didn't remove the bookmark");
+      });
+      await type("[data-bookmarks-search]", "");
+
+      // Turned off again, for the checks after this one.
+      await runCommand("hide the bookmarks bar", "bookmarks.bar");
+      await page!.waitFor(`!document.querySelector("[data-bookmarks-bar]")`, { label: "bar hidden" });
+      return "star, Ctrl+D, popover, bar, menu, suggestions, command bar, import, drag, rename, search, delete";
+    },
+  );
 
   await check("windows: new and private windows, tabs moved out and back, a closed window reopened", async () => {
     const mainId = await page!.eval<string>("window.rune.window.id");

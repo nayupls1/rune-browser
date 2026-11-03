@@ -106,7 +106,8 @@ settings; cookies and site data stay per workspace. The renderer sends them to t
 - **Downloads:** the folder (files get a free name there, like Chrome's "file (1).pdf") or asking every time; see [Downloads](#downloads).
 - **Performance:** memory saver (unloading idle tabs, see Interface).
 - **Autofill and passwords:** Rune Browser has no password store of its own; a password manager extension does that.
-- **Import bookmarks and settings:** from the Chromium-based browsers extension import finds, their Preferences: search
+- **Import bookmarks and settings:** bookmarks through the bookmarks page's import (see [Bookmarks](#bookmarks)); settings
+  from the Chromium-based browsers extension import finds, their Preferences: search
   engine, startup, site settings and defaults, third-party cookies and Do Not Track, zoom, fonts, languages and spell
   check, downloads (`browserSettingsFromChrome`). Site settings and zoom levels are merged into yours; an exception
   Chrome kept for one origin covers that host's subdomains here, like every site setting.
@@ -174,6 +175,18 @@ Web tabs keep a history of the pages they visited, like other browsers (`db/Visi
 - **The address bar** suggests pages from the workspace's history as you type (`GET /api/visits/suggest`): the site you're typing first, then pages whose title matches, then the rest, the often and recently visited ones higher.
 - **Private windows** record no history, the address bar there suggests none, and their History page shows none.
 - **Agents** don't see browsing history, and extensions' `chrome.history` stays empty.
+
+## Bookmarks
+
+Bookmarks work like Chrome's: a bookmarks bar and other bookmarks, with folders in them, the same in every workspace (`bookmarks/Bookmarks.ts`, the tree in `shared/bookmarks.ts`).
+
+- **Bookmarking:** the star in a web tab's address bar, or Ctrl+D, bookmarks the page in the folder used last (the bookmarks bar at first), and a popover shows it to rename or move right away; on a page that's bookmarked already, the star is filled and opens the popover to change it or remove it. Ctrl+Shift+D puts every web tab of the workspace in a new folder.
+- **Finding them:** the bookmark button in the sidebar's top row lists them (folders open inside the menu), the bookmarks bar above the page shows the bar's (turned on in that menu or the command bar), the address bar suggests bookmarks by name or address while you type, and the command bar finds them too. Clicking one opens it in the web tab on screen; Ctrl+click or the middle button in a background tab, Shift+click in a new one.
+- **The bookmarks page** (Ctrl+Shift+O, rune://bookmarks, or Bookmarks in Settings): folders on the left, a folder's bookmarks on the right, or what a search finds in all of them. Rename in place (the pencil or F2), drag to put them in order or into a folder (or Move to…, Move up and down in their menu), Delete to delete one; a folder with things in it asks first.
+- **Import** (the bookmarks page's Import, also in Settings → Browser → Import bookmarks and settings): from Chrome, Chromium, Brave, Edge, Vivaldi and other Chromium browsers (their `Bookmarks` file), Firefox, Zen, LibreWolf, Floorp and Waterfox (a copy of `places.sqlite`, since Firefox keeps it locked), or an HTML file, which Safari and the others export. The other browser's bar goes on the bookmarks bar and the rest into other bookmarks; where there are bookmarks already, they come in an "Imported from …" folder. Scripts (`javascript:`) and browser-only pages are left out, and the count says so.
+- **Export:** an HTML file every browser imports, the bar marked as the toolbar.
+- **Extensions** with the `bookmarks` permission read and change the same bookmarks through `chrome.bookmarks`, and get its events, whoever made the change. The main process asks the server (`main/extensions/apis.ts`); the renderer passes on the server's changes from the hub.
+- **API:** `/api/bookmarks` (the tree, create, `PATCH` to rename or move with Chrome's indexes, `DELETE` with `?recursive=1` for a folder), `/api/bookmarks/sources`, `/api/bookmarks/import`, `/api/bookmarks/export`.
 
 ## Network
 
@@ -250,6 +263,7 @@ An imported extension gets `runtime.onInstalled` with `reason: "update"`, so it 
 - `tabs`/`windows` (tabs open, select and close through Rune Browser's tab list);
 - `commands`, `contextMenus`, `permissions` (optional ones ask first);
 - `storage.sync`, `webNavigation`, `cookies`, `notifications`, `idle`, `management`, `downloads.download`, `search`, `system.cpu`/`memory`/`display`;
+- `bookmarks` (Rune Browser's own, see Bookmarks);
 - `runtime.onInstalled`/`onStartup`/`openOptionsPage`;
 - native messaging.
 
@@ -263,7 +277,7 @@ Stopped service workers are started again for the events they listened to. Elect
 
 **Caveats:**
 
-- **Limited permissions** (`shared/extensions.ts`, `permissionAbout`): what Rune Browser doesn't have gets a stand-in, so the extension keeps working: `history`, `bookmarks`, `sessions`, `tabGroups`, `topSites` are empty, `privacy` and `fontSettings` read as defaults and change nothing, `identity`, `tabCapture`, `gcm` and anything unknown fail with `lastError`, `desktopCapture` acts cancelled. A side panel (`sidePanel`) shows as the popup of its toolbar button, or in a tab. `userScripts` stays missing, like in Chrome with "Allow user scripts" off. Import and the extension's details say what's different for each.
+- **Limited permissions** (`shared/extensions.ts`, `permissionAbout`): what Rune Browser doesn't have gets a stand-in, so the extension keeps working: `history`, `sessions`, `tabGroups`, `topSites` are empty, `privacy` and `fontSettings` read as defaults and change nothing, `identity`, `tabCapture`, `gcm` and anything unknown fail with `lastError`, `desktopCapture` acts cancelled. A side panel (`sidePanel`) shows as the popup of its toolbar button, or in a tab. `userScripts` stays missing, like in Chrome with "Allow user scripts" off. Import and the extension's details say what's different for each.
 - **Allowing and blocking permissions:** an extension's details list every permission it asks for with a switch. Blocking one restarts the extension; its calls then fail (in the shim and in the main process) and its events don't come. Optional permissions are granted or taken back there too.
 - `chrome.storage.sync` data isn't imported (Chrome keeps it in a LevelDB that Rune Browser doesn't parse).
 - Settings are imported into each workspace once, when the extension first loads there; later changes stay per workspace.
@@ -341,16 +355,16 @@ The rest of Chromium (settings, internal pages, everyday behavior) is in [Chromi
 | Address bar: Ctrl+Enter (www. and .com), Alt+Enter or Shift+Enter (macOS Cmd+Enter: new tab)       | Same                                                                         |
 | Search tabs (Ctrl+Shift+A)                                                                         | Same, in the command bar                                                     |
 | View source (Ctrl+U, macOS Cmd+Option+U)                                                           | Different: DevTools' Sources panel (Electron can't show view-source: pages)  |
-| Bookmark page (Ctrl+D)                                                                             | Different: pins or unpins the tab (no bookmarks)                             |
-| Bookmarks bar (Ctrl+Shift+B)                                                                       | Different: shows or hides the sidebar (no bookmarks)                         |
+| Bookmark page (Ctrl+D), bookmark all tabs (Ctrl+Shift+D)                                           | Same (pinning a tab has no keys; give it some in Settings)                   |
+| Bookmarks bar (Ctrl+Shift+B)                                                                       | Different: shows or hides the sidebar; the bar is in the bookmarks menu      |
 | Search in the address bar (Ctrl+K)                                                                 | Different: the command bar, which also searches                              |
-| Bookmark manager (Ctrl+Shift+O)                                                                    | Not yet: no bookmarks                                                        |
+| Bookmark manager (Ctrl+Shift+O, macOS Cmd+Option+B)                                                | Same: the Bookmarks page                                                     |
 | New window (Ctrl+N), private window (Ctrl+Shift+N)                                                 | Same (see [Windows](interface.md#windows))                                   |
 | Open file (Ctrl+O)                                                                                 | Not yet                                                                      |
 | Clear browsing data (Ctrl+Shift+Delete), task manager (Shift+Esc), caret browsing (F7)             | Not yet                                                                      |
 | Home (Alt+Home), menu (Alt+F, F10), focus toolbar (Alt+Shift+T)                                    | Not applicable: no home page or menu                                         |
 
 Rune Browser's own: the command bar (Ctrl+K), the agent (Ctrl+I; Ctrl+J is Chromium's downloads), the sidebar (Ctrl+Shift+B), workspaces 1–9
-(Ctrl+Alt+1–9), Settings (Ctrl+,) and this list (Ctrl+/). Duplicating and new apps have no keys by default; you can
-give them some. The mouse's back and forward buttons can be given to any action too (Settings records them like keys):
+(Ctrl+Alt+1–9), Settings (Ctrl+,) and this list (Ctrl+/). Duplicating, pinning, new apps and the bookmarks bar have
+no keys by default; you can give them some. The mouse's back and forward buttons can be given to any action too (Settings records them like keys):
 webviews don't act on them by themselves, so the main process takes them from the page's input events.

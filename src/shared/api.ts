@@ -1,4 +1,5 @@
 // Types shared between the Bun server, the Electron main/preload and the renderer.
+import type { BookmarkChange } from "./bookmarks";
 import type { BrowserSettings, ImportedBrowserSettings, SiteSettingKey } from "./browser";
 import type { Hunk } from "./diff";
 import type { DefaultBrowserStatus } from "./defaultBrowser";
@@ -273,6 +274,8 @@ export interface RuneBridge {
     setTabs: (tabs: ExtensionTabs) => void;
     /** Answers a tab or permission request. */
     reply: (requestId: string, value: unknown) => void;
+    /** Passes on bookmark changes from the server, for extensions' chrome.bookmarks events. */
+    bookmarksChanged: (change: BookmarkChange) => void;
     onChanged: (fn: () => void) => () => void;
     onActionsChanged: (fn: (workspaceId: string) => void) => () => void;
     onTabRequest: (fn: (request: ExtensionTabRequest) => void) => () => void;

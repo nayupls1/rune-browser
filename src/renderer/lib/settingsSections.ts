@@ -6,6 +6,7 @@
 // sidebar: About is highlighted while one is shown.
 import {
   ACTIVITY_VIEW,
+  BOOKMARKS_VIEW,
   DOWNLOADS_VIEW,
   FLAGS_VIEW,
   GPU_VIEW,
@@ -124,6 +125,14 @@ export const settingsSections: SettingsSection[] = [
   },
   { id: "browser-reset", label: "Reset settings", icon: "rotate-ccw", group: "browser", keywords: "defaults" },
   { id: "extensions", label: "Extensions", icon: "blocks", group: "browser" },
+  {
+    id: "bookmarks",
+    label: "Bookmarks",
+    icon: "bookmark",
+    view: BOOKMARKS_VIEW,
+    group: "pages",
+    keywords: "favorites import export",
+  },
   { id: "downloads", label: "Downloads", icon: "download", view: DOWNLOADS_VIEW, group: "pages" },
   {
     id: "history",

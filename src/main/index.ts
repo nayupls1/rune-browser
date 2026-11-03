@@ -193,6 +193,7 @@ app.whenReady().then(async () => {
   web = setupWebTabs(
     windows,
     apiMapReporter(() => server),
+    () => server,
   );
   setupUpdates(windows);
   setupInternals({ windows, appliedFlags, safeMode });

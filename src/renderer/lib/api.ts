@@ -56,7 +56,7 @@ import type { WorkspaceSettings } from "../../shared/settings";
 
 const url = (path: string) => `${window.rune.serverUrl}${path}`;
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url(path), {
     ...init,
     headers: {

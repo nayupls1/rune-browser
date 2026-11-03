@@ -42,6 +42,7 @@ import { apps, currentWorkspace, newWebTab, openSettings, workspaces } from "../
 import { colors, font, radius, space } from "../theme.stylex";
 import { confirmDialog } from "./ConfirmDialog";
 import { openExtensionImport } from "./ExtensionImport";
+import { openBookmarkImport } from "./BookmarksPage";
 import { Icon } from "./Icon";
 import { DefaultBrowserRow, InsecureRows, Row, Section, Segmented, Toggle, unloadChoices } from "./SettingsPage";
 import { toast } from "./Toast";
@@ -946,6 +947,11 @@ export function ImportSection() {
   return (
     <>
       <Section title="Import bookmarks and settings" icon="import" anchor="browser-import">
+        <Row label="Bookmarks" description="From Chrome, Firefox and the browsers based on them, or an HTML file.">
+          <Button onClick={openBookmarkImport} data-import-bookmarks>
+            Import bookmarks…
+          </Button>
+        </Row>
         <Show
           when={profiles()?.length}
           fallback={
@@ -997,7 +1003,7 @@ export function ImportSection() {
         <p {...stylex.attrs(styles.note)}>
           Extensions come with their settings from Settings → Extensions → Import. Passwords stay with your password
           manager: browsers encrypt their saved passwords for themselves alone, so they can't be read here; a password
-          manager extension brings yours. Bookmarks and history aren't imported: Rune Browser doesn't have them yet.
+          manager extension brings yours. Browsing history isn't imported.
         </p>
       </Section>
     </>

@@ -55,7 +55,11 @@ const isAppUrl = (url: string) => /^http:\/\/(127\.0\.0\.1|localhost):\d+(\/|$)/
 // the user, remembered in their site settings (sitePermissions.ts).
 const allowedPermissions = new Set(["fullscreen", "clipboard-sanitized-write", "pointerLock"]);
 
-export function setupWebTabs(windows: AppWindows, onApiCall?: (workspaceId: string, observation: Observation) => void) {
+export function setupWebTabs(
+  windows: AppWindows,
+  onApiCall?: (workspaceId: string, observation: Observation) => void,
+  getServer: () => { url: string; token: string } | undefined = () => undefined,
+) {
   /** Tells the window a page is in. */
   const sendTo = (contents: WebContents, channel: string, ...args: unknown[]) =>
     windows.of(contents)?.webContents.send(channel, ...args);
@@ -99,6 +103,7 @@ export function setupWebTabs(windows: AppWindows, onApiCall?: (workspaceId: stri
     workspaceOf: (s) => webSessions.get(s),
     holdInsecure,
     moreRules: (firstId) => browser.rules(firstId),
+    server: getServer,
   });
   /** Websites, and the pages of the extensions running in that session. */
   const isTabUrl = (s: Electron.Session, url: string) => isWebUrl(url) || extensions.isExtensionPage(s, url);

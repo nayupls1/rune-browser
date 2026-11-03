@@ -862,42 +862,33 @@ export function shim(bridge: ShimBridge, info: ShimInfo) {
     });
   }
 
+  // Rune Browser's bookmarks (main/extensions/apis.ts asks the server).
   if (missing("bookmarks")) {
-    const tree = [
-      {
-        id: "0",
-        title: "",
-        children: [
-          { id: "1", parentId: "0", index: 0, title: "Bookmarks bar", children: [] },
-          { id: "2", parentId: "0", index: 1, title: "Other bookmarks", children: [] },
-        ],
-      },
-    ];
     defineApi("bookmarks", {
       MAX_WRITE_OPERATIONS_PER_HOUR: 1000000,
       MAX_SUSTAINED_WRITE_OPERATIONS_PER_MINUTE: 1000000,
-      getTree: resolved(tree),
-      getSubTree: resolved(tree),
-      getChildren: resolved([]),
-      getRecent: resolved([]),
-      get: unavailable("bookmarks.get"),
-      search: resolved([]),
-      create: unavailable("bookmarks.create"),
-      move: unavailable("bookmarks.move"),
-      update: unavailable("bookmarks.update"),
-      remove: unavailable("bookmarks.remove"),
-      removeTree: unavailable("bookmarks.removeTree"),
-      ...quietEvents(
-        "onCreated",
-        "onRemoved",
-        "onChanged",
-        "onMoved",
-        "onChildrenReordered",
-        "onImportBegan",
-        "onImportEnded",
-      ),
+      getTree: api("bookmarks.getTree"),
+      getSubTree: api("bookmarks.getSubTree"),
+      getChildren: api("bookmarks.getChildren"),
+      getRecent: api("bookmarks.getRecent"),
+      get: api("bookmarks.get"),
+      search: api("bookmarks.search"),
+      create: api("bookmarks.create"),
+      move: api("bookmarks.move"),
+      update: api("bookmarks.update"),
+      remove: api("bookmarks.remove"),
+      removeTree: api("bookmarks.removeTree"),
+      onCreated: ev("bookmarks.onCreated"),
+      onRemoved: ev("bookmarks.onRemoved"),
+      onChanged: ev("bookmarks.onChanged"),
+      onMoved: ev("bookmarks.onMoved"),
+      onImportBegan: ev("bookmarks.onImportBegan"),
+      onImportEnded: ev("bookmarks.onImportEnded"),
+      // Only for sorting a whole folder at once, which Rune Browser doesn't do.
+      ...quietEvents("onChildrenReordered"),
     });
   }
+
   if (missing("history")) {
     defineApi("history", {
       search: resolved([]),

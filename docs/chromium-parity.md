@@ -31,7 +31,7 @@ address bar shows their rune:// address); Chromium's settings pages map to Setti
 | chrome://newtab                                                                                   | Matched        | rune://newtab opens a new web tab                                                          |
 | chrome://history                                                                                  | Matched        | rune://history: visited pages by day (see [Browsing](browsing.md#browsing-history))        |
 | chrome://downloads                                                                                | Matched        | rune://downloads: every download by day (see [Browsing](browsing.md#downloads))            |
-| chrome://bookmarks                                                                                | Not yet        | Bookmarks are on their way                                                                 |
+| chrome://bookmarks                                                                                | Matched        | rune://bookmarks: your bookmarks in folders (see [Browsing](browsing.md#bookmarks))        |
 | chrome://password-manager                                                                         | Not yet        | No password manager yet: password manager extensions (Bitwarden, 1Password) work           |
 | chrome://settings/content                                                                         | Matched        | rune://settings/browser-sites: site settings                                               |
 | chrome://inspect                                                                                  | Different      | DevTools open from the page (F12)                                                          |
@@ -58,24 +58,24 @@ the flags out, in case one keeps Rune Browser from starting. Flags that Electron
 
 Chromium's settings, by its own sections. Browser settings get their own part of Settings, apart from Rune Browser's.
 
-| Chromium                       | Rune Browser   | Note                                                                                              |
-| ------------------------------ | -------------- | ------------------------------------------------------------------------------------------------- |
-| Autofill and passwords         | Different      | Settings → Browser: no password store of its own; password manager extensions work                |
-| Privacy and security           | Matched        | Clear browsing data (all time only), the insecure-site warning, third-party cookies, Do Not Track |
-| Site settings                  | Matched        | Location, camera, microphone, notifications, MIDI, clipboard, JavaScript, images, sound; per site |
-| Performance (Memory Saver)     | Matched        | Settings → Browser → Performance (tab unloading)                                                  |
-| Appearance                     | Different      | Fonts and page zoom in Settings → Browser → Fonts and zoom; themes are Rune Browser's Appearance  |
-| Search engine                  | Matched        | Settings → Browser → Search engine, or your own URL                                               |
-| Default browser                | Matched        | Settings → Browser → Default browser; links and web files from other apps open as tabs            |
-| On startup                     | Matched        | Continue, a new tab, or specific pages (your tabs stay in the sidebar)                            |
-| Languages, spell check         | Matched        | Preferred languages for websites, spell check and its dictionaries (macOS: the system's)          |
-| Downloads                      | Matched        | Settings → Browser → Downloads: the folder, or ask every time                                     |
-| Import bookmarks and settings  | Different      | Settings from Chromium-based browsers; no bookmarks or passwords (see Browsing)                   |
-| Reset settings                 | Matched        | Settings → Browser → Reset settings                                                               |
-| Extensions                     | Matched        | Settings → Browser → Extensions (rune://extensions)                                               |
-| About Chrome                   | Matched        | Settings → About: version, updates, release channel                                               |
-| Accessibility, System          | Not yet        | Hardware acceleration switches are in rune://flags                                                |
-| You and Google (sync, sign-in) | Not applicable | No Google account                                                                                 |
+| Chromium                       | Rune Browser   | Note                                                                                                       |
+| ------------------------------ | -------------- | ---------------------------------------------------------------------------------------------------------- |
+| Autofill and passwords         | Different      | Settings → Browser: no password store of its own; password manager extensions work                         |
+| Privacy and security           | Matched        | Clear browsing data (all time only), the insecure-site warning, third-party cookies, Do Not Track          |
+| Site settings                  | Matched        | Location, camera, microphone, notifications, MIDI, clipboard, JavaScript, images, sound; per site          |
+| Performance (Memory Saver)     | Matched        | Settings → Browser → Performance (tab unloading)                                                           |
+| Appearance                     | Different      | Fonts and page zoom in Settings → Browser → Fonts and zoom; themes are Rune Browser's Appearance           |
+| Search engine                  | Matched        | Settings → Browser → Search engine, or your own URL                                                        |
+| Default browser                | Matched        | Settings → Browser → Default browser; links and web files from other apps open as tabs                     |
+| On startup                     | Matched        | Continue, a new tab, or specific pages (your tabs stay in the sidebar)                                     |
+| Languages, spell check         | Matched        | Preferred languages for websites, spell check and its dictionaries (macOS: the system's)                   |
+| Downloads                      | Matched        | Settings → Browser → Downloads: the folder, or ask every time                                              |
+| Import bookmarks and settings  | Different      | Bookmarks from Chrome, Firefox or HTML; settings from Chromium-based browsers; no passwords (see Browsing) |
+| Reset settings                 | Matched        | Settings → Browser → Reset settings                                                                        |
+| Extensions                     | Matched        | Settings → Browser → Extensions (rune://extensions)                                                        |
+| About Chrome                   | Matched        | Settings → About: version, updates, release channel                                                        |
+| Accessibility, System          | Not yet        | Hardware acceleration switches are in rune://flags                                                         |
+| You and Google (sync, sign-in) | Not applicable | No Google account                                                                                          |
 
 ## Keyboard shortcuts
 
@@ -103,7 +103,7 @@ Keyboard shortcuts (rune://shortcuts).
 | Context menu: Loop, Show controls on video                        | Not yet                  | Electron has no API for them                                                                                                                                            |
 | HTTP warnings ("Not secure")                                      | Matched                  | HTTPS first, a warning before plain HTTP pages, "Not secure" in the address bar: see [Browsing](browsing.md#web-tabs)                                                   |
 | Downloads                                                         | Matched                  | Saved without fuss, progress, a warning before risky files are kept, the Downloads page (Ctrl+J): see [Browsing](browsing.md#downloads)                                 |
-| Bookmarks                                                         | Not yet                  | Being worked on                                                                                                                                                         |
+| Bookmarks                                                         | Matched                  | Star and Ctrl+D, a bookmarks bar and menu, the Bookmarks page (Ctrl+Shift+O), import from Chrome, Firefox or HTML, export: see [Browsing](browsing.md#bookmarks)        |
 | History                                                           | Matched                  | The pages you visited by day, searched and deleted, suggested by the address bar (Ctrl+H): see [Browsing](browsing.md#browsing-history)                                 |
 | Site permission prompts                                           | Matched                  | Prompts in the tab, remembered in site settings, in use shown with Stop: see [Browsing](browsing.md#site-permission-prompts)                                            |
 | Password and autofill prompts                                     | Not yet                  | Password manager extensions work                                                                                                                                        |

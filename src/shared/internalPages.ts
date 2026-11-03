@@ -88,6 +88,12 @@ export const internalPages: InternalPage[] = [
     description: "The pages you visited, by day: search, open again, delete.",
     target: { view: "history" },
   },
+  {
+    host: "bookmarks",
+    title: "Bookmarks",
+    description: "Your bookmarks in their folders: search, rename, move, import and export.",
+    target: { view: "bookmarks" },
+  },
   // Rune Browser's own pages.
   {
     host: "activity",
@@ -155,7 +161,7 @@ export const chromiumPages: ChromiumPage[] = [
   { host: "newtab", status: "matched", note: "rune://newtab opens a new web tab" },
   { host: "history", status: "matched", note: "rune://history" },
   { host: "downloads", status: "matched", note: "rune://downloads" },
-  { host: "bookmarks", status: "not-yet", note: "Bookmarks are on their way" },
+  { host: "bookmarks", status: "matched", note: "rune://bookmarks" },
   {
     host: "password-manager",
     status: "not-yet",

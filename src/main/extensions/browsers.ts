@@ -32,72 +32,8 @@ import {
 
 export { platform };
 
-/** A browser's user data folder (the one with "Local State" and the profiles). */
-export interface BrowserDir {
-  browser: string;
-  dir: string;
-}
-
-/** Where Chromium-based browsers keep their data, per platform. RUNE_BROWSER_DIRS ("Name=/path;…") replaces the list (tests). */
-export function browserDirs(): BrowserDir[] {
-  const override = process.env.RUNE_BROWSER_DIRS;
-  if (override !== undefined) {
-    return override
-      .split(";")
-      .filter(Boolean)
-      .map((pair) => ({ browser: pair.slice(0, pair.indexOf("=")), dir: pair.slice(pair.indexOf("=") + 1) }));
-  }
-  const home = homedir();
-  const list: [string, string][] = [];
-  if (process.platform === "darwin") {
-    const base = join(home, "Library", "Application Support");
-    list.push(
-      ["Google Chrome", join(base, "Google", "Chrome")],
-      ["Chrome Beta", join(base, "Google", "Chrome Beta")],
-      ["Chrome Canary", join(base, "Google", "Chrome Canary")],
-      ["Chromium", join(base, "Chromium")],
-      ["Brave", join(base, "BraveSoftware", "Brave-Browser")],
-      ["Microsoft Edge", join(base, "Microsoft Edge")],
-      ["Vivaldi", join(base, "Vivaldi")],
-      ["Arc", join(base, "Arc", "User Data")],
-    );
-  } else if (process.platform === "win32") {
-    const base = process.env.LOCALAPPDATA ?? join(home, "AppData", "Local");
-    list.push(
-      ["Google Chrome", join(base, "Google", "Chrome", "User Data")],
-      ["Chrome Beta", join(base, "Google", "Chrome Beta", "User Data")],
-      ["Chrome Canary", join(base, "Google", "Chrome SxS", "User Data")],
-      ["Chromium", join(base, "Chromium", "User Data")],
-      ["Brave", join(base, "BraveSoftware", "Brave-Browser", "User Data")],
-      ["Microsoft Edge", join(base, "Microsoft", "Edge", "User Data")],
-      ["Vivaldi", join(base, "Vivaldi", "User Data")],
-    );
-  } else {
-    const config = process.env.XDG_CONFIG_HOME || join(home, ".config");
-    const flatpak = (appId: string, path: string) => join(home, ".var", "app", appId, "config", path);
-    list.push(
-      ["Google Chrome", join(config, "google-chrome")],
-      ["Chrome Beta", join(config, "google-chrome-beta")],
-      ["Chrome Dev", join(config, "google-chrome-unstable")],
-      ["Chromium", join(config, "chromium")],
-      ["Brave", join(config, "BraveSoftware", "Brave-Browser")],
-      ["Brave Beta", join(config, "BraveSoftware", "Brave-Browser-Beta")],
-      ["Brave Nightly", join(config, "BraveSoftware", "Brave-Browser-Nightly")],
-      ["Microsoft Edge", join(config, "microsoft-edge")],
-      ["Edge Beta", join(config, "microsoft-edge-beta")],
-      ["Edge Dev", join(config, "microsoft-edge-dev")],
-      ["Vivaldi", join(config, "vivaldi")],
-      ["Thorium", join(config, "thorium")],
-      ["Google Chrome (Flatpak)", flatpak("com.google.Chrome", "google-chrome")],
-      ["Chromium (Flatpak)", flatpak("org.chromium.Chromium", "chromium")],
-      ["Brave (Flatpak)", flatpak("com.brave.Browser", join("BraveSoftware", "Brave-Browser"))],
-      ["Microsoft Edge (Flatpak)", flatpak("com.microsoft.Edge", "microsoft-edge")],
-      ["Vivaldi (Flatpak)", flatpak("com.vivaldi.Vivaldi", "vivaldi")],
-      ["Chromium (Snap)", join(home, "snap", "chromium", "common", "chromium")],
-    );
-  }
-  return list.map(([browser, dir]) => ({ browser, dir }));
-}
+export { browserDirs, type BrowserDir } from "../../shared/browserDirs";
+import { browserDirs, type BrowserDir } from "../../shared/browserDirs";
 
 interface FoundProfile {
   key: string;

@@ -20,6 +20,9 @@ import { Button } from "./components/ui";
 import { WebTab } from "./components/WebTab";
 import "./lib/downloads";
 import "./lib/schedules";
+import "./lib/bookmarks";
+import { isBookmarksBarShown } from "./lib/bookmarks";
+import { BookmarkEditor, BookmarksBar } from "./components/Bookmarks";
 import "./lib/updates";
 import { startUnloading } from "./lib/unload";
 import { startWindowChrome } from "./lib/windowChrome";
@@ -125,6 +128,7 @@ export default function App() {
       <ModReviewHost />
       <CommandBar />
       <DownloadsPanel />
+      <BookmarkEditor />
       <ToastHost />
       <div {...stylex.attrs(styles.column)}>
         <Show when={window.rune.safeMode}>
@@ -145,6 +149,9 @@ export default function App() {
               Restart normally
             </button>
           </div>
+        </Show>
+        <Show when={isBookmarksBarShown()}>
+          <BookmarksBar />
         </Show>
         {/* The page, inset from the window and the sidebars with rounded corners (like Zen Browser);
             in a split view each pane is a card of its own. */}

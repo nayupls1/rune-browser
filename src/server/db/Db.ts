@@ -328,6 +328,23 @@ const migrate = Effect.gen(function* () {
   yield* sql.unsafe("CREATE INDEX IF NOT EXISTS visits_workspace ON visits (workspace_id, id)");
   yield* sql.unsafe("CREATE INDEX IF NOT EXISTS visits_tab ON visits (tab_id, id)");
   yield* sql.unsafe("CREATE INDEX IF NOT EXISTS visits_at ON visits (visited_at)");
+  // Bookmarks (bookmarks/Bookmarks.ts): Chrome's tree. The bookmarks bar (1) and other bookmarks (2) are
+  // the root's (0) folders; a row without a url is a folder. Times are milliseconds.
+  yield* sql.unsafe(`
+    CREATE TABLE IF NOT EXISTS bookmarks (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      parent_id  INTEGER NOT NULL,
+      position   INTEGER NOT NULL,
+      title      TEXT NOT NULL DEFAULT '',
+      url        TEXT,
+      added_at   INTEGER NOT NULL,
+      changed_at INTEGER NOT NULL
+    )`);
+  yield* sql.unsafe("CREATE INDEX IF NOT EXISTS bookmarks_parent ON bookmarks (parent_id, position)");
+  yield* sql.unsafe(`
+    INSERT OR IGNORE INTO bookmarks (id, parent_id, position, title, added_at, changed_at) VALUES
+      (1, 0, 0, 'Bookmarks bar', ${Date.now()}, ${Date.now()}),
+      (2, 0, 1, 'Other bookmarks', ${Date.now()}, ${Date.now()})`);
 });
 
 export const layer = Layer.unwrap(

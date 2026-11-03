@@ -15,6 +15,7 @@ import type {
   ScheduleRun,
   WorkspaceInfo,
 } from "./api";
+import type { BookmarkChange } from "./bookmarks";
 import type { Settings } from "./settings";
 
 export const topics = {
@@ -46,6 +47,8 @@ export const topics = {
   mods: "mods",
   /** Browsing history changed: a page was visited, visits were deleted (refetch). */
   visits: "visits",
+  /** Bookmarks were added, changed, moved, removed or imported. */
+  bookmarks: "bookmarks",
 } as const;
 
 export const isValidTopic = (topic: unknown): topic is string =>
@@ -95,6 +98,7 @@ export type ServerMessage =
   | { type: "mods-changed"; topic: string }
   /** A workspace's browsing history changed (null: every workspace's). */
   | { type: "visits-changed"; topic: string; workspaceId: string | null }
+  | { type: "bookmarks"; topic: string; change: BookmarkChange }
   | { type: "rpc"; id: number; method: string; params: unknown };
 
 export type TopicMessage = Exclude<ServerMessage, { type: "rpc" }>;
