@@ -13,7 +13,7 @@ Run commands from the repo's root: `bun run check`, `typecheck`, `test` and `bui
 
 ## Working in this repo
 
-- Work on a branch per piece of work and open a pull request against `master`; `master` only changes through pull requests, and CI (`bun run check` on Linux, Windows and macOS) must pass. PR titles become the release notes, so write them for users.
+- Work on a branch per piece of work and open a pull request against `master`; `master` only changes through pull requests, and CI (`bun run check` on Linux and Windows) must pass. PR titles become the release notes, so write them for users.
 - Never commit anything sensitive: secrets, tokens, credentials, personal data, local databases or `.data/`. Check the staged diff before committing.
 - No backward compatibility before 1.0: rename and reshape freely, without migrations or legacy fallbacks.
 - Several agents may work in this repo at the same time:

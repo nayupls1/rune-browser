@@ -17,7 +17,18 @@ const fail = (message: string): never => {
   process.exit(1);
 };
 
-const arg = process.argv[2];
+const USAGE = `Usage:
+  bun run release           tag origin/master with the version in ${PACKAGE} and push the tag
+  bun run release --daily   start a daily build of master`;
+
+// Both commands publish a release, so anything unexpected (a typo, --help) stops here instead.
+const args = process.argv.slice(2);
+if (args.includes("--help") || args.includes("-h")) {
+  console.log(USAGE);
+  process.exit(0);
+}
+if (args.length > 1) fail(`Expected at most one argument, got: ${args.join(" ")}\n${USAGE}`);
+const arg = args[0];
 if (arg === "--daily") {
   await $`gh workflow run release.yml --ref master`;
   console.log(`✓ Started a daily release of master. The workflow builds, tests and publishes it: ${ACTIONS}`);
