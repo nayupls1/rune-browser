@@ -9,7 +9,7 @@ Rune Browser's look comes from its icon (`build/icon.svg`): a burnt orange rune 
 The colors live in `src/shared/theme.ts` (`brand`, `base` and `palette()`); everything else uses them:
 
 - **The browser's UI** uses the StyleX variables in `src/renderer/theme.stylex.ts` (`colors.accent`, `colors.bg`…). Their defaults are the default theme, so the app looks right before settings load and in safe mode; `lib/theme.ts` sets them from the user's theme at runtime.
-- **Apps** start with `src/tokens.css`, the same colors as CSS custom properties (`--color-accent`, `--color-bg`…; `tokensCss()`), following the OS between light and dark.
+- **Apps** start with `src/tokens.css`, the same colors as CSS custom properties (`--color-accent`, `--color-bg`…; `tokensCss()`), following the OS between light and dark when the mode is System (the default).
 - **Web pages** only see the light accent, on what Rune Browser draws in them (the element picker, page-change buttons).
 
 `tests/theme.test.ts` checks that the default theme is the icon's colors, that the StyleX defaults match it, and that text stays readable.
@@ -48,7 +48,7 @@ Mixed colors are `color-mix(in oklab, …)`, so they follow a custom theme too. 
 
 ### Readability
 
-In both modes, text is at least 7:1 on every background. Secondary text, the accent and the status colors are at least 4.5:1 (WCAG AA) on `bg` and `surface`, and at least 4:1 on the tinted ones (`sidebar`, `surfaceHover`, `accentSoft`). Text on the accent is white wherever white is readable and black otherwise, also for a custom accent.
+In both modes, text is at least 7:1 on `bg`, `surface`, `sidebar`, `surfaceHover` and `accentSoft`. Secondary text, the accent and the status colors are at least 4.5:1 (WCAG AA) on `bg` and `surface`, and at least 4:1 on the tinted ones (`sidebar`, `surfaceHover`, `accentSoft`). Text on the accent is white wherever white is readable and black otherwise, also for a custom accent.
 
 ## Customizing
 
