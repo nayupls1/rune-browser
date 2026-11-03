@@ -2910,7 +2910,13 @@ try {
       await prompt("camera microphone");
       await shot("site-permission-prompt.png");
       await click(`${tab} [data-permission-answer="once"]`);
-      if ((await result()) !== "ok") throw new Error("getUserMedia didn't get the camera");
+      const got = await result();
+      if (got !== "ok") {
+        const notice = await page!.eval<string | null>(
+          `document.querySelector('${tab} [data-permission-notice]')?.innerText ?? null`,
+        );
+        throw new Error(`getUserMedia didn't get the camera: ${got}${notice ? ` (Rune said: ${notice})` : ""}`);
+      }
       await waitControls("siteInUse", "camera microphone");
       await shot("site-permission-in-use.png");
 

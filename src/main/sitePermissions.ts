@@ -69,6 +69,8 @@ const POLL_MS = 1000;
 /** An answer counts until the window's settings with it arrive (they always come right after). */
 const RECENT_MS = 10_000;
 const ANSWERS: PromptAnswer[] = ["allow", "once", "block", "dismiss"];
+/** Chromium's fake camera and microphone are on (--use-fake-device-for-media-stream, the e2e checks). */
+const fakeDevices = app.commandLine.hasSwitch("use-fake-device-for-media-stream");
 
 interface Tab {
   contents: WebContents;
@@ -375,7 +377,8 @@ export function setupSitePermissions(options: Options) {
 
   /** The operating system lets Rune Browser use the camera or microphone (macOS asks the first time). */
   async function systemAllows(tab: Tab, kind: "camera" | "microphone") {
-    if (process.platform !== "darwin" && process.platform !== "win32") return true;
+    // Chromium's fake camera and microphone (the e2e checks) aren't the OS's to give.
+    if (fakeDevices || (process.platform !== "darwin" && process.platform !== "win32")) return true;
     let status = systemPreferences.getMediaAccessStatus(kind);
     if (status === "not-determined" && process.platform === "darwin")
       status = (await systemPreferences.askForMediaAccess(kind)) ? "granted" : "denied";
@@ -537,10 +540,6 @@ export function setupSitePermissions(options: Options) {
    */
   async function askScreen(s: Session, tab: Tab, site: string, audio: boolean): Promise<boolean> {
     if (!windows.of(tab.contents)) return false;
-    if (process.platform === "darwin" && systemPreferences.getMediaAccessStatus("screen") === "denied") {
-      notice(tab, "screen");
-      return false;
-    }
     const contents = tab.contents;
     const portal = systemPicker();
     const found: { sources: ScreenSource[]; desktop: Electron.DesktopCapturerSource[]; error?: string } = portal
@@ -562,7 +561,17 @@ export function setupSitePermissions(options: Options) {
     });
     if (!pick || contents.isDestroyed() || permissionSite(contents.getURL()) !== site) return false;
     // Only something the picker offered.
-    if (!portal && !found.sources.some((source) => source.id === pick.sourceId)) return false;
+    const source = found.sources.find((s) => s.id === pick.sourceId);
+    if (!portal && !source) return false;
+    // macOS lets apps record the screen and windows only once allowed (a tab is Rune Browser's own).
+    if (
+      source?.type !== "tab" &&
+      process.platform === "darwin" &&
+      systemPreferences.getMediaAccessStatus("screen") === "denied"
+    ) {
+      notice(tab, "screen");
+      return false;
+    }
     chosen.set(contents.id, { pick, desktop: found.desktop, portal });
     return true;
   }
