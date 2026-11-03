@@ -4232,6 +4232,8 @@ try {
 
   await check("windows: new and private windows, tabs moved out and back, a closed window reopened", async () => {
     const mainId = await page!.eval<string>("window.rune.window.id");
+    /** Closes a window from its own page: a moment later, so the answer gets back before the page is gone. */
+    const closeWindow = (win: Page) => win.eval("setTimeout(() => window.rune.window.close(), 50), true");
     /** The page of another window, once it's open (found by the window id in its URL). */
     const windowPage = async (match: (id: string) => boolean, label: string) => {
       const target = await waitForValue(async () => {
@@ -4341,7 +4343,7 @@ try {
       }
 
       // Closing it deletes its tabs and its cookies.
-      await priv.win.eval("window.rune.window.close(), true");
+      await closeWindow(priv.win);
       await windowGone(priv.id);
       await waitForValue(async () =>
         (await apiCall<{ private: boolean }[]>("/api/apps")).some((t) => t.private) ? undefined : true,
@@ -4364,7 +4366,7 @@ try {
         `document.querySelector("webview").executeJavaScript("document.cookie")`,
       );
       if (cookie.includes("private=1")) throw new Error(`a closed private window's cookie is still there: ${cookie}`);
-      await again.win.eval("window.rune.window.close(), true");
+      await closeWindow(again.win);
       await windowGone(again.id);
 
       // "Move to new window" from a tab's menu (a window's only tab has nothing to move from): it opens there, and leaves this one.
@@ -4411,7 +4413,7 @@ try {
       await windowGone(third.id);
 
       // A closed window comes back with its tabs (Ctrl+Shift+T, as it's what was closed last).
-      await second.win.eval("window.rune.window.close(), true");
+      await closeWindow(second.win);
       await windowGone(second.id);
       await keys(page!, "T", true);
       const reopened = await windowPage((id) => id === second.id, "reopened window");
@@ -4419,7 +4421,7 @@ try {
       await reopened.win.waitFor(`!!document.querySelector('nav li[data-app-id="${secondTab}"]')`, {
         label: "the reopened window's tab",
       });
-      await reopened.win.eval("window.rune.window.close(), true");
+      await closeWindow(reopened.win);
       await windowGone(second.id);
       for (const id of [moving.id, staying.id]) await apiCall(`/api/apps/${id}`, { method: "DELETE" });
       return "Ctrl+N, Ctrl+Shift+N (marked, no agents, extensions when allowed, cookies gone), moved out by menu and back by drag, reopened";
