@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url";
 import { apiMapReporter } from "./apiMap";
 import { describeExitCode, redactPaths } from "./crashReport";
 import { setupCrashReports } from "./crashes";
-import { claimSingleInstance, setupLinks } from "./defaultBrowser";
+import { claimSingleInstance, restartArgs, setupLinks } from "./defaultBrowser";
 import { startServer, type ServerHandle } from "./server";
 import { appUserModelId, taskbarDetails } from "./taskbar";
 import { setupUpdates } from "./updates";
@@ -93,7 +93,7 @@ setupLinks({
 const safeMode = process.argv.includes("--safe-mode") || process.env.RUNE_SAFE_MODE === "1";
 
 function relaunch(safe: boolean) {
-  const args = process.argv.slice(1).filter((a) => a !== "--safe-mode");
+  const args = restartArgs().filter((a) => a !== "--safe-mode");
   app.relaunch({ args: safe ? [...args, "--safe-mode"] : args });
   app.quit();
 }

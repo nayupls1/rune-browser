@@ -43,6 +43,12 @@ export function linksFromArgs(argv: readonly string[], cwd: string, isFile: (pat
   return links;
 }
 
+/** A command line without its links and files: a restart mustn't open them again. */
+export function withoutLinks(argv: readonly string[], cwd: string, isFile: (path: string) => boolean): string[] {
+  const end = argv.indexOf("--");
+  return (end === -1 ? argv : argv.slice(0, end)).filter((arg) => !linksFromArgs([arg], cwd, isFile).length);
+}
+
 /** A web file (a path or file:// URL) as a file:// URL, if it exists. A URL keeps its query and #anchor. */
 export function fileLink(arg: string, cwd: string, isFile: (path: string) => boolean): string | null {
   let path = arg;

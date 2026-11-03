@@ -31,6 +31,7 @@ import {
   workspaces,
 } from "./store";
 import { focusAddress } from "./tabChrome";
+import { toast } from "../components/Toast";
 import { targetScript, waitForScript, type Locator } from "./browse";
 import { readPageScript, type SavedPage } from "./pagestate";
 import { setSidebarCollapsed, toggleSidebar } from "./layout";
@@ -391,7 +392,10 @@ window.rune.web.onOpenLinks((urls) => {
     opening = opening.then(() =>
       newWebTab(url).then(
         () => {},
-        () => {},
+        (err) => {
+          console.warn(`Opening ${url} failed:`, err);
+          toast({ title: "Couldn't open a link", message: url.slice(0, 300), kind: "error" });
+        },
       ),
     );
 });

@@ -11,7 +11,7 @@ import {
   WINDOWS_PROG_ID,
   WINDOWS_REGISTERED_NAME,
 } from "../src/shared/defaultBrowser";
-import { appImageDesktopEntry, desktopExecArg, linksFromArgs } from "../src/main/links";
+import { appImageDesktopEntry, desktopExecArg, linksFromArgs, withoutLinks } from "../src/main/links";
 import { fileUrl } from "../src/shared/web";
 
 // As the system has them (C:\home\me\… on Windows).
@@ -63,6 +63,16 @@ describe("links Rune Browser is started with", () => {
         "data:text/html,hi",
       ]),
     ).toEqual([]);
+  });
+
+  test("a restart keeps the switches, not the links (they're open already)", () => {
+    expect(
+      withoutLinks(
+        [".", "--no-sandbox", "https://example.com/", "page.html", "notes.txt", "--", "https://example.org/"],
+        "/home/me",
+        isFile,
+      ),
+    ).toEqual([".", "--no-sandbox", "notes.txt"]);
   });
 
   test("a mistaken flood of links is capped", () => {

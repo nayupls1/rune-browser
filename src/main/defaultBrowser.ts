@@ -18,7 +18,7 @@ import {
   WINDOWS_REGISTERED_NAME,
   type DefaultBrowserStatus,
 } from "../shared/defaultBrowser";
-import { appImageDesktopEntry, desktopExecArg, linksFromArgs, webLink } from "./links";
+import { appImageDesktopEntry, desktopExecArg, linksFromArgs, webLink, withoutLinks } from "./links";
 
 const run = promisify(execFile);
 
@@ -43,6 +43,9 @@ interface LaunchData {
 export function claimSingleInstance() {
   return app.requestSingleInstanceLock({ argv: process.argv, cwd: process.cwd() } satisfies LaunchData);
 }
+
+/** This launch's arguments for a restart, without the links it was started with (they're open already). */
+export const restartArgs = () => withoutLinks(process.argv.slice(1), process.cwd(), isFile);
 
 /**
  * Opens links from other apps in the window as new tabs: the ones it was
