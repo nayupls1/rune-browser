@@ -642,6 +642,11 @@ export function WebTab(props: { appId: string; active: boolean }) {
       // -3 is an aborted load (e.g. a new navigation replaced it): no error.
       const error = e.isMainFrame ? describeLoadError(e.errorCode, e.errorDescription, e.validatedURL) : null;
       if (error) {
+        // A new tab whose first page failed may not have had dom-ready yet: the error page needs its id.
+        if (contentsId() === null)
+          try {
+            setContentsId(view.getWebContentsId());
+          } catch {}
         setLoadError({ ...error, url: e.validatedURL });
         if (!editing) setAddress(e.validatedURL);
       }

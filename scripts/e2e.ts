@@ -3908,7 +3908,7 @@ try {
       tabId = await page!.waitFor<string>(`document.querySelector('nav li[aria-current="page"]')?.dataset.appId`, {
         label: "the new tab",
       });
-      const tab = `[data-web-tab="${tabId}"]`;
+      let tab = `[data-web-tab="${tabId}"]`;
       // Nothing listens on this port: refused, with Chromium's words and a Reload button.
       const closed = await new Promise<number>((resolve) => {
         const srv = createServer().listen(0, "127.0.0.1", () => {
@@ -3933,6 +3933,14 @@ try {
         return `${why}: only the network error`;
       }
 
+      // In a new tab, so the warning is its very first page.
+      await apiCall(`/api/apps/${tabId}`, { method: "DELETE" });
+      await newTab("New web tab");
+      tabId = await page!.waitFor<string>(
+        `document.querySelector('nav li[aria-current="page"]')?.dataset.appId !== ${JSON.stringify(tabId)} && document.querySelector('nav li[aria-current="page"]')?.dataset.appId`,
+        { label: "another new tab" },
+      );
+      tab = `[data-web-tab="${tabId}"]`;
       const url = `https://127.0.0.1:${insecure.port}/`;
       await enterAddress(url);
       await page!.waitFor(`document.querySelector('${tab} [data-load-error]')?.dataset.loadError === "certificate"`, {
