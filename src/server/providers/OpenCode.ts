@@ -30,6 +30,13 @@ const freePort = () =>
  */
 const askEverything = (mcp: McpEndpoint | null) => ({ "*": "ask", ...(mcp ? { [`${mcp.name}_*`]: "allow" } : {}) });
 
+// Every `opencode serve` still running, killed when the server exits: on their
+// own they'd outlive it (a server stopped during its startup probe left one behind).
+const running = new Set<ReturnType<typeof Bun.spawn>>();
+process.on("exit", () => {
+  for (const proc of running) kill(proc);
+});
+
 class OpenCodeServer {
   private constructor(
     private proc: ReturnType<typeof Bun.spawn>,
@@ -62,6 +69,8 @@ class OpenCodeServer {
       stdout: "pipe",
       stderr: "pipe",
     });
+    running.add(proc);
+    void proc.exited.then(() => running.delete(proc));
     const stderr = tailOf(proc.stderr);
     const url = await new Promise<string>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error("OpenCode didn't start within 30s")), 30_000);
