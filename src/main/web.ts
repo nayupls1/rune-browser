@@ -35,6 +35,7 @@ import { setupNetwork } from "./network";
 import { setupOverrides } from "./overrides";
 import { setupShortcuts } from "./shortcuts";
 import type { Observation } from "../shared/endpoints";
+import { insecureAction, type InsecurePolicy } from "../shared/insecure";
 
 const isWebUrl = (url: string) => /^https?:/i.test(url);
 /** A local file, opened in a web tab by the user (dropped on Rune Browser, or from a chat). */
@@ -51,10 +52,28 @@ export function setupWebTabs(
 ) {
   const send = (channel: string, ...args: unknown[]) => getWindow()?.webContents.send(channel, ...args);
   const shortcuts = setupShortcuts(getWindow);
+  // Plain HTTP (shared/insecure.ts): what a page navigates to itself, and redirects, are held
+  // back here; the tab (components/WebTab.tsx) tries HTTPS or warns. The window sends the policy.
+  let insecurePolicy: InsecurePolicy = { enabled: true, allowed: [] };
+  ipcMain.on("rune:insecure-policy", (event, value: unknown) => {
+    if (event.sender !== getWindow()?.webContents || !value || typeof value !== "object") return;
+    const v = value as { enabled?: unknown; allowed?: unknown };
+    insecurePolicy = {
+      enabled: v.enabled !== false,
+      allowed: Array.isArray(v.allowed) ? v.allowed.filter((h): h is string => typeof h === "string") : [],
+    };
+  });
+  /** Holds back a web tab's navigation to an insecure page; true if it did. */
+  const holdInsecure = (contents: WebContents, url: string) => {
+    if (insecureAction(url, insecurePolicy).kind === "allow") return false;
+    send("rune:insecure", { contentsId: contents.id, url });
+    return true;
+  };
   const extensions = setupExtensions({
     getWindow,
     webSession: (workspaceId) => webSession(webPartition(workspaceId)),
     workspaceOf: (s) => webSessions.get(s),
+    holdInsecure,
   });
   /** Websites, and the pages of the extensions running in that session. */
   const isTabUrl = (s: Electron.Session, url: string) => isWebUrl(url) || extensions.isExtensionPage(s, url);
@@ -117,6 +136,7 @@ export function setupWebTabs(
       return { action: "deny" };
     });
     contents.on("will-navigate", (event, url) => {
+      if (!isPreview() && holdInsecure(contents, url)) return event.preventDefault();
       // App previews stay on the app; links elsewhere open as web tabs.
       if (isPreview() ? isAppUrl(url) : isTabUrl(contents.session, url) || url.startsWith("about:")) return;
       // Local files only when the user opens one (a file dropped on the page), never when a page
@@ -125,6 +145,10 @@ export function setupWebTabs(
       event.preventDefault();
       if (/^(mailto|tel):/i.test(url)) shell.openExternal(url);
       else openTab(contents.session, url);
+    });
+    // A redirect to plain HTTP, whoever started the navigation (the tab, the agent, the page).
+    contents.on("will-redirect", (details) => {
+      if (details.isMainFrame && !isPreview() && holdInsecure(contents, details.url)) details.preventDefault();
     });
     // The browser's reserved keys first, then the extensions' shortcuts, then the page (which may pass a shortcut on).
     contents.on("before-input-event", (event, input) => {

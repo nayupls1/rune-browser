@@ -68,6 +68,8 @@ const bridge: RuneBridge = {
       onChanged: listen("rune:network-changed"),
     },
     onAuthPrompt: listen("rune:auth-prompt"),
+    setInsecurePolicy: (policy) => ipcRenderer.send("rune:insecure-policy", policy),
+    onInsecure: listen("rune:insecure"),
     authReply: (requestId, value) => ipcRenderer.send("rune:auth-reply", requestId, value),
   },
   extensions: {

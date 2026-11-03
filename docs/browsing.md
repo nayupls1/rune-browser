@@ -32,6 +32,25 @@ open page and saves changes that apply on every visit. It gets only the page too
 - **Pages keep theirs:** a file dropped on a page's upload area is uploaded; dropped elsewhere on a page, it opens in that tab. Links and text dropped on the tab list open or are searched for.
 - **Not for pages or agents:** a page (or an agent's script in it) can't navigate to a local file, only the user can open one; the website agent's `navigate` only opens websites.
 
+**Insecure sites.** Pages over plain HTTP are opened over HTTPS when they can be, and Rune Browser warns before
+showing one that can't, like other browsers (`shared/insecure.ts`).
+
+- **HTTPS first:** an `http://` address (typed, a link, a redirect, a new tab, the agent's `navigate`) is tried as
+  `https://` first. If that fails, takes more than 6 seconds to answer, or sends the tab back to HTTP, the tab shows a
+  warning instead of the page (`components/InsecureWarning.tsx`). An address with a port of its own is warned about
+  without trying.
+- **The warning:** **Go back** returns to the page before; **Continue to site** opens it over HTTP until Rune Browser
+  restarts, or for good with "Don't warn me about this site again". Settings → Web tabs lists those sites (with a
+  remove button) and has a switch that turns the whole thing off.
+- **Not for local addresses:** this computer and the private network (`localhost`, `*.localhost`, private, link-local
+  and VPN ranges, IPv6 local addresses, names without a dot, `.local`, `.lan`, `.home`, `.home.arpa`, `.internal`) are never
+  upgraded or warned about. App previews aren't web tabs, so they aren't affected either.
+- **Not secure:** the address bar says "Not secure" on a page shown over HTTP (and under the warning).
+- **Same rules for everything:** what a web tab's page navigates to itself, its redirects and extensions'
+  `tabs.update` are held back in the main process (`main/web.ts`) and handed to the tab, so tabs in the background and
+  the website agent go through the same checks. Only the user can continue: the agent is told the page is behind the
+  warning. Going back or forward to a page already allowed isn't checked again.
+
 The older **site override** (one stylesheet and script per hostname, `set_site_override`) still exists for larger reworks.
 
 Web tab logins are cookies, which are encrypted with a key from the same keychain, like Chrome's. The `EnableCookieEncryption` fuse is set in `electron-builder.yml` for the packaged app, and by `scripts/electron.ts` in `node_modules` for runs from source. As in Chrome, a site's local storage, IndexedDB and cache aren't encrypted. They sit in the 0700 profile folder.

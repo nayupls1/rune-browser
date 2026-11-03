@@ -145,6 +145,7 @@ export function AddressBar() {
   }
 
   const loadingShown = () => !editing() && !!chrome()?.loading();
+  const notSecure = () => !editing() && !!chrome()?.notSecure?.();
   const query = () => (editing() ? text().trim() : "");
   const suggestions = (): Suggestion[] => {
     const q = query();
@@ -268,7 +269,7 @@ export function AddressBar() {
           <Icon
             name={editing() ? "search" : (chrome()?.icon() ?? "search")}
             size={13}
-            {...stylex.attrs(styles.addressIcon)}
+            {...stylex.attrs(styles.addressIcon, notSecure() && styles.notSecure)}
           />
         }
       >
@@ -278,6 +279,15 @@ export function AddressBar() {
           {...stylex.attrs(styles.addressIcon, styles.spinning)}
           data-address-loading
         />
+      </Show>
+      <Show when={notSecure()}>
+        <span
+          title="The connection to this site isn't encrypted: others on the network can see and change what you send and get"
+          {...stylex.attrs(styles.notSecureLabel)}
+          data-not-secure
+        >
+          Not secure
+        </span>
       </Show>
       <input
         ref={input}
@@ -430,6 +440,18 @@ const styles = stylex.create({
     boxShadow: `0 0 0 1px ${colors.border}`,
   },
   addressIcon: { flexShrink: 0, color: colors.muted },
+  notSecure: { color: colors.warning },
+  notSecureLabel: {
+    flexShrink: 0,
+    paddingRight: 6,
+    borderRightWidth: 1,
+    borderRightStyle: "solid",
+    borderRightColor: colors.border,
+    color: colors.warning,
+    fontSize: 11,
+    fontWeight: 600,
+    whiteSpace: "nowrap",
+  },
   spinning: {
     color: colors.accent,
     animationName: spin,
