@@ -360,13 +360,17 @@ export function browserRulesToDnr(browser: BrowserSettings, firstId: number): Dn
         ["main_frame", "sub_frame"],
       ),
     });
-    // Frames a blocked site embeds from elsewhere (ads, widgets) run no scripts either.
+    // Frames a blocked site embeds directly from elsewhere (ads, widgets) run no scripts either,
+    // unless they're from a site where JavaScript is allowed.
     if (domain)
       add({
         priority: 1,
         action: noScripts,
         condition: condition(
-          { initiatorDomains: [domain], ...(except.length ? { excludedInitiatorDomains: except } : {}) },
+          {
+            initiatorDomains: [domain],
+            ...(except.length ? { excludedInitiatorDomains: except, excludedRequestDomains: except } : {}),
+          },
           ["sub_frame"],
         ),
       });

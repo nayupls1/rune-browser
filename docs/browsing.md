@@ -115,7 +115,7 @@ How they apply:
 - **Permissions** go through the web sessions' permission handlers. Rune Browser doesn't prompt yet, so a site gets a
   permission only where you allow it; a default of "sites can ask" refuses like "don't allow" until then.
 - **JavaScript, images, third-party cookies and Do Not Track** are declarativeNetRequest rules of the built-in
-  extension, after the network rules (`browserRulesToDnr`): no-script `Content-Security-Policy` on blocked sites' pages and the frames they embed,
+  extension, after the network rules (`browserRulesToDnr`): no-script `Content-Security-Policy` on blocked sites' pages and the frames they embed directly (frames those frames load aren't covered),
   blocked image requests from blocked sites, `Cookie`/`Set-Cookie` removed from third-party requests, a `DNT: 1`
   header. They take effect on the next load. Blocking third-party cookies this way stops them on the network; a
   third-party frame's `document.cookie` still works.

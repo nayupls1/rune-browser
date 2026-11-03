@@ -189,6 +189,8 @@ describe("rules for nested sites", () => {
     expect(rules[1]!.condition).toMatchObject({
       initiatorDomains: ["example.com"],
       excludedInitiatorDomains: ["docs.example.com"],
+      // A frame from the allowed part, embedded by the blocked site, keeps its scripts.
+      excludedRequestDomains: ["docs.example.com"],
     });
     expect(rules[2]!.condition.requestDomains).toEqual(["old.docs.example.com"]);
   });
