@@ -1,5 +1,5 @@
 // Types shared between the Bun server, the Electron main/preload and the renderer.
-import type { BrowserSettings, ImportedBrowserSettings } from "./browser";
+import type { BrowserSettings, ImportedBrowserSettings, SiteSettingKey } from "./browser";
 import type { Hunk } from "./diff";
 import type { DefaultBrowserStatus } from "./defaultBrowser";
 import type {
@@ -16,6 +16,14 @@ import type {
 import type { FlagsInfo } from "./flags";
 import type { GpuReport, VersionInfo } from "./internalPages";
 import type { WorkspaceSettings } from "./settings";
+import type {
+  PromptAnswer,
+  ScreenPick,
+  ScreenPickRequest,
+  SitePermissionPrompt,
+  SitePermissionUsage,
+  SystemPermissionNotice,
+} from "./sitePermissions";
 import type { UpdateChannel, UpdateInfo } from "./updates";
 import type { DownloadAction, DownloadInfo, DownloadsChange } from "./downloads";
 
@@ -203,6 +211,26 @@ export interface RuneBridge {
     onAuthPrompt: (fn: (request: AuthPrompt) => void) => () => void;
     /** The user's answer to an AuthPrompt (null: cancelled). */
     authReply: (requestId: string, value: { username: string; password: string } | null) => void;
+    /** Sites asking for the camera, microphone, location, notifications… (main/sitePermissions.ts). */
+    permissions: {
+      /** Prompts waiting in this window (after it reloaded). */
+      pending: () => Promise<SitePermissionPrompt[]>;
+      usage: (webContentsId: number) => Promise<SitePermissionUsage | null>;
+      /** The user's answer ("allow" and "block" are saved into the site's settings by the window, unless it's private). */
+      reply: (requestId: string, answer: PromptAnswer) => void;
+      /** Stops a tab's camera, microphone, screen sharing or location. */
+      stop: (webContentsId: number, keys: SiteSettingKey[]) => Promise<void>;
+      /** The screen picker's answer (null: cancelled). */
+      pickScreen: (requestId: string, pick: ScreenPick | null) => void;
+      /** Opens where the OS lets Rune Browser use a device. */
+      openSystemSettings: (kind: SystemPermissionNotice["kind"]) => void;
+      onPrompt: (fn: (prompt: SitePermissionPrompt) => void) => () => void;
+      onPromptDone: (fn: (requestId: string) => void) => () => void;
+      onUsage: (fn: (usage: SitePermissionUsage) => void) => () => void;
+      onNotice: (fn: (notice: SystemPermissionNotice) => void) => () => void;
+      onScreenPick: (fn: (request: ScreenPickRequest) => void) => () => void;
+      onScreenPickDone: (fn: (requestId: string) => void) => () => void;
+    };
     /** Which http:// pages web tabs open without a warning (shared/insecure.ts). */
     setInsecurePolicy: (policy: { enabled: boolean; allowed: readonly string[] }) => void;
     /** A web tab's page went (or was redirected) to an insecure page, and was held back. */

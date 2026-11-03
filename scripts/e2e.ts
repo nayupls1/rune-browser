@@ -100,6 +100,8 @@ const electron = await launchElectron(
     ...(visible ? [] : ["--ozone-platform=headless", "--ozone-override-screen-size=1920,1080"]),
     // No OS keychain (it could ask to be unlocked): the secrets key falls back to a file.
     "--password-store=basic",
+    // A fake camera and microphone for the site permission checks (no real device is touched).
+    "--use-fake-device-for-media-stream",
     `--remote-debugging-port=${port}`,
     "--disable-backgrounding-occluded-windows",
     "--disable-renderer-backgrounding",
@@ -235,11 +237,21 @@ const site = Bun.serve({
                location.href = "/second";
              };
            </script>`
-                    : path === "/second"
-                      ? `<title>Second page</title><h1>Second</h1>`
-                      : path === "/blocked-by-extension"
-                        ? `<title>Should be blocked</title>`
-                        : `<title>Test site</title><main><h1 id="headline">Hello from the test site</h1><p class="lead">Plain text</p>
+                    : path === "/perm"
+                      ? `<title>Permissions page</title><h1>Permissions</h1>
+           <script>
+             window.events = [];
+             const ended = (s, name) => s.getTracks().forEach((t) => t.addEventListener("ended", () => events.push("ended:" + (name || t.kind))));
+             window.camera = () => { window.r = null; navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then((s) => { window.cam = s; ended(s); window.r = "ok"; }, (e) => (window.r = e.name)); return true; };
+             window.share = () => { window.r = null; navigator.mediaDevices.getDisplayMedia({ video: true }).then((s) => { window.shared = s; ended(s, "screen"); window.r = "ok"; }, (e) => (window.r = e.name)); return true; };
+             window.desktop = () => { window.r = null; navigator.mediaDevices.getUserMedia({ video: { mandatory: { chromeMediaSource: "desktop", chromeMediaSourceId: "screen:0:0" } } }).then(() => (window.r = "ok"), (e) => (window.r = e.name)); return true; };
+             window.notify = () => { window.r = null; Notification.requestPermission().then((p) => (window.r = p)); return true; };
+           </script>`
+                      : path === "/second"
+                        ? `<title>Second page</title><h1>Second</h1>`
+                        : path === "/blocked-by-extension"
+                          ? `<title>Should be blocked</title>`
+                          : `<title>Test site</title><main><h1 id="headline">Hello from the test site</h1><p class="lead">Plain text</p>
            <button class="cta">Buy now</button> <a id="popup" href="/second" target="_blank">open popup</a></main>`;
     return new Response(`<!doctype html><meta charset="utf-8"><link rel="icon" href="data:,">${body}`, {
       headers: { "Content-Type": "text/html; charset=utf-8" },
@@ -2842,6 +2854,289 @@ try {
       await page!.waitFor(`!!${warning}`, { timeoutMs: 20_000, label: "warned again" });
       await click(`${tab} [data-insecure-back]`);
       await page!.waitFor(`!${warning}`, { label: "warning gone" });
+    },
+  );
+
+  await check(
+    "site permissions: prompts, allow this time, remembered per site, in use with stop, screen sharing, settings",
+    async () => {
+      if (!webTabId) throw new Error("needs the web tab");
+      const tab = `[data-web-tab="${webTabId}"]`;
+      const bar = chromeFor(tab);
+      const inPage = <T>(code: string, gesture = false) => inView<T>(tab, code, gesture);
+      const local = site.url.origin.replace("127.0.0.1", "localhost");
+      const open = async (origin: string) => {
+        await inPage(`location.href = ${JSON.stringify(`${origin}/perm`)}, true`);
+        await waitForValue(
+          async () =>
+            (await inPage<string>(`location.origin === ${JSON.stringify(origin)} && typeof window.camera`)) ===
+            "function"
+              ? true
+              : undefined,
+          15_000,
+        );
+      };
+      const result = () => waitForValue(async () => (await inPage<string | null>("window.r")) ?? undefined, 15_000);
+      const prompt = (kinds: string) =>
+        page!.waitFor(
+          `document.querySelector('${tab} [data-permission-prompt]')?.dataset.permissionPrompt === "${kinds}"`,
+          {
+            label: `a prompt for ${kinds}`,
+          },
+        );
+      const noPrompt = `!document.querySelector('${tab} [data-permission-prompt]')`;
+      const waitControls = (attr: "siteInUse" | "siteBlocked", value: string) =>
+        page!.waitFor(`document.querySelector('${bar} [data-site-info-button]')?.dataset.${attr} === "${value}"`, {
+          label: `address bar ${attr} = "${value}"`,
+        });
+      const choose = (selector: string, value: string) =>
+        page!.eval(`(() => {
+        const el = document.querySelector(${JSON.stringify(selector)});
+        el.value = ${JSON.stringify(value)};
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+        return true;
+      })()`);
+      await click(`nav li[data-app-id="${webTabId}"]`);
+      await open(site.url.origin);
+
+      // Not decided yet reads as "prompt", like in Chromium (Electron alone would say "denied").
+      const before = await inPage<string>(
+        `navigator.permissions.query({ name: "camera" }).then((s) => Notification.permission + " " + s.state)`,
+      );
+      if (before !== "default prompt") throw new Error(`before deciding, the page sees ${before}`);
+
+      // The camera and microphone: asked in the tab, allowed this time; the address bar shows them in use.
+      await inPage("camera()");
+      await prompt("camera microphone");
+      await shot("site-permission-prompt.png");
+      await click(`${tab} [data-permission-answer="once"]`);
+      const got = await result();
+      if (got !== "ok") {
+        const notice = await page!.eval<string | null>(
+          `document.querySelector('${tab} [data-permission-notice]')?.innerText ?? null`,
+        );
+        throw new Error(`getUserMedia didn't get the camera: ${got}${notice ? ` (Rune said: ${notice})` : ""}`);
+      }
+      await waitControls("siteInUse", "camera microphone");
+      await shot("site-permission-in-use.png");
+
+      // "This time" lasts while on the site (a reload keeps it), and isn't remembered.
+      await inPage("location.reload(), true");
+      await open(site.url.origin);
+      await inPage("camera()");
+      if ((await result()) !== "ok") throw new Error("allowed this time, the camera was refused after a reload");
+      if (!(await page!.eval<boolean>(noPrompt))) throw new Error("asked again on the same visit");
+      await waitControls("siteInUse", "camera microphone");
+
+      // Stopped from the address bar: the page's tracks end, as if the device went away.
+      await click(`${bar} [data-site-info-button]`);
+      await page!.waitFor(`!!document.querySelector('[data-site-info] [data-in-use="camera"]')`, {
+        label: "the in-use list",
+      });
+      await shot("site-permissions-popover.png");
+      await click(`[data-stop-permission="camera"]`);
+      await waitControls("siteInUse", "microphone");
+      const events = await inPage<string[]>("events");
+      if (!events.includes("ended:video") || (await inPage<string>(`cam.getVideoTracks()[0].readyState`)) !== "ended")
+        throw new Error(`the camera didn't stop: ${JSON.stringify(events)}`);
+      await click(`[data-stop-permission="microphone"]`);
+      await waitControls("siteInUse", "");
+      await page!.eval(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })), true`);
+
+      // Another site asks for itself; blocked, it's refused and the address bar says so.
+      await open(local);
+      await inPage("camera()");
+      await prompt("camera microphone");
+      await click(`${tab} [data-permission-answer="block"]`);
+      if ((await result()) !== "NotAllowedError") throw new Error("a blocked camera wasn't refused");
+      await waitControls("siteBlocked", "camera microphone");
+      await inPage("location.reload(), true");
+      await open(local);
+      await inPage("camera()");
+      if ((await result()) !== "NotAllowedError") throw new Error("the block wasn't remembered");
+      if (!(await page!.eval<boolean>(noPrompt))) throw new Error("a blocked site asked again");
+      const blockedState = await inPage<string>(`navigator.permissions.query({ name: "camera" }).then((s) => s.state)`);
+      if (blockedState !== "denied") throw new Error(`blocked, the page sees ${blockedState}`);
+
+      // Back on the first site, "this time" is over: it asks again.
+      await open(site.url.origin);
+      await inPage("camera()");
+      await prompt("camera microphone");
+      await click(`${tab} [data-permission-answer="dismiss"]`);
+      if ((await result()) !== "NotAllowedError") throw new Error("a dismissed prompt allowed the camera");
+
+      // Notifications: no "this time"; allowed for good, then blocked from the address bar.
+      await inPage("notify()");
+      await prompt("notifications");
+      if (await page!.eval<boolean>(`!!document.querySelector('${tab} [data-permission-answer="once"]')`))
+        throw new Error('notifications offered "Allow this time"');
+      await click(`${tab} [data-permission-answer="allow"]`);
+      if ((await result()) !== "granted") throw new Error("notifications weren't allowed");
+      // Saved in the site's settings (Settings → Browser → Site settings), like a choice made there.
+      await waitForValue(async () =>
+        (await apiCall<{ browser: { sites: Record<string, Record<string, string>> } }>("/api/settings")).browser.sites[
+          "127.0.0.1"
+        ]?.notifications === "allow"
+          ? true
+          : undefined,
+      );
+      await inPage("location.reload(), true");
+      await open(site.url.origin);
+      if ((await inPage<string>("Notification.permission")) !== "granted")
+        throw new Error("the allow wasn't remembered");
+      await click(`${bar} [data-site-info-button]`);
+      await page!.waitFor(`!!document.querySelector('[data-site-info] [data-site-info-setting="notifications"]')`, {
+        label: "the site's settings",
+      });
+      await choose('[data-site-info] [data-site-info-setting="notifications"]', "block");
+      await page!.waitFor(`!!document.querySelector("[data-site-info-reload]")`, { label: "the reload hint" });
+      const now = await waitForValue(async () => {
+        const value = await inPage<string>("Notification.permission");
+        return value === "denied" ? value : undefined;
+      });
+      if (now !== "denied") throw new Error(`blocked in the address bar, the page sees ${now}`);
+      await page!.eval(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })), true`);
+
+      // Screen sharing: the picker lists the workspace's tabs (and the screens, where they can be listed).
+      await inPage("share()", true);
+      await page!.waitFor(`!!document.querySelector("[data-screen-picker]")`, {
+        label: "the screen picker",
+        timeoutMs: 20_000,
+      });
+      const contentsId = await page!.eval<number>(`document.querySelector('${tab} webview').getWebContentsId()`);
+      if (await page!.eval<boolean>(`!!document.querySelector("[data-screen-type]")`))
+        await click(`[data-screen-type="tab"]`);
+      await page!.waitFor(`!!document.querySelector('[data-screen-source="tab:${contentsId}"]')`, {
+        label: "this tab in the picker",
+      });
+      await click(`[data-screen-source="tab:${contentsId}"]`);
+      await shot("screen-picker.png");
+      await click("[data-screen-share]");
+      if ((await result()) !== "ok") throw new Error("sharing the tab failed");
+      await waitControls("siteInUse", "screen");
+      await click(`${bar} [data-site-info-button]`);
+      await page!.waitFor(`!!document.querySelector('[data-stop-permission="screen"]')`, { label: "stop sharing" });
+      await click(`[data-stop-permission="screen"]`);
+      await waitControls("siteInUse", "");
+      if (!(await inPage<string[]>("events")).includes("ended:screen")) throw new Error("sharing didn't stop");
+      await page!.eval(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })), true`);
+      await page!.waitFor(`!document.querySelector("[data-site-info]")`, { label: "site settings closed" });
+      // Cancelled, the page is refused.
+      await inPage("share()", true);
+      await page!.waitFor(`!!document.querySelector("[data-screen-picker]")`, { label: "the screen picker again" });
+      await click("[data-screen-cancel]");
+      const cancelled = await result();
+      if (cancelled !== "NotAllowedError") throw new Error(`a cancelled picker: ${cancelled}`);
+      // A page can't name a screen or window itself (getUserMedia with Chrome's desktop source): refused, no picker.
+      await inPage("desktop()", true);
+      if ((await result()) !== "NotAllowedError") throw new Error("getUserMedia shared a desktop source");
+      if (await page!.eval<boolean>(`!!document.querySelector("[data-screen-picker]")`))
+        throw new Error("a desktop source showed the picker");
+
+      // A private window asks in that window, keeps the answer out of the site's settings, and forgets it once closed.
+      const mainId = await page!.eval<string>("window.rune.window.id");
+      const privateWindow = async () => {
+        await page!.eval(
+          `window.dispatchEvent(new KeyboardEvent("keydown", { key: "N", ${mod}: true, shiftKey: true, bubbles: true })), true`,
+        );
+        const target = await waitForValue(async () => {
+          const list = (await (await fetch(`http://127.0.0.1:${port}/json`)).json()) as { type: string; url: string }[];
+          return list.find((t) => {
+            const id =
+              t.type === "page" && t.url.startsWith("app://") ? new URL(t.url).searchParams.get("window") : null;
+            return !!id && id !== mainId && id.startsWith("private-");
+          });
+        }, 20_000);
+        const win = await Page.connect(port, 10_000, (t) => t.url === target.url);
+        await win.send("Emulation.setFocusEmulationEnabled", { enabled: true });
+        await win.waitFor(`document.querySelectorAll("nav li[data-app-id]").length === 1`, {
+          label: "the private window's tab",
+          timeoutMs: 20_000,
+        });
+        const tabId = await win.eval<string>(`document.querySelector("nav li[data-app-id]").dataset.appId`);
+        await win.eval(
+          `window.__runeRpc("page.navigate", { tabId: ${JSON.stringify(tabId)}, url: ${JSON.stringify(`${site.url.origin}/perm`)} })`,
+        );
+        await win.waitFor(`document.querySelector("webview")?.getURL?.().endsWith("/perm")`, {
+          label: "the private page",
+          timeoutMs: 20_000,
+        });
+        const id = new URL(target.url).searchParams.get("window")!;
+        const inPrivate = <T>(code: string) =>
+          win.eval<T>(`document.querySelector("webview").executeJavaScript(${JSON.stringify(code)})`);
+        await waitForValue(async () =>
+          (await inPrivate<string>("typeof window.notify")) === "function" ? true : undefined,
+        );
+        return { win, id, inPrivate };
+      };
+      const closePrivate = async (p: { win: Page; id: string }) => {
+        await p.win.eval("setTimeout(() => window.rune.window.close(), 50), true");
+        await waitForValue(async () => {
+          const list = (await (await fetch(`http://127.0.0.1:${port}/json`)).json()) as { url: string }[];
+          return list.some((t) => t.url.includes(`window=${p.id}`)) ? undefined : true;
+        }, 15_000);
+        p.win.close();
+      };
+      const priv = await privateWindow();
+      // Blocked in normal windows (above), inherited: refused without asking.
+      if ((await priv.inPrivate<string>("Notification.permission")) !== "denied")
+        throw new Error("a private window didn't keep a normal window's block");
+      await priv.inPrivate("navigator.geolocation.getCurrentPosition(() => {}, () => {}), true");
+      await priv.win.waitFor(
+        `document.querySelector("[data-permission-prompt]")?.dataset.permissionPrompt === "location"`,
+        {
+          label: "the prompt in the private window",
+        },
+      );
+      if (await page!.eval<boolean>(`!!document.querySelector("[data-permission-prompt]")`))
+        throw new Error("a private window's prompt showed in the main window");
+      await priv.win.screenshot(join(outDir, "site-permission-private.png"));
+      await priv.win.eval(`document.querySelector('[data-permission-answer="allow"]').click(), true`);
+      await waitForValue(async () =>
+        (await priv.inPrivate<string>(`navigator.permissions.query({ name: "geolocation" }).then((s) => s.state)`)) ===
+        "granted"
+          ? true
+          : undefined,
+      );
+      const saved = (await apiCall<{ browser: { sites: Record<string, Record<string, string>> } }>("/api/settings"))
+        .browser.sites["127.0.0.1"];
+      if (saved?.location) throw new Error(`a private window's answer was saved: ${JSON.stringify(saved)}`);
+      await closePrivate(priv);
+      const again = await privateWindow();
+      const after = await again.inPrivate<string>(
+        `navigator.permissions.query({ name: "geolocation" }).then((s) => s.state)`,
+      );
+      if (after !== "prompt") throw new Error(`a closed private window's answer was kept: ${after}`);
+      await closePrivate(again);
+
+      // Settings → Browser → Site settings has both sites' choices; resetting one makes it ask again.
+      await openSettingsAt("browser-sites");
+      const siteRow = (host: string) => `[data-site-row="${host}"]`;
+      await page!.waitFor(
+        `document.querySelector('${siteRow("127.0.0.1")}')?.innerText.includes("Notifications blocked") && document.querySelector('${siteRow("localhost")}')?.innerText.includes("Camera blocked")`,
+        { label: "both sites in Site settings" },
+      );
+      await shot("site-permissions-settings.png");
+      for (const host of ["localhost", "127.0.0.1"]) {
+        await click(siteRow(host));
+        await page!.waitFor(`!!document.querySelector('[data-site-details="${host}"]')`, {
+          label: `${host}'s settings`,
+        });
+        await click(`[data-site-details="${host}"] [data-reset-site]`);
+        await waitForValue(async () =>
+          (await apiCall<{ browser: { sites: Record<string, unknown> } }>("/api/settings")).browser.sites[host]
+            ? undefined
+            : true,
+        );
+        await click("[data-site-back]");
+      }
+      await click(`nav li[data-app-id="${webTabId}"]`);
+      await open(local);
+      await inPage("camera()");
+      await prompt("camera microphone");
+      await click(`${tab} [data-permission-answer="dismiss"]`);
+      await result();
+      return `camera and microphone this time, stopped from the address bar, blocked on another site, notifications allowed then blocked, a tab shared and stopped, refused when cancelled, desktop sources refused, a private window's answer forgotten`;
     },
   );
 

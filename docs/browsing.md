@@ -90,8 +90,9 @@ settings; cookies and site data stay per workspace. The renderer sends them to t
 - **Privacy and security:** clear cookies and other site data and/or the cache, of this workspace or all of them
   (extensions keep their data, like in Chrome); the warning before insecure sites; block third-party cookies; send Do
   Not Track.
-- **Site settings:** location, camera, microphone, notifications, MIDI devices and clipboard (permissions: sites can
-  ask, or not), JavaScript, images and sound (content: allowed or not), each with a default and per site. A site is a
+- **Site settings:** location, camera, microphone, notifications, MIDI devices, clipboard, screen sharing, your device
+  use (idle detection), window management, fonts, file editing, embedded content (storage access) and local network
+  access (permissions: sites can ask, or not; see [Site permission prompts](#site-permission-prompts)), JavaScript, images and sound (content: allowed or not), each with a default and per site. A site is a
   host without `www.` and covers its subdomains; the most specific one wins. "All sites" lists the sites with their own
   settings, zoom or cookies, and each site's page has its settings, zoom and a button that deletes its cookies and data.
   The sliders button in a web tab's address bar has the same for the site on screen.
@@ -113,8 +114,8 @@ settings; cookies and site data stay per workspace. The renderer sends them to t
 
 How they apply:
 
-- **Permissions** go through the web sessions' permission handlers. Rune Browser doesn't prompt yet, so a site gets a
-  permission only where you allow it; a default of "sites can ask" refuses like "don't allow" until then.
+- **Permissions** go through the web sessions' permission handlers (`main/sitePermissions.ts`): what a site's settings
+  or the default allow or block is answered right away, and a site that may ask is asked (see below).
 - **JavaScript, images, third-party cookies and Do Not Track** are declarativeNetRequest rules of the built-in
   extension, after the network rules (`browserRulesToDnr`): no-script `Content-Security-Policy` on blocked sites' pages and the frames they embed directly (frames those frames load aren't covered),
   blocked image requests from blocked sites, `Cookie`/`Set-Cookie` removed from third-party requests, a `DNT: 1`
@@ -125,6 +126,43 @@ How they apply:
   the DevTools protocol, which only lets a page's font families be set once, so new families and minimum sizes apply
   to new pages).
 - **Languages** set the sessions' `Accept-Language` and spell checker (macOS uses its own spell checker and languages).
+
+### Site permission prompts
+
+Sites can ask for the permissions above, and you decide, like in Chrome (`shared/sitePermissions.ts`, asked by
+`main/sitePermissions.ts`, shown by `components/SitePermissions.tsx`).
+
+- **Prompts:** a site asking for something its settings don't decide gets a prompt over the top left of its tab, in
+  that tab's window: which site, what it wants, and **Allow while visiting the site**, **Allow this time** (not for
+  notifications, which arrive after the page is gone, or screen sharing) or **Never allow**. Closing it decides
+  nothing; the site can ask again. A page asking again while its prompt is open joins it, and prompts go away with the
+  page.
+- **Remembered** in the site's settings: allowing or blocking sets the site's own Allow or Block, which the sliders
+  button and Settings → Browser → Site settings show and change. "This time" lasts while the tab stays on the site.
+- **Private windows** ask too, but keep their answers in the main process only, until the last private window closes.
+  Like Chrome's incognito, they get what normal windows blocked, not what they allowed. Their settings are shown, not
+  changed, in the sliders button.
+- **Visible while in use:** while a page uses the camera, microphone, location or screen sharing, the sliders button
+  shows their icons, and its popover has **Stop** for each (the page's tracks end, as if the device went away; location
+  watches are cleared). Blocking something in use stops it too. A page refused something shows it crossed out there.
+- **Screen sharing** always asks with a picker: entire screens, windows, and the workspace's tabs (with their sound;
+  the system's sound only on Windows). On Wayland the system's own picker chooses. It can be blocked, never allowed for
+  good, as in Chromium. Pages can't name a screen or window themselves (`getUserMedia` with Chrome's
+  `chromeMediaSource`, which Electron would otherwise share as asked); Chrome refuses that to web pages too.
+- **System permissions:** when macOS or Windows hasn't given Rune Browser the camera or microphone (or macOS the
+  screen), the tab says so and opens the place in System Settings or Settings where it's allowed. macOS asks the first
+  time a site is allowed one.
+- **Same as Chromium:** the permissions and their defaults follow Chromium: those above ask; motion sensors, protected
+  content, background sync and payment handlers are allowed; full screen, pointer and keyboard lock, writing to the
+  clipboard and keeping the screen on need nothing. Permissions belong to the site in the address bar, also when a
+  frame in it asks.
+- **What pages see:** Electron's permission checks only answer yes or no, so a page would read "denied" for everything
+  it hasn't been allowed yet. A small script in every page (over the DevTools protocol's Page domain; the Runtime
+  domain stays off, since sites can tell) makes what isn't blocked read as "prompt", and keeps the tracks and location
+  watches the page has, which the address bar reads while something might be in use.
+- **Limits:** device pickers (USB, HID, serial, Bluetooth) aren't supported, and those requests are refused. Uses in
+  frames of other sites, which the script can't reach, show as in use until the page goes away; stopping one reloads
+  the page. App previews keep only the harmless permissions (full screen, pointer lock, writing to the clipboard).
 
 ## Network
 
