@@ -113,13 +113,16 @@ export function createWindowManager(options: WindowManagerOptions) {
 
   /** Tells the server which windows there are, one call after another. */
   let syncing: Promise<unknown> = Promise.resolve();
-  function sync(forget: string[] = [], open = [...live.values()].map((w) => w.id)) {
-    const body = {
-      open: [...new Set([...open, ...opening])],
+  function sync(forget: string[] = [], open?: () => string[]) {
+    // What's open is read when the request goes out: a window opened meanwhile is in it.
+    const body = () => ({
+      open: [...new Set([...(open?.() ?? [...live.values()].map((w) => w.id)), ...opening])],
       closed: [...closed.map((w) => w.id), ...(lastSession ? [lastSession.id] : [])],
       forget,
-    };
-    syncing = syncing.then(() => api("/api/windows", { method: "POST", body }).catch((err) => console.warn(err)));
+    });
+    syncing = syncing.then(() =>
+      api("/api/windows", { method: "POST", body: body() }).catch((err) => console.warn(err)),
+    );
     return syncing;
   }
 
@@ -379,11 +382,17 @@ export function createWindowManager(options: WindowManagerOptions) {
     }
   });
 
-  app.on("before-quit", () => {
+  app.on("before-quit", (event) => {
     if (quitting) return;
     // Every window open now comes back at the next start.
     save();
     quitting = true;
+    if (![...live.values()].some((w) => w.private)) return;
+    // Private windows' tabs and session go now, not at the next start (a few seconds at most).
+    event.preventDefault();
+    const normal = [...live.values()].filter((w) => !w.private).map((w) => w.id);
+    const done = Promise.all([sync([], () => normal), clearPrivate()]);
+    void Promise.race([done, new Promise((r) => setTimeout(r, 3000))]).finally(() => app.quit());
   });
 
   return {
@@ -398,10 +407,7 @@ export function createWindowManager(options: WindowManagerOptions) {
       await clearPrivate();
       const plan = startupPlan(parseWindowsFile(readJson(file)), onStartup);
       closed = plan.closed;
-      await sync(
-        plan.forget,
-        plan.open.map((w) => w.id),
-      );
+      await sync(plan.forget, () => plan.open.map((w) => w.id));
       // The first window does what the startup setting says (a new tab, the startup pages).
       plan.open.forEach((saved, i) => open(saved, i === 0 ? "startup" : null));
       save();
