@@ -1,6 +1,6 @@
 # Concepts
 
-[README](../README.md) · [Architecture](architecture.md) · [Concepts](concepts.md) · [Interface](interface.md) · [Browsing](browsing.md) · [Design system](design-system.md) · [Development](development.md) · [Releasing](releasing.md)
+[README](../../../README.md) · [Architecture](architecture.md) · [Concepts](concepts.md) · [Interface](interface.md) · [Browsing](browsing.md) · [Design system](design-system.md) · [Development](development.md) · [Releasing](releasing.md)
 
 The building blocks Rune Browser is made of: workspaces group tabs; a tab is an
 app or a web page; agents build apps and customize pages with Rune Browser's

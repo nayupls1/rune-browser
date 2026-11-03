@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+    <title>Rune Browser: small apps built by your own coding agents</title>
+    <meta
+      name="description"
+      content="A desktop browser where Claude Code, Codex or OpenCode build your own small apps and customize the websites you use, on the login you already have."
+    />
+    <link rel="icon" type="image/svg+xml" href="../browser/build/icon.svg" />
+    <link rel="stylesheet" href="./src/styles.css" />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+
+    <header class="bar">
+      <a class="wordmark" href="./">
+        <img src="../browser/build/icon.svg" alt="" width="28" height="28" />
+        Rune Browser
+      </a>
+      <nav aria-label="Site">
+        <a href="#install">Install</a>
+        <a href="https://github.com/nayupls1/rune-browser">GitHub</a>
+      </nav>
+    </header>
+
+    <main id="main">
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <h1 id="hero-title">Describe an app. Your coding agent builds it, right in a browser tab.</h1>
+          <p class="lede">
+            Rune Browser is a desktop browser for your own small apps. Claude Code, Codex or OpenCode write them as real
+            projects, run them in a sandbox and keep improving them while you talk. On the login you already have.
+          </p>
+          <p class="actions">
+            <a class="button" href="https://github.com/nayupls1/rune-browser/releases/latest">Download Rune Browser</a>
+            <a class="quiet" href="https://github.com/nayupls1/rune-browser">Read the source</a>
+          </p>
+          <p class="platforms">Free and open source, for Linux, Windows and macOS.</p>
+        </div>
+
+        <svg class="rune" viewBox="300 170 450 690" role="img" aria-label="The Rune Browser mark">
+          <defs>
+            <linearGradient id="rune-stroke" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#d9582f" />
+              <stop offset="1" stop-color="#a62f19" />
+            </linearGradient>
+          </defs>
+          <path
+            pathLength="1"
+            d="M384 772 V252 L664 394 L384 536 L664 772"
+            fill="none"
+            stroke="url(#rune-stroke)"
+            stroke-width="84"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </section>
+
+      <figure class="shot shot-hero">
+        <img
+          src="../browser/docs/screenshots/new-app.png"
+          alt="Rune Browser's new app page: a box to describe the app, with ideas and templates to start from"
+        />
+      </figure>
+
+      <section class="features" aria-labelledby="features-title">
+        <h2 id="features-title">What you can do with it</h2>
+        <dl>
+          <div>
+            <dt>Make an app from a sentence</dt>
+            <dd>
+              Ask for “a habit tracker with daily check-ins” and the agent writes a real project with its own server and
+              database, runs it, and fixes what it sees in the preview. Keep changing it by talking, or close the chat
+              and use it.
+            </dd>
+          </div>
+          <div>
+            <dt>Use the agents you already have</dt>
+            <dd>
+              Claude Code, Codex and OpenCode, signed in with your own subscription. There are no API keys to paste and
+              no account to make here.
+            </dd>
+          </div>
+          <div>
+            <dt>Change the websites you use</dt>
+            <dd>
+              Point at anything on a page and ask: the agent hides it, restyles it or adds what's missing. Changes stay,
+              per page or per site, each with its own switch.
+            </dd>
+          </div>
+          <div>
+            <dt>Browse like you're used to</dt>
+            <dd>
+              Workspaces with separate logins, split view, a command bar, bookmarks, history, Chrome extensions and the
+              password manager you already use.
+            </dd>
+          </div>
+          <div>
+            <dt>Undo anything</dt>
+            <dd>
+              Every change an agent makes is saved as a snapshot with its diff, so you can step back to any earlier
+              version of an app, data included.
+            </dd>
+          </div>
+          <div>
+            <dt>Share what you made</dt>
+            <dd>Bundle page changes, a theme and extensions into a mod that someone else can install in one go.</dd>
+          </div>
+        </dl>
+      </section>
+
+      <div class="pair">
+        <figure class="shot">
+          <img
+            src="../browser/docs/screenshots/history.png"
+            alt="An app next to its agent chat, with the history of every change"
+            loading="lazy"
+          />
+          <figcaption>An app, its agent, and the history of every change it made.</figcaption>
+        </figure>
+        <figure class="shot">
+          <img
+            src="../browser/docs/screenshots/page-changes.png"
+            alt="A website with changes made by the agent, listed with a switch for each"
+            loading="lazy"
+          />
+          <figcaption>Changes to a website, each one you can switch off.</figcaption>
+        </figure>
+      </div>
+
+      <section class="safety" aria-labelledby="safety-title">
+        <h2 id="safety-title">Safe by default</h2>
+        <p class="safety-lede">
+          Agents write code that runs on your computer, so Rune Browser keeps them on a short leash.
+        </p>
+        <ul>
+          <li>Apps run in a sandbox and ask you before they reach anything outside it.</li>
+          <li>Your secrets are handed to apps when they run, and never shown to an agent.</li>
+          <li>Web pages are only read by an agent with no tools, so a page can't make it do anything.</li>
+          <li>Everything agents and apps do is listed in Activity.</li>
+        </ul>
+      </section>
+
+      <section class="install" id="install" aria-labelledby="install-title">
+        <h2 id="install-title">Install</h2>
+        <p>
+          Download the latest version from the
+          <a href="https://github.com/nayupls1/rune-browser/releases/latest">releases page</a>. Rune Browser keeps
+          itself up to date from there.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">System</th>
+              <th scope="col">File</th>
+              <th scope="col">Before you start</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <th scope="row">Linux (x64)</th>
+              <td><code>.AppImage</code> or <code>.deb</code></td>
+              <td>
+                Install <a href="https://github.com/containers/bubblewrap">bubblewrap</a> so apps run in a sandbox. The
+                .deb asks for it.
+              </td>
+            </tr>
+            <tr>
+              <th scope="row">Windows (x64)</th>
+              <td><code>-setup-x64.exe</code></td>
+              <td>Not signed yet. On the SmartScreen warning, choose “More info”, then “Run anyway”.</td>
+            </tr>
+            <tr>
+              <th scope="row">macOS (Apple Silicon)</th>
+              <td><code>.dmg</code></td>
+              <td>Not signed or tested yet. Right-click the app and choose Open the first time.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3>Then sign in to an agent</h3>
+        <ul class="agents">
+          <li>
+            <a href="https://claude.com/claude-code">Claude Code</a>:
+            <code>npm install -g @anthropic-ai/claude-code</code>, then run <code>claude</code> and type
+            <code>/login</code>
+          </li>
+          <li>
+            <a href="https://github.com/openai/codex">Codex</a>: <code>npm install -g @openai/codex</code>, then
+            <code>codex login</code>
+          </li>
+          <li><a href="https://opencode.ai">OpenCode</a>: follow its install guide, then sign in</li>
+        </ul>
+        <p>Rune Browser finds them on your PATH, or you can point to them in Settings.</p>
+      </section>
+    </main>
+
+    <footer class="foot">
+      <p>
+        Rune Browser is open source under the
+        <a href="https://github.com/nayupls1/rune-browser/blob/master/LICENSE">MIT license</a>.
+      </p>
+      <nav aria-label="Project">
+        <a href="https://github.com/nayupls1/rune-browser">Source</a>
+        <a href="https://github.com/nayupls1/rune-browser/issues">Report a problem</a>
+        <a href="https://github.com/nayupls1/rune-browser/blob/master/SECURITY.md">Security</a>
+      </nav>
+    </footer>
+  </body>
+</html>

@@ -1,6 +1,6 @@
 # Chromium parity
 
-[README](../README.md) · [Architecture](architecture.md) · [Concepts](concepts.md) · [Interface](interface.md) · [Browsing](browsing.md) · [Development](development.md) · [Releasing](releasing.md)
+[README](../../../README.md) · [Architecture](architecture.md) · [Concepts](concepts.md) · [Interface](interface.md) · [Browsing](browsing.md) · [Development](development.md) · [Releasing](releasing.md)
 
 Rune Browser aims to work like Chromium wherever it's a browser, with Chromium's source as the reference: its
 settings, shortcuts, internal pages and everyday behavior. This is the checklist, so the gaps are visible. Each item is:

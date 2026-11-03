@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="build/icon.svg" width="112" alt="Rune Browser">
+  <img src="apps/browser/build/icon.svg" width="112" alt="Rune Browser">
 </p>
 
 <h1 align="center">Rune Browser</h1>
@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/nayupls1/rune-browser/releases/latest">Download</a> ·
-  <a href="docs/concepts.md">Docs</a> ·
+  <a href="apps/browser/docs/concepts.md">Docs</a> ·
   <a href="https://github.com/nayupls1/rune-browser/issues">Issues</a>
 </p>
 
@@ -23,7 +23,7 @@ running in a sandbox and shown in a live preview next to the chat. Keep
 editing it by talking to the agent, or close the chat and use it. On web pages
 the same agent can hide, restyle or add things, and those changes stay.
 
-![A new app: describe it, pick an idea or a template](docs/screenshots/new-app.png)
+![A new app: describe it, pick an idea or a template](apps/browser/docs/screenshots/new-app.png)
 
 ## What it does
 
@@ -48,10 +48,10 @@ the same agent can hide, restyle or add things, and those changes stay.
 - **Nothing is lost.** Every change is saved as a snapshot, with its diff,
   to undo or restore, including the app's data.
 
-|                                                                    |                                                                 |
-| ------------------------------------------------------------------ | --------------------------------------------------------------- |
-| ![An app with its agent and History](docs/screenshots/history.png) | ![Page changes on a website](docs/screenshots/page-changes.png) |
-| ![The mods gallery](docs/screenshots/mods-gallery.png)             |                                                                 |
+|                                                                                 |                                                                              |
+| ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| ![An app with its agent and History](apps/browser/docs/screenshots/history.png) | ![Page changes on a website](apps/browser/docs/screenshots/page-changes.png) |
+| ![The mods gallery](apps/browser/docs/screenshots/mods-gallery.png)             |                                                                              |
 
 ## Install
 
@@ -83,21 +83,33 @@ With [Bun](https://bun.sh) installed:
 bun install
 bun run dev       # run it with hot reload
 bun run check     # typecheck, tests, build, e2e
-bun run package   # installers for this OS, in release/
+bun run package   # installers for this OS, in apps/browser/release/
 ```
 
-More in [Development](docs/development.md).
+More in [Development](apps/browser/docs/development.md).
+
+### Repository layout
+
+A Bun workspace, with tasks run by [Turborepo](https://turborepo.dev):
+
+| Path                           | What it is                                                            |
+| ------------------------------ | --------------------------------------------------------------------- |
+| [`apps/browser`](apps/browser) | Rune Browser itself: the Electron app, its Bun server, tests and docs |
+| [`apps/landing`](apps/landing) | The website: one static page with no JavaScript, built with Vite      |
+
+`bun run dev`, `start`, `package`, `server`, `e2e` and `release` at the root
+run the browser's; `bun run dev:landing` runs the website.
 
 ## Docs
 
-- [Concepts](docs/concepts.md): workspaces, apps and their data, agents, AI in
+- [Concepts](apps/browser/docs/concepts.md): workspaces, apps and their data, agents, AI in
   apps, tools, schedules, secrets, permissions, history and mods
-- [Interface](docs/interface.md): the window, sidebars, command bar, split view, settings
-- [Browsing](docs/browsing.md): web tabs, page changes, network, the API map, extensions, keyboard shortcuts
-- [Chromium parity](docs/chromium-parity.md): rune:// pages, and how Chromium's settings, shortcuts and behavior fare
-- [Architecture](docs/architecture.md): processes, the server's services, where data lives
-- [Design system](docs/design-system.md): the palette from the icon, light and dark, and how themes build on it
-- [Development](docs/development.md) and [Releasing](docs/releasing.md)
+- [Interface](apps/browser/docs/interface.md): the window, sidebars, command bar, split view, settings
+- [Browsing](apps/browser/docs/browsing.md): web tabs, page changes, network, the API map, extensions, keyboard shortcuts
+- [Chromium parity](apps/browser/docs/chromium-parity.md): rune:// pages, and how Chromium's settings, shortcuts and behavior fare
+- [Architecture](apps/browser/docs/architecture.md): processes, the server's services, where data lives
+- [Design system](apps/browser/docs/design-system.md): the palette from the icon, light and dark, and how themes build on it
+- [Development](apps/browser/docs/development.md) and [Releasing](apps/browser/docs/releasing.md)
 
 Built with Electron and SolidJS (StyleX), and a local Bun server written with
 Effect v4.
