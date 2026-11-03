@@ -43,7 +43,7 @@ showing one that can't, like other browsers (`shared/insecure.ts`).
   restarts, or for good with "Don't warn me about this site again". Settings → Web tabs lists those sites (with a
   remove button) and has a switch that turns the whole thing off.
 - **Not for local addresses:** this computer and the private network (`localhost`, `*.localhost`, private, link-local
-  and VPN ranges, IPv6 local addresses, names without a dot, `.local`, `.lan`, `.home.arpa`, `.internal`) are never
+  and VPN ranges, IPv6 local addresses, names without a dot, `.local`, `.lan`, `.home`, `.home.arpa`, `.internal`) are never
   upgraded or warned about. App previews aren't web tabs, so they aren't affected either.
 - **Not secure:** the address bar says "Not secure" on a page shown over HTTP (and under the warning).
 - **Same rules for everything:** what a web tab's page navigates to itself, its redirects and extensions'

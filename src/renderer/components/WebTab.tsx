@@ -169,6 +169,8 @@ export function WebTab(props: { appId: string; active: boolean }) {
   function open(target: string) {
     stopUpgrading();
     setInsecure(null);
+    // What was asked for earlier, while the webview was getting ready, is replaced.
+    pendingUrl = null;
     const action = insecureAction(target, insecurePolicy());
     if (action.kind === "allow") return load(target);
     if (action.kind === "warn") return warn(target, null);
@@ -242,6 +244,9 @@ export function WebTab(props: { appId: string; active: boolean }) {
       if (!mine) return;
       // The HTTPS version sends it back to HTTP: it has no secure version.
       if (upgrading && insecureHostOf(url) === upgrading.host) return warn(upgrading.from, upgrading.to);
+      // A secure page sending the tab to its own http:// version: trying HTTPS again would only go round.
+      const action = insecureAction(url, insecurePolicy());
+      if (action.kind === "upgrade" && sameUrl(action.url, pageUrl())) return warn(url, action.url);
       if (!editing) setAddress(url);
       open(url);
     }),

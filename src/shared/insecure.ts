@@ -20,6 +20,7 @@ export type InsecureAction =
   /** Warn first (no HTTPS version to try: a port of its own). */
   | { kind: "warn" };
 
+// `.home` was never delegated as a public TLD; home routers use it (bthomehub.home).
 const LOCAL_SUFFIXES = [".localhost", ".local", ".lan", ".home", ".home.arpa", ".internal", ".localdomain"];
 
 function ipv4(host: string): number[] | null {
