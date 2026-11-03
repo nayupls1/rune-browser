@@ -68,6 +68,8 @@ const FontSize = (minimum: number, maximum: number) => Schema.Int.check(Schema.i
 const FontName = Schema.String.check(Schema.isMaxLength(200)).pipe(withDefault(""));
 const Language = Schema.String.check(Schema.isPattern(/^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$/));
 const Url = Schema.String.check(Schema.isMaxLength(2000));
+/** A web page: http(s) only (startup pages open as tabs). */
+const PageUrl = Url.check(Schema.isPattern(/^https?:\/\//i, { message: "must be an http(s) address" }));
 
 export const BrowserSettings = Schema.Struct({
   search: Schema.Struct({
@@ -81,7 +83,7 @@ export const BrowserSettings = Schema.Struct({
   startup: Schema.Struct({
     /** continue: the tabs you had; newTab: a new tab on top of them; pages: these pages. */
     mode: Schema.Literals(["continue", "newTab", "pages"]).pipe(withDefault("continue")),
-    pages: Schema.Array(Url).check(Schema.isMaxLength(20)).pipe(withDefault([])),
+    pages: Schema.Array(PageUrl).check(Schema.isMaxLength(20)).pipe(withDefault([])),
   }).pipe(withDefault({})),
   privacy: Schema.Struct({
     thirdPartyCookies: Schema.Literals(["allow", "block"]).pipe(withDefault("allow")),
@@ -189,6 +191,25 @@ export function siteOwnSetting(
   return best?.value;
 }
 
+/**
+ * What a site gets for a setting without its own decision, in words: the
+ * default ("Default (Ask)"), or a broader site's decision ("Allow, from example.com").
+ */
+export function inheritedLabel(
+  browser: Pick<BrowserSettings, "sites" | "defaults">,
+  site: string,
+  key: SiteSettingKey,
+) {
+  const word = (v: SiteDefault) => (v === "ask" ? "Ask" : v === "allow" ? "Allow" : "Block");
+  let best: { site: string; value: SiteDecision } | undefined;
+  for (const [other, exceptions] of Object.entries(browser.sites)) {
+    const value = exceptions[key];
+    if (value && other !== site && coversHost(other, site) && (!best || other.length > best.site.length))
+      best = { site: other, value };
+  }
+  return best ? `${word(best.value)}, from ${best.site}` : `Default (${word(browser.defaults[key])})`;
+}
+
 /** Sets (or clears, with undefined) a site's decision; a site with nothing left goes. */
 export function withSiteSetting(
   browser: BrowserSettings,
@@ -276,15 +297,32 @@ const SUBRESOURCES = [
 ];
 const ALL = ["main_frame", ...SUBRESOURCES];
 
-/** Sites with an own decision for a setting, by decision. */
-function sitesWith(browser: Pick<BrowserSettings, "sites">, key: SiteSettingKey) {
-  const allow: string[] = [];
-  const block: string[] = [];
-  for (const [site, exceptions] of Object.entries(browser.sites)) {
-    if (exceptions[key] === "allow") allow.push(site);
-    else if (exceptions[key] === "block") block.push(site);
-  }
-  return { allow, block };
+/**
+ * Where a setting is blocked, as DNR domain lists (which cover subdomains):
+ * one entry per blocked site (null: every site, a default of block), with the
+ * more specific allowed sites under it left out. Blocked sites under an
+ * allowed one get their own entry, so the most specific site wins, like
+ * `siteSetting`. A blocked site under a blocked one adds nothing.
+ */
+export function blockedDomains(browser: Pick<BrowserSettings, "sites" | "defaults">, key: SiteSettingKey) {
+  const decided = Object.entries(browser.sites)
+    .filter(([, exceptions]) => exceptions[key])
+    .map(([site, exceptions]) => ({ site, value: exceptions[key]! }));
+  /** The decision a site inherits: from the most specific site above it, or the default. */
+  const inherited = (site: string) => {
+    let best: { site: string; value: SiteDecision } | undefined;
+    for (const d of decided)
+      if (d.site !== site && coversHost(d.site, site) && (!best || d.site.length > best.site.length)) best = d;
+    return best?.value ?? (browser.defaults[key] === "block" ? "block" : "allow");
+  };
+  const allowedUnder = (site: string | null) =>
+    decided.filter((d) => d.value === "allow" && (site === null || (d.site !== site && coversHost(site, d.site))));
+  const out: { domain: string | null; except: string[] }[] = [];
+  if (browser.defaults[key] === "block") out.push({ domain: null, except: allowedUnder(null).map((d) => d.site) });
+  for (const d of decided)
+    if (d.value === "block" && inherited(d.site) === "allow")
+      out.push({ domain: d.site, except: allowedUnder(d.site).map((a) => a.site) });
+  return out;
 }
 
 /**
@@ -308,33 +346,31 @@ export function browserRulesToDnr(browser: BrowserSettings, firstId: number): Dn
     responseHeaders: [{ header: "Content-Security-Policy", operation: "set" as const, value: "script-src 'none'" }],
   };
 
-  const js = sitesWith(browser, "javascript");
-  if (browser.defaults.javascript === "block") {
+  for (const { domain, except } of blockedDomains(browser, "javascript")) {
     add({
       priority: 1,
       action: noScripts,
-      condition: condition(js.allow.length ? { excludedRequestDomains: js.allow } : {}, ["main_frame", "sub_frame"]),
-    });
-  } else if (js.block.length) {
-    add({
-      priority: 1,
-      action: noScripts,
-      condition: condition({ requestDomains: js.block }, ["main_frame", "sub_frame"]),
+      condition: condition(
+        {
+          ...(domain ? { requestDomains: [domain] } : {}),
+          ...(except.length ? { excludedRequestDomains: except } : {}),
+        },
+        ["main_frame", "sub_frame"],
+      ),
     });
   }
 
-  const images = sitesWith(browser, "images");
-  if (browser.defaults.images === "block") {
+  for (const { domain, except } of blockedDomains(browser, "images")) {
     add({
       priority: 3,
       action: { type: "block" },
-      condition: condition(images.allow.length ? { excludedInitiatorDomains: images.allow } : {}, ["image"]),
-    });
-  } else if (images.block.length) {
-    add({
-      priority: 3,
-      action: { type: "block" },
-      condition: condition({ initiatorDomains: images.block }, ["image"]),
+      condition: condition(
+        {
+          ...(domain ? { initiatorDomains: [domain] } : {}),
+          ...(except.length ? { excludedInitiatorDomains: except } : {}),
+        },
+        ["image"],
+      ),
     });
   }
 

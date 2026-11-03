@@ -4,7 +4,7 @@
 import * as stylex from "@stylexjs/stylex";
 import { createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
-import { siteSettingKeys, siteSettings, type SiteDecision } from "../../shared/browser";
+import { inheritedLabel, siteSettingKeys, siteSettings, type SiteDecision } from "../../shared/browser";
 import { setSiteSetting, showSite } from "../lib/browser";
 import { settings } from "../lib/settings";
 import { openSettings } from "../lib/store";
@@ -58,11 +58,6 @@ export function SiteInfoPopover(props: {
     setChanged(true);
   };
 
-  const fallback = (key: (typeof siteSettingKeys)[number]) => {
-    const d = settings().browser.defaults[key];
-    return d === "ask" ? "Ask" : d === "allow" ? "Allow" : "Block";
-  };
-
   return (
     <Portal>
       <div
@@ -92,7 +87,7 @@ export function SiteInfoPopover(props: {
                   {...stylex.attrs(styles.select)}
                   data-site-info-setting={key}
                 >
-                  <option value="">Default ({fallback(key)})</option>
+                  <option value="">{inheritedLabel(settings().browser, props.site, key)}</option>
                   <option value="allow">Allow</option>
                   <option value="block">Block</option>
                 </select>

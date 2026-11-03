@@ -21,6 +21,7 @@ import {
   defaultBrowserSettings,
   describeImport,
   importParts,
+  inheritedLabel,
   isSearchUrl,
   searchEngineOf,
   searchEngines,
@@ -49,6 +50,9 @@ const setPart = <K extends keyof BrowserSettings>(key: K, value: Partial<Browser
   updateBrowser((b) => ({ ...b, [key]: { ...b[key], ...value } }));
 
 const percent = (factor: number) => `${Math.round(factor * 100)}%`;
+/** The choices with the current value among them (one imported from another browser may not be). */
+const withCurrent = (choices: readonly number[], current: number | undefined) =>
+  current === undefined || choices.includes(current) ? [...choices] : [...choices, current].sort((a, b) => a - b);
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 /** The main process's view of the system: languages, dictionaries, the Downloads folder. */
@@ -159,10 +163,6 @@ const defaultLabels: Record<string, string> = { ask: "Sites can ask", allow: "Al
 /** A site's own choice for a setting: the default, allow or block. */
 function DecisionSelect(props: { site: string; setting: SiteSettingKey; compact?: boolean }) {
   const own = () => browser().sites[props.site]?.[props.setting] ?? "";
-  const fallback = () => {
-    const d = browser().defaults[props.setting];
-    return d === "ask" ? "Ask" : d === "allow" ? "Allow" : "Block";
-  };
   return (
     <Select
       value={own()}
@@ -170,7 +170,7 @@ function DecisionSelect(props: { site: string; setting: SiteSettingKey; compact?
       xstyle={props.compact ? styles.compactSelect : styles.select}
       data-site-setting={props.setting}
     >
-      <option value="">Default ({fallback()})</option>
+      <option value="">{inheritedLabel(browser(), props.site, props.setting)}</option>
       <option value="allow">Allow</option>
       <option value="block">Block</option>
     </Select>
@@ -348,7 +348,9 @@ function SiteDetails(props: { site: string }) {
             data-site-zoom
           >
             <option value="">Default ({percent(browser().zoom.default)})</option>
-            <For each={ZOOM_FACTORS}>{(f) => <option value={String(f)}>{percent(f)}</option>}</For>
+            <For each={withCurrent(ZOOM_FACTORS, browser().zoom.sites[props.site])}>
+              {(f) => <option value={String(f)}>{percent(f)}</option>}
+            </For>
           </Select>
         </Row>
         <For each={siteSettingKeys}>
@@ -360,7 +362,7 @@ function SiteDetails(props: { site: string }) {
         </For>
         <Row label="" description="Settings change on the next load of the site's pages.">
           <Button onClick={reset} data-reset-site>
-            Reset permissions
+            Reset site settings
           </Button>
         </Row>
       </Section>
@@ -580,7 +582,7 @@ export function AppearanceSection() {
             data-font-minimum
           >
             <option value="0">None</option>
-            <For each={[6, 8, 9, 10, 11, 12, 14, 16, 18, 20, 24]}>
+            <For each={withCurrent([6, 8, 9, 10, 11, 12, 14, 16, 18, 20, 24], fonts().minimumSize || undefined)}>
               {(n) => <option value={String(n)}>{n} px</option>}
             </For>
           </Select>
@@ -597,7 +599,9 @@ export function AppearanceSection() {
             xstyle={styles.select}
             data-default-zoom
           >
-            <For each={ZOOM_FACTORS}>{(f) => <option value={String(f)}>{percent(f)}</option>}</For>
+            <For each={withCurrent(ZOOM_FACTORS, browser().zoom.default)}>
+              {(f) => <option value={String(f)}>{percent(f)}</option>}
+            </For>
           </Select>
         </Row>
         <Row label="Zoom levels" description="Sites you zoomed keep their zoom." wide>

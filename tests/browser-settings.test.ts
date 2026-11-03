@@ -4,6 +4,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
   applyImport,
+  blockedDomains,
   browserRulesToDnr,
   browserSettingsFromChrome,
   defaultBrowserSettings,
@@ -154,6 +155,44 @@ describe("rules", () => {
   });
 });
 
+describe("rules for nested sites", () => {
+  const off = { ...defaultBrowserSettings().defaults, javascript: "block" as const };
+  test("the most specific site wins, like siteSetting", () => {
+    // Allowed by default, a site blocked, a part of it allowed again, and a part of that blocked.
+    const b = withSites({
+      "example.com": { javascript: "block" },
+      "docs.example.com": { javascript: "allow" },
+      "old.docs.example.com": { javascript: "block" },
+      "www2.example.com": { javascript: "block" },
+    });
+    expect(blockedDomains(b, "javascript")).toEqual([
+      { domain: "example.com", except: ["docs.example.com"] },
+      { domain: "old.docs.example.com", except: [] },
+    ]);
+    const rules = browserRulesToDnr(b, 1);
+    expect(rules[0]!.condition).toMatchObject({
+      requestDomains: ["example.com"],
+      excludedRequestDomains: ["docs.example.com"],
+    });
+    expect(rules[1]!.condition.requestDomains).toEqual(["old.docs.example.com"]);
+  });
+
+  test("blocked by default: allowed sites are left out, blocked sites under them get their own rule", () => {
+    const b = withSites(
+      {
+        "example.com": { javascript: "allow" },
+        "ads.example.com": { javascript: "block" },
+        "other.com": { javascript: "block" },
+      },
+      { defaults: off },
+    );
+    expect(blockedDomains(b, "javascript")).toEqual([
+      { domain: null, except: ["example.com"] },
+      { domain: "ads.example.com", except: [] },
+    ]);
+  });
+});
+
 describe("search engine", () => {
   test("a known engine, a custom one, and DuckDuckGo until the custom URL works", () => {
     const b = defaultBrowserSettings();
@@ -281,6 +320,7 @@ describe("settings", () => {
   });
 
   test("invalid values are refused", () => {
+    expect(() => decodeSettings({ browser: { startup: { pages: ["javascript:alert(1)"] } } })).toThrow();
     expect(() => decodeSettings({ browser: { zoom: { default: 9 } } })).toThrow();
     expect(() => decodeSettings({ browser: { languages: { preferred: ["not a language"] } } })).toThrow();
     expect(() => decodeSettings({ browser: { sites: { "a.com": { camera: "sometimes" } } } })).toThrow();

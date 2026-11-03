@@ -110,7 +110,13 @@ export function setupBrowser(options: BrowserOptions) {
 
   /** A free file name in a folder, like Chrome's: "report.pdf", "report (1).pdf"… */
   function freePath(folder: string, name: string) {
-    const safe = name.replace(/[\\/:*?"<>|]+/g, "_").trim() || "download";
+    // Windows refuses its device names (CON, NUL…) and names ending in a dot or space.
+    let safe =
+      name
+        .replace(/[\\/:*?"<>|\x00-\x1f]+/g, "_")
+        .trim()
+        .replace(/[. ]+$/, "") || "download";
+    if (/^(con|prn|aux|nul|com\d|lpt\d)(\.|$)/i.test(safe)) safe = `_${safe}`;
     const ext = extname(safe);
     const base = safe.slice(0, safe.length - ext.length);
     let path = join(folder, safe);
@@ -163,10 +169,19 @@ export function setupBrowser(options: BrowserOptions) {
     }
   }
 
-  /** A site whose sound is off stays muted. */
+  /** Pages muted for their site's sound setting (others, muted by an extension, are left alone). */
+  const mutedBySite = new WeakSet<WebContents>();
+  /** A site whose sound is off stays muted; leaving it unmutes only what it muted. */
   const applySound = (contents: WebContents) => {
     const host = hostOf(contents.getURL());
-    if (host) contents.setAudioMuted(siteSetting(browser, host, "sound") === "block");
+    const off = !!host && siteSetting(browser, host, "sound") === "block";
+    if (off && !contents.isAudioMuted()) {
+      contents.setAudioMuted(true);
+      mutedBySite.add(contents);
+    } else if (!off && mutedBySite.has(contents)) {
+      contents.setAudioMuted(false);
+      mutedBySite.delete(contents);
+    }
   };
 
   function trackGuest(contents: WebContents) {
