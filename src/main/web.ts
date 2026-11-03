@@ -309,6 +309,8 @@ export function setupWebTabs(
     const key = exceptionKey(url, certificate.fingerprint);
     if (key && certificateExceptions.get(contents.session)?.has(key)) return callback(true);
     if (isMainFrame) {
+      if (!certificateProblems.has(contents.id))
+        contents.once("destroyed", () => certificateProblems.delete(contents.id));
       certificateProblems.set(contents.id, {
         url,
         error,
@@ -318,7 +320,6 @@ export function setupWebTabs(
         validUntil: certificate.validExpiry * 1000,
         fingerprint: certificate.fingerprint,
       });
-      contents.once("destroyed", () => certificateProblems.delete(contents.id));
     }
     callback(false);
   });

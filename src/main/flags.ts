@@ -4,7 +4,7 @@
 import { app } from "electron";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { cleanFlagState, flagSwitches, type FlagState } from "../shared/flags";
+import { cleanFlagState, flags, flagSwitches, type FlagState } from "../shared/flags";
 
 const flagsFile = () => join(app.getPath("userData"), "flags.json");
 
@@ -27,18 +27,25 @@ function appendList(name: string, values: string[]) {
   app.commandLine.appendSwitch(name, [...(current ? current.split(",") : []), ...values].join(","));
 }
 
-/** Applies the saved flags (call before the app is ready). Returns what was applied. */
+/**
+ * Applies the saved flags (call before the app is ready). Returns what was applied: a flag
+ * whose switch was also given on the command line isn't (the command line wins, like in Chrome).
+ */
 export function applyFlags(safeMode: boolean): FlagState {
   if (safeMode) return {};
-  const state = readFlags();
-  const { switches, enableFeatures, disableFeatures } = flagSwitches(state, process.platform);
-  for (const [name, value] of switches) {
-    // A switch given on the command line wins, like in Chrome.
-    if (app.commandLine.hasSwitch(name)) continue;
-    if (value === undefined) app.commandLine.appendSwitch(name);
-    else app.commandLine.appendSwitch(name, value);
+  const applied: FlagState = {};
+  for (const [id, value] of Object.entries(readFlags())) {
+    const { switches, enableFeatures, disableFeatures } = flagSwitches({ [id]: value }, process.platform);
+    // Any of its switches (--enable-quic for a disabled QUIC too) on the command line.
+    const names = flags.find((f) => f.id === id)?.options.flatMap((o) => (o.switches ?? []).map(([n]) => n)) ?? [];
+    if (names.some((name) => app.commandLine.hasSwitch(name))) continue;
+    for (const [name, switchValue] of switches) {
+      if (switchValue === undefined) app.commandLine.appendSwitch(name);
+      else app.commandLine.appendSwitch(name, switchValue);
+    }
+    appendList("enable-features", enableFeatures);
+    appendList("disable-features", disableFeatures);
+    applied[id] = value;
   }
-  appendList("enable-features", enableFeatures);
-  appendList("disable-features", disableFeatures);
-  return state;
+  return applied;
 }

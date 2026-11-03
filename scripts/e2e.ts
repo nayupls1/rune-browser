@@ -3898,14 +3898,12 @@ try {
             }),
         })
       : null;
+    let tabId: string | undefined;
     try {
       await newTab("New web tab");
-      const tabId = await page!.waitFor<string>(
-        `document.querySelector('nav li[aria-current="page"]')?.dataset.appId`,
-        {
-          label: "the new tab",
-        },
-      );
+      tabId = await page!.waitFor<string>(`document.querySelector('nav li[aria-current="page"]')?.dataset.appId`, {
+        label: "the new tab",
+      });
       const tab = `[data-web-tab="${tabId}"]`;
       // Nothing listens on this port: refused, with Chromium's words and a Reload button.
       const closed = await new Promise<number>((resolve) => {
@@ -3924,7 +3922,12 @@ try {
         throw new Error(`the error page says: ${refused}`);
       await addressShows(`http://127.0.0.1:${closed}/`);
       await shot("load-error-network.png");
-      if (!insecure) return `openssl isn't available (${made.stderr.toString().trim()}): only the network error`;
+      if (!insecure) {
+        // CI must cover the certificate warning; a computer without openssl only checks the rest.
+        const why = `openssl isn't available (${made.stderr.toString().trim()})`;
+        if (process.env.CI) throw new Error(why);
+        return `${why}: only the network error`;
+      }
 
       const url = `https://127.0.0.1:${insecure.port}/`;
       await enterAddress(url);
@@ -3953,9 +3956,9 @@ try {
       await page!.waitFor(`document.querySelector("[data-address-bar]")?.dataset.addressIcon === "triangle-alert"`, {
         label: "the address bar still warns",
       });
-      await apiCall(`/api/apps/${tabId}`, { method: "DELETE" });
       return "refused connection, self-signed certificate: warning, details, proceed";
     } finally {
+      if (tabId) await apiCall(`/api/apps/${tabId}`, { method: "DELETE" }).catch(() => {});
       insecure?.stop(true);
       rmSync(certDir, { recursive: true, force: true });
     }
