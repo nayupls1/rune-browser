@@ -3702,6 +3702,63 @@ try {
     },
   );
 
+  await check("default browser: links and files from other apps open as tabs in the running window", async () => {
+    // Settings says whether Rune Browser is the default (runs from source can't be).
+    await openSettingsAt("web");
+    await page!.waitFor(`document.querySelector("[data-default-browser]")?.dataset.defaultBrowser === "unsupported"`, {
+      label: "default browser row",
+    });
+    await shot("settings-default-browser.png");
+    // Opening a link and a web file launches Rune Browser again, as the system does: that copy
+    // hands them to this one and quits.
+    const dir = mkdtempSync(join(tempDir, "rune-e2e-links-"));
+    const file = join(dir, "From another app.html");
+    writeFileSync(file, "<title>A file from another app</title><h1>A file</h1>");
+    const link = `${site.url.origin}/second?from=another-app`;
+    try {
+      const second = await launchElectron({ RUNE_USER_DATA_DIR: profile, RUNE_OFFSCREEN: "1" }, [
+        "--ozone-platform=headless",
+        "--password-store=basic",
+        "--",
+        link,
+        file,
+      ]);
+      const exit = await Promise.race([second.exited, Bun.sleep(30_000 * TIMEOUT_SCALE).then(() => "running")]);
+      if (exit !== 0) {
+        second.kill();
+        throw new Error(`the second launch didn't hand over its links and quit (${exit})`);
+      }
+      type Tab = { id: string; kind: string; url?: string };
+      let tabs: Tab[] = [];
+      const opened = await waitForValue(async () => {
+        tabs = await apiCall<Tab[]>("/api/apps");
+        const fromLink = tabs.find((a) => a.kind === "web" && a.url === link);
+        const fromFile = tabs.find((a) => a.kind === "web" && a.url === fileUrl(file));
+        return fromLink && fromFile ? { fromLink, fromFile } : undefined;
+      }, 20_000).catch((err) => {
+        throw new Error(`${err.message}; the web tabs: ${tabs.map((t) => t.url).join(", ")}`);
+      });
+      // In order: the last one is on screen.
+      await page!.waitFor(
+        `document.querySelector('nav li[aria-current="page"]')?.dataset.appId === "${opened.fromFile.id}"`,
+        { label: "the file's tab selected" },
+      );
+      await page!.waitFor(`!!document.querySelector('nav li[data-app-id="${opened.fromLink.id}"]')`, {
+        label: "the link's tab in the sidebar",
+      });
+      // The file's page loaded (its title names the tab).
+      await page!.waitFor(
+        `document.querySelector('nav li[data-app-id="${opened.fromFile.id}"]')?.textContent.includes("A file from another app")`,
+        { label: "the file's page", timeoutMs: 15_000 },
+      );
+      await shot("default-browser-links.png");
+      for (const tab of [opened.fromLink, opened.fromFile]) await apiCall(`/api/apps/${tab.id}`, { method: "DELETE" });
+      return "a second launch with a link and a file opened both here, then quit";
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   await check("no uncaught errors in the renderer", async () => {
     // Expected noise from Electron itself isn't an app bug.
     const real = pageErrors.filter((e) => !/Electron Security Warning/.test(e));

@@ -23,6 +23,7 @@ import {
   type ProviderId,
   type ProviderStatus,
 } from "../../shared/api";
+import type { DefaultBrowserStatus } from "../../shared/defaultBrowser";
 import { searchEngines, type GlobalTheme, type Settings } from "../../shared/settings";
 import { api } from "../lib/api";
 import { topics } from "../../shared/hub";
@@ -360,6 +361,7 @@ function WebSection() {
   return (
     <>
       <Section title="Browsing" icon="globe" anchor="web">
+        <DefaultBrowserRow />
         <Row label="Search engine" description="Used when the address bar input isn't a URL.">
           <Select
             value={settings().web.searchEngine}
@@ -517,6 +519,56 @@ function AppsSection() {
         </Row>
       </Section>
     </>
+  );
+}
+
+const defaultBrowserText: Record<"default" | Extract<DefaultBrowserStatus, { how: string }>["how"], string> = {
+  default: "Rune Browser is your default browser: links and web files from other apps open here, in new tabs.",
+  direct: "Links and web pages from other apps (email, chat, documents, the terminal) open in another browser.",
+  confirm:
+    "Links from other apps (email, chat, documents) open in another browser. macOS asks you to confirm the change.",
+  settings:
+    "Links from other apps open in another browser. Windows lets you choose in its settings: pick Rune Browser as the web browser there, and for the file types you want.",
+};
+
+/** Whether Rune Browser is the system's default browser, and making it the default (main/defaultBrowser.ts). */
+function DefaultBrowserRow() {
+  const [status, { mutate, refetch }] = createResource(() => window.rune.defaultBrowser.get());
+  const [making, setMaking] = createSignal(false);
+  // Back from the system's settings (Windows) or its confirmation (macOS).
+  const onFocus = () => void refetch();
+  window.addEventListener("focus", onFocus);
+  onCleanup(() => window.removeEventListener("focus", onFocus));
+  const notDefault = () => {
+    const s = status();
+    return s?.state === "not-default" ? s : null;
+  };
+  const description = () => {
+    const s = status();
+    if (!s) return "…";
+    if (s.state === "unsupported") return s.reason;
+    return defaultBrowserText[s.state === "not-default" ? s.how : "default"];
+  };
+  const make = async () => {
+    setMaking(true);
+    try {
+      mutate(await window.rune.defaultBrowser.make());
+    } finally {
+      setMaking(false);
+    }
+  };
+  return (
+    <Row label="Default browser" description={description()}>
+      <span data-default-browser={status()?.state}>
+        <Show when={notDefault()}>
+          {(s) => (
+            <Button onClick={() => void make()} disabled={making()}>
+              {s().how === "settings" ? "Open Windows settings" : "Make default"}
+            </Button>
+          )}
+        </Show>
+      </span>
+    </Row>
   );
 }
 

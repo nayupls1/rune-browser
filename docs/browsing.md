@@ -51,6 +51,12 @@ showing one that can't, like other browsers (`shared/insecure.ts`).
   the website agent go through the same checks. Only the user can continue: the agent is told the page is behind the
   warning. Going back or forward to a page already allowed isn't checked again.
 
+**Default browser.** Rune Browser can be the system's default browser (`main/defaultBrowser.ts`), so links and web files from other apps open in it:
+
+- **Registered as a browser:** the installers declare http and https links and `.html`, `.htm`, `.xhtml`, `.shtml`, `.pdf`, `.svg` and `.webp` files (`shared/defaultBrowser.ts`): on Windows in the registry, so it's in Default apps and "Open with" (`build/installer.nsh`, removed again when uninstalled); on macOS in its Info.plist; on Linux in the `.desktop` file. It never takes files over by itself.
+- **One copy:** launching it again (which is what opening a link does) hands the links and files to the running window, where each opens in a new tab, and quits. macOS sends them as events instead. Links it's started with open once the window is ready. Anything that isn't a web link or an existing web file is ignored, and on Windows links come after `--`, so they can't pass switches to Chromium.
+- **Settings → Web tabs** shows whether it's the default. **Make default** sets it on Linux (`xdg-mime`, for links and web pages; an AppImage first writes its own `.desktop` file to `~/.local/share/applications`), asks macOS, which confirms with the user, and on Windows opens Settings at Rune Browser's default apps, since only the user can choose there. Runs from source can't be the default.
+
 The older **site override** (one stylesheet and script per hostname, `set_site_override`) still exists for larger reworks.
 
 Web tab logins are cookies, which are encrypted with a key from the same keychain, like Chrome's. The `EnableCookieEncryption` fuse is set in `electron-builder.yml` for the packaged app, and by `scripts/electron.ts` in `node_modules` for runs from source. As in Chrome, a site's local storage, IndexedDB and cache aren't encrypted. They sit in the 0700 profile folder.

@@ -84,7 +84,9 @@ to drive a web tab for an agent).
 Chromium: web tabs are `<webview>` guests with a session per workspace
 (`web.ts`), Chrome extensions run in those sessions (`extensions/`), network
 recording and rules (`network.ts`), DevTools access for agents (`devtools.ts`),
-and updates of the app itself (`updates.ts`, see [Releasing](releasing.md)).
+links from other apps and the default browser (`defaultBrowser.ts`, see
+[Browsing](browsing.md#web-tabs)), and updates of the app itself (`updates.ts`,
+see [Releasing](releasing.md)).
 
 ## Data
 

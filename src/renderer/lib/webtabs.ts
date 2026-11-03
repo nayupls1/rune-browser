@@ -31,6 +31,7 @@ import {
   workspaces,
 } from "./store";
 import { focusAddress } from "./tabChrome";
+import { toast } from "../components/Toast";
 import { targetScript, waitForScript, type Locator } from "./browse";
 import { readPageScript, type SavedPage } from "./pagestate";
 import { setSidebarCollapsed, toggleSidebar } from "./layout";
@@ -382,3 +383,19 @@ onConnected(() => void loadPageChanges());
 
 // Links that want a new window (web pages, app previews, chat links).
 window.rune.web.onOpenTab((url, background) => void newWebTab(url, { background }));
+
+// Links and files from other apps (Rune Browser as the default browser: main/defaultBrowser.ts),
+// each in a new tab, in order (the last one shown).
+let opening = Promise.resolve();
+window.rune.web.onOpenLinks((urls) => {
+  for (const url of urls)
+    opening = opening.then(() =>
+      newWebTab(url).then(
+        () => {},
+        (err) => {
+          console.warn(`Opening ${url} failed:`, err);
+          toast({ title: "Couldn't open a link", message: url.slice(0, 300), kind: "error" });
+        },
+      ),
+    );
+});

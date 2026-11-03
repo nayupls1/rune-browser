@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 import { apiMapReporter } from "./apiMap";
 import { describeExitCode, redactPaths } from "./crashReport";
 import { setupCrashReports } from "./crashes";
+import { claimSingleInstance, restartArgs, setupLinks } from "./defaultBrowser";
 import { startServer, type ServerHandle } from "./server";
 import { appUserModelId, taskbarDetails } from "./taskbar";
 import { setupUpdates } from "./updates";
@@ -26,6 +27,14 @@ if (
 
 // Lets tests run against a throwaway profile instead of the real data.
 if (process.env.RUNE_USER_DATA_DIR) app.setPath("userData", process.env.RUNE_USER_DATA_DIR);
+
+// One copy per profile: launching it again (a link from another app, once it's the
+// default browser) hands the links to the running one, which opens them as tabs.
+// (process.exit: nothing below may run, the app isn't even ready.)
+if (!claimSingleInstance()) {
+  console.log("Rune Browser already runs with this profile: opening there instead.");
+  process.exit(0);
+}
 
 // Crash reports and logs/crashes.log (as early as possible, to catch everything).
 const crashes = setupCrashReports();
@@ -71,12 +80,20 @@ let server: ServerHandle | undefined;
 let mainWindow: BrowserWindow | undefined;
 let web: ReturnType<typeof setupWebTabs> | undefined;
 
+// Links and files from other apps (registered before the app is ready: macOS sends the first ones then).
+setupLinks({
+  getWindow: () => mainWindow,
+  showWindow: () => {
+    if (server && !mainWindow) createWindow(server);
+  },
+});
+
 // Safe mode: the renderer leaves out the theme and site customizations, so
 // whatever broke the UI can be undone in History.
 const safeMode = process.argv.includes("--safe-mode") || process.env.RUNE_SAFE_MODE === "1";
 
 function relaunch(safe: boolean) {
-  const args = process.argv.slice(1).filter((a) => a !== "--safe-mode");
+  const args = restartArgs().filter((a) => a !== "--safe-mode");
   app.relaunch({ args: safe ? [...args, "--safe-mode"] : args });
   app.quit();
 }
