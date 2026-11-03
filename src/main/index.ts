@@ -30,6 +30,8 @@ if (
 
 // Lets tests run against a throwaway profile instead of the real data.
 if (process.env.RUNE_USER_DATA_DIR) app.setPath("userData", process.env.RUNE_USER_DATA_DIR);
+// ...and a throwaway downloads folder instead of the user's.
+if (process.env.RUNE_DOWNLOADS_DIR) app.setPath("downloads", process.env.RUNE_DOWNLOADS_DIR);
 
 // One copy per profile: launching it again (a link from another app, once it's the
 // default browser) hands the links to the running one, which opens them as tabs.

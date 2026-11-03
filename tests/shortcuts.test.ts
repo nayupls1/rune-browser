@@ -137,6 +137,13 @@ describe("the keymap", () => {
     expect(on(mac, key("ˆ", "KeyI", { alt: true, meta: true }))).toBe("page.devtools");
     expect(on(linux, key("q", "KeyQ", { ctrl: true, shift: true }))).toBe("app.quit");
     expect(on(mac, key("y", "KeyY", { meta: true }))).toBe("open.history");
+    expect(on(linux, key("j", "KeyJ", { ctrl: true }))).toBe("open.downloads");
+    expect(on(windows, key("j", "KeyJ", { ctrl: true }))).toBe("open.downloads");
+    expect(on(mac, key("J", "KeyJ", { meta: true, shift: true }))).toBe("open.downloads");
+    expect(on(linux, key("J", "KeyJ", { ctrl: true, shift: true }))).toBe("page.console");
+    // The agent moved off Chromium's downloads key.
+    expect(on(linux, key("i", "KeyI", { ctrl: true }))).toBe("agent.toggle");
+    expect(on(mac, key("i", "KeyI", { meta: true }))).toBe("agent.toggle");
     expect(on(linux, key("2", "Digit2", { ctrl: true, alt: true }))).toBe("workspace.select-2");
   });
 

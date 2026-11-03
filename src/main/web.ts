@@ -35,6 +35,7 @@ import { join } from "node:path";
 import { setupBrowser } from "./browser";
 import { setupExtensions } from "./extensions";
 import { setupDevtools } from "./devtools";
+import { setupDownloads } from "./downloads";
 import { setupNetwork } from "./network";
 import { setupOverrides } from "./overrides";
 import { setupShortcuts } from "./shortcuts";
@@ -113,6 +114,20 @@ export function setupWebTabs(windows: AppWindows, onApiCall?: (workspaceId: stri
 
   const devtools = setupDevtools({ windows, isWebTab: (contents) => webSessions.has(contents.session) });
 
+  const downloads = setupDownloads({
+    windows,
+    folder: () => browser.downloadsFolder(),
+    ask: () => browser.askWhereToSave(),
+    workspaceOf: (s) => webSessions.get(s),
+    partitionOf: (s) => partitions.get(s),
+    sessionFor: (partition) =>
+      !partition
+        ? session.defaultSession
+        : WEB_PARTITION_PATTERN.test(partition)
+          ? webSession(partition)
+          : previewSession(partition),
+  });
+
   app.on("web-contents-created", (_event, contents) => {
     contents.on("will-attach-webview", (event, prefs, params) => {
       delete prefs.preload;
@@ -137,7 +152,7 @@ export function setupWebTabs(windows: AppWindows, onApiCall?: (workspaceId: stri
         browser.webPreferences(prefs);
         // Extension pages in iframes (password managers' fill-in menus…) get the extension APIs too.
         prefs.nodeIntegrationInSubFrames = true;
-      } else lockDown(session.fromPartition(partition));
+      } else previewSession(partition);
     });
     if (contents.getType() === "webview") setupGuest(contents);
   });
@@ -213,7 +228,8 @@ export function setupWebTabs(windows: AppWindows, onApiCall?: (workspaceId: stri
       openTab: (url, background) => openTab(contents, url, background),
       openExternal: (url) => void shell.openExternal(url),
       copyText: (text) => clipboard.writeText(text),
-      download: (url) => contents.downloadURL(url),
+      // "Save link as…", "Save image as…": they ask where to save (main/downloads.ts).
+      download: (url) => downloads.saveAs(contents, url),
       copyImageAt: (x, y) => contents.copyImageAt(x, y),
       edit: (command) => contents[command](),
       replaceMisspelling: (word) => contents.replaceMisspelling(word),
@@ -261,9 +277,19 @@ export function setupWebTabs(windows: AppWindows, onApiCall?: (workspaceId: stri
 
   /** The session of a workspace's web tabs, set up on first use. Maps to the workspace. */
   const webSessions = new WeakMap<Electron.Session, string>();
+  /** Web tabs' and app previews' sessions, by partition (to retry a download in its session). */
+  const partitions = new WeakMap<Electron.Session, string>();
+  /** An app preview's session, locked down. */
+  function previewSession(partition: string) {
+    const s = session.fromPartition(partition);
+    partitions.set(s, partition);
+    lockDown(s);
+    return s;
+  }
   function webSession(partition: string) {
     const s = session.fromPartition(partition);
     if (webSessions.has(s)) return s;
+    partitions.set(s, partition);
     webSessions.set(
       s,
       partition === PRIVATE_PARTITION

@@ -76,6 +76,12 @@ export const internalPages: InternalPage[] = [
     target: { newTab: true },
     aliases: ["new-tab-page"],
   },
+  {
+    host: "downloads",
+    title: "Downloads",
+    description: "Everything you downloaded, by day: open, show in folder, retry.",
+    target: { view: "downloads" },
+  },
   // Rune Browser's own pages.
   {
     host: "activity",
@@ -142,7 +148,7 @@ export const chromiumPages: ChromiumPage[] = [
   { host: "chrome-urls", status: "matched", note: "rune://rune-urls" },
   { host: "newtab", status: "matched", note: "rune://newtab opens a new web tab" },
   { host: "history", status: "not-yet", note: "Browsing history is on its way" },
-  { host: "downloads", status: "not-yet", note: "Downloads and a downloads page are on their way" },
+  { host: "downloads", status: "matched", note: "rune://downloads" },
   { host: "bookmarks", status: "not-yet", note: "Bookmarks are on their way" },
   {
     host: "password-manager",

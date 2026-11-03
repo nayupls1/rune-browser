@@ -102,7 +102,7 @@ settings; cookies and site data stay per workspace. The renderer sends them to t
   back to) and the zoom levels sites keep (zooming a page remembers it for its site).
 - **Languages:** the preferred languages websites see (`Accept-Language`), spell check and its dictionaries (with
   suggestions and "Add to dictionary" in the context menu).
-- **Downloads:** the folder (files get a free name there, like Chrome's "file (1).pdf") or asking every time.
+- **Downloads:** the folder (files get a free name there, like Chrome's "file (1).pdf") or asking every time; see [Downloads](#downloads).
 - **Performance:** memory saver (unloading idle tabs, see Interface).
 - **Autofill and passwords:** Rune Browser has no password store of its own; a password manager extension does that.
 - **Import bookmarks and settings:** from the Chromium-based browsers extension import finds, their Preferences: search
@@ -219,6 +219,33 @@ Stopped service workers are started again for the events they listened to. Elect
 - `chrome.storage.sync` data isn't imported (Chrome keeps it in a LevelDB that Rune Browser doesn't parse).
 - Settings are imported into each workspace once, when the extension first loads there; later changes stay per workspace.
 
+## Downloads
+
+Downloads work like Chromium's (`main/downloads.ts`, shown by `components/Downloads.tsx`), for every session: web
+tabs, app previews and Rune Browser's own window.
+
+- **Saving:** files go to the downloads folder (Settings → Browser → Downloads: the system's, or one you pick), under a
+  name that doesn't overwrite anything (`report (1).pdf`), or wherever you pick when "Ask where to save each file" is on
+  there. "Save link as…" and "Save image as…"
+  in a page's context menu always ask, and so do app previews (a sandboxed app only gets a file out where you say).
+- **Progress:** a button appears in the sidebar's top row once something was downloaded, with a ring while files
+  download (the taskbar or dock icon shows it too). Its panel lists this run's downloads with their speed, size and
+  time left, and pauses, resumes or cancels them.
+- **Finished and failed** downloads get a notice (with "Show in folder" or "Retry") and a dot on the button until
+  they're looked at.
+- **Risky files:** programs, installers and scripts (`.exe`, `.msi`, `.dmg`, `.pkg`, `.deb`, `.AppImage`, `.sh`,
+  `.jar`, `.apk`…), and anything from a site without HTTPS (not this computer: apps on localhost are fine), are saved
+  as `Unconfirmed 123456.download` until you choose: the panel opens by itself with **Discard** and **Keep anyway**.
+  Keeping gives the file its name (asking where, if that's on); discarding deletes it. There's no Safe Browsing check:
+  the warning goes by file type and site.
+- **Downloads page** (rune://downloads; Ctrl+J, macOS Cmd+Shift+J, the command bar or Settings' pages): every download by day with its
+  name, site and size, searchable. Open a file (its name), show it in its folder, retry a failed or cancelled one,
+  remove one from the list or clear the list (the files stay). The list is kept in the profile (`downloads.json`, the
+  newest 1000).
+- **Private windows** see only their own downloads, like Chrome's incognito ones. They're never written to
+  `downloads.json`, and they leave the list when the last private window closes (the files stay; what's still
+  downloading stops).
+
 ## Keyboard shortcuts
 
 Rune Browser has Chromium's keyboard shortcuts on every platform (Cmd instead of Ctrl on macOS), plus its own. All of
@@ -260,12 +287,12 @@ The rest of Chromium (settings, internal pages, everyday behavior) is in [Chromi
 | Full screen (F11, macOS Cmd+Ctrl+F), close window (Ctrl+Shift+W, Alt+F4), quit (Ctrl+Shift+Q)      | Same (macOS quits with Cmd+Q)                                                |
 | Reopen closed tab (Ctrl+Shift+T) after closing a window                                            | Same: reopens the window with its tabs                                       |
 | History (Ctrl+H, macOS Cmd+Y)                                                                      | Same                                                                         |
+| Downloads (Ctrl+J, macOS Cmd+Shift+J)                                                              | Same: the Downloads page, a downloads button and warnings before risky files |
 | Ctrl+click or middle click on a link; Ctrl+Shift+click, Shift+click                                | Same: a background tab; a tab that's shown (Shift+click: not a new window)   |
 | Address bar: Ctrl+Enter (www. and .com), Alt+Enter or Shift+Enter (macOS Cmd+Enter: new tab)       | Same                                                                         |
 | Search tabs (Ctrl+Shift+A)                                                                         | Same, in the command bar                                                     |
 | View source (Ctrl+U, macOS Cmd+Option+U)                                                           | Different: DevTools' Sources panel (Electron can't show view-source: pages)  |
 | Bookmark page (Ctrl+D)                                                                             | Different: pins or unpins the tab (no bookmarks)                             |
-| Downloads (Ctrl+J)                                                                                 | Different: shows or hides the agent (Rune Browser has no downloads page yet) |
 | Bookmarks bar (Ctrl+Shift+B)                                                                       | Different: shows or hides the sidebar (no bookmarks)                         |
 | Search in the address bar (Ctrl+K)                                                                 | Different: the command bar, which also searches                              |
 | Bookmark manager (Ctrl+Shift+O)                                                                    | Not yet: no bookmarks                                                        |
@@ -274,7 +301,7 @@ The rest of Chromium (settings, internal pages, everyday behavior) is in [Chromi
 | Clear browsing data (Ctrl+Shift+Delete), task manager (Shift+Esc), caret browsing (F7)             | Not yet                                                                      |
 | Home (Alt+Home), menu (Alt+F, F10), focus toolbar (Alt+Shift+T)                                    | Not applicable: no home page or menu                                         |
 
-Rune Browser's own: the command bar (Ctrl+K), the agent (Ctrl+J), the sidebar (Ctrl+Shift+B), workspaces 1–9
+Rune Browser's own: the command bar (Ctrl+K), the agent (Ctrl+I; Ctrl+J is Chromium's downloads), the sidebar (Ctrl+Shift+B), workspaces 1–9
 (Ctrl+Alt+1–9), Settings (Ctrl+,) and this list (Ctrl+/). Duplicating and new apps have no keys by default; you can
 give them some. The mouse's back and forward buttons can be given to any action too (Settings records them like keys):
 webviews don't act on them by themselves, so the main process takes them from the page's input events.

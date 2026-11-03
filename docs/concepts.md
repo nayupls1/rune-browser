@@ -42,7 +42,7 @@ theme. It can also write any other stack itself. Rune Browser gives every app:
 
 Editing follows the agent sidebar. While it's open the app is being **edited**: Rune Browser
 runs the `dev` command (Bun `--hot` with HMR), so the agent's changes show up in the
-preview right away. Closing it (Ctrl+J) means **done**: Rune Browser runs `build` and then
+preview right away. Closing it (Ctrl+I) means **done**: Rune Browser runs `build` and then
 `start` and shows the finished app; "Edit" brings the agent back and the dev server
 with it. An agent turn always edits, so it reopens the panel. Dependencies are installed when `package.json` or the
 lockfile change.

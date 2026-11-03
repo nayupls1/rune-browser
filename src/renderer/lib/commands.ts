@@ -16,6 +16,7 @@ import {
   currentWorkspace,
   deleteApp,
   duplicateApp,
+  DOWNLOADS_VIEW,
   HISTORY_VIEW,
   isAgentCollapsed,
   MODS_VIEW,
@@ -559,6 +560,15 @@ function runeCommands(): Command[] {
         keywords: section.keywords,
         run: () => selectApp(section.view!),
       })),
+    {
+      id: "open.downloads",
+      title: "Open Downloads",
+      icon: "download",
+      group: "Rune Browser",
+      keys: "open.downloads",
+      keywords: "files saved downloaded",
+      run: () => selectApp(DOWNLOADS_VIEW),
+    },
     {
       id: "open.history",
       title: "Open History",

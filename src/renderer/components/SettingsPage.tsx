@@ -41,6 +41,7 @@ import {
   URLS_VIEW,
   VERSION_VIEW,
   appById,
+  DOWNLOADS_VIEW,
   currentWorkspace,
   deleteWorkspace,
   editWorkspaceSettings,
@@ -66,6 +67,7 @@ import { ShortcutSettings } from "./ShortcutSettings";
 import { ApiMapPage } from "./ApiMapPage";
 import { BrowserSection } from "./BrowserSettings";
 import { HistoryPage } from "./History";
+import { DownloadsPage } from "./Downloads";
 import { ModsPage } from "./ModsPage";
 import { SchedulesPage } from "./SchedulesPage";
 import { base, themePresets } from "../../shared/theme";
@@ -84,7 +86,7 @@ import { Button, Select } from "./ui";
 
 /**
  * Settings: a sidebar of categories on the left, the chosen one on the right.
- * Rune Browser's pages (History, Schedules, Mods, Activity) are categories too.
+ * Rune Browser's pages (Downloads, History, Schedules, Mods, Activity) are categories too.
  */
 export function SettingsShell(props: { view: string }) {
   const current = () =>
@@ -156,6 +158,9 @@ export function SettingsShell(props: { view: string }) {
       </aside>
       <div ref={main} {...stylex.attrs(styles.main)}>
         <Switch fallback={<SettingsPage section={current().id} />}>
+          <Match when={props.view === DOWNLOADS_VIEW}>
+            <DownloadsPage />
+          </Match>
           <Match when={props.view === HISTORY_VIEW}>
             <HistoryPage />
           </Match>

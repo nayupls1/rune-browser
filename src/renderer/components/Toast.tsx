@@ -8,11 +8,17 @@ import { Icon } from "./Icon";
 
 type Kind = "info" | "success" | "error";
 
+interface ToastAction {
+  label: string;
+  run: () => void;
+}
+
 interface Toast {
   id: number;
   title?: string;
   message: string;
   kind: Kind;
+  action?: ToastAction;
 }
 
 const [toasts, setToasts] = createStore<Toast[]>([]);
@@ -33,11 +39,20 @@ const expire = (id: number, kind: Kind) => {
   );
 };
 
-/** Shows a notice. `sticky` ones stay until updated (e.g. "Running…" → the result). */
-export function toast(options: { title?: string; message: string; kind?: Kind; sticky?: boolean }) {
+/** Shows a notice, with a button if given. `sticky` ones stay until updated (e.g. "Running…" → the result). */
+export function toast(options: {
+  title?: string;
+  message: string;
+  kind?: Kind;
+  sticky?: boolean;
+  action?: ToastAction;
+}) {
   const id = nextId++;
   const kind = options.kind ?? "info";
-  setToasts((list) => [...list.slice(-3), { id, title: options.title, message: options.message, kind }]);
+  setToasts((list) => [
+    ...list.slice(-3),
+    { id, title: options.title, message: options.message, kind, action: options.action },
+  ]);
   if (!options.sticky) expire(id, kind);
   return {
     update(next: { message?: string; kind?: Kind }) {
@@ -74,6 +89,21 @@ export function ToastHost() {
                     <strong {...stylex.attrs(styles.title)}>{t.title}</strong>
                   </Show>
                   <span {...stylex.attrs(styles.message)}>{t.message}</span>
+                  <Show when={t.action}>
+                    {(action) => (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          action().run();
+                          dismiss(t.id);
+                        }}
+                        {...stylex.attrs(styles.action)}
+                        data-toast-action
+                      >
+                        {action().label}
+                      </button>
+                    )}
+                  </Show>
                 </div>
                 <button
                   type="button"
@@ -135,6 +165,18 @@ const styles = stylex.create({
   body: { display: "flex", flexDirection: "column", gap: 2, flex: 1, minWidth: 0 },
   title: { fontWeight: 600 },
   message: { lineHeight: 1.45, overflowWrap: "anywhere", whiteSpace: "pre-wrap" },
+  action: {
+    alignSelf: "flex-start",
+    marginTop: 4,
+    padding: 0,
+    borderWidth: 0,
+    backgroundColor: "transparent",
+    color: { default: colors.accent, ":hover": colors.text },
+    fontFamily: font.sans,
+    fontSize: font.sm,
+    fontWeight: 600,
+    cursor: "pointer",
+  },
   close: {
     flexShrink: 0,
     display: "grid",

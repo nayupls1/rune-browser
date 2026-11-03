@@ -1,5 +1,5 @@
 // The top of the sidebar, like Zen Browser's: the window's close button, the
-// agent, extensions, back, forward and reload, then the address of the tab on screen (an app's localhost URL)
+// agent, extensions, downloads, back, forward and reload, then the address of the tab on screen (an app's localhost URL)
 // with suggestions as you type, and the tab's own tools. Pages get the whole
 // content area. Each tab provides what's shown here (lib/tabChrome.ts).
 import * as stylex from "@stylexjs/stylex";
@@ -23,6 +23,7 @@ import {
 } from "../lib/store";
 import { chromeOf, focusRequest } from "../lib/tabChrome";
 import { colors, font, radius, space } from "../theme.stylex";
+import { DownloadsButton } from "./Downloads";
 import { Icon } from "./Icon";
 import { TabIcon } from "./TabIcon";
 import { WindowControls } from "./WindowControls";
@@ -81,6 +82,7 @@ export function NavRow(props: { compact: boolean }) {
         <Show when={chrome()?.extensions} keyed>
           {(extensions) => extensions()}
         </Show>
+        <DownloadsButton />
         <span {...stylex.attrs(styles.spacer)} />
         <button
           type="button"

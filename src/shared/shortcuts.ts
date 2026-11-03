@@ -215,14 +215,22 @@ export const shortcutDefs: ShortcutDef[] = [
 
   // --- Browser
   { id: "open.history", label: "History", category: "Browser", keys: ["Mod+H"], mac: ["Meta+Y"], page: "page" },
+  {
+    id: "open.downloads",
+    label: "Downloads",
+    category: "Browser",
+    keys: ["Mod+J"],
+    mac: ["Meta+Shift+J", "Alt+Meta+L"],
+    page: "page",
+  },
   { id: "open.settings", label: "Settings", category: "Browser", keys: ["Mod+,"], page: "page" },
   { id: "open.extensions", label: "Extensions", category: "Browser", keys: [], page: "page" },
   { id: "open.shortcuts", label: "Keyboard shortcuts", category: "Browser", keys: ["Mod+/"], page: "page" },
 
   // --- Rune Browser's own
   { id: "app.command-bar", label: "Command bar", category: "Rune Browser", keys: ["Mod+K"], page: "page" },
-  // Chromium's downloads; Rune Browser has none yet, and this is the agent's key since before.
-  { id: "agent.toggle", label: "Show or hide the agent", category: "Rune Browser", keys: ["Mod+J"], page: "page" },
+  // Chromium has nothing on Ctrl+I (its Ctrl+J is downloads).
+  { id: "agent.toggle", label: "Show or hide the agent", category: "Rune Browser", keys: ["Mod+I"], page: "page" },
   {
     id: "sidebar.toggle",
     label: "Show or hide the sidebar",

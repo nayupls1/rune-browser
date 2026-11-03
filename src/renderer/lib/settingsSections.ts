@@ -6,6 +6,7 @@
 // sidebar: About is highlighted while one is shown.
 import {
   ACTIVITY_VIEW,
+  DOWNLOADS_VIEW,
   FLAGS_VIEW,
   GPU_VIEW,
   HISTORY_VIEW,
@@ -105,7 +106,13 @@ export const settingsSections: SettingsSection[] = [
     keywords: "start pages new tab windows restore",
   },
   { id: "browser-languages", label: "Languages", icon: "languages", group: "browser", keywords: "spell check" },
-  { id: "browser-downloads", label: "Downloads", icon: "download", group: "browser", keywords: "folder location" },
+  {
+    id: "browser-downloads",
+    label: "Downloads",
+    icon: "download",
+    group: "browser",
+    keywords: "folder location ask where to save",
+  },
   {
     id: "browser-import",
     label: "Import bookmarks and settings",
@@ -115,6 +122,7 @@ export const settingsSections: SettingsSection[] = [
   },
   { id: "browser-reset", label: "Reset settings", icon: "rotate-ccw", group: "browser", keywords: "defaults" },
   { id: "extensions", label: "Extensions", icon: "blocks", group: "browser" },
+  { id: "downloads", label: "Downloads", icon: "download", view: DOWNLOADS_VIEW, group: "pages" },
   { id: "history", label: "History", icon: "file-clock", view: HISTORY_VIEW, group: "pages" },
   { id: "schedules", label: "Schedules", icon: "calendar-clock", view: SCHEDULES_VIEW, group: "pages" },
   { id: "mods", label: "Mods", icon: "puzzle", view: MODS_VIEW, group: "pages" },
