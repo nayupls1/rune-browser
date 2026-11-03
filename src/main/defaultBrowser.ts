@@ -55,6 +55,9 @@ export function setupLinks(options: { getWindow: () => BrowserWindow | undefined
   /** The window's page, once it has loaded and takes links (lib/webtabs.ts). */
   let ready: WebContents | undefined;
   const offscreen = process.env.RUNE_OFFSCREEN === "1";
+  /** Quitting: a link then mustn't bring up a new window (the server is stopping). */
+  let quitting = false;
+  app.on("before-quit", () => (quitting = true));
 
   const flush = () => {
     const win = options.getWindow();
@@ -65,7 +68,7 @@ export function setupLinks(options: { getWindow: () => BrowserWindow | undefined
   const open = (links: string[]) => {
     pending.push(...links);
     const win = options.getWindow();
-    if (!win) return options.showWindow();
+    if (!win) return quitting ? undefined : options.showWindow();
     if (!offscreen) {
       if (win.isMinimized()) win.restore();
       win.show();

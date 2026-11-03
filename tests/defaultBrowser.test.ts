@@ -41,11 +41,14 @@ describe("links Rune Browser is started with", () => {
 
   test("web files that exist, by path (relative to the launch's folder) or file:// URL", () => {
     expect(links(["page.html", "docs/report.pdf", "/tmp/a b#1.svg", "file:///home/me/page.html"])).toEqual([
-      "file:///home/me/page.html",
-      "file:///home/me/docs/report.pdf",
-      "file:///tmp/a%20b%231.svg",
-      "file:///home/me/page.html",
+      fileUrl(at("page.html")),
+      fileUrl(at("docs/report.pdf")),
+      fileUrl(at("/tmp/a b#1.svg")),
+      fileUrl(at("page.html")),
     ]);
+    expect(fileUrl(at("/tmp/a b#1.svg"))).toEndWith("/tmp/a%20b%231.svg");
+    // A file:// URL keeps its query and #anchor.
+    expect(links(["file:///home/me/page.html?v=1#install"])).toEqual([`${fileUrl(at("page.html"))}?v=1#install`]);
   });
 
   test("not other files, missing ones, remote file:// URLs or other schemes", () => {
@@ -118,6 +121,13 @@ describe("the installers register what Rune Browser opens", () => {
     expect(removed).toEqual([...WEB_FILE_EXTENSIONS]);
     const schemes = [...nsis.matchAll(/\\URLAssociations" "(\w+)"/g)].map((m) => m[1]);
     expect(schemes).toEqual([...WEB_SCHEMES]);
+    // The schemes are in the browser's key, which the uninstaller deletes whole, with the ProgID and its listing.
+    const uninstall = nsis.slice(nsis.indexOf("!macro customUnInstall"));
+    expect(uninstall).toContain('DeleteRegKey SHELL_CONTEXT "${RUNE_CLIENT_KEY}"');
+    expect(uninstall).toContain('DeleteRegKey SHELL_CONTEXT "Software\\Classes\\${RUNE_PROG_ID}"');
+    expect(uninstall).toContain(
+      'DeleteRegValue SHELL_CONTEXT "Software\\RegisteredApplications" "${RUNE_REGISTERED_NAME}"',
+    );
     // Links can't smuggle in Chromium switches.
     expect(nsis).toContain(`'"$appExe" -- "%1"'`);
   });

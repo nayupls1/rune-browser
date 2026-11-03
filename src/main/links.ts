@@ -43,14 +43,16 @@ export function linksFromArgs(argv: readonly string[], cwd: string, isFile: (pat
   return links;
 }
 
-/** A web file (a path or file:// URL) as a file:// URL, if it exists. */
+/** A web file (a path or file:// URL) as a file:// URL, if it exists. A URL keeps its query and #anchor. */
 export function fileLink(arg: string, cwd: string, isFile: (path: string) => boolean): string | null {
   let path = arg;
+  let rest = "";
   if (/^file:\/\//i.test(arg)) {
     try {
       const url = new URL(arg);
       if (url.host && url.host !== "localhost") return null;
       path = decodeURIComponent(url.pathname);
+      rest = url.search + url.hash;
       // file:///C:/… is C:\… on Windows.
       if (/^\/[a-z]:\//i.test(path)) path = path.slice(1);
     } catch {
@@ -62,7 +64,7 @@ export function fileLink(arg: string, cwd: string, isFile: (path: string) => boo
   }
   if (!isWebFile(path)) return null;
   const absolute = resolve(cwd, path);
-  return isFile(absolute) ? fileUrl(absolute) : null;
+  return isFile(absolute) ? fileUrl(absolute) + rest : null;
 }
 
 /**
