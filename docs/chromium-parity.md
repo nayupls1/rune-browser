@@ -58,21 +58,21 @@ the flags out, in case one keeps Rune Browser from starting. Flags that Electron
 
 Chromium's settings, by its own sections. Browser settings get their own part of Settings, apart from Rune Browser's.
 
-| Chromium                            | Rune Browser   | Note                                                                               |
-| ----------------------------------- | -------------- | ---------------------------------------------------------------------------------- |
-| Search engine                       | Matched        | Settings → Web tabs                                                                |
-| Extensions                          | Matched        | Settings → Extensions (rune://extensions)                                          |
-| About Chrome                        | Matched        | Settings → About: version, updates, release channel                                |
-| Appearance                          | Different      | Rune Browser's themes (Settings → Appearance); page zoom is per site and workspace |
-| Performance (Memory Saver)          | Different      | Tab unloading (Settings → Web tabs → Tabs)                                         |
-| On startup                          | Different      | Tabs come back as they were, per workspace; a choice is on its way                 |
-| Privacy and security, site settings | Not yet        | Being worked on; today pages get only harmless permissions                         |
-| Autofill and passwords              | Not yet        | Password manager extensions work                                                   |
-| Downloads                           | Not yet        | Being worked on; today each download asks where to save it                         |
-| Default browser                     | Not yet        | Being worked on                                                                    |
-| Languages, spell check              | Not yet        | Spell check follows the system's language                                          |
-| Accessibility, System, Reset        | Not yet        | Hardware acceleration switches are in rune://flags                                 |
-| You and Google (sync, sign-in)      | Not applicable | No Google account                                                                  |
+| Chromium                            | Rune Browser   | Note                                                                                |
+| ----------------------------------- | -------------- | ----------------------------------------------------------------------------------- |
+| Search engine                       | Matched        | Settings → Web tabs                                                                 |
+| Extensions                          | Matched        | Settings → Extensions (rune://extensions)                                           |
+| About Chrome                        | Matched        | Settings → About: version, updates, release channel                                 |
+| Appearance                          | Different      | Rune Browser's themes (Settings → Appearance); page zoom is per site and workspace  |
+| Performance (Memory Saver)          | Different      | Tab unloading (Settings → Web tabs → Tabs)                                          |
+| On startup                          | Different      | Tabs come back as they were, per workspace; a choice is on its way                  |
+| Privacy and security, site settings | Not yet        | Being worked on; today pages get only harmless permissions                          |
+| Autofill and passwords              | Not yet        | Password manager extensions work                                                    |
+| Downloads                           | Not yet        | Being worked on; today each download asks where to save it                          |
+| Default browser                     | Matched        | Settings → Web tabs: Make default; links and web files from other apps open as tabs |
+| Languages, spell check              | Not yet        | Spell check follows the system's language                                           |
+| Accessibility, System, Reset        | Not yet        | Hardware acceleration switches are in rune://flags                                  |
+| You and Google (sync, sign-in)      | Not applicable | No Google account                                                                   |
 
 ## Keyboard shortcuts
 
