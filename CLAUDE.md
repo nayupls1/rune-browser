@@ -34,6 +34,7 @@ Electron + SolidJS (StyleX) desktop app; Bun server written with Effect v4 (SQLi
   - Keep conditions inside `stylex.attrs(...)` to a single `fn() && styles.x`. Comparisons, `a || b`, `!x`, local booleans etc. make the compiler fail with "Referenced constant is not defined"; wrap them in a `const fn = () => …` helper.
   - Dynamic styles (`x: (v) => ({ prop: v })`) only work for single-word properties. `stylex.attrs` kebab-cases the generated custom property name (`--x-gridTemplateColumns` → `--x-grid-template-columns`), so it no longer matches the CSS. For multi-word properties use Solid's `style={{ "grid-template-columns": … }}` after the attrs spread.
   - Portaled elements (popovers, menus) need their own `fontFamily`.
+  - Colors come from `colors` in `theme.stylex.ts` (Rune's palette, [docs/design-system.md](docs/design-system.md)), not hex literals, so themes and dark mode apply.
 - Server code is Effect v4 (`effect@4`, `effect/http`, `effect/sql`):
   - Services are `Context.Service` + `Layer`, wired in `src/server/services.ts`.
   - v4 names differ from v3 (e.g. `Effect.catch`, `Effect.forkDetach`, `Schema.optionalKey`); check `node_modules/effect` when unsure.

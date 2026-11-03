@@ -58,7 +58,8 @@ import { ApiMapPage } from "./ApiMapPage";
 import { HistoryPage } from "./History";
 import { ModsPage } from "./ModsPage";
 import { SchedulesPage } from "./SchedulesPage";
-import { resolveMode, systemDark, themePresets, themeVars } from "../lib/theme";
+import { base, themePresets } from "../../shared/theme";
+import { resolveMode, systemDark, themeVars } from "../lib/theme";
 import { colors, font, radius, space } from "../theme.stylex";
 import { AgentPicker } from "./AgentPicker";
 import { confirmDialog } from "./ConfirmDialog";
@@ -202,6 +203,8 @@ export function SettingsPage(props: { section: string }) {
 
 function AppearanceSection() {
   const theme = () => settings().theme;
+  // What an unset color is: Rune's palette for the mode on screen.
+  const defaults = () => base[resolveMode(theme(), systemDark())];
   return (
     <Section title="Theme" icon="palette" anchor="appearance">
       <Row label="Theme presets" description="A starting point; tweak the colors below." wide>
@@ -229,16 +232,24 @@ function AppearanceSection() {
         />
       </Row>
       <Row label="Accent color">
-        <ColorField value={theme().accent} onChange={(accent) => setTheme({ accent })} />
+        <ColorField value={theme().accent} fallback={defaults().accent} onChange={(accent) => setTheme({ accent })} />
       </Row>
       <Row label="Background">
-        <ColorField value={theme().background} onChange={(background) => setTheme({ background })} />
+        <ColorField
+          value={theme().background}
+          fallback={defaults().bg}
+          onChange={(background) => setTheme({ background })}
+        />
       </Row>
       <Row label="Surfaces" description="Cards, inputs, panels.">
-        <ColorField value={theme().surface} onChange={(surface) => setTheme({ surface })} />
+        <ColorField
+          value={theme().surface}
+          fallback={defaults().surface}
+          onChange={(surface) => setTheme({ surface })}
+        />
       </Row>
       <Row label="Text">
-        <ColorField value={theme().text} onChange={(text) => setTheme({ text })} />
+        <ColorField value={theme().text} fallback={defaults().text} onChange={(text) => setTheme({ text })} />
       </Row>
       <Row label="Corners">
         <Segmented
@@ -1696,12 +1707,16 @@ function Toggle(props: { checked: boolean; onChange: (checked: boolean) => void 
   );
 }
 
-function ColorField(props: { value: string | undefined; onChange: (value: string | undefined) => void }) {
+function ColorField(props: {
+  value: string | undefined;
+  fallback: string;
+  onChange: (value: string | undefined) => void;
+}) {
   return (
     <div {...stylex.attrs(styles.colorField)}>
       <input
         type="color"
-        value={props.value ?? "#808080"}
+        value={props.value ?? props.fallback}
         onInput={(e) => props.onChange(e.currentTarget.value)}
         {...stylex.attrs(styles.swatchInput)}
       />
@@ -1852,7 +1867,7 @@ const styles = stylex.create({
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: colors.warning,
-    backgroundColor: "color-mix(in oklab, transparent, #d97706 12%)",
+    backgroundColor: `color-mix(in oklab, transparent, ${colors.warning} 12%)`,
     color: colors.text,
     fontSize: font.sm,
     lineHeight: 1.5,

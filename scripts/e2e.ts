@@ -21,6 +21,7 @@ import { Page } from "./lib/cdp";
 import { writeFixtureBrowser } from "./lib/fixture-browser";
 import { reportFlaky } from "./lib/flaky";
 import { TIMEOUT_SCALE } from "./lib/cdp";
+import { base, type Mode } from "../src/shared/theme";
 import { fileUrl } from "../src/shared/web";
 
 const args = process.argv.slice(2);
@@ -3077,11 +3078,31 @@ try {
     await click("[data-add-global-secret]");
     await page!.waitFor(`!!document.querySelector("[data-global-secret-warning]")`, { label: "global secret warning" });
     await shot("settings-secrets.png");
+    // Resetting goes back to Rune's palette (the icon's cream and burnt orange), in light and dark.
     await openSettingsAt("appearance");
     await click("[data-preset]", "Default");
-    await page!.waitFor(
-      `getComputedStyle(document.querySelector("#root > div")).backgroundColor !== "rgb(11, 16, 32)"`,
-    );
+    await click('[data-settings] [role="radio"]', "System"); // Midnight made it dark, and presets keep the mode
+    const rgb = (hex: string) => `rgb(${[1, 3, 5].map((i) => Number.parseInt(hex.slice(i, i + 2), 16)).join(", ")})`;
+    const paletteShown = async (mode: Mode) => {
+      // The background is the palette's, and the accent field shows the palette's accent as the default.
+      await page!.waitFor(
+        `getComputedStyle(document.querySelector("[data-content]")).backgroundColor === ${JSON.stringify(rgb(base[mode].bg))} && document.querySelector('[data-settings] input[type="color"]')?.value === ${JSON.stringify(base[mode].accent)}`,
+        { label: `Rune's palette (${mode})` },
+      );
+      await Bun.sleep(300); // let color transitions finish
+      await shot(`settings-${mode}.png`);
+    };
+    const systemMode = (await page!.eval<boolean>(`matchMedia("(prefers-color-scheme: dark)").matches`))
+      ? "dark"
+      : "light";
+    await paletteShown(systemMode);
+    const otherMode = systemMode === "dark" ? "light" : "dark";
+    await page!.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: otherMode }] });
+    try {
+      await paletteShown(otherMode);
+    } finally {
+      await page!.send("Emulation.setEmulatedMedia", { features: [] });
+    }
     return `${nav.length} categories; ${rows.join(", ")}; shells ${shells.join(", ")}; background ${await pageBg()} after reset`;
   });
 

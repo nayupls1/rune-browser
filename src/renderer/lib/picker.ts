@@ -1,9 +1,11 @@
 // Scripts run inside web pages (webview.executeJavaScript) for picking
 // elements. They run in the page's own world, so everything they report is
 // treated as page data.
+import { base } from "../../shared/theme";
 import { inspectedStyles } from "../../shared/web";
 
-const ACCENT = "#6d4aff";
+// Rune's accent, readable on any page (a fixed color: pages don't get the user's theme).
+const ACCENT = base.light.accent;
 
 /**
  * Lets the user hover and click an element. Evaluates to a promise of its
@@ -16,7 +18,7 @@ export const pickScript = `(() => new Promise((resolve) => {
   const box = document.createElement("div");
   const label = document.createElement("div");
   const layer = "position:fixed;z-index:2147483647;pointer-events:none;display:none;box-sizing:border-box;";
-  box.style.cssText = layer + "border:2px solid ${ACCENT};background:rgba(109,74,255,.12);border-radius:3px;";
+  box.style.cssText = layer + "border:2px solid ${ACCENT};background:${ACCENT}1f;border-radius:3px;";
   label.style.cssText = layer + "background:${ACCENT};color:#fff;font:600 11px/18px system-ui,sans-serif;padding:0 6px;border-radius:3px;white-space:nowrap;";
   root.append(box, label);
   const cursor = root.style.cursor;

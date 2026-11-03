@@ -7,7 +7,7 @@ const withDefault = <S extends Schema.Top>(value: S["Encoded"]) =>
   Schema.withDecodingDefaultKey<S>(Effect.succeed(value));
 
 export const HexColor = Schema.String.check(
-  Schema.isPattern(/^#[0-9a-fA-F]{6}$/, { message: 'must be a hex color like "#6d4aff"' }),
+  Schema.isPattern(/^#[0-9a-fA-F]{6}$/, { message: 'must be a hex color like "#c2461f"' }),
 );
 
 export const Radius = Schema.Literals(["none", "sm", "md", "lg"]);
