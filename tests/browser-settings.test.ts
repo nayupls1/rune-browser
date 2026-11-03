@@ -106,6 +106,16 @@ describe("zoom", () => {
     expect(b.zoom.sites).toEqual({});
   });
 
+  test("under a zoomed site, going back to the default is remembered", () => {
+    let b = withSiteZoom(defaultBrowserSettings(), "example.com", 1.5);
+    b = withSiteZoom(b, "docs.example.com", 1);
+    expect(b.zoom.sites).toEqual({ "example.com": 1.5, "docs.example.com": 1 });
+    expect(zoomFor(b, "docs.example.com")).toBe(1);
+    // Back to what it inherits: its own goes.
+    b = withSiteZoom(b, "docs.example.com", 1.5);
+    expect(b.zoom.sites).toEqual({ "example.com": 1.5 });
+  });
+
   test("Chromium's zoom levels as factors", () => {
     expect(zoomFactorOf(0)).toBe(1);
     expect(zoomFactorOf(1)).toBe(1.2);
@@ -124,8 +134,10 @@ describe("rules", () => {
       { privacy: { thirdPartyCookies: "block", doNotTrack: true } },
     );
     const rules = browserRulesToDnr(b, 10);
-    expect(rules.map((r) => r.id)).toEqual([10, 11, 12, 13]);
-    const [js, images, cookies, dnt] = rules;
+    expect(rules.map((r) => r.id)).toEqual([10, 11, 12, 13, 14]);
+    const [js, frames, images, cookies, dnt] = rules;
+    // Frames the blocked site embeds from elsewhere get no scripts either.
+    expect(frames!.condition).toMatchObject({ initiatorDomains: ["js-off.com"], resourceTypes: ["sub_frame"] });
     expect(js!.condition.requestDomains).toEqual(["js-off.com"]);
     expect(js!.condition.resourceTypes).toEqual(["main_frame", "sub_frame"]);
     expect(js!.action).toEqual({
@@ -174,7 +186,11 @@ describe("rules for nested sites", () => {
       requestDomains: ["example.com"],
       excludedRequestDomains: ["docs.example.com"],
     });
-    expect(rules[1]!.condition.requestDomains).toEqual(["old.docs.example.com"]);
+    expect(rules[1]!.condition).toMatchObject({
+      initiatorDomains: ["example.com"],
+      excludedInitiatorDomains: ["docs.example.com"],
+    });
+    expect(rules[2]!.condition.requestDomains).toEqual(["old.docs.example.com"]);
   });
 
   test("blocked by default: allowed sites are left out, blocked sites under them get their own rule", () => {

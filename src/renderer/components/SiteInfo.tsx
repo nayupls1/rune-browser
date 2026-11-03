@@ -32,7 +32,9 @@ export function SiteInfoPopover(props: {
     const rect = panel.getBoundingClientRect();
     setPos({ x: Math.max(4, Math.min(props.position.x, window.innerWidth - rect.width - 8)), y: props.position.y });
     const onPointer = (e: PointerEvent) => {
-      if (!panel.contains(e.target as Node) && !(e.target as Element).closest?.("[data-confirm-dialog]"))
+      const target = e.target as Element;
+      // Its button in the address bar toggles it itself.
+      if (!panel.contains(target) && !target.closest?.("[data-confirm-dialog], [data-site-info-button]"))
         props.onClose();
     };
     const onKey = (e: KeyboardEvent) =>

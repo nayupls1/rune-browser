@@ -236,8 +236,10 @@ export function zoomFor(browser: Pick<BrowserSettings, "zoom">, host: string) {
 export function withSiteZoom(browser: BrowserSettings, host: string, factor: number): BrowserSettings {
   const site = siteOf(host);
   const sites = { ...browser.zoom.sites };
-  if (Math.abs(factor - browser.zoom.default) < 0.001) delete sites[site];
-  else sites[site] = Math.round(factor * 100) / 100;
+  delete sites[site];
+  // What it gets without a zoom of its own: a broader site's, or the default.
+  const inherited = zoomFor({ zoom: { ...browser.zoom, sites } }, site);
+  if (Math.abs(factor - inherited) >= 0.001) sites[site] = Math.round(factor * 100) / 100;
   return { ...browser, zoom: { ...browser.zoom, sites } };
 }
 
@@ -358,6 +360,16 @@ export function browserRulesToDnr(browser: BrowserSettings, firstId: number): Dn
         ["main_frame", "sub_frame"],
       ),
     });
+    // Frames a blocked site embeds from elsewhere (ads, widgets) run no scripts either.
+    if (domain)
+      add({
+        priority: 1,
+        action: noScripts,
+        condition: condition(
+          { initiatorDomains: [domain], ...(except.length ? { excludedInitiatorDomains: except } : {}) },
+          ["sub_frame"],
+        ),
+      });
   }
 
   for (const { domain, except } of blockedDomains(browser, "images")) {

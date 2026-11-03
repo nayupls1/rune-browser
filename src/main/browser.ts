@@ -173,7 +173,7 @@ export function setupBrowser(options: BrowserOptions) {
   const mutedBySite = new WeakSet<WebContents>();
   /** A site whose sound is off stays muted; leaving it unmutes only what it muted. */
   const applySound = (contents: WebContents) => {
-    const host = hostOf(contents.getURL());
+    const host = siteOf(hostOf(contents.getURL()));
     const off = !!host && siteSetting(browser, host, "sound") === "block";
     if (off && !contents.isAudioMuted()) {
       contents.setAudioMuted(true);
@@ -192,7 +192,7 @@ export function setupBrowser(options: BrowserOptions) {
 
   /** Whether a site gets a permission (site settings); null: not one of them. */
   const permission = (permission: string, url: string | undefined, mediaTypes?: readonly string[]) =>
-    permissionAllowed(browser, hostOf(url), permission, mediaTypes);
+    permissionAllowed(browser, siteOf(hostOf(url)), permission, mediaTypes);
 
   // --- Settings from the renderer -----------------------------------------------------------------
 

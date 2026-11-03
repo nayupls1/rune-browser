@@ -106,7 +106,8 @@ settings; cookies and site data stay per workspace. The renderer sends them to t
 - **Autofill and passwords:** Rune Browser has no password store of its own; a password manager extension does that.
 - **Import bookmarks and settings:** from the Chromium-based browsers extension import finds, their Preferences: search
   engine, startup, site settings and defaults, third-party cookies and Do Not Track, zoom, fonts, languages and spell
-  check, downloads (`browserSettingsFromChrome`). Site settings and zoom levels are merged into yours.
+  check, downloads (`browserSettingsFromChrome`). Site settings and zoom levels are merged into yours; an exception
+  Chrome kept for one origin covers that host's subdomains here, like every site setting.
 - **Reset settings:** the browser settings go back to their defaults (cookies, logins and Rune Browser's settings stay).
 
 How they apply:
@@ -114,13 +115,14 @@ How they apply:
 - **Permissions** go through the web sessions' permission handlers. Rune Browser doesn't prompt yet, so a site gets a
   permission only where you allow it; a default of "sites can ask" refuses like "don't allow" until then.
 - **JavaScript, images, third-party cookies and Do Not Track** are declarativeNetRequest rules of the built-in
-  extension, after the network rules (`browserRulesToDnr`): no-script `Content-Security-Policy` on blocked sites' pages,
+  extension, after the network rules (`browserRulesToDnr`): no-script `Content-Security-Policy` on blocked sites' pages and the frames they embed,
   blocked image requests from blocked sites, `Cookie`/`Set-Cookie` removed from third-party requests, a `DNT: 1`
   header. They take effect on the next load. Blocking third-party cookies this way stops them on the network; a
   third-party frame's `document.cookie` still works.
 - **Sound** mutes a site's tabs when they navigate there.
 - **Fonts** are the webview's preferences when a tab's page is created; the font size also changes in open pages (over
-  the DevTools protocol, which only lets a page's font families be set once, so new families apply to new pages).
+  the DevTools protocol, which only lets a page's font families be set once, so new families and minimum sizes apply
+  to new pages).
 - **Languages** set the sessions' `Accept-Language` and spell checker (macOS uses its own spell checker and languages).
 
 ## Network
