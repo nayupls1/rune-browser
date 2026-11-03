@@ -7,7 +7,7 @@ Electron + SolidJS (StyleX) desktop app; Bun server written with Effect v4 (SQLi
 A Bun workspace with Turborepo (`turbo.json`):
 
 - `apps/browser`: Rune Browser, the main package. Paths below (`src/…`, `scripts/…`, `tests/…`) are relative to it.
-- `apps/landing`: the website, one static Vite page with no JavaScript and a strict CSP (`script-src 'none'`); keep it that way, no third-party scripts, fonts or trackers.
+- `apps/landing`: the website, one static Vite page with no JavaScript and a strict CSP (`default-src 'none'`: no scripts at all); keep it that way, no third-party scripts, fonts or trackers.
 
 Run commands from the repo's root: `bun run check`, `typecheck`, `test` and `build` go through Turborepo for every package; `dev`, `start`, `package`, `server`, `e2e` and `release` are the browser's (`dev:landing` for the website). Each package lists every dependency it imports in its own `package.json` (Bun's isolated linker doesn't hoist).
 

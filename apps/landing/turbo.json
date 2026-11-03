@@ -1,0 +1,10 @@
+{
+  "$schema": "../../node_modules/turbo/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "build": {
+      "outputs": ["dist/**"],
+      "inputs": ["$TURBO_DEFAULT$", "../browser/build/icon.svg", "../browser/docs/screenshots/**"]
+    }
+  }
+}

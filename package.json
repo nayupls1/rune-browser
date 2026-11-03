@@ -15,7 +15,7 @@
     "release": "bun run --cwd apps/browser release",
     "server": "bun run --cwd apps/browser server",
     "typecheck": "turbo run typecheck",
-    "test": "turbo run test",
+    "test": "turbo run test --",
     "e2e": "bun run --cwd apps/browser e2e",
     "check": "bun fmt --check && turbo run typecheck test build && bun run e2e"
   },
