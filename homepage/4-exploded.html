@@ -1,0 +1,1520 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Rune Browser</title>
+    <meta
+      name="description"
+      content="A desktop browser where your coding agent builds small apps for you and changes the websites you use, on your own Claude Code, Codex or OpenCode login."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=Martian+Mono:wdth,wght@87.5,400;87.5,500;100,700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f8f5f0;
+        --surface: #fffdfa;
+        --text: #2b211a;
+        --muted: color-mix(in oklab, var(--text) 64%, var(--bg));
+        --border: color-mix(in oklab, var(--surface) 88%, var(--text));
+        --hairline: color-mix(in oklab, var(--surface) 80%, var(--text));
+        --sidebar: color-mix(in oklab, var(--bg) 96%, var(--text));
+        --hover: color-mix(in oklab, var(--surface) 95%, var(--text));
+        --accent: #c2461f;
+        --accent-text: #ffffff;
+        --accent-soft: color-mix(in oklab, var(--surface) 88%, var(--accent));
+        --rune-a: #d9582f;
+        --rune-b: #a62f19;
+        --success: #2e7d3a;
+        --warning: #9a5800;
+        --danger: #b42346;
+        --mono: "Martian Mono", ui-monospace, monospace;
+        --sans: "Instrument Sans", system-ui, sans-serif;
+        --ease: cubic-bezier(0.65, 0, 0.25, 1);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        -webkit-text-size-adjust: 100%;
+      }
+      body {
+        margin: 0;
+        background-color: var(--bg);
+        color: var(--text);
+        font-family: var(--sans);
+        font-size: 17px;
+        line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+        overflow-x: hidden;
+      }
+      a {
+        color: inherit;
+      }
+      :focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 3px;
+        border-radius: 4px;
+      }
+      .wrap {
+        width: min(1200px, 100% - 48px);
+        margin-inline: auto;
+      }
+
+      /* Nav */
+      .nav {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding-block: 22px;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        text-decoration: none;
+        font-family: var(--mono);
+        font-weight: 500;
+        font-size: 15px;
+        letter-spacing: -0.02em;
+      }
+      .brand svg {
+        width: 30px;
+        height: 30px;
+      }
+      .nav-links {
+        display: flex;
+        align-items: center;
+        gap: 26px;
+        font-size: 15px;
+      }
+      .nav-links a:not(.btn) {
+        text-decoration: none;
+        color: var(--muted);
+      }
+      .nav-links a:not(.btn):hover {
+        color: var(--text);
+      }
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 11px 18px;
+        border-radius: 8px;
+        font: 600 15px/1 var(--sans);
+        text-decoration: none;
+        border-width: 1px;
+        border-style: solid;
+        border-color: transparent;
+        cursor: pointer;
+      }
+      .btn-primary {
+        background-color: var(--accent);
+        color: var(--accent-text);
+      }
+      .btn-primary:hover {
+        background-color: color-mix(in oklab, var(--accent) 88%, black);
+      }
+      .btn-ghost {
+        background-color: transparent;
+        border-color: var(--hairline);
+        color: var(--text);
+      }
+      .btn-ghost:hover {
+        background-color: var(--hover);
+      }
+      .btn svg {
+        width: 16px;
+        height: 16px;
+      }
+
+      /* Hero */
+      .hero {
+        padding-top: 56px;
+      }
+      .hero-head {
+        display: grid;
+        grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+        gap: 48px;
+        align-items: end;
+      }
+      h1,
+      h2,
+      h3 {
+        font-family: var(--mono);
+        font-weight: 700;
+        letter-spacing: -0.045em;
+        margin: 0;
+        font-stretch: 100%;
+      }
+      h1 {
+        font-size: clamp(32px, 4.3vw, 60px);
+        line-height: 1.04;
+        max-width: 16.5ch;
+      }
+      .lede {
+        margin: 0 0 20px;
+        color: var(--muted);
+        max-width: 46ch;
+        font-size: 18px;
+      }
+      .lede strong {
+        color: var(--text);
+        font-weight: 500;
+      }
+      .ctas {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+      }
+      .platforms {
+        margin: 14px 0 0;
+        font-size: 14px;
+        color: var(--muted);
+      }
+
+      /* Stage */
+      .stage {
+        position: relative;
+        margin-top: 40px;
+        height: 720px;
+        border-top: 1px solid var(--border);
+        border-bottom: 1px solid var(--border);
+        background-image: radial-gradient(circle, var(--border) 1px, transparent 1.2px);
+        background-size: 24px 24px;
+        background-position: 12px 12px;
+      }
+      .stack-wrap {
+        position: absolute;
+        inset: 0 40% 0 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: right 0.9s var(--ease);
+      }
+      .stage.flat .stack-wrap {
+        right: 0;
+      }
+      .stack {
+        --s: 0.8;
+        position: relative;
+        width: 720px;
+        height: 440px;
+        flex: none;
+        transform-style: preserve-3d;
+        transform: scale(var(--s)) translateY(var(--ty, 120px)) rotateX(60deg) rotateZ(-38deg);
+        transition: transform 0.9s var(--ease);
+      }
+      .stage.flat .stack {
+        transform: scale(var(--s)) translateY(0) rotateX(0deg) rotateZ(0deg);
+      }
+      .layer {
+        position: absolute;
+        transform-style: preserve-3d;
+        transform: translate3d(0, var(--dy, 0px), var(--z));
+        transition:
+          transform 0.9s var(--ease),
+          box-shadow 0.9s var(--ease);
+      }
+      .stage.flat .layer {
+        transform: translateZ(var(--zf));
+        box-shadow: none;
+      }
+      .l-sandbox {
+        transition:
+          transform 0.9s var(--ease),
+          opacity 0.5s ease;
+      }
+      .stage.flat .l-sandbox {
+        opacity: 0;
+        transition-delay: 0s, 0.4s;
+      }
+
+      /* Layer: sandbox plate */
+      .l-sandbox {
+        --z: 0px;
+        --zf: 0px;
+        --dy: 210px;
+        left: 138px;
+        top: -14px;
+        width: 396px;
+        height: 468px;
+        border-radius: 18px;
+        border: 1.5px dashed var(--accent);
+        background-color: color-mix(in oklab, var(--bg) 70%, var(--accent-soft));
+        background-image: repeating-linear-gradient(
+          135deg,
+          transparent 0 9px,
+          color-mix(in oklab, var(--accent) 14%, transparent) 9px 10px
+        );
+      }
+      .l-sandbox .tag {
+        position: absolute;
+        left: 14px;
+        bottom: 12px;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        font: 500 12px/1 var(--mono);
+        color: var(--accent);
+        background-color: var(--surface);
+        padding: 6px 9px;
+        border-radius: 6px;
+        border: 1px solid color-mix(in oklab, var(--accent) 35%, var(--surface));
+      }
+      .l-sandbox .tag svg {
+        width: 13px;
+        height: 13px;
+      }
+      .l-sandbox .ask {
+        position: absolute;
+        right: 14px;
+        bottom: 12px;
+        width: 200px;
+        background-color: var(--surface);
+        border-radius: 8px;
+        padding: 9px 11px;
+        border: 1px solid var(--border);
+        font-size: 12px;
+        line-height: 1.35;
+      }
+      .l-sandbox .ask b {
+        display: block;
+        font-weight: 600;
+        margin-bottom: 6px;
+      }
+      .l-sandbox .ask span {
+        display: inline-block;
+        margin-right: 5px;
+        padding: 3px 7px;
+        border-radius: 5px;
+        font-weight: 600;
+        font-size: 11px;
+        background-color: var(--hover);
+      }
+      .l-sandbox .ask span.ok {
+        background-color: var(--accent);
+        color: var(--accent-text);
+      }
+
+      /* Layer: app files */
+      .l-app {
+        --z: 150px;
+        --zf: 0.1px;
+        --dy: 120px;
+        left: 158px;
+        top: 8px;
+        width: 356px;
+        height: 424px;
+        border-radius: 12px;
+        background-color: var(--surface);
+        border: 1px solid var(--border);
+        box-shadow: 0 1px 0 var(--border);
+        padding: 16px 18px;
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-end;
+        font-family: var(--mono);
+        font-size: 12px;
+        line-height: 1.9;
+        font-stretch: 87.5%;
+      }
+      .files {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+      .files li {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .files li.in {
+        padding-left: 18px;
+      }
+      .files svg {
+        width: 14px;
+        height: 14px;
+        flex: none;
+        color: var(--muted);
+      }
+      .files .meta {
+        margin-left: auto;
+        color: var(--muted);
+      }
+      .schema {
+        margin-top: 14px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        overflow: hidden;
+      }
+      .schema div {
+        display: grid;
+        grid-template-columns: 1.1fr 1.4fr 1fr;
+        padding: 3px 10px;
+      }
+      .schema div:first-child {
+        background-color: var(--sidebar);
+        color: var(--muted);
+      }
+      .schema div + div {
+        border-top: 1px solid var(--border);
+      }
+      .run {
+        margin-top: 14px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--muted);
+      }
+      .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background-color: var(--success);
+        flex: none;
+      }
+
+      /* Layer: preview window */
+      .l-preview {
+        --z: 300px;
+        --zf: 0.2px;
+        left: 0;
+        top: 0;
+        width: 720px;
+        height: 440px;
+        border-radius: 16px;
+        background-color: var(--sidebar);
+        border: 1px solid var(--border);
+      }
+      .win {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        grid-template-columns: 150px 356px 1fr;
+        gap: 0 8px;
+        padding: 8px 8px 8px 0;
+      }
+      .side {
+        padding: 6px 10px 10px 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 7px;
+        font-size: 12px;
+      }
+      .lights {
+        display: flex;
+        gap: 5px;
+        height: 20px;
+        align-items: center;
+      }
+      .lights i {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background-color: var(--border);
+      }
+      .addr {
+        background-color: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 7px;
+        padding: 5px 8px;
+        color: var(--muted);
+        white-space: nowrap;
+        overflow: hidden;
+      }
+      .tab {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding: 5px 8px;
+        border-radius: 7px;
+        color: var(--muted);
+      }
+      .tab.on {
+        background-color: var(--surface);
+        color: var(--text);
+        border: 1px solid var(--border);
+      }
+      .tab svg {
+        width: 12px;
+        height: 12px;
+        flex: none;
+      }
+      .page {
+        background-color: var(--surface);
+        border-radius: 12px;
+        border: 1px solid var(--border);
+        padding: 22px 22px 18px;
+        display: flex;
+        flex-direction: column;
+      }
+      .page h4 {
+        margin: 0;
+        font: 600 20px/1.1 var(--sans);
+        letter-spacing: -0.02em;
+      }
+      .streak {
+        display: flex;
+        align-items: baseline;
+        gap: 6px;
+        margin: 6px 0 14px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .streak b {
+        color: var(--accent);
+        font-size: 13px;
+        font-weight: 600;
+      }
+      .habit {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 9px 0;
+        border-top: 1px solid var(--border);
+        font-size: 13px;
+      }
+      .check {
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        border: 1.5px solid var(--hairline);
+        display: grid;
+        place-items: center;
+        flex: none;
+      }
+      .check.done {
+        background-color: var(--accent);
+        border-color: var(--accent);
+      }
+      .check svg {
+        width: 10px;
+        height: 10px;
+        color: var(--accent-text);
+      }
+      .week {
+        margin-left: auto;
+        display: flex;
+        gap: 3px;
+      }
+      .week i {
+        width: 7px;
+        height: 7px;
+        border-radius: 2px;
+        background-color: var(--border);
+      }
+      .week i.y {
+        background-color: color-mix(in oklab, var(--accent) 70%, var(--surface));
+      }
+      .addh {
+        margin-top: auto;
+        display: flex;
+        gap: 6px;
+      }
+      .addh span {
+        flex: 1;
+        border: 1px solid var(--border);
+        border-radius: 7px;
+        padding: 6px 9px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .addh b {
+        background-color: var(--accent);
+        color: var(--accent-text);
+        border-radius: 7px;
+        padding: 6px 11px;
+        font-size: 12px;
+        font-weight: 600;
+      }
+      .slot {
+        border: 1.5px dashed var(--hairline);
+        border-radius: 12px;
+      }
+
+      /* Layer: agent */
+      .l-agent {
+        --z: 430px;
+        --zf: 0.3px;
+        left: 522px;
+        top: 8px;
+        width: 190px;
+        height: 424px;
+        border-radius: 12px;
+        background-color: var(--surface);
+        border: 1px solid var(--border);
+        display: flex;
+        flex-direction: column;
+        font-size: 11.5px;
+        line-height: 1.4;
+      }
+      .agent-head {
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--border);
+        font-weight: 600;
+        font-size: 12px;
+        display: flex;
+        justify-content: space-between;
+      }
+      .agent-head span {
+        color: var(--muted);
+        font-weight: 400;
+      }
+      .msgs {
+        padding: 10px 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .you {
+        align-self: flex-end;
+        background-color: var(--accent-soft);
+        padding: 7px 9px;
+        border-radius: 9px 9px 2px 9px;
+        max-width: 92%;
+      }
+      .step {
+        display: flex;
+        gap: 7px;
+        color: var(--muted);
+      }
+      .step svg {
+        width: 12px;
+        height: 12px;
+        flex: none;
+        margin-top: 1px;
+        color: var(--success);
+      }
+      .step b {
+        color: var(--text);
+        font-weight: 500;
+      }
+      .composer {
+        margin: auto 8px 8px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 8px 9px;
+      }
+      .composer p {
+        margin: 0 0 8px;
+        color: var(--muted);
+      }
+      .composer div {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        color: var(--muted);
+        font-size: 10.5px;
+      }
+      .composer b {
+        background-color: var(--accent);
+        color: var(--accent-text);
+        padding: 4px 9px;
+        border-radius: 6px;
+        font-weight: 600;
+      }
+
+      /* Exploded shadows give each plate a floor */
+      .l-app,
+      .l-preview,
+      .l-agent {
+        box-shadow: -10px 14px 0 -4px color-mix(in oklab, var(--text) 7%, transparent);
+      }
+
+      /* Anchors and leader lines */
+      .anchor {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+      }
+      .leaders {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        overflow: visible;
+      }
+      .leaders line {
+        stroke: var(--hairline);
+        stroke-width: 1;
+      }
+      .leaders circle.end {
+        fill: var(--accent);
+      }
+      .leaders circle.ring {
+        fill: var(--bg);
+        stroke: var(--accent);
+        stroke-width: 1.5;
+      }
+      .leaders,
+      .label {
+        transition: opacity 0.35s ease;
+      }
+      .stage.flat .leaders,
+      .stage.flat .label,
+      .stage.moving .leaders,
+      .stage.moving .label {
+        opacity: 0;
+      }
+      .label {
+        position: absolute;
+        left: 61%;
+        width: min(34%, 380px);
+        top: 0;
+      }
+      .label h3 {
+        font-size: 15px;
+        letter-spacing: -0.03em;
+        line-height: 1.3;
+        margin-bottom: 4px;
+        font-weight: 500;
+      }
+      .label p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 15px;
+        line-height: 1.5;
+      }
+
+      .toggle {
+        position: absolute;
+        left: 24px;
+        bottom: 22px;
+        background-color: var(--surface);
+      }
+      .toggle svg {
+        transition: transform 0.6s var(--ease);
+      }
+      .stage.flat .toggle svg {
+        transform: rotate(180deg);
+      }
+      .flat-note {
+        position: absolute;
+        left: 50%;
+        bottom: 26px;
+        transform: translateX(-50%);
+        margin: 0;
+        font-size: 14px;
+        color: var(--muted);
+        opacity: 0;
+        transition: opacity 0.4s ease;
+        pointer-events: none;
+        white-space: nowrap;
+      }
+      .stage.flat .flat-note {
+        opacity: 1;
+        transition-delay: 0.6s;
+      }
+
+      /* Websites section */
+      section.sites {
+        padding-block: 112px 40px;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 64px;
+        align-items: center;
+      }
+      h2 {
+        font-size: clamp(26px, 3vw, 38px);
+        line-height: 1.1;
+        max-width: 18ch;
+        margin-bottom: 18px;
+      }
+      .sites p {
+        color: var(--muted);
+        max-width: 48ch;
+        margin: 0 0 14px;
+      }
+      .sites p strong {
+        color: var(--text);
+        font-weight: 500;
+      }
+      .changes {
+        position: relative;
+        background-color: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 8px 6px 6px;
+        max-width: 470px;
+        justify-self: end;
+        width: 100%;
+        box-shadow: -12px 16px 0 -4px color-mix(in oklab, var(--text) 6%, transparent);
+      }
+      .changes header {
+        display: flex;
+        justify-content: space-between;
+        padding: 8px 12px 10px;
+        font-size: 13px;
+        color: var(--muted);
+        font-weight: 500;
+      }
+      .change {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 9px 12px;
+        border-radius: 8px;
+      }
+      .change:hover {
+        background-color: var(--hover);
+      }
+      .change svg.ic {
+        width: 16px;
+        height: 16px;
+        color: var(--muted);
+        flex: none;
+      }
+      .change div {
+        flex: 1;
+        min-width: 0;
+      }
+      .change b {
+        display: block;
+        font-weight: 500;
+        font-size: 14.5px;
+      }
+      .change small {
+        color: var(--muted);
+        font-size: 12.5px;
+      }
+      .sw {
+        appearance: none;
+        -webkit-appearance: none;
+        margin: 0;
+        flex: none;
+        width: 34px;
+        height: 20px;
+        border-radius: 999px;
+        cursor: pointer;
+        background-color: var(--border);
+        position: relative;
+        transition: background-color 0.2s ease;
+      }
+      .sw::after {
+        content: "";
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background-color: var(--surface);
+        transition: transform 0.2s ease;
+        box-shadow: 0 1px 2px color-mix(in oklab, var(--text) 25%, transparent);
+      }
+      .sw:checked {
+        background-color: var(--accent);
+      }
+      .sw:checked::after {
+        transform: translateX(14px);
+      }
+      .changes footer {
+        margin: 6px 6px 0;
+        padding: 10px 8px 6px;
+        border-top: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .changes footer svg {
+        width: 14px;
+        height: 14px;
+        color: var(--accent);
+      }
+
+      /* Download */
+      section.get {
+        padding-block: 72px 96px;
+      }
+      .get-inner {
+        border-top: 1px solid var(--border);
+        padding-top: 64px;
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        gap: 40px;
+        align-items: start;
+      }
+      .tile {
+        width: 84px;
+        height: 84px;
+      }
+      .get h2 {
+        margin-bottom: 10px;
+      }
+      .get p {
+        margin: 0;
+        color: var(--muted);
+        max-width: 52ch;
+      }
+      .os {
+        list-style: none;
+        margin: 22px 0 0;
+        padding: 0;
+        display: grid;
+        grid-template-columns: repeat(3, auto);
+        gap: 4px 28px;
+        justify-content: start;
+        font-size: 14px;
+      }
+      .os b {
+        display: block;
+        font-weight: 600;
+      }
+      .os span {
+        color: var(--muted);
+      }
+      .get .ctas {
+        justify-content: flex-end;
+      }
+
+      footer.foot {
+        border-top: 1px solid var(--border);
+        padding-block: 22px 32px;
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        flex-wrap: wrap;
+        font-size: 14px;
+        color: var(--muted);
+      }
+      footer.foot nav {
+        display: flex;
+        gap: 20px;
+      }
+      footer.foot a {
+        text-decoration: none;
+      }
+      footer.foot a:hover {
+        color: var(--text);
+      }
+
+      /* Smaller desktops */
+      @media (max-width: 1100px) {
+        .label {
+          left: 60%;
+          width: 37%;
+        }
+        .label p {
+          font-size: 14px;
+        }
+      }
+
+      /* Mobile: the layers stacked, labels under each */
+      @media (max-width: 860px) {
+        .wrap {
+          width: calc(100% - 32px);
+        }
+        .nav-links a:not(.btn) {
+          display: none;
+        }
+        .hero {
+          padding-top: 24px;
+        }
+        .hero-head {
+          grid-template-columns: 1fr;
+          gap: 20px;
+        }
+        h1 {
+          font-size: clamp(28px, 8vw, 44px);
+        }
+        .stage {
+          height: auto;
+          background-image: none;
+          border: 0;
+          margin-top: 44px;
+          display: flex;
+          flex-direction: column;
+          gap: 0;
+        }
+        .stack-wrap,
+        .stack {
+          display: contents;
+        }
+        .layer {
+          position: relative;
+          inset: auto;
+          left: auto;
+          top: auto;
+          width: 100%;
+          height: auto;
+          transform: none !important;
+          box-shadow: none;
+        }
+        .leaders,
+        .toggle,
+        .flat-note,
+        .anchor {
+          display: none;
+        }
+        .label {
+          position: static;
+          width: auto;
+          margin: 14px 0 34px;
+          padding-left: 14px;
+          border-left: 2px solid var(--accent);
+        }
+        .l-agent {
+          order: 1;
+          height: 270px;
+        }
+        .lab-agent {
+          order: 2;
+        }
+        .l-preview {
+          order: 3;
+        }
+        .lab-preview {
+          order: 4;
+        }
+        .l-app {
+          order: 5;
+        }
+        .lab-app {
+          order: 6;
+        }
+        .l-sandbox {
+          order: 7;
+          height: 150px;
+        }
+        .lab-sandbox {
+          order: 8;
+        }
+        .win {
+          position: static;
+          display: block;
+          padding: 8px;
+        }
+        .side,
+        .slot {
+          display: none;
+        }
+        .page {
+          min-height: 300px;
+        }
+        .l-sandbox .ask {
+          right: 12px;
+          left: 12px;
+          width: auto;
+        }
+        section.sites {
+          grid-template-columns: 1fr;
+          padding-block: 48px 24px;
+          gap: 32px;
+        }
+        .changes {
+          justify-self: stretch;
+        }
+        .get-inner {
+          grid-template-columns: 1fr;
+          gap: 20px;
+          padding-top: 48px;
+        }
+        .tile {
+          width: 64px;
+          height: 64px;
+        }
+        .os {
+          grid-template-columns: 1fr;
+          gap: 10px;
+        }
+        .get .ctas {
+          justify-content: flex-start;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          transition: none !important;
+          animation: none !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <defs>
+        <linearGradient id="rune-g" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#d9582f" />
+          <stop offset="1" stop-color="#a62f19" />
+        </linearGradient>
+        <linearGradient id="cream-g" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#f8f5f0" />
+          <stop offset="1" stop-color="#e5ded3" />
+        </linearGradient>
+        <symbol id="tile" viewBox="0 0 1024 1024">
+          <rect
+            x="40"
+            y="40"
+            width="944"
+            height="944"
+            rx="250"
+            fill="url(#cream-g)"
+            stroke="#3b2a1a"
+            stroke-opacity="0.1"
+            stroke-width="4"
+          />
+          <path
+            d="M384 772 V252 L664 394 L384 536 L664 772"
+            fill="none"
+            stroke="url(#rune-g)"
+            stroke-width="84"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </symbol>
+        <symbol id="i-check" viewBox="0 0 16 16">
+          <path
+            d="M3.5 8.5l3 3 6-7"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </symbol>
+        <symbol id="i-file" viewBox="0 0 16 16">
+          <path
+            d="M4 1.5h5l3.5 3.5v9.5h-8.5z M9 1.5v3.5h3.5"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.3"
+            stroke-linejoin="round"
+          />
+        </symbol>
+        <symbol id="i-folder" viewBox="0 0 16 16">
+          <path
+            d="M1.5 3.5h4.5l1.5 1.5h7v8.5h-13z"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.3"
+            stroke-linejoin="round"
+          />
+        </symbol>
+        <symbol id="i-db" viewBox="0 0 16 16">
+          <ellipse cx="8" cy="3.8" rx="5.5" ry="2.2" fill="none" stroke="currentColor" stroke-width="1.3" />
+          <path
+            d="M2.5 3.8v8.4c0 1.2 2.5 2.2 5.5 2.2s5.5-1 5.5-2.2V3.8 M2.5 8c0 1.2 2.5 2.2 5.5 2.2s5.5-1 5.5-2.2"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.3"
+          />
+        </symbol>
+        <symbol id="i-lock" viewBox="0 0 16 16">
+          <rect x="3" y="7" width="10" height="7.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4" />
+          <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" fill="none" stroke="currentColor" stroke-width="1.4" />
+        </symbol>
+        <symbol id="i-app" viewBox="0 0 16 16">
+          <rect x="1.5" y="2.5" width="13" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.3" />
+          <path d="M1.5 5.5h13" stroke="currentColor" stroke-width="1.3" />
+        </symbol>
+        <symbol id="i-globe" viewBox="0 0 16 16">
+          <circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.3" />
+          <path
+            d="M1.5 8h13 M8 1.5c2 2 2.6 4 2.6 6.5S10 12.5 8 14.5 M8 1.5C6 3.5 5.4 5.5 5.4 8s.6 4.5 2.6 6.5"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.3"
+          />
+        </symbol>
+        <symbol id="i-eye-off" viewBox="0 0 16 16">
+          <path
+            d="M2 8s2.2-4.5 6-4.5S14 8 14 8s-2.2 4.5-6 4.5S2 8 2 8z M2.5 2.5l11 11"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.3"
+            stroke-linecap="round"
+          />
+          <circle cx="8" cy="8" r="1.8" fill="none" stroke="currentColor" stroke-width="1.3" />
+        </symbol>
+        <symbol id="i-type" viewBox="0 0 16 16">
+          <path d="M3 3.5h10 M8 3.5v10" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+        </symbol>
+        <symbol id="i-plus" viewBox="0 0 16 16">
+          <rect x="2" y="2" width="12" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.3" />
+          <path d="M8 5v6 M5 8h6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" />
+        </symbol>
+        <symbol id="i-brush" viewBox="0 0 16 16">
+          <path
+            d="M13.5 2.5 7 9 M5.5 9.5c-1.5 0-2.5 1-2.5 2.5 0 1-.5 1.5-1 2 2 0 5-.5 5-3 0-.6-.6-1.5-1.5-1.5z"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.3"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </symbol>
+        <symbol id="i-pack" viewBox="0 0 16 16">
+          <path
+            d="M8 1.5 14 4.5v7L8 14.5 2 11.5v-7z M2 4.5l6 3 6-3 M8 7.5v7"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.3"
+            stroke-linejoin="round"
+          />
+        </symbol>
+        <symbol id="i-download" viewBox="0 0 16 16">
+          <path
+            d="M8 2v8.5 M4.5 7.5 8 11l3.5-3.5 M2.5 14h11"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.6"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </symbol>
+        <symbol id="i-layers" viewBox="0 0 16 16">
+          <path
+            d="M8 2 14.5 5.5 8 9 1.5 5.5z M1.5 8.5 8 12l6.5-3.5 M1.5 11.2 8 14.7l6.5-3.5"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.3"
+            stroke-linejoin="round"
+          />
+        </symbol>
+      </defs>
+    </svg>
+
+    <header class="wrap nav">
+      <a class="brand" href="#" aria-label="Rune Browser home">
+        <svg aria-hidden="true"><use href="#tile" /></svg>
+        Rune Browser
+      </a>
+      <nav class="nav-links" aria-label="Main">
+        <a href="https://github.com/nayupls1/rune-browser/blob/master/docs/concepts.md">Docs</a>
+        <a href="https://github.com/nayupls1/rune-browser">GitHub</a>
+        <a class="btn btn-primary" href="https://github.com/nayupls1/rune-browser/releases/latest">Download</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="wrap hero" aria-labelledby="hero-title">
+        <div class="hero-head">
+          <h1 id="hero-title">Describe an app. The agent builds all of it.</h1>
+          <div>
+            <p class="lede">
+              Rune Browser is a desktop browser where <strong>your own coding agent</strong> writes small apps for you
+              and changes the websites you use. Here is one app, taken apart.
+            </p>
+            <div class="ctas">
+              <a class="btn btn-primary" href="https://github.com/nayupls1/rune-browser/releases/latest"
+                ><svg aria-hidden="true"><use href="#i-download" /></svg>Download</a
+              >
+              <a class="btn btn-ghost" href="https://github.com/nayupls1/rune-browser">View on GitHub</a>
+            </div>
+            <p class="platforms">Free and open source, for Linux, Windows and macOS.</p>
+          </div>
+        </div>
+
+        <div class="stage" id="stage">
+          <div class="stack-wrap">
+            <div class="stack" id="stack" aria-hidden="true">
+              <div class="layer l-sandbox" data-key="sandbox">
+                <div class="ask">
+                  <b>Habits wants to reach api.weather.example</b><span class="ok">Allow</span><span>Deny</span>
+                </div>
+                <div class="tag">
+                  <svg><use href="#i-lock" /></svg>sandbox
+                </div>
+                <i class="anchor" style="left: 300px; top: 468px"></i>
+              </div>
+              <div class="layer l-app" data-key="app">
+                <ul class="files">
+                  <li>
+                    <svg><use href="#i-folder" /></svg>habits/
+                  </li>
+                  <li class="in">
+                    <svg><use href="#i-file" /></svg>server.ts<span class="meta">+84</span>
+                  </li>
+                  <li class="in">
+                    <svg><use href="#i-file" /></svg>public/index.html<span class="meta">+61</span>
+                  </li>
+                  <li class="in">
+                    <svg><use href="#i-file" /></svg>public/app.js<span class="meta">+112</span>
+                  </li>
+                  <li class="in">
+                    <svg><use href="#i-db" /></svg>data/data.sqlite<span class="meta">3 tables</span>
+                  </li>
+                </ul>
+                <div class="schema">
+                  <div><span>habits</span><span>column</span><span>type</span></div>
+                  <div><span></span><span>name</span><span>text</span></div>
+                  <div><span></span><span>done_on</span><span>date</span></div>
+                  <div><span></span><span>streak</span><span>integer</span></div>
+                </div>
+                <div class="run"><i class="dot"></i>bun server.ts, running</div>
+                <i class="anchor" style="left: 260px; top: 424px"></i>
+              </div>
+              <div class="layer l-preview" data-key="preview">
+                <div class="win">
+                  <div class="side">
+                    <div class="lights"><i></i><i></i><i></i></div>
+                    <div class="addr">127.0.0.1:44431</div>
+                    <div class="tab on">
+                      <svg><use href="#i-app" /></svg>Habits
+                    </div>
+                    <div class="tab">
+                      <svg><use href="#i-app" /></svg>Grocery list
+                    </div>
+                    <div class="tab">
+                      <svg><use href="#i-globe" /></svg>Recipes
+                    </div>
+                  </div>
+                  <div class="page">
+                    <h4>Habits</h4>
+                    <div class="streak">Current streak <b>12 days</b></div>
+                    <div class="habit">
+                      <span class="check done"
+                        ><svg><use href="#i-check" /></svg></span
+                      >Read 20 pages<span class="week"
+                        ><i class="y"></i><i class="y"></i><i class="y"></i><i class="y"></i><i class="y"></i
+                        ><i class="y"></i><i class="y"></i
+                      ></span>
+                    </div>
+                    <div class="habit">
+                      <span class="check done"
+                        ><svg><use href="#i-check" /></svg></span
+                      >Walk for 30 minutes<span class="week"
+                        ><i class="y"></i><i class="y"></i><i></i><i class="y"></i><i class="y"></i><i class="y"></i
+                        ><i class="y"></i
+                      ></span>
+                    </div>
+                    <div class="habit">
+                      <span class="check"></span>Phone away after 10pm<span class="week"
+                        ><i class="y"></i><i></i><i class="y"></i><i class="y"></i><i></i><i class="y"></i><i></i
+                      ></span>
+                    </div>
+                    <div class="habit">
+                      <span class="check done"
+                        ><svg><use href="#i-check" /></svg></span
+                      >Water the plants<span class="week"
+                        ><i></i><i class="y"></i><i></i><i class="y"></i><i></i><i class="y"></i><i class="y"></i
+                      ></span>
+                    </div>
+                    <div class="addh"><span>New habit</span><b>Add</b></div>
+                  </div>
+                  <div class="slot"></div>
+                </div>
+                <i class="anchor" style="left: 360px; top: 440px"></i>
+              </div>
+              <div class="layer l-agent" data-key="agent">
+                <div class="agent-head">Habits <span>Claude Code</span></div>
+                <div class="msgs">
+                  <div class="you">A habit tracker with daily check-ins and a streak count</div>
+                  <div class="step">
+                    <svg><use href="#i-check" /></svg><span><b>Wrote server.ts</b> and the page</span>
+                  </div>
+                  <div class="step">
+                    <svg><use href="#i-check" /></svg><span><b>Added a habits table</b> to the database</span>
+                  </div>
+                  <div class="step">
+                    <svg><use href="#i-check" /></svg
+                    ><span><b>Running.</b> Fixed a layout issue it saw in the preview</span>
+                  </div>
+                </div>
+                <div class="composer">
+                  <p>Ask for a change…</p>
+                  <div><span>Your own login</span><b>Send</b></div>
+                </div>
+                <i class="anchor" style="left: 190px; top: 60px"></i>
+              </div>
+            </div>
+          </div>
+
+          <svg class="leaders" id="leaders" aria-hidden="true"></svg>
+
+          <div class="label lab-agent" data-for="agent">
+            <h3>Your own agent</h3>
+            <p>
+              Claude Code, Codex or OpenCode, the CLI you already use, signed in with your own subscription. No API
+              keys, no account here.
+            </p>
+          </div>
+          <div class="label lab-preview" data-for="preview">
+            <h3>A live preview of the real app</h3>
+            <p>It sits next to the chat. Keep changing it by talking, or close the chat and just use it.</p>
+          </div>
+          <div class="label lab-app" data-for="app">
+            <h3>A real project underneath</h3>
+            <p>Its own server and SQLite database, written and run by the agent, in a folder you can open.</p>
+          </div>
+          <div class="label lab-sandbox" data-for="sandbox">
+            <h3>A sandbox around it</h3>
+            <p>
+              Apps ask before reaching beyond it, and secrets never reach agents. Every change is a snapshot you can
+              undo, data included.
+            </p>
+          </div>
+
+          <button class="btn btn-ghost toggle" id="toggle" type="button" aria-pressed="false">
+            <svg aria-hidden="true"><use href="#i-layers" /></svg><span>Put it together</span>
+          </button>
+          <p class="flat-note">This is all you see while you use it.</p>
+        </div>
+      </section>
+
+      <section class="wrap sites" aria-labelledby="sites-title">
+        <div>
+          <h2 id="sites-title">It changes the websites you use, too.</h2>
+          <p>
+            Ask about a page, or point at an element. The same agent hides, restyles or adds things, on one page or the
+            whole site, and the change <strong>stays</strong> the next time you visit.
+          </p>
+          <p>Each change gets its own switch. Bundle the ones you like into a mod to share.</p>
+        </div>
+        <div class="changes" role="group" aria-label="Example: changes on a recipe site">
+          <header><span>Changes on this site</span><span>recipes.example</span></header>
+          <label class="change"
+            ><svg class="ic" aria-hidden="true"><use href="#i-eye-off" /></svg>
+            <div><b>Hide the cookie banner</b><small>All of recipes.example</small></div>
+            <input class="sw" type="checkbox" checked
+          /></label>
+          <label class="change"
+            ><svg class="ic" aria-hidden="true"><use href="#i-type" /></svg>
+            <div><b>Jump straight to the recipe</b><small>Recipe pages</small></div>
+            <input class="sw" type="checkbox" checked
+          /></label>
+          <label class="change"
+            ><svg class="ic" aria-hidden="true"><use href="#i-brush" /></svg>
+            <div><b>Bigger, darker text</b><small>All of recipes.example</small></div>
+            <input class="sw" type="checkbox"
+          /></label>
+          <label class="change"
+            ><svg class="ic" aria-hidden="true"><use href="#i-plus" /></svg>
+            <div><b>Add a servings scaler</b><small>Recipe pages</small></div>
+            <input class="sw" type="checkbox" checked
+          /></label>
+          <footer>
+            <svg aria-hidden="true"><use href="#i-pack" /></svg>Save these as a mod
+          </footer>
+        </div>
+      </section>
+
+      <section class="wrap get" id="download" aria-labelledby="get-title">
+        <div class="get-inner">
+          <svg class="tile" aria-hidden="true"><use href="#tile" /></svg>
+          <div>
+            <h2 id="get-title">Get Rune Browser</h2>
+            <p>
+              Then sign in to Claude Code, Codex or OpenCode, whichever you already use. Rune Browser finds it on your
+              computer.
+            </p>
+            <ul class="os">
+              <li><b>Linux</b><span>AppImage or .deb</span></li>
+              <li><b>Windows</b><span>Installer for x64</span></li>
+              <li><b>macOS</b><span>Apple Silicon .dmg</span></li>
+            </ul>
+          </div>
+          <div class="ctas">
+            <a class="btn btn-primary" href="https://github.com/nayupls1/rune-browser/releases/latest"
+              ><svg aria-hidden="true"><use href="#i-download" /></svg>Download</a
+            >
+            <a class="btn btn-ghost" href="https://github.com/nayupls1/rune-browser">View on GitHub</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="wrap foot">
+      <span>Rune Browser is free and open source under the MIT license.</span>
+      <nav aria-label="Footer">
+        <a href="https://github.com/nayupls1/rune-browser/blob/master/docs/concepts.md">Docs</a>
+        <a href="https://github.com/nayupls1/rune-browser/releases">Releases</a>
+        <a href="https://github.com/nayupls1/rune-browser/issues">Issues</a>
+      </nav>
+    </footer>
+
+    <script>
+      (() => {
+        const stage = document.getElementById("stage");
+        const stack = document.getElementById("stack");
+        const svg = document.getElementById("leaders");
+        const toggle = document.getElementById("toggle");
+        const mobile = matchMedia("(max-width: 860px)");
+        const reduced = matchMedia("(prefers-reduced-motion: reduce)");
+        const order = ["agent", "preview", "app", "sandbox"];
+        const NS = "http://www.w3.org/2000/svg";
+
+        function fit() {
+          if (mobile.matches) return;
+          const w = stage.clientWidth;
+          const flat = stage.classList.contains("flat");
+          const room = flat ? Math.min(w * 0.8, 1000) / 720 : (w * 0.6) / 940;
+          const s = Math.min(flat ? 1.15 : 1, room, (stage.clientHeight - 70) / (flat ? 460 : 860));
+          stack.style.setProperty("--s", s.toFixed(3));
+        }
+
+        function draw() {
+          svg.replaceChildren();
+          if (mobile.matches || stage.classList.contains("flat")) return;
+          const box = stage.getBoundingClientRect();
+          let minTop = 24;
+          for (const key of order) {
+            const a = stack.querySelector(`[data-key="${key}"] .anchor`).getBoundingClientRect();
+            const label = stage.querySelector(`.label[data-for="${key}"]`);
+            const ax = a.left - box.left;
+            const ay = a.top - box.top;
+            const top = Math.max(ay - 12, minTop);
+            label.style.top = `${top}px`;
+            minTop = top + label.offsetHeight + 22;
+            const lx = label.offsetLeft - 14;
+            const ly = top + 11;
+            const line = document.createElementNS(NS, "line");
+            line.setAttribute("x1", ax);
+            line.setAttribute("y1", ay);
+            line.setAttribute("x2", lx);
+            line.setAttribute("y2", ly);
+            const ring = document.createElementNS(NS, "circle");
+            ring.setAttribute("class", "ring");
+            ring.setAttribute("cx", ax);
+            ring.setAttribute("cy", ay);
+            ring.setAttribute("r", 4.5);
+            const end = document.createElementNS(NS, "circle");
+            end.setAttribute("class", "end");
+            end.setAttribute("cx", lx);
+            end.setAttribute("cy", ly);
+            end.setAttribute("r", 2.5);
+            svg.append(line, ring, end);
+          }
+        }
+
+        function layout() {
+          fit();
+          draw();
+        }
+
+        toggle.addEventListener("click", () => {
+          const flat = !stage.classList.contains("flat");
+          stage.classList.add("moving");
+          stage.classList.toggle("flat", flat);
+          toggle.setAttribute("aria-pressed", String(flat));
+          toggle.querySelector("span").textContent = flat ? "Take it apart" : "Put it together";
+          fit();
+          const done = () => {
+            stage.classList.remove("moving");
+            draw();
+          };
+          if (reduced.matches) done();
+          else setTimeout(done, 950);
+        });
+
+        addEventListener("resize", layout);
+        mobile.addEventListener("change", layout);
+        layout();
+        document.fonts.ready.then(layout);
+      })();
+    </script>
+  </body>
+</html>
