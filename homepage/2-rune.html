@@ -1,0 +1,644 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Rune Browser</title>
+    <meta
+      name="description"
+      content="A desktop browser where coding agents build your own small apps and change the websites you use, on your own Claude Code, Codex or OpenCode login."
+    />
+    <meta name="color-scheme" content="dark" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600&family=Fraunces:opsz,wght,SOFT@9..144,300..600,0..100&display=swap"
+      rel="stylesheet"
+    />
+    <script>
+      if (!matchMedia("(prefers-reduced-motion: reduce)").matches) document.documentElement.classList.add("motion");
+    </script>
+    <style>
+      :root {
+        --bg: #171411;
+        --surface: #211d19;
+        --text: #f2ece3;
+        --muted: color-mix(in oklab, var(--text) 64%, var(--bg));
+        --border: color-mix(in oklab, var(--surface) 86%, var(--text));
+        --accent: #ec7748;
+        --accent-text: #000000;
+        --accent-soft: color-mix(in oklab, var(--surface) 78%, var(--accent));
+        --rune-top: #f08a5d;
+        --rune-bottom: #d9582f;
+        --cream-top: #f8f5f0;
+        --cream-bottom: #e5ded3;
+        --rune-light-top: #d9582f;
+        --rune-light-bottom: #a62f19;
+
+        --serif: "Fraunces", Georgia, serif;
+        --sans: "Figtree", system-ui, sans-serif;
+        --gutter: clamp(20px, 5vw, 72px);
+        --measure: 34rem;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        background-color: var(--bg);
+        color: var(--text);
+        -webkit-text-size-adjust: 100%;
+      }
+
+      body {
+        margin: 0;
+        font-family: var(--sans);
+        font-size: 1.0625rem;
+        line-height: 1.6;
+        background-color: var(--bg);
+        overflow-x: hidden;
+      }
+
+      a {
+        color: inherit;
+      }
+
+      :focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 3px;
+        border-radius: 6px;
+      }
+
+      .wrap {
+        max-width: 1280px;
+        margin: 0 auto;
+        padding: 0 var(--gutter);
+      }
+
+      /* Header */
+
+      .top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding-top: 28px;
+        padding-bottom: 28px;
+      }
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        text-decoration: none;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+      }
+
+      .brand svg {
+        width: 28px;
+        height: 28px;
+      }
+
+      .top nav {
+        display: flex;
+        align-items: center;
+        gap: 28px;
+        font-size: 0.9375rem;
+      }
+
+      .top nav a:not(.button) {
+        text-decoration: none;
+        color: var(--muted);
+      }
+
+      .top nav a:not(.button):hover {
+        color: var(--text);
+      }
+
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 44px;
+        padding: 0 22px;
+        border-radius: 999px;
+        font-weight: 600;
+        font-size: 0.9375rem;
+        text-decoration: none;
+        white-space: nowrap;
+        border-width: 1px;
+        border-style: solid;
+        border-color: transparent;
+      }
+
+      .button-primary {
+        background-color: var(--accent);
+        color: var(--accent-text);
+      }
+
+      .button-primary:hover {
+        background-color: color-mix(in oklab, var(--accent) 88%, var(--text));
+      }
+
+      .button-quiet {
+        border-color: var(--border);
+        color: var(--text);
+      }
+
+      .button-quiet:hover {
+        background-color: var(--surface);
+      }
+
+      .top .button {
+        min-height: 38px;
+        padding: 0 18px;
+      }
+
+      /* Hero */
+
+      .hero {
+        display: grid;
+        grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+        align-items: center;
+        gap: 32px;
+        min-height: min(calc(100vh - 100px), 860px);
+        padding-bottom: 48px;
+      }
+
+      .hero h1 {
+        font-family: var(--serif);
+        font-weight: 340;
+        font-variation-settings:
+          "opsz" 144,
+          "SOFT" 100;
+        font-size: clamp(3rem, 7.2vw, 6.75rem);
+        line-height: 0.96;
+        letter-spacing: -0.035em;
+        margin: 0 0 32px;
+        max-width: 11ch;
+        text-wrap: balance;
+      }
+
+      .hero p {
+        font-size: clamp(1.0625rem, 1.4vw, 1.25rem);
+        color: var(--muted);
+        max-width: var(--measure);
+        margin: 0 0 40px;
+      }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+
+      .hero-rune {
+        justify-self: end;
+        width: 100%;
+        display: flex;
+        justify-content: flex-end;
+      }
+
+      .hero-rune svg {
+        height: min(78vh, 720px);
+        width: auto;
+        max-width: 100%;
+        overflow: visible;
+      }
+
+      .track {
+        stroke: color-mix(in oklab, var(--bg) 82%, var(--text));
+      }
+
+      .stroke {
+        stroke-dasharray: 1 1.01;
+        stroke-dashoffset: 0;
+      }
+
+      .motion .stroke {
+        animation: carve 2.4s cubic-bezier(0.65, 0, 0.25, 1) 0.35s both;
+      }
+
+      @keyframes carve {
+        from {
+          stroke-dashoffset: 1;
+        }
+        to {
+          stroke-dashoffset: 0;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .motion .stroke {
+          animation: none;
+        }
+      }
+
+      /* Features */
+
+      .features {
+        background-image: linear-gradient(var(--border), var(--border));
+        background-repeat: no-repeat;
+        background-size: calc(100% - 2 * var(--gutter)) 1px;
+        background-position: var(--gutter) 0;
+        padding-top: clamp(64px, 9vw, 128px);
+        padding-bottom: clamp(64px, 9vw, 128px);
+      }
+
+      .features-intro {
+        font-family: var(--serif);
+        font-weight: 360;
+        font-variation-settings:
+          "opsz" 72,
+          "SOFT" 100;
+        font-size: clamp(1.75rem, 3vw, 2.5rem);
+        line-height: 1.15;
+        letter-spacing: -0.02em;
+        max-width: 26ch;
+        margin: 0 0 clamp(48px, 7vw, 96px);
+        text-wrap: balance;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        column-gap: clamp(40px, 8vw, 128px);
+        row-gap: clamp(56px, 7vw, 96px);
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .feature {
+        display: grid;
+        grid-template-columns: 56px minmax(0, 1fr);
+        column-gap: 28px;
+        align-items: start;
+      }
+
+      .feature svg {
+        width: 56px;
+        height: 56px;
+        overflow: visible;
+      }
+
+      .feature h3 {
+        font-family: var(--serif);
+        font-weight: 450;
+        font-variation-settings:
+          "opsz" 36,
+          "SOFT" 100;
+        font-size: 1.625rem;
+        line-height: 1.2;
+        letter-spacing: -0.015em;
+        margin: 6px 0 12px;
+      }
+
+      .feature p {
+        margin: 0;
+        color: var(--muted);
+        max-width: 30rem;
+      }
+
+      /* Download */
+
+      .download {
+        background-image: linear-gradient(var(--border), var(--border));
+        background-repeat: no-repeat;
+        background-size: calc(100% - 2 * var(--gutter)) 1px;
+        background-position: var(--gutter) 0;
+        padding-top: clamp(64px, 9vw, 128px);
+        padding-bottom: clamp(64px, 9vw, 112px);
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        gap: clamp(28px, 4vw, 56px);
+        align-items: center;
+      }
+
+      .tile {
+        width: clamp(96px, 11vw, 144px);
+        height: auto;
+        display: block;
+      }
+
+      .download h2 {
+        font-family: var(--serif);
+        font-weight: 360;
+        font-variation-settings:
+          "opsz" 96,
+          "SOFT" 100;
+        font-size: clamp(2.25rem, 4.6vw, 3.75rem);
+        line-height: 1.02;
+        letter-spacing: -0.03em;
+        margin: 0 0 16px;
+      }
+
+      .download p {
+        color: var(--muted);
+        margin: 0 0 28px;
+        max-width: 38rem;
+      }
+
+      .download small {
+        display: block;
+        margin-top: 20px;
+        color: var(--muted);
+        font-size: 0.9375rem;
+      }
+
+      footer.wrap {
+        background-image: linear-gradient(var(--border), var(--border));
+        background-repeat: no-repeat;
+        background-size: calc(100% - 2 * var(--gutter)) 1px;
+        background-position: var(--gutter) 0;
+        padding-top: 28px;
+        padding-bottom: 40px;
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        gap: 12px 24px;
+        color: var(--muted);
+        font-size: 0.9375rem;
+      }
+
+      footer nav {
+        display: flex;
+        gap: 24px;
+      }
+
+      footer a {
+        text-decoration: none;
+      }
+
+      footer a:hover {
+        color: var(--text);
+      }
+
+      /* Narrow */
+
+      @media (max-width: 900px) {
+        .hero {
+          grid-template-columns: minmax(0, 1fr);
+          min-height: 0;
+          gap: 8px;
+          padding-top: 8px;
+          padding-bottom: 72px;
+        }
+
+        .hero-rune {
+          order: -1;
+          justify-content: flex-start;
+        }
+
+        .hero-rune svg {
+          height: clamp(200px, 34vh, 300px);
+          margin-left: -10px;
+        }
+
+        .grid {
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+
+      @media (max-width: 560px) {
+        .top nav a.nav-text {
+          display: none;
+        }
+
+        .hero h1 {
+          font-size: clamp(2.75rem, 13vw, 3.5rem);
+        }
+
+        .actions .button {
+          flex: 1 1 auto;
+        }
+
+        .feature {
+          grid-template-columns: minmax(0, 1fr);
+          row-gap: 18px;
+        }
+
+        .feature svg {
+          width: 44px;
+          height: 44px;
+        }
+
+        .download {
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <defs>
+        <linearGradient id="rune" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" style="stop-color: var(--rune-top)" />
+          <stop offset="1" style="stop-color: var(--rune-bottom)" />
+        </linearGradient>
+        <linearGradient id="rune-user" gradientUnits="userSpaceOnUse" x1="0" y1="210" x2="0" y2="814">
+          <stop offset="0" style="stop-color: var(--rune-top)" />
+          <stop offset="1" style="stop-color: var(--rune-bottom)" />
+        </linearGradient>
+        <linearGradient id="glyph" gradientUnits="userSpaceOnUse" x1="0" y1="8" x2="0" y2="56">
+          <stop offset="0" style="stop-color: var(--rune-top)" />
+          <stop offset="1" style="stop-color: var(--rune-bottom)" />
+        </linearGradient>
+        <linearGradient id="cream" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" style="stop-color: var(--cream-top)" />
+          <stop offset="1" style="stop-color: var(--cream-bottom)" />
+        </linearGradient>
+        <linearGradient id="rune-light" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" style="stop-color: var(--rune-light-top)" />
+          <stop offset="1" style="stop-color: var(--rune-light-bottom)" />
+        </linearGradient>
+      </defs>
+    </svg>
+
+    <header class="wrap top">
+      <a class="brand" href="#">
+        <svg viewBox="322 190 404 644" aria-hidden="true">
+          <path
+            d="M384 772 V252 L664 394 L384 536 L664 772"
+            fill="none"
+            stroke="url(#rune-user)"
+            stroke-width="84"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+        Rune Browser
+      </a>
+      <nav aria-label="Main">
+        <a class="nav-text" href="https://github.com/nayupls1/rune-browser/blob/master/docs/concepts.md">Docs</a>
+        <a class="nav-text" href="https://github.com/nayupls1/rune-browser">GitHub</a>
+        <a class="button button-primary" href="https://github.com/nayupls1/rune-browser/releases/latest">Download</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="wrap hero">
+        <div>
+          <h1>A browser that builds what you ask for</h1>
+          <p>
+            Describe a small app and a coding agent builds it, runs it and keeps it in a tab. Point at a website and it
+            changes that too. All on your own Claude Code, Codex or OpenCode login.
+          </p>
+          <div class="actions">
+            <a class="button button-primary" href="https://github.com/nayupls1/rune-browser/releases/latest"
+              >Download for free</a
+            >
+            <a class="button button-quiet" href="https://github.com/nayupls1/rune-browser">View on GitHub</a>
+          </div>
+        </div>
+        <div class="hero-rune" aria-hidden="true">
+          <svg id="hero-rune" viewBox="322 190 404 644">
+            <path
+              class="track"
+              d="M384 772 V252 L664 394 L384 536 L664 772"
+              fill="none"
+              stroke-width="84"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+            <path
+              class="stroke"
+              d="M384 772 V252 L664 394 L384 536 L664 772"
+              pathLength="1"
+              fill="none"
+              stroke="url(#rune-user)"
+              stroke-width="84"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </div>
+      </section>
+
+      <section class="wrap features" aria-labelledby="features-title">
+        <h2 class="features-intro" id="features-title">
+          For the small tools you never got round to building, and the sites you wish worked differently.
+        </h2>
+        <ul class="grid">
+          <li class="feature">
+            <svg viewBox="0 0 64 64" aria-hidden="true">
+              <path
+                d="M16 54 V10 H48 V36 H16"
+                fill="none"
+                stroke="url(#glyph)"
+                stroke-width="6.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            <div>
+              <h3>Describe an app, get a real one</h3>
+              <p>
+                The agent writes a real project with its own server and SQLite database, runs it in a sandbox and shows
+                it in a live preview next to the chat. Keep changing it by talking, or close the chat and just use it.
+              </p>
+            </div>
+          </li>
+          <li class="feature">
+            <svg viewBox="0 0 64 64" aria-hidden="true">
+              <path
+                d="M22 12 L8 32 L22 52 M42 12 L56 32 L42 52 M37 16 L27 48"
+                fill="none"
+                stroke="url(#glyph)"
+                stroke-width="6.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            <div>
+              <h3>Change the websites you use</h3>
+              <p>
+                Ask about a page or point at an element, and the agent hides, restyles or adds things, for that page or
+                the whole site. Each change gets its own switch. Bundle them into a mod to share.
+              </p>
+            </div>
+          </li>
+          <li class="feature">
+            <svg viewBox="0 0 64 64" aria-hidden="true">
+              <path
+                d="M12 46 L20 18 M32 54 V10 M52 46 L44 18"
+                fill="none"
+                stroke="url(#glyph)"
+                stroke-width="6.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            <div>
+              <h3>Your own agents and logins</h3>
+              <p>
+                Claude Code, Codex and OpenCode, the CLIs you already use, signed in with your own subscription. No API
+                keys, and no account here.
+              </p>
+            </div>
+          </li>
+          <li class="feature">
+            <svg viewBox="0 0 64 64" aria-hidden="true">
+              <path
+                d="M13 24 H40 L52 36 L40 48 H24 M23 13 L12 24 L23 35"
+                fill="none"
+                stroke="url(#glyph)"
+                stroke-width="6.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            <div>
+              <h3>Safe, and nothing is lost</h3>
+              <p>
+                Apps run in a sandbox and ask before reaching beyond it. Secrets never reach agents. Every change is a
+                snapshot you can undo, data included.
+              </p>
+            </div>
+          </li>
+        </ul>
+      </section>
+
+      <section class="wrap download" aria-labelledby="download-title">
+        <svg class="tile" viewBox="0 0 1024 1024" aria-hidden="true">
+          <rect x="40" y="40" width="944" height="944" rx="236" fill="url(#cream)" />
+          <path
+            d="M384 772 V252 L664 394 L384 536 L664 772"
+            fill="none"
+            stroke="url(#rune-light)"
+            stroke-width="84"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+        <div>
+          <h2 id="download-title">Get Rune Browser</h2>
+          <p>
+            Install it, sign in to Claude Code, Codex or OpenCode once, and ask for your first app. It updates itself
+            from there.
+          </p>
+          <div class="actions">
+            <a class="button button-primary" href="https://github.com/nayupls1/rune-browser/releases/latest"
+              >Download</a
+            >
+            <a class="button button-quiet" href="https://github.com/nayupls1/rune-browser/blob/master/docs/concepts.md"
+              >Read the docs</a
+            >
+          </div>
+          <small>For Linux, Windows and macOS on Apple Silicon. Free and open source under the MIT license.</small>
+        </div>
+      </section>
+    </main>
+
+    <footer class="wrap">
+      <span>Rune Browser</span>
+      <nav aria-label="Footer">
+        <a href="https://github.com/nayupls1/rune-browser">GitHub</a>
+        <a href="https://github.com/nayupls1/rune-browser/issues">Issues</a>
+        <a href="https://github.com/nayupls1/rune-browser/blob/master/LICENSE">License</a>
+      </nav>
+    </footer>
+  </body>
+</html>
