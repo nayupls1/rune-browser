@@ -1,0 +1,1719 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Rune Browser</title>
+    <meta
+      name="description"
+      content="A desktop browser where your own coding agent builds the small apps you ask for and changes the websites you use. Free for Linux, Windows and macOS."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,75..100,200..800&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg: #f8f5f0;
+        --cream-low: #e5ded3;
+        --surface: #fffdfa;
+        --text: #2b211a;
+        --muted: color-mix(in oklab, var(--text) 64%, var(--bg));
+        --border: color-mix(in oklab, var(--surface) 88%, var(--text));
+        --hover: color-mix(in oklab, var(--surface) 95%, var(--text));
+        --table: color-mix(in oklab, var(--bg) 55%, var(--cream-low));
+        --accent: #c2461f;
+        --accent-text: #ffffff;
+        --accent-soft: color-mix(in oklab, var(--surface) 88%, var(--accent));
+        --rune-top: #d9582f;
+        --rune-bottom: #a62f19;
+        --success: #2e7d3a;
+        --warning: #9a5800;
+        --danger: #b42346;
+        --shadow: color-mix(in oklab, var(--text) 22%, transparent);
+        --font: "Bricolage Grotesque", system-ui, sans-serif;
+        --page: min(1240px, calc(100vw - 32px));
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        -webkit-text-size-adjust: 100%;
+      }
+
+      body {
+        margin: 0;
+        background-color: var(--bg);
+        color: var(--text);
+        font-family: var(--font);
+        font-size: 1.0625rem;
+        line-height: 1.5;
+        font-variation-settings: "wdth" 100;
+        overflow-x: hidden;
+      }
+
+      a {
+        color: inherit;
+      }
+
+      :focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 3px;
+        border-radius: 4px;
+      }
+
+      .wrap {
+        width: var(--page);
+        margin-inline: auto;
+      }
+
+      /* Nav */
+
+      .nav {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding-block: 20px;
+      }
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        font-weight: 700;
+        font-size: 1.125rem;
+        text-decoration: none;
+        letter-spacing: -0.01em;
+      }
+
+      .tile {
+        width: 34px;
+        height: 34px;
+        flex: none;
+      }
+
+      .nav-links {
+        display: flex;
+        align-items: center;
+        gap: 22px;
+        font-size: 0.975rem;
+      }
+
+      .nav-links a:not(.btn) {
+        text-decoration: none;
+        color: var(--muted);
+      }
+
+      .nav-links a:not(.btn):hover {
+        color: var(--text);
+      }
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        min-height: 44px;
+        padding: 0 20px;
+        border-radius: 999px;
+        border-width: 1px;
+        border-style: solid;
+        border-color: transparent;
+        font: inherit;
+        font-weight: 650;
+        text-decoration: none;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+
+      .btn-primary {
+        background-color: var(--accent);
+        color: var(--accent-text);
+      }
+
+      .btn-primary:hover {
+        background-color: color-mix(in oklab, var(--accent) 88%, var(--text));
+      }
+
+      .btn-quiet {
+        background-color: transparent;
+        border-color: var(--border);
+        color: var(--text);
+      }
+
+      .btn-quiet:hover {
+        background-color: var(--hover);
+      }
+
+      .nav .btn {
+        min-height: 38px;
+        padding: 0 16px;
+      }
+
+      /* Hero */
+
+      .hero {
+        padding-top: clamp(28px, 6vw, 72px);
+      }
+
+      h1 {
+        margin: 0;
+        max-width: 13em;
+        font-size: clamp(3.1rem, 8.6vw, 8rem);
+        line-height: 0.9;
+        font-weight: 800;
+        letter-spacing: -0.018em;
+        font-variation-settings:
+          "wdth" 75,
+          "opsz" 96;
+        text-wrap: balance;
+      }
+
+      .hero-foot {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 24px 48px;
+        margin-top: clamp(22px, 3vw, 36px);
+      }
+
+      .lede {
+        margin: 0;
+        max-width: 34em;
+        font-size: clamp(1.125rem, 1.6vw, 1.3rem);
+        line-height: 1.45;
+        color: var(--muted);
+        font-variation-settings:
+          "wdth" 100,
+          "opsz" 24;
+      }
+
+      .lede strong {
+        color: var(--text);
+        font-weight: 600;
+      }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      /* The table */
+
+      .table-wrap {
+        position: relative;
+        overflow-x: clip;
+        margin-top: clamp(28px, 4vw, 48px);
+        background-color: var(--table);
+        border-top-width: 1px;
+        border-top-style: solid;
+        border-top-color: var(--border);
+        border-bottom-width: 1px;
+        border-bottom-style: solid;
+        border-bottom-color: var(--border);
+      }
+
+      .table {
+        position: relative;
+        width: var(--page);
+        height: 720px;
+        margin-inline: auto;
+        touch-action: pan-y;
+      }
+
+      .table-hint {
+        position: absolute;
+        left: 0;
+        bottom: 18px;
+        margin: 0;
+        font-size: 0.9rem;
+        color: var(--muted);
+      }
+
+      .app {
+        --dx: 0px;
+        --dy: 0px;
+        position: absolute;
+        left: min(var(--x), calc(100% - var(--w) - 8px));
+        top: var(--y);
+        width: var(--w);
+        translate: var(--dx) var(--dy);
+        rotate: var(--r);
+        background-color: var(--surface);
+        border-radius: 12px;
+        border-width: 1px;
+        border-style: solid;
+        border-color: var(--border);
+        box-shadow:
+          0 1px 0 var(--surface) inset,
+          0 2px 3px color-mix(in oklab, var(--text) 10%, transparent),
+          0 14px 28px -12px var(--shadow);
+        cursor: grab;
+        user-select: none;
+        -webkit-user-select: none;
+        transition:
+          rotate 0.25s ease,
+          box-shadow 0.25s ease;
+        animation: land 0.55s cubic-bezier(0.2, 0.9, 0.3, 1.15) backwards;
+        animation-delay: calc(var(--i) * 90ms + 150ms);
+      }
+
+      .app:focus-visible {
+        outline-offset: 4px;
+        border-radius: 12px;
+      }
+
+      .app.lifted {
+        cursor: grabbing;
+        rotate: calc(var(--r) * 0.3);
+        box-shadow:
+          0 1px 0 var(--surface) inset,
+          0 4px 8px color-mix(in oklab, var(--text) 10%, transparent),
+          0 34px 50px -18px var(--shadow);
+      }
+
+      @keyframes land {
+        from {
+          opacity: 0;
+          transform: translateY(-46px) scale(1.06);
+        }
+        60% {
+          opacity: 1;
+        }
+        to {
+          transform: none;
+        }
+      }
+
+      .bar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 9px 12px;
+        border-bottom-width: 1px;
+        border-bottom-style: solid;
+        border-bottom-color: var(--border);
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: var(--muted);
+      }
+
+      .bar svg {
+        width: 14px;
+        height: 14px;
+        flex: none;
+      }
+
+      .bar .url {
+        margin-left: auto;
+        font-weight: 400;
+        font-size: 0.72rem;
+        color: color-mix(in oklab, var(--muted) 80%, var(--surface));
+      }
+
+      .body {
+        padding: 14px 14px 16px;
+        font-size: 0.875rem;
+      }
+
+      .app h3 {
+        margin: 0 0 10px;
+        font-size: 1.15rem;
+        line-height: 1.1;
+        font-weight: 750;
+        letter-spacing: -0.015em;
+        font-variation-settings:
+          "wdth" 85,
+          "opsz" 32;
+      }
+
+      .tag {
+        position: absolute;
+        z-index: 2;
+        left: var(--tx, 18px);
+        bottom: calc(100% - 8px);
+        max-width: 92%;
+        padding: 7px 12px 8px 22px;
+        rotate: var(--tr, -3deg);
+        background-color: var(--surface);
+        border-radius: 3px;
+        box-shadow: 0 3px 8px -3px var(--shadow);
+        font-size: 0.86rem;
+        line-height: 1.3;
+        font-weight: 500;
+        color: var(--text);
+        font-variation-settings:
+          "wdth" 88,
+          "opsz" 14;
+        pointer-events: none;
+      }
+
+      .tag::before {
+        content: "";
+        position: absolute;
+        left: 8px;
+        top: 50%;
+        width: 7px;
+        height: 7px;
+        margin-top: -3.5px;
+        border-radius: 50%;
+        background-image: linear-gradient(var(--rune-top), var(--rune-bottom));
+        box-shadow: 0 1px 1px var(--shadow);
+      }
+
+      .tag q {
+        quotes: "\201C" "\201D";
+      }
+
+      /* Mini apps */
+
+      .check {
+        appearance: none;
+        -webkit-appearance: none;
+        width: 18px;
+        height: 18px;
+        margin: 0;
+        flex: none;
+        border-radius: 5px;
+        border-width: 1.5px;
+        border-style: solid;
+        border-color: color-mix(in oklab, var(--text) 30%, var(--surface));
+        background-color: var(--surface);
+        display: grid;
+        place-content: center;
+        cursor: pointer;
+      }
+
+      .check::after {
+        content: "";
+        width: 9px;
+        height: 5px;
+        margin-top: -2px;
+        border-left-width: 2px;
+        border-left-style: solid;
+        border-bottom-width: 2px;
+        border-bottom-style: solid;
+        border-color: var(--accent-text);
+        rotate: -45deg;
+        scale: 0;
+        transition: scale 0.15s ease;
+      }
+
+      .check:checked {
+        background-color: var(--accent);
+        border-color: var(--accent);
+      }
+
+      .check:checked::after {
+        scale: 1;
+      }
+
+      .habit-row {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 0;
+        border-top-width: 1px;
+        border-top-style: solid;
+        border-top-color: var(--border);
+      }
+
+      .days {
+        display: flex;
+        gap: 4px;
+      }
+
+      .day {
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background-color: var(--border);
+      }
+
+      .day.on {
+        background-color: var(--accent);
+      }
+
+      .day.today {
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        appearance: none;
+        -webkit-appearance: none;
+        margin: 0;
+        border-width: 1.5px;
+        border-style: dashed;
+        border-color: var(--accent);
+        background-color: transparent;
+        cursor: pointer;
+      }
+
+      .day.today:checked {
+        border-style: solid;
+        background-color: var(--accent);
+      }
+
+      .streak {
+        display: flex;
+        align-items: baseline;
+        gap: 6px;
+        margin-bottom: 10px;
+        color: var(--muted);
+      }
+
+      .streak b {
+        font-size: 2.2rem;
+        line-height: 1;
+        color: var(--text);
+        font-weight: 800;
+        font-variation-settings:
+          "wdth" 75,
+          "opsz" 96;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+
+      .list li {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding: 5px 0;
+      }
+
+      .list label {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        flex: 1;
+        cursor: pointer;
+      }
+
+      .list input:checked + span {
+        color: var(--muted);
+        text-decoration: line-through;
+      }
+
+      .who {
+        margin-left: auto;
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        display: grid;
+        place-content: center;
+        font-size: 0.66rem;
+        font-weight: 700;
+        background-color: var(--accent-soft);
+        color: var(--accent);
+      }
+
+      .live {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        margin-top: 10px;
+        padding-top: 10px;
+        border-top-width: 1px;
+        border-top-style: solid;
+        border-top-color: var(--border);
+        font-size: 0.78rem;
+        color: var(--muted);
+      }
+
+      .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background-color: var(--success);
+      }
+
+      .donut-wrap {
+        display: grid;
+        grid-template-columns: 104px 1fr;
+        align-items: center;
+        gap: 14px;
+      }
+
+      .donut {
+        position: relative;
+      }
+
+      .donut svg {
+        display: block;
+        width: 104px;
+        height: 104px;
+        rotate: -90deg;
+      }
+
+      .donut-total {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-content: center;
+        text-align: center;
+        font-size: 0.68rem;
+        color: var(--muted);
+        line-height: 1.1;
+      }
+
+      .donut-total b {
+        display: block;
+        font-size: 1.05rem;
+        color: var(--text);
+        font-weight: 750;
+      }
+
+      .legend {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        font-size: 0.8rem;
+      }
+
+      .legend li {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding: 2px 0;
+      }
+
+      .legend i {
+        width: 9px;
+        height: 9px;
+        border-radius: 2px;
+        flex: none;
+      }
+
+      .legend span {
+        margin-left: auto;
+        color: var(--muted);
+        font-variant-numeric: tabular-nums;
+      }
+
+      .c1 {
+        background-color: var(--accent);
+        stroke: var(--accent);
+      }
+      .c2 {
+        background-color: var(--warning);
+        stroke: var(--warning);
+      }
+      .c3 {
+        background-color: var(--success);
+        stroke: var(--success);
+      }
+      .c4 {
+        background-color: color-mix(in oklab, var(--text) 45%, var(--surface));
+        stroke: color-mix(in oklab, var(--text) 45%, var(--surface));
+      }
+
+      .timer {
+        display: grid;
+        justify-items: center;
+        gap: 10px;
+        text-align: center;
+      }
+
+      .ring {
+        position: relative;
+        width: 132px;
+        height: 132px;
+      }
+
+      .ring svg {
+        width: 100%;
+        height: 100%;
+        rotate: -90deg;
+      }
+
+      .ring circle {
+        fill: none;
+        stroke-width: 7;
+      }
+
+      .ring .track {
+        stroke: var(--border);
+      }
+
+      .ring .progress {
+        stroke: var(--accent);
+        stroke-linecap: round;
+        transition: stroke-dashoffset 0.9s linear;
+      }
+
+      .clock {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-content: center;
+        font-size: 2.1rem;
+        font-weight: 750;
+        font-variation-settings:
+          "wdth" 80,
+          "opsz" 72;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: -0.02em;
+      }
+
+      .clock small {
+        display: block;
+        font-size: 0.7rem;
+        font-weight: 400;
+        color: var(--muted);
+        letter-spacing: 0;
+        font-variation-settings: "wdth" 100;
+      }
+
+      .mini-btn {
+        min-height: 32px;
+        padding: 0 16px;
+        border-radius: 999px;
+        border-width: 1px;
+        border-style: solid;
+        border-color: var(--accent);
+        background-color: var(--accent);
+        color: var(--accent-text);
+        font: inherit;
+        font-size: 0.82rem;
+        font-weight: 650;
+        cursor: pointer;
+      }
+
+      .mini-btn.ghost {
+        background-color: transparent;
+        color: var(--accent);
+      }
+
+      .servings {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 8px;
+        padding: 6px 6px 6px 10px;
+        border-radius: 8px;
+        background-color: var(--accent-soft);
+      }
+
+      .stepper {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+
+      .stepper button {
+        width: 28px;
+        height: 28px;
+        border-radius: 6px;
+        border-width: 1px;
+        border-style: solid;
+        border-color: var(--border);
+        background-color: var(--surface);
+        color: var(--text);
+        font: inherit;
+        font-weight: 700;
+        line-height: 1;
+        cursor: pointer;
+      }
+
+      .stepper output {
+        min-width: 26px;
+        text-align: center;
+        font-weight: 750;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .ingredients {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+
+      .ingredients li {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 4px 0;
+        border-bottom-width: 1px;
+        border-bottom-style: dotted;
+        border-bottom-color: var(--border);
+      }
+
+      .ingredients b {
+        font-weight: 650;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .reading li {
+        align-items: flex-start;
+      }
+
+      .reading label {
+        align-items: flex-start;
+      }
+
+      .reading .check {
+        margin-top: 2px;
+      }
+
+      .reading small {
+        display: block;
+        color: var(--muted);
+        font-size: 0.75rem;
+      }
+
+      .count {
+        margin-left: auto;
+        font-weight: 400;
+        color: var(--muted);
+      }
+
+      /* Sections below the hero */
+
+      section {
+        padding-block: clamp(64px, 9vw, 120px);
+      }
+
+      h2 {
+        margin: 0;
+        font-size: clamp(2.2rem, 5vw, 3.9rem);
+        line-height: 0.95;
+        font-weight: 800;
+        letter-spacing: -0.015em;
+        font-variation-settings:
+          "wdth" 78,
+          "opsz" 96;
+        text-wrap: balance;
+      }
+
+      .steps {
+        list-style: none;
+        margin: clamp(32px, 5vw, 56px) 0 0;
+        padding: 0;
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: clamp(28px, 4vw, 56px);
+      }
+
+      .step {
+        display: grid;
+        grid-template-rows: auto auto 1fr;
+        align-content: start;
+      }
+
+      .step-num {
+        font-size: clamp(4.5rem, 8vw, 6.5rem);
+        line-height: 0.8;
+        font-weight: 200;
+        font-variation-settings:
+          "wdth" 75,
+          "opsz" 96;
+        color: var(--accent);
+        font-variant-numeric: tabular-nums;
+      }
+
+      .step h3 {
+        margin: 18px 0 8px;
+        font-size: 1.45rem;
+        line-height: 1.15;
+        font-weight: 700;
+        letter-spacing: -0.015em;
+        font-variation-settings:
+          "wdth" 90,
+          "opsz" 32;
+      }
+
+      .step p {
+        margin: 0 0 20px;
+        color: var(--muted);
+        max-width: 30em;
+      }
+
+      .frag {
+        align-self: end;
+        border-radius: 12px;
+        border-width: 1px;
+        border-style: solid;
+        border-color: var(--border);
+        background-color: var(--surface);
+        padding: 14px;
+        font-size: 0.875rem;
+      }
+
+      .composer-text {
+        min-height: 3em;
+        color: var(--text);
+      }
+
+      .composer-foot {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-top: 10px;
+        font-size: 0.78rem;
+        color: var(--muted);
+      }
+
+      .send {
+        padding: 5px 13px;
+        border-radius: 8px;
+        background-color: var(--accent);
+        color: var(--accent-text);
+        font-weight: 650;
+        font-size: 0.8rem;
+      }
+
+      .log {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: grid;
+        gap: 7px;
+      }
+
+      .log li {
+        display: flex;
+        align-items: flex-start;
+        gap: 9px;
+        line-height: 1.35;
+      }
+
+      .log svg {
+        width: 15px;
+        height: 15px;
+        flex: none;
+        margin-top: 2px;
+        color: var(--success);
+      }
+
+      .log .run {
+        color: var(--muted);
+      }
+
+      .log .run .dot {
+        margin: 5px 4px 0;
+      }
+
+      .bubble {
+        margin-left: auto;
+        width: fit-content;
+        max-width: 90%;
+        padding: 8px 12px;
+        border-radius: 12px 12px 4px 12px;
+        background-color: var(--accent-soft);
+      }
+
+      .reply {
+        margin-top: 10px;
+        color: var(--muted);
+      }
+
+      .also {
+        display: grid;
+        grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.6fr);
+        gap: clamp(28px, 5vw, 80px);
+        align-items: start;
+        border-top-width: 1px;
+        border-top-style: solid;
+        border-top-color: var(--border);
+      }
+
+      .also-list {
+        margin: 0;
+        display: grid;
+        gap: 28px;
+      }
+
+      .also-list dt {
+        font-size: 1.3rem;
+        line-height: 1.2;
+        font-weight: 700;
+        letter-spacing: -0.01em;
+        font-variation-settings:
+          "wdth" 90,
+          "opsz" 32;
+      }
+
+      .also-list dd {
+        margin: 6px 0 0;
+        max-width: 38em;
+        color: var(--muted);
+      }
+
+      .agents {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 10px;
+      }
+
+      .agents span {
+        padding: 3px 10px;
+        border-radius: 999px;
+        border-width: 1px;
+        border-style: solid;
+        border-color: var(--border);
+        background-color: var(--surface);
+        color: var(--text);
+        font-size: 0.85rem;
+      }
+
+      .download {
+        background-color: var(--table);
+        border-top-width: 1px;
+        border-top-style: solid;
+        border-top-color: var(--border);
+      }
+
+      .download-inner {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: clamp(24px, 4vw, 56px);
+        align-items: center;
+      }
+
+      .download .big-tile {
+        width: clamp(96px, 14vw, 168px);
+        height: auto;
+        rotate: -6deg;
+        filter: drop-shadow(0 18px 24px var(--shadow));
+      }
+
+      .download h2 {
+        max-width: 14ch;
+      }
+
+      .download p {
+        margin: 14px 0 22px;
+        color: var(--muted);
+        max-width: 40em;
+      }
+
+      footer {
+        padding-block: 28px 40px;
+        font-size: 0.9rem;
+        color: var(--muted);
+      }
+
+      .foot {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px 24px;
+      }
+
+      .foot nav {
+        display: flex;
+        gap: 20px;
+      }
+
+      .foot a {
+        text-decoration: none;
+      }
+
+      .foot a:hover {
+        color: var(--text);
+      }
+
+      .hint-narrow {
+        display: none;
+      }
+
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+        white-space: nowrap;
+      }
+
+      /* Narrower screens: the pile becomes a row you swipe through */
+
+      @media (max-width: 1080px) {
+        .table {
+          height: 760px;
+        }
+      }
+
+      @media (max-width: 860px) {
+        .table-wrap {
+          overflow-x: auto;
+          scroll-snap-type: x mandatory;
+          scrollbar-width: none;
+          overscroll-behavior-x: contain;
+        }
+
+        .table-wrap::-webkit-scrollbar {
+          display: none;
+        }
+
+        .table {
+          display: flex;
+          gap: 18px;
+          width: max-content;
+          height: auto;
+          align-items: flex-start;
+          padding: 72px 16px 64px;
+          touch-action: auto;
+        }
+
+        .app {
+          position: relative;
+          left: auto;
+          top: auto;
+          width: 264px;
+          flex: none;
+          translate: none;
+          rotate: calc(var(--r) * 0.35);
+          scroll-snap-align: center;
+          cursor: auto;
+          user-select: auto;
+          -webkit-user-select: auto;
+        }
+
+        .table-hint {
+          bottom: 22px;
+          left: 16px;
+        }
+
+        .hint-wide {
+          display: none;
+        }
+
+        .hint-narrow {
+          display: inline;
+        }
+
+        .steps {
+          grid-template-columns: 1fr;
+        }
+
+        .step {
+          grid-template-rows: none;
+          grid-template-columns: auto 1fr;
+          column-gap: 18px;
+        }
+
+        .step-num {
+          grid-row: span 3;
+        }
+
+        .step h3 {
+          margin-top: 2px;
+        }
+
+        .also {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 560px) {
+        .nav-links a:not(.btn) {
+          display: none;
+        }
+
+        .step {
+          grid-template-columns: 1fr;
+        }
+
+        .step-num {
+          grid-row: auto;
+        }
+
+        .step h3 {
+          margin-top: 12px;
+        }
+
+        .download-inner {
+          grid-template-columns: 1fr;
+        }
+
+        .actions .btn {
+          flex: 1 1 auto;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .app {
+          animation: none;
+          transition: none;
+        }
+
+        .ring .progress,
+        .check::after {
+          transition: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <defs>
+        <linearGradient id="rune-g" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#d9582f" />
+          <stop offset="1" stop-color="#a62f19" />
+        </linearGradient>
+        <linearGradient id="cream-g" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#f8f5f0" />
+          <stop offset="1" stop-color="#e5ded3" />
+        </linearGradient>
+        <symbol id="tile" viewBox="0 0 1024 1024">
+          <rect x="40" y="40" width="944" height="944" rx="250" fill="url(#cream-g)" />
+          <rect
+            x="40"
+            y="40"
+            width="944"
+            height="944"
+            rx="250"
+            fill="none"
+            stroke="#3b2a1a"
+            stroke-opacity="0.1"
+            stroke-width="4"
+          />
+          <path
+            d="M384 772 V252 L664 394 L384 536 L664 772"
+            fill="none"
+            stroke="url(#rune-g)"
+            stroke-width="84"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </symbol>
+        <symbol id="tab" viewBox="0 0 16 16">
+          <rect x="1.5" y="2.5" width="13" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.3" />
+          <path d="M1.5 5.5h13" stroke="currentColor" stroke-width="1.3" />
+        </symbol>
+        <symbol id="ok" viewBox="0 0 16 16">
+          <circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.4" />
+          <path
+            d="M5.2 8.2l1.9 1.9 3.8-4"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </symbol>
+      </defs>
+    </svg>
+
+    <header class="wrap nav">
+      <a class="brand" href="#top" aria-label="Rune Browser home">
+        <svg class="tile" aria-hidden="true"><use href="#tile" /></svg>
+        Rune Browser
+      </a>
+      <nav class="nav-links" aria-label="Main">
+        <a href="https://github.com/nayupls1/rune-browser/blob/master/docs/concepts.md">Docs</a>
+        <a href="https://github.com/nayupls1/rune-browser">GitHub</a>
+        <a class="btn btn-primary" href="https://github.com/nayupls1/rune-browser/releases/latest">Download</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <div class="wrap hero">
+        <h1>Each of these apps started as one sentence.</h1>
+        <div class="hero-foot">
+          <p class="lede">
+            <strong>Rune Browser</strong> is a desktop browser where your own coding agent builds the small apps you ask
+            for, and changes the websites you use. Free, for Linux, Windows and macOS.
+          </p>
+          <div class="actions">
+            <a class="btn btn-primary" href="https://github.com/nayupls1/rune-browser/releases/latest">Download</a>
+            <a class="btn btn-quiet" href="https://github.com/nayupls1/rune-browser">View on GitHub</a>
+          </div>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <h2 class="sr-only">Apps people asked for</h2>
+        <div class="table" id="table">
+          <!-- Habit tracker -->
+          <article
+            class="app"
+            tabindex="0"
+            aria-label="Habit tracker app. Arrow keys move it."
+            style="--x: 1%; --y: 100px; --w: 292px; --r: -4deg; --i: 0"
+          >
+            <p class="tag"><q>A habit tracker with daily check-ins and a streak count</q></p>
+            <div class="bar">
+              <svg aria-hidden="true"><use href="#tab" /></svg>Habits<span class="url">habits.app</span>
+            </div>
+            <div class="body">
+              <div class="streak"><b id="streak">12</b> days in a row</div>
+              <div class="habit-row">
+                <label for="h-walk">Walk 30 minutes</label>
+                <span class="days"
+                  ><i class="day on" aria-hidden="true"></i><i class="day on" aria-hidden="true"></i
+                  ><i class="day on" aria-hidden="true"></i><i class="day on" aria-hidden="true"></i
+                  ><i class="day on" aria-hidden="true"></i
+                  ><input class="day today" id="h-walk" type="checkbox" checked aria-label="Walk 30 minutes today"
+                /></span>
+              </div>
+              <div class="habit-row">
+                <label for="h-read">Read 20 pages</label>
+                <span class="days"
+                  ><i class="day on" aria-hidden="true"></i><i class="day on" aria-hidden="true"></i
+                  ><i class="day" aria-hidden="true"></i><i class="day on" aria-hidden="true"></i
+                  ><i class="day on" aria-hidden="true"></i
+                  ><input class="day today" id="h-read" type="checkbox" aria-label="Read 20 pages today"
+                /></span>
+              </div>
+              <div class="habit-row">
+                <label for="h-water">Drink water</label>
+                <span class="days"
+                  ><i class="day on" aria-hidden="true"></i><i class="day on" aria-hidden="true"></i
+                  ><i class="day on" aria-hidden="true"></i><i class="day on" aria-hidden="true"></i
+                  ><i class="day on" aria-hidden="true"></i
+                  ><input class="day today" id="h-water" type="checkbox" checked aria-label="Drink water today"
+                /></span>
+              </div>
+            </div>
+          </article>
+
+          <!-- Grocery list -->
+          <article
+            class="app"
+            tabindex="0"
+            aria-label="Grocery list app. Arrow keys move it."
+            style="--x: 21%; --y: 360px; --w: 256px; --r: 3deg; --i: 1; --tr: 2deg"
+          >
+            <p class="tag"><q>A grocery list we can both edit from our phones</q></p>
+            <div class="bar">
+              <svg aria-hidden="true"><use href="#tab" /></svg>Groceries<span class="url">groceries.app</span>
+            </div>
+            <div class="body">
+              <h3>This week</h3>
+              <ul class="list">
+                <li>
+                  <label><input class="check" type="checkbox" checked /><span>Oat milk</span></label
+                  ><i class="who" aria-label="Added by Sam">S</i>
+                </li>
+                <li>
+                  <label><input class="check" type="checkbox" /><span>Lemons</span></label
+                  ><i class="who" aria-label="Added by Ana">A</i>
+                </li>
+                <li>
+                  <label><input class="check" type="checkbox" /><span>Sourdough</span></label
+                  ><i class="who" aria-label="Added by Sam">S</i>
+                </li>
+                <li>
+                  <label><input class="check" type="checkbox" /><span>Basil</span></label
+                  ><i class="who" aria-label="Added by Ana">A</i>
+                </li>
+              </ul>
+              <p class="live"><i class="dot"></i>Ana is editing</p>
+            </div>
+          </article>
+
+          <!-- Expenses -->
+          <article
+            class="app"
+            tabindex="0"
+            aria-label="Monthly expenses app. Arrow keys move it."
+            style="--x: 38%; --y: 84px; --w: 300px; --r: -1.5deg; --i: 2; --tr: -2deg"
+          >
+            <p class="tag"><q>Show what I spend each month, by category</q></p>
+            <div class="bar">
+              <svg aria-hidden="true"><use href="#tab" /></svg>Spending<span class="url">spending.app</span>
+            </div>
+            <div class="body">
+              <h3>October</h3>
+              <div class="donut-wrap">
+                <div class="donut">
+                  <svg viewBox="0 0 42 42" aria-hidden="true">
+                    <circle cx="21" cy="21" r="15.9" fill="none" stroke-width="6" class="c1" stroke-dasharray="44 56" />
+                    <circle
+                      cx="21"
+                      cy="21"
+                      r="15.9"
+                      fill="none"
+                      stroke-width="6"
+                      class="c2"
+                      stroke-dasharray="24 76"
+                      stroke-dashoffset="-44"
+                    />
+                    <circle
+                      cx="21"
+                      cy="21"
+                      r="15.9"
+                      fill="none"
+                      stroke-width="6"
+                      class="c3"
+                      stroke-dasharray="18 82"
+                      stroke-dashoffset="-68"
+                    />
+                    <circle
+                      cx="21"
+                      cy="21"
+                      r="15.9"
+                      fill="none"
+                      stroke-width="6"
+                      class="c4"
+                      stroke-dasharray="14 86"
+                      stroke-dashoffset="-86"
+                    />
+                  </svg>
+                  <p class="donut-total" style="margin: 0"><b>€1,840</b>this month</p>
+                </div>
+                <ul class="legend">
+                  <li><i class="c1"></i>Rent<span>44%</span></li>
+                  <li><i class="c2"></i>Food<span>24%</span></li>
+                  <li><i class="c3"></i>Travel<span>18%</span></li>
+                  <li><i class="c4"></i>Other<span>14%</span></li>
+                </ul>
+              </div>
+            </div>
+          </article>
+
+          <!-- Focus timer -->
+          <article
+            class="app"
+            tabindex="0"
+            aria-label="Focus timer app. Arrow keys move it."
+            style="--x: 56%; --y: 330px; --w: 232px; --r: 5deg; --i: 3; --tr: -4deg; --tx: 14px"
+          >
+            <p class="tag"><q>A 25-minute focus timer that logs what I worked on</q></p>
+            <div class="bar">
+              <svg aria-hidden="true"><use href="#tab" /></svg>Focus<span class="url">focus.app</span>
+            </div>
+            <div class="body timer">
+              <div class="ring">
+                <svg viewBox="0 0 132 132" aria-hidden="true">
+                  <circle class="track" cx="66" cy="66" r="58" />
+                  <circle class="progress" id="ring" cx="66" cy="66" r="58" stroke-dasharray="364.4" />
+                </svg>
+                <p class="clock" style="margin: 0">
+                  <span id="clock" role="timer">18:42</span><small>Homepage copy</small>
+                </p>
+              </div>
+              <button class="mini-btn" id="timer-btn" type="button">Start</button>
+            </div>
+          </article>
+
+          <!-- Recipe scaler -->
+          <article
+            class="app"
+            tabindex="0"
+            aria-label="Recipe scaler app. Arrow keys move it."
+            style="--x: 76%; --y: 78px; --w: 280px; --r: -3deg; --i: 4; --tr: 3deg"
+          >
+            <p class="tag"><q>Scale any recipe to however many people are eating</q></p>
+            <div class="bar">
+              <svg aria-hidden="true"><use href="#tab" /></svg>Recipes<span class="url">recipes.app</span>
+            </div>
+            <div class="body">
+              <h3>Lemon pasta</h3>
+              <div class="servings">
+                <span>Serves</span>
+                <span class="stepper">
+                  <button type="button" data-step="-1" aria-label="Fewer people">−</button>
+                  <output id="serves" aria-live="polite">2</output>
+                  <button type="button" data-step="1" aria-label="More people">+</button>
+                </span>
+              </div>
+              <ul class="ingredients">
+                <li>Spaghetti<b data-base="200" data-unit=" g">200 g</b></li>
+                <li>Lemons<b data-base="1" data-unit="">1</b></li>
+                <li>Parmesan<b data-base="60" data-unit=" g">60 g</b></li>
+                <li>Butter<b data-base="30" data-unit=" g">30 g</b></li>
+              </ul>
+            </div>
+          </article>
+
+          <!-- Reading list -->
+          <article
+            class="app"
+            tabindex="0"
+            aria-label="Reading list app. Arrow keys move it."
+            style="--x: 77%; --y: 420px; --w: 270px; --r: 2deg; --i: 5; --tr: -2deg"
+          >
+            <p class="tag"><q>Save articles to read later, and tick them off</q></p>
+            <div class="bar">
+              <svg aria-hidden="true"><use href="#tab" /></svg>Reading<span class="url">reading.app</span>
+            </div>
+            <div class="body">
+              <h3>To read <span class="count">2 left</span></h3>
+              <ul class="list reading" id="reading">
+                <li>
+                  <label
+                    ><input class="check" type="checkbox" checked /><span
+                      >How SQLite stays small<small>8 min</small></span
+                    ></label
+                  >
+                </li>
+                <li>
+                  <label
+                    ><input class="check" type="checkbox" /><span
+                      >Notes on making tools<small>12 min</small></span
+                    ></label
+                  >
+                </li>
+                <li>
+                  <label
+                    ><input class="check" type="checkbox" /><span
+                      >A field guide to bread<small>5 min</small></span
+                    ></label
+                  >
+                </li>
+              </ul>
+            </div>
+          </article>
+
+          <p class="table-hint">
+            They're tiny, but they work. <span class="hint-wide">Move them around.</span
+            ><span class="hint-narrow">Swipe through them.</span>
+          </p>
+        </div>
+      </div>
+
+      <section class="wrap" aria-labelledby="how">
+        <h2 id="how">From a sentence to an app you keep</h2>
+        <ol class="steps">
+          <li class="step">
+            <span class="step-num" aria-hidden="true">1</span>
+            <h3>Describe it</h3>
+            <p>Open a new tab and say what you want, the way you'd tell a friend who codes.</p>
+            <div class="frag" aria-hidden="true">
+              <div class="composer-text">A habit tracker with daily check-ins and a streak count</div>
+              <div class="composer-foot"><span>Claude Code</span><span class="send">Send</span></div>
+            </div>
+          </li>
+          <li class="step">
+            <span class="step-num" aria-hidden="true">2</span>
+            <h3>The agent builds it and runs it</h3>
+            <p>
+              A real project with its own server and SQLite database, running in a sandbox, in a live preview next to
+              the chat. It fixes what it sees there.
+            </p>
+            <div class="frag" aria-hidden="true">
+              <ul class="log">
+                <li>
+                  <svg><use href="#ok" /></svg>Wrote server.ts and the page
+                </li>
+                <li>
+                  <svg><use href="#ok" /></svg>Added a habits table
+                </li>
+                <li>
+                  <svg><use href="#ok" /></svg>Fixed a layout issue in the preview
+                </li>
+                <li class="run"><i class="dot"></i>Running</li>
+              </ul>
+            </div>
+          </li>
+          <li class="step">
+            <span class="step-num" aria-hidden="true">3</span>
+            <h3>Use it, and change it by talking</h3>
+            <p>Close the chat and it's just your app. When you want something different, ask for it.</p>
+            <div class="frag" aria-hidden="true">
+              <div class="bubble">Make the streak count bigger and add a weekly view</div>
+              <div class="reply">Done. The streak is at the top, and there's a Week tab.</div>
+            </div>
+          </li>
+        </ol>
+      </section>
+
+      <section class="wrap also" aria-labelledby="also">
+        <h2 id="also">And the rest of the browser</h2>
+        <dl class="also-list">
+          <div>
+            <dt>It changes the websites you use, too</dt>
+            <dd>
+              Point at something on a page and say what you want: hidden, restyled, or something added. Each change has
+              its own switch, per page or per site, and you can bundle them into a mod to share.
+            </dd>
+          </div>
+          <div>
+            <dt>Your own agents, your own logins</dt>
+            <dd>
+              It runs the coding agents you already use, signed in with your own subscription. No API keys, and no
+              account here.
+              <span class="agents"><span>Claude Code</span><span>Codex</span><span>OpenCode</span></span>
+            </dd>
+          </div>
+          <div>
+            <dt>Safe, and nothing is lost</dt>
+            <dd>
+              Apps run in a sandbox and ask before reaching anything beyond it, and your secrets never reach the agent.
+              Every change is a snapshot you can undo, data included.
+            </dd>
+          </div>
+        </dl>
+      </section>
+
+      <section class="download" aria-labelledby="get">
+        <div class="wrap download-inner">
+          <svg class="big-tile" viewBox="0 0 1024 1024" aria-hidden="true"><use href="#tile" /></svg>
+          <div>
+            <h2 id="get">What will you ask for first?</h2>
+            <p>
+              Rune Browser is free and open source under the MIT license. It runs on Linux, Windows and macOS on Apple
+              Silicon, and needs Claude Code, Codex or OpenCode installed and signed in.
+            </p>
+            <div class="actions">
+              <a class="btn btn-primary" href="https://github.com/nayupls1/rune-browser/releases/latest">Download</a>
+              <a class="btn btn-quiet" href="https://github.com/nayupls1/rune-browser">View on GitHub</a>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="wrap foot">
+      <span>Rune Browser, MIT license</span>
+      <nav aria-label="Footer">
+        <a href="https://github.com/nayupls1/rune-browser/blob/master/docs/concepts.md">Docs</a>
+        <a href="https://github.com/nayupls1/rune-browser/releases">Releases</a>
+        <a href="https://github.com/nayupls1/rune-browser/issues">Issues</a>
+      </nav>
+    </footer>
+
+    <script>
+      // Drag the apps around the table (wide screens only).
+      const table = document.getElementById("table");
+      const apps = [...table.querySelectorAll(".app")];
+      const wide = matchMedia("(min-width: 861px)");
+      let zTop = apps.length;
+
+      const offset = (app) => ({
+        x: parseFloat(app.style.getPropertyValue("--dx")) || 0,
+        y: parseFloat(app.style.getPropertyValue("--dy")) || 0,
+      });
+
+      const place = (app, x, y) => {
+        // Keep at least part of each app on the table.
+        const t = table.getBoundingClientRect();
+        const baseLeft = app.offsetLeft;
+        const baseTop = app.offsetTop;
+        const minX = -baseLeft - app.offsetWidth * 0.5;
+        const maxX = t.width - baseLeft - app.offsetWidth * 0.5;
+        const minY = -baseTop;
+        const maxY = t.height - baseTop - 80;
+        app.style.setProperty("--dx", Math.min(maxX, Math.max(minX, x)) + "px");
+        app.style.setProperty("--dy", Math.min(maxY, Math.max(minY, y)) + "px");
+      };
+
+      const raise = (app) => {
+        app.style.zIndex = ++zTop;
+      };
+
+      apps.forEach((app) => {
+        let start = null;
+
+        app.addEventListener("pointerdown", (e) => {
+          if (!wide.matches || e.button !== 0) return;
+          if (e.target.closest("button, input, label, a")) return;
+          const o = offset(app);
+          start = { px: e.clientX, py: e.clientY, x: o.x, y: o.y, id: e.pointerId };
+          raise(app);
+          app.classList.add("lifted");
+          app.setPointerCapture(e.pointerId);
+          e.preventDefault();
+        });
+
+        app.addEventListener("pointermove", (e) => {
+          if (!start || e.pointerId !== start.id) return;
+          place(app, start.x + e.clientX - start.px, start.y + e.clientY - start.py);
+        });
+
+        const drop = (e) => {
+          if (!start || e.pointerId !== start.id) return;
+          start = null;
+          app.classList.remove("lifted");
+        };
+        app.addEventListener("pointerup", drop);
+        app.addEventListener("pointercancel", drop);
+
+        // Keyboard: arrow keys move the focused app.
+        app.addEventListener("keydown", (e) => {
+          if (!wide.matches || e.target !== app) return;
+          const step = e.shiftKey ? 48 : 16;
+          const moves = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] };
+          const m = moves[e.key];
+          if (!m) return;
+          e.preventDefault();
+          raise(app);
+          const o = offset(app);
+          place(app, o.x + m[0], o.y + m[1]);
+        });
+
+        app.addEventListener("focus", () => wide.matches && raise(app));
+      });
+
+      wide.addEventListener("change", () => apps.forEach((app) => app.style.removeProperty("--dx")));
+
+      // Habit tracker: today's check-ins move the streak.
+      const streak = document.getElementById("streak");
+      document.getElementById("h-read").addEventListener("change", (e) => {
+        streak.textContent = e.target.checked ? 13 : 12;
+      });
+
+      // Reading list: count what's left.
+      const reading = document.getElementById("reading");
+      const left = reading.closest(".body").querySelector(".count");
+      reading.addEventListener("change", () => {
+        const n = reading.querySelectorAll("input:not(:checked)").length;
+        left.textContent = n === 0 ? "All read" : n + " left";
+      });
+
+      // Recipe scaler.
+      let serves = 2;
+      const servesOut = document.getElementById("serves");
+      const amounts = [...document.querySelectorAll(".ingredients b")];
+      document.querySelectorAll(".stepper button").forEach((b) =>
+        b.addEventListener("click", () => {
+          serves = Math.min(12, Math.max(1, serves + Number(b.dataset.step)));
+          servesOut.textContent = serves;
+          amounts.forEach((a) => {
+            const v = (Number(a.dataset.base) * serves) / 2;
+            a.textContent = (Number.isInteger(v) ? v : v.toFixed(1)) + a.dataset.unit;
+          });
+        }),
+      );
+
+      // Focus timer: runs only when you press Start.
+      const total = 25 * 60;
+      let remaining = 18 * 60 + 42;
+      let tick = null;
+      const clock = document.getElementById("clock");
+      const ring = document.getElementById("ring");
+      const timerBtn = document.getElementById("timer-btn");
+      const circumference = 364.4;
+      const draw = () => {
+        const m = Math.floor(remaining / 60);
+        const s = String(remaining % 60).padStart(2, "0");
+        clock.textContent = m + ":" + s;
+        ring.style.strokeDashoffset = circumference * (1 - remaining / total);
+      };
+      draw();
+      timerBtn.addEventListener("click", () => {
+        if (tick) {
+          clearInterval(tick);
+          tick = null;
+          timerBtn.textContent = "Start";
+          timerBtn.classList.remove("ghost");
+          return;
+        }
+        timerBtn.textContent = "Pause";
+        timerBtn.classList.add("ghost");
+        tick = setInterval(() => {
+          remaining = remaining > 0 ? remaining - 1 : total;
+          draw();
+        }, 1000);
+      });
+    </script>
+  </body>
+</html>
