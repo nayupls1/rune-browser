@@ -1,0 +1,1741 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Rune Browser</title>
+    <meta
+      name="description"
+      content="A desktop browser where your own coding agent builds small apps and changes the websites you use, on your Claude Code, Codex or OpenCode login."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg: #f8f5f0;
+        --surface: #fffdfa;
+        --text: #2b211a;
+        --muted: color-mix(in oklab, var(--text) 64%, var(--bg));
+        --border: color-mix(in oklab, var(--surface) 88%, var(--text));
+        --sidebar: color-mix(in oklab, var(--bg) 96%, var(--text));
+        --hover: color-mix(in oklab, var(--surface) 95%, var(--text));
+        --accent: #c2461f;
+        --accent-text: #ffffff;
+        --accent-soft: color-mix(in oklab, var(--surface) 88%, var(--accent));
+        --rune-top: #d9582f;
+        --rune-bottom: #a62f19;
+        --success: #2e7d3a;
+        --warning: #9a5800;
+        --danger: #b42346;
+        --dark-bg: #171411;
+        --dark-surface: #211d19;
+        --dark-text: #f2ece3;
+        --dark-muted: color-mix(in oklab, var(--dark-text) 64%, var(--dark-bg));
+        --dark-accent: #ec7748;
+        --dark-accent-text: #000000;
+        --font: "Hanken Grotesk", system-ui, sans-serif;
+        --gutter: 24px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        -webkit-text-size-adjust: 100%;
+      }
+      body {
+        margin: 0;
+        background-color: var(--bg);
+        color: var(--text);
+        font-family: var(--font);
+        font-size: 17px;
+        line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+      }
+      a {
+        color: inherit;
+      }
+      button {
+        font: inherit;
+        color: inherit;
+      }
+      :focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 3px;
+        border-radius: 6px;
+      }
+
+      .wrap {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 0 var(--gutter);
+      }
+
+      /* Nav */
+      .nav {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding-top: 22px;
+        padding-bottom: 22px;
+      }
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        font-weight: 700;
+        font-size: 18px;
+        text-decoration: none;
+        letter-spacing: -0.01em;
+      }
+      .brand svg {
+        width: 30px;
+        height: 30px;
+        display: block;
+      }
+      .nav-links {
+        display: flex;
+        align-items: center;
+        gap: 26px;
+        font-size: 16px;
+      }
+      .nav-links a:not(.btn) {
+        text-decoration: none;
+        color: var(--muted);
+      }
+      .nav-links a:not(.btn):hover {
+        color: var(--text);
+      }
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        height: 46px;
+        padding: 0 22px;
+        border-radius: 12px;
+        font-weight: 600;
+        font-size: 16px;
+        text-decoration: none;
+        white-space: nowrap;
+        border-width: 1px;
+        border-style: solid;
+        border-color: transparent;
+      }
+      .btn-primary {
+        background-color: var(--accent);
+        color: var(--accent-text);
+      }
+      .btn-primary:hover {
+        background-color: color-mix(in oklab, var(--accent) 88%, black);
+      }
+      .btn-quiet {
+        border-color: var(--border);
+        background-color: var(--surface);
+      }
+      .btn-quiet:hover {
+        background-color: var(--hover);
+      }
+      .btn-sm {
+        height: 38px;
+        padding: 0 16px;
+        border-radius: 10px;
+        font-size: 15px;
+      }
+
+      /* Hero */
+      .hero {
+        padding-top: 40px;
+      }
+      .hero h1 {
+        margin: 0;
+        font-size: clamp(44px, 6.4vw, 88px);
+        line-height: 0.97;
+        font-weight: 800;
+        letter-spacing: -0.045em;
+      }
+      .hero h1 span {
+        display: block;
+      }
+      .hero-intro {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 24px 48px;
+        margin-top: 28px;
+      }
+      .hero-lede {
+        margin: 0;
+        max-width: 31em;
+        font-size: 20px;
+        line-height: 1.5;
+        color: var(--muted);
+      }
+      .hero-lede strong {
+        color: var(--text);
+        font-weight: 600;
+      }
+      .hero-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+
+      /* Demo */
+      .demo {
+        margin-top: 48px;
+      }
+      .composer {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        min-height: 84px;
+        padding: 14px 14px 14px 26px;
+        background-color: var(--surface);
+        border-width: 1px;
+        border-style: solid;
+        border-color: var(--border);
+        border-radius: 20px;
+        box-shadow:
+          0 1px 0 color-mix(in oklab, var(--text) 4%, transparent),
+          0 18px 40px -24px color-mix(in oklab, var(--rune-bottom) 35%, transparent);
+      }
+      .composer-text {
+        flex: 1;
+        min-width: 0;
+        font-size: clamp(19px, 2.3vw, 26px);
+        font-weight: 500;
+        letter-spacing: -0.015em;
+        line-height: 1.3;
+      }
+      .composer-text .placeholder {
+        color: var(--muted);
+        font-weight: 400;
+      }
+      .caret {
+        display: inline-block;
+        width: 2px;
+        height: 1.05em;
+        margin-left: 2px;
+        vertical-align: -0.15em;
+        background-color: var(--accent);
+        animation: blink 1s steps(1) infinite;
+      }
+      @keyframes blink {
+        50% {
+          opacity: 0;
+        }
+      }
+      .send {
+        flex: none;
+        height: 52px;
+        padding: 0 24px;
+        border-radius: 13px;
+        border-width: 0;
+        background-color: var(--accent);
+        color: var(--accent-text);
+        font-weight: 600;
+        font-size: 17px;
+        transition:
+          transform 120ms ease,
+          background-color 120ms ease;
+      }
+      .send[data-pressed="true"] {
+        transform: scale(0.94);
+        background-color: color-mix(in oklab, var(--accent) 80%, black);
+      }
+      .send:disabled {
+        opacity: 1;
+      }
+
+      .prompts {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 16px;
+        padding: 0;
+        list-style: none;
+      }
+      .prompts button {
+        height: 38px;
+        padding: 0 16px;
+        border-radius: 999px;
+        cursor: pointer;
+        background-color: transparent;
+        color: var(--muted);
+        font-size: 15px;
+        border-width: 1px;
+        border-style: solid;
+        border-color: var(--border);
+      }
+      .prompts button:hover {
+        color: var(--text);
+        background-color: var(--surface);
+      }
+      .prompts button[aria-pressed="true"] {
+        color: var(--text);
+        background-color: var(--accent-soft);
+        border-color: color-mix(in oklab, var(--accent) 35%, var(--border));
+      }
+
+      /* Mock window */
+      .window {
+        margin-top: 28px;
+        display: grid;
+        grid-template-columns: 212px minmax(0, 1fr) 316px;
+        height: 560px;
+        background-color: var(--sidebar);
+        border-width: 1px;
+        border-style: solid;
+        border-color: var(--border);
+        border-radius: 18px;
+        overflow: hidden;
+        box-shadow: 0 40px 80px -40px color-mix(in oklab, var(--text) 30%, transparent);
+        font-size: 14px;
+        line-height: 1.4;
+      }
+      .side {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        padding: 12px;
+      }
+      .side-top {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 26px;
+        padding: 0 4px;
+        color: var(--muted);
+      }
+      .dot {
+        width: 11px;
+        height: 11px;
+        border-radius: 50%;
+        background-color: color-mix(in oklab, var(--text) 18%, var(--bg));
+      }
+      .side-top .navs {
+        margin-left: auto;
+        display: flex;
+        gap: 12px;
+      }
+      .address,
+      .tab {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        height: 36px;
+        padding: 0 11px;
+        border-radius: 10px;
+      }
+      .address {
+        background-color: var(--surface);
+        border-width: 1px;
+        border-style: solid;
+        border-color: var(--border);
+        color: var(--muted);
+      }
+      .tab {
+        color: var(--text);
+      }
+      .tab.active {
+        background-color: var(--surface);
+        border-width: 1px;
+        border-style: solid;
+        border-color: var(--border);
+      }
+      .tab svg,
+      .address svg {
+        flex: none;
+        color: var(--muted);
+      }
+      .address span,
+      .tab span {
+        min-width: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .tab.app svg {
+        color: var(--accent);
+      }
+      .tab .status {
+        margin-left: auto;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background-color: var(--warning);
+      }
+      .tab .status[data-state="running"] {
+        background-color: var(--success);
+      }
+      .tab.new {
+        color: var(--muted);
+      }
+      .tab-enter {
+        animation: tab-in 320ms cubic-bezier(0.2, 0.8, 0.2, 1);
+      }
+      @keyframes tab-in {
+        from {
+          opacity: 0;
+          transform: translateY(-6px);
+        }
+      }
+      .side-bottom {
+        margin-top: auto;
+        display: flex;
+        justify-content: space-between;
+        color: var(--muted);
+        padding: 4px;
+      }
+
+      .page {
+        margin: 8px 0 8px 0;
+        border-radius: 12px;
+        overflow: hidden;
+        position: relative;
+        background-color: var(--surface);
+        border-width: 1px;
+        border-style: solid;
+        border-color: var(--border);
+      }
+      .agent {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        background-color: var(--sidebar);
+      }
+      .agent-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        height: 44px;
+        padding: 0 16px;
+        font-weight: 600;
+        border-bottom-width: 1px;
+        border-bottom-style: solid;
+        border-bottom-color: var(--border);
+      }
+      .agent-head span {
+        color: var(--muted);
+        display: flex;
+        gap: 12px;
+      }
+      .agent-log {
+        flex: 1;
+        min-height: 0;
+        overflow: hidden;
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .bubble {
+        align-self: flex-end;
+        max-width: 88%;
+        padding: 10px 13px;
+        border-radius: 14px 14px 4px 14px;
+        background-color: var(--accent-soft);
+        color: var(--text);
+      }
+      .steps {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 9px;
+      }
+      .steps li {
+        display: flex;
+        gap: 9px;
+        align-items: flex-start;
+        animation: step-in 260ms ease both;
+      }
+      .steps li .ico {
+        flex: none;
+        width: 16px;
+        height: 16px;
+        margin-top: 1px;
+        display: grid;
+        place-items: center;
+      }
+      .steps li[data-state="done"] .ico {
+        color: var(--success);
+      }
+      .steps li[data-state="work"] {
+        color: var(--muted);
+      }
+      .steps li.final {
+        font-weight: 600;
+      }
+      .spin {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        border-width: 2px;
+        border-style: solid;
+        border-color: var(--border);
+        border-top-color: var(--accent);
+        animation: spin 700ms linear infinite;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      @keyframes step-in {
+        from {
+          opacity: 0;
+          transform: translateY(4px);
+        }
+      }
+      .agent-compose {
+        margin: 12px;
+        padding: 12px;
+        border-radius: 14px;
+        background-color: var(--surface);
+        border-width: 1px;
+        border-style: solid;
+        border-color: var(--border);
+      }
+      .agent-compose p {
+        margin: 0 0 12px;
+        color: var(--muted);
+      }
+      .agent-compose div {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .agent-compose b {
+        font-weight: 600;
+        height: 30px;
+        padding: 0 12px;
+        border-radius: 8px;
+        display: inline-flex;
+        align-items: center;
+        background-color: var(--accent-soft);
+        color: var(--accent);
+      }
+
+      /* Preview states */
+      .empty,
+      .building,
+      .appview {
+        position: absolute;
+        inset: 0;
+      }
+      .empty {
+        display: grid;
+        place-items: center;
+        color: var(--muted);
+        text-align: center;
+        padding: 24px;
+      }
+      .building {
+        padding: 40px 44px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+      .sk {
+        height: 14px;
+        border-radius: 6px;
+        background-color: var(--hover);
+        animation: pulse 1.2s ease-in-out infinite;
+      }
+      .sk.h {
+        height: 30px;
+        width: 40%;
+      }
+      @keyframes pulse {
+        50% {
+          opacity: 0.45;
+        }
+      }
+      .appview {
+        overflow: auto;
+        padding: 36px 44px;
+        animation: app-in 420ms cubic-bezier(0.2, 0.8, 0.2, 1);
+      }
+      @keyframes app-in {
+        from {
+          opacity: 0;
+          transform: translateY(10px);
+        }
+      }
+      [hidden] {
+        display: none !important;
+      }
+
+      /* Generated apps (they use the app tokens, like a real Rune app) */
+      .app h3 {
+        margin: 0;
+        font-size: 26px;
+        font-weight: 800;
+        letter-spacing: -0.03em;
+      }
+      .app-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 22px;
+        flex-wrap: wrap;
+      }
+      .app-sub {
+        color: var(--muted);
+        font-size: 14px;
+      }
+      .streak {
+        font-size: 14px;
+        color: var(--muted);
+      }
+      .streak b {
+        font-size: 22px;
+        color: var(--text);
+        font-weight: 800;
+        margin-right: 4px;
+        letter-spacing: -0.02em;
+      }
+      .habit-list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+      .habit-list li {
+        display: grid;
+        grid-template-columns: 1fr auto 40px;
+        align-items: center;
+        gap: 18px;
+        padding: 13px 0;
+        border-bottom-width: 1px;
+        border-bottom-style: solid;
+        border-bottom-color: var(--border);
+      }
+      .habit-list .name {
+        font-weight: 600;
+        font-size: 15px;
+      }
+      .week {
+        display: flex;
+        gap: 6px;
+      }
+      .week i {
+        width: 12px;
+        height: 12px;
+        border-radius: 4px;
+        background-color: var(--hover);
+      }
+      .week i.on {
+        background-color: color-mix(in oklab, var(--accent) 55%, var(--surface));
+      }
+      .week i.today {
+        outline: 1.5px solid var(--border);
+        outline-offset: 1px;
+      }
+      .week i.today.on {
+        background-color: var(--accent);
+      }
+      .check {
+        width: 36px;
+        height: 36px;
+        border-radius: 10px;
+        cursor: pointer;
+        display: grid;
+        place-items: center;
+        background-color: var(--surface);
+        color: transparent;
+        border-width: 1.5px;
+        border-style: solid;
+        border-color: var(--border);
+        transition:
+          background-color 140ms ease,
+          transform 140ms ease;
+      }
+      .check:active {
+        transform: scale(0.92);
+      }
+      .check[aria-pressed="true"] {
+        background-color: var(--accent);
+        border-color: var(--accent);
+        color: var(--accent-text);
+      }
+
+      .live {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .live::before {
+        content: "";
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background-color: var(--success);
+      }
+      .grocery {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+      .grocery li {
+        border-bottom-width: 1px;
+        border-bottom-style: solid;
+        border-bottom-color: var(--border);
+      }
+      .grocery label {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 11px 0;
+        cursor: pointer;
+        font-size: 15px;
+      }
+      .grocery input {
+        width: 18px;
+        height: 18px;
+        accent-color: var(--accent);
+        margin: 0;
+      }
+      .grocery input:checked + span {
+        color: var(--muted);
+        text-decoration: line-through;
+      }
+      .grocery .who {
+        margin-left: auto;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .add-row {
+        display: flex;
+        gap: 8px;
+        margin-top: 16px;
+      }
+      .add-row input {
+        flex: 1;
+        min-width: 0;
+        height: 40px;
+        padding: 0 12px;
+        border-radius: 10px;
+        font: inherit;
+        font-size: 15px;
+        background-color: var(--surface);
+        color: var(--text);
+        border-width: 1px;
+        border-style: solid;
+        border-color: var(--border);
+      }
+      .add-row button {
+        height: 40px;
+        padding: 0 16px;
+        border-radius: 10px;
+        border-width: 0;
+        background-color: var(--accent);
+        color: var(--accent-text);
+        font-weight: 600;
+        cursor: pointer;
+      }
+
+      .months {
+        display: inline-flex;
+        padding: 3px;
+        border-radius: 10px;
+        background-color: var(--hover);
+      }
+      .months button {
+        height: 30px;
+        padding: 0 12px;
+        border-radius: 8px;
+        border-width: 0;
+        background-color: transparent;
+        color: var(--muted);
+        cursor: pointer;
+        font-size: 14px;
+      }
+      .months button[aria-pressed="true"] {
+        background-color: var(--surface);
+        color: var(--text);
+        font-weight: 600;
+        box-shadow: 0 1px 2px color-mix(in oklab, var(--text) 12%, transparent);
+      }
+      .total {
+        font-size: 40px;
+        font-weight: 800;
+        letter-spacing: -0.035em;
+        line-height: 1;
+        margin: 4px 0 24px;
+      }
+      .total small {
+        font-size: 14px;
+        font-weight: 500;
+        color: var(--muted);
+        letter-spacing: 0;
+        margin-left: 8px;
+      }
+      .cats {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .cats li {
+        display: grid;
+        grid-template-columns: 110px 1fr 64px;
+        align-items: center;
+        gap: 14px;
+        font-size: 14px;
+      }
+      .cats .bar {
+        height: 10px;
+        border-radius: 5px;
+        background-color: var(--hover);
+        overflow: hidden;
+      }
+      .cats .bar i {
+        display: block;
+        height: 100%;
+        border-radius: 5px;
+        background-color: var(--accent);
+        transition: width 360ms cubic-bezier(0.2, 0.8, 0.2, 1);
+      }
+      .cats .amt {
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+        font-weight: 600;
+      }
+
+      /* After the demo */
+      .caption {
+        display: grid;
+        grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+        gap: 32px;
+        margin-top: 40px;
+        align-items: baseline;
+      }
+      .caption h2,
+      .row h2 {
+        margin: 0;
+        font-size: clamp(26px, 3vw, 34px);
+        line-height: 1.1;
+        font-weight: 700;
+        letter-spacing: -0.03em;
+      }
+      .caption p,
+      .row p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 18px;
+        max-width: 34em;
+      }
+
+      .rows {
+        margin-top: 112px;
+      }
+      .row {
+        display: grid;
+        grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+        gap: 32px;
+        align-items: center;
+        padding: 48px 0;
+        border-top-width: 1px;
+        border-top-style: solid;
+        border-top-color: var(--border);
+      }
+      .row-text p {
+        margin-top: 14px;
+      }
+      .frag {
+        justify-self: end;
+        width: 100%;
+        max-width: 500px;
+        background-color: var(--surface);
+        border-width: 1px;
+        border-style: solid;
+        border-color: var(--border);
+        border-radius: 14px;
+        font-size: 14px;
+        line-height: 1.4;
+      }
+      .frag-head {
+        padding: 12px 16px;
+        font-weight: 600;
+        color: var(--muted);
+        border-bottom-width: 1px;
+        border-bottom-style: solid;
+        border-bottom-color: var(--border);
+      }
+      .frag-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 11px 16px;
+      }
+      .frag-row + .frag-row {
+        border-top-width: 1px;
+        border-top-style: solid;
+        border-top-color: color-mix(in oklab, var(--border) 60%, transparent);
+      }
+      .frag-row .t {
+        flex: 1;
+        min-width: 0;
+      }
+      .frag-row .t b {
+        display: block;
+        font-weight: 600;
+      }
+      .frag-row .t span {
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .switch {
+        flex: none;
+        width: 34px;
+        height: 20px;
+        border-radius: 999px;
+        padding: 2px;
+        cursor: pointer;
+        border-width: 0;
+        background-color: color-mix(in oklab, var(--text) 18%, var(--surface));
+        transition: background-color 160ms ease;
+      }
+      .switch::after {
+        content: "";
+        display: block;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background-color: var(--surface);
+        transition: transform 160ms ease;
+        box-shadow: 0 1px 2px color-mix(in oklab, var(--text) 25%, transparent);
+      }
+      .switch[aria-checked="true"] {
+        background-color: var(--accent);
+      }
+      .switch[aria-checked="true"]::after {
+        transform: translateX(14px);
+      }
+      .signed {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--success);
+        font-size: 13px;
+        font-weight: 600;
+      }
+      .signed::before {
+        content: "";
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background-color: currentColor;
+      }
+      .ask {
+        padding: 16px;
+      }
+      .ask p {
+        margin: 0 0 12px;
+        color: var(--text);
+        font-size: 14px;
+      }
+      .ask p span {
+        color: var(--muted);
+      }
+      .ask div {
+        display: flex;
+        gap: 8px;
+      }
+      .mini {
+        height: 32px;
+        padding: 0 12px;
+        border-radius: 8px;
+        font-size: 13px;
+        font-weight: 600;
+        background-color: var(--surface);
+        border-width: 1px;
+        border-style: solid;
+        border-color: var(--border);
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .mini.primary {
+        background-color: var(--accent);
+        color: var(--accent-text);
+        border-color: var(--accent);
+      }
+      .diff {
+        font-size: 13px;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+      }
+      .diff .plus {
+        color: var(--success);
+      }
+      .diff .minus {
+        color: var(--danger);
+      }
+
+      /* Download */
+      .download {
+        margin-top: 64px;
+        background-color: var(--dark-bg);
+        color: var(--dark-text);
+      }
+      .download .wrap {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        gap: 32px;
+        align-items: center;
+        padding-top: 72px;
+        padding-bottom: 72px;
+      }
+      .download svg {
+        width: 72px;
+        height: 72px;
+        display: block;
+      }
+      .download h2 {
+        margin: 0;
+        font-size: clamp(30px, 4vw, 46px);
+        line-height: 1.05;
+        letter-spacing: -0.035em;
+        font-weight: 800;
+      }
+      .download p {
+        margin: 10px 0 0;
+        color: var(--dark-muted);
+        max-width: 36em;
+      }
+      .download .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+      .download .btn-primary {
+        background-color: var(--dark-accent);
+        color: var(--dark-accent-text);
+      }
+      .download .btn-primary:hover {
+        background-color: color-mix(in oklab, var(--dark-accent) 85%, white);
+      }
+      .download .btn-quiet {
+        background-color: transparent;
+        color: var(--dark-text);
+        border-color: color-mix(in oklab, var(--dark-surface) 80%, var(--dark-text));
+      }
+      .download .btn-quiet:hover {
+        background-color: var(--dark-surface);
+      }
+      .download :focus-visible {
+        outline-color: var(--dark-accent);
+      }
+      footer {
+        background-color: var(--dark-bg);
+        color: var(--dark-muted);
+        font-size: 15px;
+      }
+      footer .wrap {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px 28px;
+        padding-top: 24px;
+        padding-bottom: 32px;
+        border-top-width: 1px;
+        border-top-style: solid;
+        border-top-color: var(--dark-surface);
+      }
+      footer a {
+        text-decoration: none;
+      }
+      footer a:hover {
+        color: var(--dark-text);
+      }
+      footer .wrap > span {
+        margin-right: auto;
+      }
+
+      /* Responsive */
+      @media (max-width: 1040px) {
+        .window {
+          grid-template-columns: 190px minmax(0, 1fr) 280px;
+        }
+        .appview {
+          padding: 28px;
+        }
+      }
+      @media (max-width: 860px) {
+        .window {
+          grid-template-columns: minmax(0, 1fr);
+          grid-template-rows: 420px auto;
+          height: auto;
+        }
+        .side {
+          display: none;
+        }
+        .page {
+          margin: 8px;
+        }
+        .agent-log {
+          max-height: 260px;
+        }
+        .agent-compose {
+          display: none;
+        }
+        .caption,
+        .row {
+          grid-template-columns: minmax(0, 1fr);
+          gap: 20px;
+        }
+        .frag {
+          justify-self: start;
+        }
+        .download .wrap {
+          grid-template-columns: minmax(0, 1fr);
+          gap: 24px;
+        }
+      }
+      @media (max-width: 560px) {
+        :root {
+          --gutter: 16px;
+        }
+        .nav-links a:not(.btn) {
+          display: none;
+        }
+        .hero {
+          padding-top: 28px;
+        }
+        .hero-lede {
+          font-size: 18px;
+        }
+        .demo {
+          margin-top: 48px;
+        }
+        .composer {
+          flex-direction: column;
+          align-items: stretch;
+          padding: 18px;
+          gap: 14px;
+          min-height: 0;
+        }
+        .composer-text {
+          min-height: 2.6em;
+        }
+        .send {
+          height: 46px;
+        }
+        .window {
+          grid-template-rows: 404px auto;
+        }
+        .hero h1 span {
+          display: inline;
+        }
+        .appview {
+          padding: 22px 18px;
+        }
+        .habit-list li {
+          grid-template-columns: 1fr 36px;
+        }
+        .habit-list .week {
+          grid-column: 1;
+          grid-row: 2;
+        }
+        .habit-list .check {
+          grid-column: 2;
+          grid-row: 1 / span 2;
+        }
+        .habit-list li {
+          row-gap: 8px;
+        }
+        .cats li {
+          grid-template-columns: 84px 1fr 56px;
+          gap: 10px;
+        }
+        .rows {
+          margin-top: 72px;
+        }
+        .row {
+          padding: 36px 0;
+        }
+        .agent-head span {
+          display: none;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation-duration: 1ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 1ms !important;
+        }
+        .caret {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <defs>
+        <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#f8f5f0" />
+          <stop offset="1" stop-color="#e5ded3" />
+        </linearGradient>
+        <linearGradient id="rune" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#d9582f" />
+          <stop offset="1" stop-color="#a62f19" />
+        </linearGradient>
+        <linearGradient id="rune-dark" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#f08a5d" />
+          <stop offset="1" stop-color="#d9582f" />
+        </linearGradient>
+      </defs>
+    </svg>
+
+    <header class="wrap nav">
+      <a class="brand" href="#" aria-label="Rune Browser home">
+        <svg viewBox="0 0 1024 1024" aria-hidden="true">
+          <rect
+            x="40"
+            y="40"
+            width="944"
+            height="944"
+            rx="260"
+            fill="url(#tile)"
+            stroke="#2b211a"
+            stroke-opacity="0.1"
+            stroke-width="8"
+          />
+          <path
+            d="M384 772 V252 L664 394 L384 536 L664 772"
+            fill="none"
+            stroke="url(#rune)"
+            stroke-width="84"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+        Rune Browser
+      </a>
+      <nav class="nav-links" aria-label="Main">
+        <a href="https://github.com/nayupls1/rune-browser/blob/master/docs/concepts.md">Docs</a>
+        <a href="https://github.com/nayupls1/rune-browser">GitHub</a>
+        <a class="btn btn-primary btn-sm" href="https://github.com/nayupls1/rune-browser/releases/latest">Download</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="wrap hero" aria-labelledby="hero-title">
+        <h1 id="hero-title"><span>Describe an app.</span> <span>Use it a minute later.</span></h1>
+        <div class="hero-intro">
+          <p class="hero-lede">
+            <strong>Rune Browser</strong> is a desktop browser where your own coding agent builds small apps for you and
+            changes the websites you use.
+          </p>
+          <div class="hero-actions">
+            <a class="btn btn-primary" href="https://github.com/nayupls1/rune-browser/releases/latest">Download</a>
+            <a class="btn btn-quiet" href="https://github.com/nayupls1/rune-browser">View on GitHub</a>
+          </div>
+        </div>
+
+        <div class="demo">
+          <div class="composer" aria-hidden="true">
+            <div class="composer-text" id="composer-text">
+              <span class="placeholder">Describe the app you want…</span>
+            </div>
+            <button class="send" id="send" tabindex="-1" disabled>Send</button>
+          </div>
+          <ul class="prompts" id="prompts" aria-label="Try a prompt">
+            <li>
+              <button type="button" data-app="habits" aria-pressed="true">A habit tracker with daily check-ins</button>
+            </li>
+            <li><button type="button" data-app="grocery" aria-pressed="false">A grocery list that syncs</button></li>
+            <li>
+              <button type="button" data-app="expenses" aria-pressed="false">My monthly expenses by category</button>
+            </li>
+          </ul>
+
+          <div class="window" role="group" aria-label="Rune Browser window showing the app the agent built">
+            <aside class="side" aria-hidden="true">
+              <div class="side-top">
+                <span class="dot"></span>
+                <span class="navs">
+                  <svg
+                    width="15"
+                    height="15"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                  >
+                    <path d="M19 12H5M11 6l-6 6 6 6" />
+                  </svg>
+                  <svg
+                    width="15"
+                    height="15"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                  >
+                    <path d="M5 12h14M13 6l6 6-6 6" />
+                  </svg>
+                </span>
+              </div>
+              <div class="address">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="11" cy="11" r="7" />
+                  <path d="m20 20-3.5-3.5" stroke-linecap="round" />
+                </svg>
+                <span id="address">Search or enter an address</span>
+              </div>
+              <div class="tab">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="9" />
+                  <path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18" />
+                </svg>
+                Recipes
+              </div>
+              <div class="tab">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="9" />
+                  <path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18" />
+                </svg>
+                Team docs
+              </div>
+              <div id="tab-slot"></div>
+              <div class="tab new">
+                <svg
+                  width="15"
+                  height="15"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                >
+                  <path d="M12 5v14M5 12h14" />
+                </svg>
+                New tab
+              </div>
+              <div class="side-bottom">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="3" y="4" width="18" height="16" rx="2" />
+                  <path d="M9 4v16" />
+                </svg>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="3" />
+                  <path
+                    d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"
+                    stroke-linecap="round"
+                  />
+                </svg>
+              </div>
+            </aside>
+
+            <div class="page">
+              <div class="empty" id="empty">The app shows up here while the agent builds it.</div>
+              <div class="building" id="building" hidden aria-hidden="true">
+                <div class="sk h"></div>
+                <div class="sk" style="width: 70%"></div>
+                <div class="sk" style="width: 85%"></div>
+                <div class="sk" style="width: 60%"></div>
+              </div>
+              <div class="appview" id="appview" hidden></div>
+            </div>
+
+            <div class="agent">
+              <div class="agent-head">
+                <span id="agent-title" style="color: var(--text)">New app</span
+                ><span aria-hidden="true">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="9" />
+                    <path d="M12 7v5l3 2" stroke-linecap="round" />
+                  </svg>
+                </span>
+              </div>
+              <div class="agent-log" id="agent-log"></div>
+              <div class="agent-compose" aria-hidden="true">
+                <p>Ask for a change…</p>
+                <div><span>Default model</span><b>Send</b></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="caption">
+          <h2>A real app, not a prototype</h2>
+          <p>
+            The agent writes a real project with its own server and SQLite database, runs it in a sandbox and shows it
+            next to the chat. Keep changing it by talking, or close the chat and just use it.
+          </p>
+        </div>
+      </section>
+
+      <section class="wrap rows" aria-label="More of what it does">
+        <div class="row">
+          <div class="row-text">
+            <h2>Change the websites you use</h2>
+            <p>
+              Ask about a page or point at something on it. The agent hides, restyles or adds things, on that page or
+              the whole site, and each change gets its own switch. Bundle them into a mod to share.
+            </p>
+          </div>
+          <div class="frag">
+            <div class="frag-head">Changes on this page</div>
+            <div class="frag-row">
+              <div class="t"><b>Hide the cookie banner</b><span>All of this site</span></div>
+              <button class="switch" role="switch" aria-checked="true" aria-label="Hide the cookie banner"></button>
+            </div>
+            <div class="frag-row">
+              <div class="t"><b>Bigger text on articles</b><span>All of this site</span></div>
+              <button class="switch" role="switch" aria-checked="true" aria-label="Bigger text on articles"></button>
+            </div>
+            <div class="frag-row">
+              <div class="t"><b>Jump to the recipe</b><span>This page</span></div>
+              <button class="switch" role="switch" aria-checked="false" aria-label="Jump to the recipe"></button>
+            </div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-text">
+            <h2>Your own agents and logins</h2>
+            <p>
+              Claude Code, Codex and OpenCode, the command-line agents you already use, signed in with your own
+              subscription. No API keys, and no account here.
+            </p>
+          </div>
+          <div class="frag">
+            <div class="frag-head">Providers</div>
+            <div class="frag-row">
+              <div class="t"><b>Claude Code</b><span>Claude Pro</span></div>
+              <span class="signed">Signed in</span>
+            </div>
+            <div class="frag-row">
+              <div class="t"><b>Codex</b><span>ChatGPT Plus</span></div>
+              <span class="signed">Signed in</span>
+            </div>
+            <div class="frag-row">
+              <div class="t"><b>OpenCode</b><span>Found on your PATH</span></div>
+              <span class="signed">Ready</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-text">
+            <h2>Safe, and nothing is lost</h2>
+            <p>
+              Apps run in a sandbox and ask before reaching anything beyond it, and your secrets never reach the agent.
+              Every change is a snapshot you can undo, the app's data included.
+            </p>
+          </div>
+          <div class="frag">
+            <div class="ask">
+              <p><b>Habits</b> wants to send you notifications. <span>It can't until you allow it.</span></p>
+              <div><span class="mini">Don't allow</span><span class="mini primary">Allow</span></div>
+            </div>
+            <div class="frag-row" style="border-top: 1px solid var(--border)">
+              <div class="t"><b>Added a streak count</b><span>Agent, 2 minutes ago</span></div>
+              <span class="diff"><span class="plus">+42</span> <span class="minus">−3</span></span>
+              <span class="mini">
+                <svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M9 14 4 9l5-5" />
+                  <path d="M4 9h10a6 6 0 0 1 0 12h-3" />
+                </svg>
+                Undo
+              </span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="download" aria-labelledby="dl-title">
+        <div class="wrap">
+          <svg viewBox="0 0 1024 1024" aria-hidden="true">
+            <path
+              d="M384 772 V252 L664 394 L384 536 L664 772"
+              fill="none"
+              stroke="url(#rune-dark)"
+              stroke-width="84"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+          <div>
+            <h2 id="dl-title">Get Rune Browser</h2>
+            <p>
+              Free and open source. For Linux, Windows, and macOS on Apple Silicon. Then sign in to Claude Code, Codex
+              or OpenCode.
+            </p>
+          </div>
+          <div class="actions">
+            <a class="btn btn-primary" href="https://github.com/nayupls1/rune-browser/releases/latest">Download</a>
+            <a class="btn btn-quiet" href="https://github.com/nayupls1/rune-browser">View on GitHub</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <div class="wrap">
+        <span>MIT licensed</span>
+        <a href="https://github.com/nayupls1/rune-browser/blob/master/docs/concepts.md">Docs</a>
+        <a href="https://github.com/nayupls1/rune-browser">GitHub</a>
+        <a href="https://github.com/nayupls1/rune-browser/issues">Issues</a>
+      </div>
+    </footer>
+
+    <script>
+      (() => {
+        const check =
+          '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"/></svg>';
+        const appIcon =
+          '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 9h18"/></svg>';
+
+        const apps = {
+          habits: {
+            prompt: "A habit tracker with daily check-ins and a streak count",
+            title: "Habits",
+            steps: [
+              "Wrote the server and a React front end",
+              "Added a habits table to SQLite",
+              "Started it in its sandbox",
+              "Saw the week row overflow in the preview and fixed it",
+            ],
+            render: renderHabits,
+          },
+          grocery: {
+            prompt: "A shared grocery list that updates live on every device",
+            title: "Groceries",
+            steps: [
+              "Wrote the server with live updates",
+              "Added an items table to SQLite",
+              "Started it in its sandbox",
+              "Opened a second window to check that items sync",
+            ],
+            render: renderGrocery,
+          },
+          expenses: {
+            prompt: "Track my monthly expenses by category, with a total",
+            title: "Expenses",
+            steps: [
+              "Wrote the server and a chart view",
+              "Added expenses and categories tables",
+              "Started it in its sandbox",
+              "Fixed totals that were rounding wrong",
+            ],
+            render: renderExpenses,
+          },
+        };
+
+        const $ = (id) => document.getElementById(id);
+        const text = $("composer-text"),
+          send = $("send"),
+          log = $("agent-log");
+        const empty = $("empty"),
+          building = $("building"),
+          view = $("appview");
+        const tabSlot = $("tab-slot"),
+          address = $("address"),
+          title = $("agent-title");
+        const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+        let run = 0;
+
+        const wait = (ms, id) =>
+          new Promise((res, rej) => setTimeout(() => (id === run ? res() : rej("cancelled")), reduce ? 0 : ms));
+        const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+        function setTab(app, state, animate) {
+          tabSlot.innerHTML = `<div class="tab app active${animate ? " tab-enter" : ""}">${appIcon}<span>${app ? app.title : "New app"}</span><i class="status" data-state="${state}"></i></div>`;
+        }
+
+        async function play(key, fast) {
+          const id = ++run;
+          const app = apps[key];
+          document
+            .querySelectorAll("#prompts button")
+            .forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.app === key)));
+          try {
+            log.innerHTML = "";
+            title.textContent = "New app";
+            view.hidden = true;
+            building.hidden = true;
+            empty.hidden = false;
+            address.textContent = "Search or enter an address";
+            setTab(null, "starting", !fast);
+            text.innerHTML = '<span class="caret"></span>';
+            await wait(fast ? 150 : 700, id);
+            // Type the prompt
+            const per = fast ? 14 : 38;
+            if (reduce) text.textContent = app.prompt;
+            else
+              for (let i = 1; i <= app.prompt.length; i++) {
+                await wait(per + (app.prompt[i - 1] === " " ? per * 0.6 : 0), id);
+                text.innerHTML = esc(app.prompt.slice(0, i)) + '<span class="caret"></span>';
+              }
+            await wait(fast ? 200 : 450, id);
+            send.dataset.pressed = "true";
+            await wait(140, id);
+            send.dataset.pressed = "false";
+            text.innerHTML = '<span class="placeholder">Describe the app you want…</span>';
+            log.insertAdjacentHTML(
+              "beforeend",
+              `<div class="bubble">${esc(app.prompt)}</div><ul class="steps" id="steps"></ul>`,
+            );
+            const steps = $("steps");
+            empty.hidden = true;
+            building.hidden = false;
+            for (const s of app.steps) {
+              steps.insertAdjacentHTML(
+                "beforeend",
+                `<li data-state="work"><span class="ico"><span class="spin"></span></span><span>${s}</span></li>`,
+              );
+              await wait(fast ? 380 : 820, id);
+              const li = steps.lastElementChild;
+              li.dataset.state = "done";
+              li.querySelector(".ico").innerHTML = check;
+              if (s.startsWith("Started")) {
+                building.hidden = true;
+                view.innerHTML = app.render();
+                view.hidden = false;
+                title.textContent = app.title;
+                address.textContent = "http://127.0.0.1:44431/";
+                setTab(app, "running", false);
+              }
+            }
+            steps.insertAdjacentHTML(
+              "beforeend",
+              `<li class="final" data-state="done"><span class="ico">${check}</span><span>Running. Try it.</span></li>`,
+            );
+          } catch (e) {
+            if (e !== "cancelled") throw e;
+          }
+        }
+
+        function renderHabits() {
+          const habits = [
+            ["Read 20 pages", [1, 1, 0, 1, 1, 1], true],
+            ["Walk 30 minutes", [1, 1, 1, 1, 0, 1], false],
+            ["No phone after 10", [0, 1, 1, 1, 1, 1], true],
+            ["Practice guitar", [1, 0, 1, 0, 1, 1], false],
+          ];
+          const rows = habits
+            .map(
+              ([n, w, t], i) =>
+                `<li><span class="name">${n}</span><span class="week" aria-hidden="true">${w.map((d) => `<i class="${d ? "on" : ""}"></i>`).join("")}<i class="today${t ? " on" : ""}"></i></span><button type="button" class="check" aria-pressed="${t}" aria-label="Done today: ${n}" data-i="${i}">${check}</button></li>`,
+            )
+            .join("");
+          return `<div class="app"><div class="app-head"><div><h3>Habits</h3><div class="app-sub">Check in once a day</div></div><span class="streak"><b id="streak">12</b>day streak</span></div><ul class="habit-list">${rows}</ul></div>`;
+        }
+        function renderGrocery() {
+          const items = [
+            ["Oat milk", "Sam", false],
+            ["Lemons", "You", true],
+            ["Sourdough", "Alex", false],
+            ["Coffee beans", "You", false],
+            ["Spinach", "Sam", true],
+          ];
+          const rows = items.map(([n, w, c]) => groceryRow(n, w, c)).join("");
+          return `<div class="app"><div class="app-head"><div><h3>Groceries</h3></div><span class="live">Live on 3 devices</span></div><ul class="grocery" id="grocery">${rows}</ul><form class="add-row" id="add-row"><input aria-label="Add an item" placeholder="Add an item" autocomplete="off"><button type="submit">Add</button></form></div>`;
+        }
+        function groceryRow(n, w, c) {
+          return `<li><label><input type="checkbox"${c ? " checked" : ""}><span>${esc(n)}</span><span class="who">${w}</span></label></li>`;
+        }
+        const months = {
+          Sep: [
+            ["Rent", 950],
+            ["Groceries", 312],
+            ["Transport", 88],
+            ["Eating out", 146],
+            ["Other", 61],
+          ],
+          Oct: [
+            ["Rent", 950],
+            ["Groceries", 284],
+            ["Transport", 104],
+            ["Eating out", 212],
+            ["Other", 39],
+          ],
+        };
+        function renderExpenses() {
+          return `<div class="app"><div class="app-head"><div><h3>Expenses</h3></div><div class="months" role="group" aria-label="Month"><button type="button" data-m="Sep" aria-pressed="false">Sep</button><button type="button" data-m="Oct" aria-pressed="true">Oct</button></div></div><div id="exp">${expenseBody("Oct")}</div></div>`;
+        }
+        function expenseBody(m) {
+          const rows = months[m];
+          const total = rows.reduce((a, [, v]) => a + v, 0);
+          const max = Math.max(...rows.map(([, v]) => v));
+          return `<div class="total">$${total.toLocaleString("en-US")}<small>spent in ${m === "Sep" ? "September" : "October"}</small></div><ul class="cats">${rows.map(([n, v]) => `<li><span>${n}</span><span class="bar"><i style="width:${(v / max) * 100}%"></i></span><span class="amt">$${v}</span></li>`).join("")}</ul>`;
+        }
+
+        // The generated apps work
+        view.addEventListener("click", (e) => {
+          const c = e.target.closest(".check");
+          if (c) {
+            const on = c.getAttribute("aria-pressed") !== "true";
+            c.setAttribute("aria-pressed", String(on));
+            c.closest("li").querySelector(".today").classList.toggle("on", on);
+            const any = view.querySelector('.check[aria-pressed="true"]');
+            $("streak").textContent = any ? "12" : "11";
+          }
+          const m = e.target.closest(".months button");
+          if (m) {
+            view.querySelectorAll(".months button").forEach((b) => b.setAttribute("aria-pressed", String(b === m)));
+            $("exp").innerHTML = expenseBody(m.dataset.m);
+          }
+        });
+        view.addEventListener("submit", (e) => {
+          if (e.target.id !== "add-row") return;
+          e.preventDefault();
+          const input = e.target.querySelector("input");
+          const v = input.value.trim();
+          if (!v) return;
+          $("grocery").insertAdjacentHTML("beforeend", groceryRow(v.slice(0, 40), "You", false));
+          input.value = "";
+        });
+
+        document.getElementById("prompts").addEventListener("click", (e) => {
+          const b = e.target.closest("button");
+          if (b) play(b.dataset.app, true);
+        });
+
+        document
+          .querySelectorAll(".switch")
+          .forEach((s) =>
+            s.addEventListener("click", () =>
+              s.setAttribute("aria-checked", String(s.getAttribute("aria-checked") !== "true")),
+            ),
+          );
+
+        play("habits", false);
+      })();
+    </script>
+  </body>
+</html>
