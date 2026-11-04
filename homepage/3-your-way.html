@@ -1,0 +1,1745 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Rune Browser</title>
+    <meta
+      name="description"
+      content="A desktop browser with a coding agent built in. Point at anything on a page and say what should change. Hide it, restyle it, add to it. It also builds whole apps, on your own Claude Code, Codex or OpenCode login."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,400&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg: #f8f5f0;
+        --surface: #fffdfa;
+        --text: #2b211a;
+        --muted: color-mix(in oklab, var(--text) 64%, var(--bg));
+        --border: color-mix(in oklab, var(--surface) 88%, var(--text));
+        --sidebar: color-mix(in oklab, var(--bg) 96%, var(--text));
+        --surface-hover: color-mix(in oklab, var(--surface) 95%, var(--text));
+        --accent: #c2461f;
+        --accent-text: #ffffff;
+        --accent-soft: color-mix(in oklab, var(--surface) 88%, var(--accent));
+        --rune-top: #d9582f;
+        --rune-bottom: #a62f19;
+        --cream-bottom: #e5ded3;
+        --success: #2e7d3a;
+
+        --dark-bg: #171411;
+        --dark-surface: #211d19;
+        --dark-text: #f2ece3;
+        --dark-muted: color-mix(in oklab, var(--dark-text) 64%, var(--dark-bg));
+        --dark-border: color-mix(in oklab, var(--dark-surface) 86%, var(--dark-text));
+        --dark-accent: #ec7748;
+        --dark-accent-text: #000000;
+
+        /* The mock third-party website has its own look, on purpose not Rune's. */
+        --site-bg: #ffffff;
+        --site-text: #8a8a8a;
+        --site-text-strong: #222222;
+        --site-line: #e8e8e8;
+        --site-brand: #2f6f5e;
+        --site-ad: #fff3b0;
+        --site-ad-ink: #6b5a00;
+        --site-cookie: #1f2a44;
+        --site-cookie-ink: #e9edf7;
+        --site-cookie-btn: #3b82f6;
+        --site-thumb-a: #f2c6a0;
+        --site-thumb-b: #c9dcc3;
+        --site-thumb-c: #d8cbe6;
+        --site-thumb-d: #f3d9d0;
+
+        --font: "Schibsted Grotesk", system-ui, sans-serif;
+        --gutter: 32px;
+        --max: 1200px;
+      }
+
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+      html {
+        -webkit-text-size-adjust: 100%;
+      }
+      body {
+        margin: 0;
+        background-color: var(--bg);
+        color: var(--text);
+        font-family: var(--font);
+        font-size: 17px;
+        line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+      }
+      a {
+        color: inherit;
+      }
+      :focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 3px;
+        border-radius: 4px;
+      }
+      .wrap {
+        max-width: var(--max);
+        margin: 0 auto;
+        padding: 0 var(--gutter);
+      }
+
+      /* Buttons */
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        height: 46px;
+        padding: 0 20px;
+        border-radius: 10px;
+        font: 600 16px/1 var(--font);
+        text-decoration: none;
+        border-width: 1px;
+        border-style: solid;
+        border-color: transparent;
+        cursor: pointer;
+      }
+      .btn-primary {
+        background-color: var(--accent);
+        color: var(--accent-text);
+      }
+      .btn-primary:hover {
+        background-color: color-mix(in oklab, var(--accent) 88%, black);
+      }
+      .btn-ghost {
+        background-color: transparent;
+        color: var(--text);
+        border-color: var(--border);
+      }
+      .btn-ghost:hover {
+        background-color: var(--surface-hover);
+      }
+      .btn svg {
+        width: 18px;
+        height: 18px;
+      }
+
+      /* Nav */
+      .nav {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        height: 76px;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-weight: 700;
+        font-size: 18px;
+        text-decoration: none;
+        letter-spacing: -0.01em;
+      }
+      .brand svg {
+        width: 34px;
+        height: 34px;
+      }
+      .nav-links {
+        display: flex;
+        align-items: center;
+        gap: 26px;
+        font-size: 15px;
+        font-weight: 500;
+      }
+      .nav-links a:not(.btn) {
+        text-decoration: none;
+        color: var(--muted);
+      }
+      .nav-links a:not(.btn):hover {
+        color: var(--text);
+      }
+      .nav-links .btn {
+        height: 38px;
+        padding: 0 16px;
+        font-size: 15px;
+      }
+
+      /* Hero */
+      .hero {
+        padding-top: 56px;
+      }
+      .hero h1 {
+        margin: 0;
+        font-weight: 900;
+        font-size: clamp(44px, 7.6vw, 104px);
+        line-height: 0.94;
+        letter-spacing: -0.045em;
+        max-width: 11.5ch;
+      }
+      .hero-row {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 28px;
+        margin-top: 32px;
+      }
+      .hero-lede {
+        margin: 0;
+        font-size: 20px;
+        line-height: 1.5;
+        max-width: 34em;
+        color: var(--text);
+      }
+      .hero-lede span {
+        color: var(--muted);
+      }
+      .hero-ctas {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+
+      /* Demo */
+      .demo {
+        position: relative;
+        margin-top: 64px;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 340px;
+        gap: 28px;
+        align-items: start;
+      }
+
+      .window {
+        display: grid;
+        grid-template-columns: 196px minmax(0, 1fr);
+        background-color: var(--sidebar);
+        border-width: 1px;
+        border-style: solid;
+        border-color: var(--border);
+        border-radius: 16px;
+        padding: 8px 8px 8px 0;
+        box-shadow:
+          0 1px 0 color-mix(in oklab, var(--text) 4%, transparent),
+          0 30px 60px -30px color-mix(in oklab, var(--rune-bottom) 30%, transparent);
+        font-size: 13px;
+        min-width: 0;
+      }
+      .chrome {
+        padding: 4px 10px 10px 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        min-width: 0;
+      }
+      .chrome-top {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        height: 26px;
+        padding-left: 4px;
+      }
+      .dot {
+        width: 11px;
+        height: 11px;
+        border-radius: 50%;
+        background-color: var(--border);
+      }
+      .address {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        height: 34px;
+        padding: 0 4px 0 10px;
+        background-color: var(--surface);
+        border-width: 1px;
+        border-style: solid;
+        border-color: var(--border);
+        border-radius: 9px;
+        color: var(--text);
+        white-space: nowrap;
+        overflow: hidden;
+      }
+      .address .url {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        flex: 1;
+        min-width: 0;
+      }
+      .address svg {
+        width: 13px;
+        height: 13px;
+        flex: none;
+        color: var(--muted);
+      }
+      .wand {
+        flex: none;
+        width: 26px;
+        height: 26px;
+        border-radius: 7px;
+        display: grid;
+        place-items: center;
+        background-color: var(--accent-soft);
+        color: var(--accent);
+      }
+      .wand svg {
+        color: var(--accent);
+        width: 14px;
+        height: 14px;
+      }
+      .tab {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 34px;
+        padding: 0 10px;
+        border-radius: 9px;
+        color: var(--text);
+        white-space: nowrap;
+        overflow: hidden;
+      }
+      .tab span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .tab svg {
+        width: 14px;
+        height: 14px;
+        flex: none;
+        color: var(--muted);
+      }
+      .tab.active {
+        background-color: var(--surface);
+        border-width: 1px;
+        border-style: solid;
+        border-color: var(--border);
+      }
+
+      .page {
+        position: relative;
+        background-color: var(--site-bg);
+        border-width: 1px;
+        border-style: solid;
+        border-color: var(--border);
+        border-radius: 11px;
+        overflow: hidden;
+        height: 560px;
+      }
+      .page-scroll {
+        height: 100%;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        scrollbar-width: thin;
+      }
+
+      /* Mock website */
+      .site {
+        color: var(--site-text);
+        font-size: 11.5px;
+        line-height: 1.6;
+        transition:
+          font-size 0.25s ease,
+          color 0.25s ease;
+      }
+      .site-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 14px 22px;
+        border-bottom: 1px solid var(--site-line);
+      }
+      .site-logo {
+        font-style: italic;
+        font-weight: 800;
+        color: var(--site-brand);
+        font-size: 17px;
+        letter-spacing: -0.02em;
+      }
+      .site-nav {
+        display: flex;
+        gap: 14px;
+        font-size: 11px;
+        color: var(--site-text);
+      }
+      .site-body {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 168px;
+        column-gap: 22px;
+        padding: 18px 22px 120px;
+        transition:
+          grid-template-columns 0.35s ease,
+          column-gap 0.35s ease;
+      }
+      .site h2 {
+        margin: 0 0 4px;
+        color: var(--site-text-strong);
+        font-size: 23px;
+        line-height: 1.15;
+        letter-spacing: -0.02em;
+        font-weight: 800;
+        transition: font-size 0.25s ease;
+      }
+      .byline {
+        font-size: 0.9em;
+        margin: 0 0 12px;
+      }
+      .site p {
+        margin: 0 0 10px;
+      }
+
+      .collapse {
+        display: grid;
+        grid-template-rows: 1fr;
+        opacity: 1;
+        transition:
+          grid-template-rows 0.35s ease,
+          opacity 0.25s ease;
+      }
+      .collapse > div {
+        overflow: hidden;
+        min-height: 0;
+      }
+      .collapse.is-off {
+        grid-template-rows: 0fr;
+        opacity: 0;
+      }
+
+      .ad {
+        margin: 0 0 14px;
+        padding: 10px;
+        border-radius: 4px;
+        background-color: var(--site-ad);
+        color: var(--site-ad-ink);
+        display: grid;
+        grid-template-columns: 120px minmax(0, 1fr);
+        gap: 12px;
+        align-items: center;
+      }
+      .ad-video {
+        position: relative;
+        aspect-ratio: 16 / 9;
+        border-radius: 3px;
+        background-color: var(--site-text-strong);
+        display: grid;
+        place-items: center;
+        overflow: hidden;
+      }
+      .ad-video::after {
+        content: "";
+        position: absolute;
+        left: 0;
+        bottom: 0;
+        height: 3px;
+        width: 38%;
+        background-color: var(--site-cookie-btn);
+      }
+      .ad-video svg {
+        width: 22px;
+        height: 22px;
+        color: var(--site-bg);
+      }
+      .ad small {
+        display: block;
+        font-size: 9px;
+        opacity: 0.8;
+      }
+      .ad strong {
+        display: block;
+        font-size: 13px;
+        line-height: 1.25;
+      }
+
+      .story-skipped {
+        font-size: 0.95em;
+        color: var(--site-brand);
+        margin: 0 0 10px;
+      }
+      .recipe {
+        border: 1px solid var(--site-line);
+        border-radius: 6px;
+        padding: 14px 16px;
+        margin-top: 4px;
+      }
+      .recipe h3 {
+        margin: 0 0 6px;
+        color: var(--site-text-strong);
+        font-size: 1.25em;
+      }
+      .recipe ul {
+        margin: 0;
+        padding-left: 18px;
+      }
+      .recipe li {
+        margin: 2px 0;
+      }
+      .qty {
+        color: var(--site-text-strong);
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+      }
+      .scaler-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 2px 0 10px;
+        color: var(--site-text-strong);
+      }
+      .scaler {
+        display: inline-flex;
+        align-items: center;
+        border: 1px solid var(--site-line);
+        border-radius: 999px;
+        overflow: hidden;
+      }
+      .scaler button {
+        width: 28px;
+        height: 26px;
+        border: 0;
+        background-color: transparent;
+        color: var(--site-brand);
+        font: 700 15px/1 var(--font);
+        cursor: pointer;
+      }
+      .scaler button:hover {
+        background-color: var(--site-line);
+      }
+      .scaler output {
+        min-width: 22px;
+        text-align: center;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .recs {
+        overflow: hidden;
+        min-width: 0;
+        transition: opacity 0.25s ease;
+      }
+      .recs h4 {
+        margin: 0 0 8px;
+        font-size: 10.5px;
+        color: var(--site-text-strong);
+      }
+      .rec {
+        display: grid;
+        grid-template-columns: 44px minmax(0, 1fr);
+        gap: 8px;
+        margin-bottom: 10px;
+        font-size: 10.5px;
+        line-height: 1.35;
+        width: 168px;
+      }
+      .rec i {
+        display: block;
+        height: 34px;
+        border-radius: 3px;
+      }
+      .rec:nth-child(2) i {
+        background-color: var(--site-thumb-a);
+      }
+      .rec:nth-child(3) i {
+        background-color: var(--site-thumb-b);
+      }
+      .rec:nth-child(4) i {
+        background-color: var(--site-thumb-c);
+      }
+      .rec:nth-child(5) i {
+        background-color: var(--site-thumb-d);
+      }
+      .recs .ad-tall {
+        width: 168px;
+        height: 150px;
+        border-radius: 4px;
+        background-color: var(--site-ad);
+        color: var(--site-ad-ink);
+        display: grid;
+        place-items: center;
+        text-align: center;
+        font-weight: 800;
+        font-size: 14px;
+        padding: 12px;
+        line-height: 1.2;
+        margin-top: 6px;
+      }
+
+      .cookie {
+        position: absolute;
+        left: 10px;
+        right: 10px;
+        bottom: 10px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+        padding: 12px 14px;
+        border-radius: 8px;
+        background-color: var(--site-cookie);
+        color: var(--site-cookie-ink);
+        font-size: 11px;
+        line-height: 1.4;
+        transition:
+          transform 0.35s ease,
+          opacity 0.25s ease;
+      }
+      .cookie p {
+        margin: 0;
+        flex: 1 1 220px;
+      }
+      .cookie b {
+        display: block;
+        font-size: 12px;
+      }
+      .cookie .c-btns {
+        display: flex;
+        gap: 6px;
+      }
+      .cookie span {
+        padding: 6px 10px;
+        border-radius: 5px;
+        background-color: var(--site-cookie-btn);
+        color: var(--site-bg);
+        font-weight: 700;
+        white-space: nowrap;
+      }
+      .cookie span + span {
+        background-color: transparent;
+        border: 1px solid currentColor;
+        color: var(--site-cookie-ink);
+        font-weight: 500;
+      }
+
+      /* Page states, driven by the switches */
+      .site.no-ads .site-body {
+        grid-template-columns: minmax(0, 1fr) 0px;
+        column-gap: 0px;
+      }
+      .site.no-ads .recs {
+        opacity: 0;
+      }
+      .site.big {
+        font-size: 14px;
+        color: var(--site-text-strong);
+      }
+      .site.big h2 {
+        font-size: 28px;
+      }
+      .page.no-cookie .cookie {
+        transform: translateY(140%);
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      /* Changes popover */
+      .pop {
+        margin-top: 56px;
+        background-color: var(--surface);
+        border-width: 1px;
+        border-style: solid;
+        border-color: var(--border);
+        border-radius: 14px;
+        box-shadow: 0 24px 48px -24px color-mix(in oklab, var(--text) 28%, transparent);
+        font-size: 14px;
+        position: relative;
+      }
+      .pop-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 14px 16px 10px;
+        font-weight: 600;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .pop-head svg {
+        width: 15px;
+        height: 15px;
+        color: var(--accent);
+      }
+      .changes {
+        list-style: none;
+        margin: 0;
+        padding: 0 6px 6px;
+      }
+      .change {
+        display: grid;
+        grid-template-columns: 20px minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 10px;
+        padding: 9px 10px;
+        border-radius: 9px;
+      }
+      .change:hover {
+        background-color: var(--surface-hover);
+      }
+      .change > svg {
+        width: 17px;
+        height: 17px;
+        color: var(--muted);
+      }
+      .change-title {
+        display: block;
+        font-weight: 600;
+        color: var(--text);
+        line-height: 1.3;
+      }
+      .change-scope {
+        display: block;
+        font-size: 12.5px;
+        color: var(--muted);
+        line-height: 1.35;
+      }
+      .switch {
+        position: relative;
+        width: 38px;
+        height: 22px;
+        padding: 0;
+        border-radius: 999px;
+        border-width: 0;
+        background-color: var(--border);
+        cursor: pointer;
+        flex: none;
+        transition: background-color 0.2s ease;
+      }
+      .switch::after {
+        content: "";
+        position: absolute;
+        top: 3px;
+        left: 3px;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background-color: var(--surface);
+        box-shadow: 0 1px 2px color-mix(in oklab, var(--text) 30%, transparent);
+        transition: transform 0.2s ease;
+      }
+      .switch[aria-checked="true"] {
+        background-color: var(--accent);
+      }
+      .switch[aria-checked="true"]::after {
+        transform: translateX(16px);
+      }
+      .switch:focus-visible {
+        outline-offset: 2px;
+        border-radius: 999px;
+      }
+      .pop-foot {
+        padding: 12px 16px 14px;
+        border-top: 1px solid var(--border);
+        font-size: 13px;
+        color: var(--muted);
+        line-height: 1.45;
+      }
+      .pop-note {
+        margin: 16px 4px 0;
+        font-size: 15px;
+        color: var(--muted);
+        line-height: 1.5;
+      }
+      .pop-note strong {
+        color: var(--text);
+        font-weight: 600;
+      }
+
+      /* More */
+      .more {
+        padding-top: 136px;
+        padding-bottom: 120px;
+      }
+      .more h2 {
+        margin: 0 0 56px;
+        max-width: 19ch;
+        font-weight: 900;
+        font-size: clamp(34px, 4.6vw, 60px);
+        line-height: 1;
+        letter-spacing: -0.04em;
+      }
+      .more-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+        grid-template-rows: auto auto;
+        column-gap: 56px;
+      }
+      .feature h3 {
+        margin: 0 0 8px;
+        font-size: 22px;
+        line-height: 1.2;
+        letter-spacing: -0.015em;
+        font-weight: 800;
+      }
+      .feature p {
+        margin: 0;
+        color: var(--muted);
+        max-width: 36em;
+      }
+      .feature-apps {
+        grid-row: span 2;
+        background-color: var(--surface);
+        border-width: 1px;
+        border-style: solid;
+        border-color: var(--border);
+        border-radius: 22px;
+        padding: 36px 36px 0;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+      .feature-apps h3 {
+        font-size: 30px;
+        letter-spacing: -0.03em;
+      }
+      .feature-apps p {
+        font-size: 17px;
+      }
+      .feature-small {
+        padding: 28px 0 32px;
+        border-top: 2px solid var(--text);
+      }
+      .feature-small + .feature-small {
+        border-top-width: 1px;
+        border-top-color: var(--border);
+      }
+
+      .mini {
+        margin-top: 32px;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 0;
+        flex: 1;
+        align-items: stretch;
+      }
+      .mini-app {
+        background-color: var(--bg);
+        border-width: 1px 1px 0;
+        border-style: solid;
+        border-color: var(--border);
+        border-radius: 14px 0 0 0;
+        padding: 18px 18px 24px;
+        font-size: 14px;
+        min-height: 250px;
+      }
+      .mini-app b {
+        display: block;
+        font-size: 17px;
+        margin-bottom: 10px;
+        letter-spacing: -0.01em;
+      }
+      .mini-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 7px 0;
+        border-bottom: 1px solid var(--border);
+      }
+      .mini-item i {
+        width: 16px;
+        height: 16px;
+        border-radius: 5px;
+        border: 1.5px solid var(--muted);
+        flex: none;
+        display: grid;
+        place-items: center;
+      }
+      .mini-item.done i {
+        background-color: var(--accent);
+        border-color: var(--accent);
+      }
+      .mini-item.done i::after {
+        content: "";
+        width: 7px;
+        height: 4px;
+        border-left: 2px solid var(--accent-text);
+        border-bottom: 2px solid var(--accent-text);
+        transform: translateY(-1px) rotate(-45deg);
+      }
+      .mini-item.done span {
+        color: var(--muted);
+        text-decoration: line-through;
+      }
+      .mini-item small {
+        margin-left: auto;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .mini-agent {
+        background-color: var(--sidebar);
+        border-width: 1px 1px 0 0;
+        border-style: solid;
+        border-color: var(--border);
+        border-radius: 0 14px 0 0;
+        padding: 18px;
+        font-size: 13.5px;
+        min-height: 250px;
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-end;
+        gap: 10px;
+      }
+      .bubble {
+        align-self: flex-end;
+        background-color: var(--accent-soft);
+        color: var(--text);
+        padding: 9px 12px;
+        border-radius: 12px 12px 4px 12px;
+        max-width: 92%;
+        line-height: 1.4;
+      }
+      .step {
+        display: flex;
+        gap: 8px;
+        color: var(--muted);
+        line-height: 1.35;
+      }
+      .step::before {
+        content: "";
+        flex: none;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background-color: var(--success);
+        margin-top: 6px;
+      }
+      .composer {
+        background-color: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 10px 10px 10px 12px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--muted);
+      }
+      .composer span {
+        flex: 1;
+      }
+      .composer em {
+        font-style: normal;
+        background-color: var(--accent);
+        color: var(--accent-text);
+        padding: 5px 10px;
+        border-radius: 7px;
+        font-weight: 600;
+        font-size: 12.5px;
+      }
+
+      .agents {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 18px;
+      }
+      .agents span {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        height: 34px;
+        padding: 0 14px;
+        border-radius: 999px;
+        background-color: var(--surface);
+        border: 1px solid var(--border);
+        font-weight: 600;
+        font-size: 14.5px;
+      }
+      .agents span::before {
+        content: "";
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background-color: var(--success);
+      }
+      .snapshot {
+        margin-top: 18px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+        padding: 12px 14px;
+        background-color: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        font-size: 14px;
+      }
+      .snapshot svg {
+        width: 16px;
+        height: 16px;
+        color: var(--muted);
+        flex: none;
+      }
+      .snapshot .s-text {
+        flex: 1 1 160px;
+        line-height: 1.35;
+      }
+      .snapshot .s-text small {
+        display: block;
+        color: var(--muted);
+        font-size: 12.5px;
+      }
+      .snapshot .s-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 30px;
+        padding: 0 11px;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        font-weight: 600;
+        font-size: 13px;
+        background-color: var(--bg);
+      }
+
+      /* Download band */
+      .get {
+        background-color: var(--dark-bg);
+        color: var(--dark-text);
+      }
+      .get .wrap {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        gap: 40px;
+        align-items: center;
+        padding-top: 88px;
+        padding-bottom: 88px;
+      }
+      .get svg.tile {
+        width: 96px;
+        height: 96px;
+      }
+      .get h2 {
+        margin: 0 0 6px;
+        font-weight: 900;
+        font-size: clamp(30px, 3.6vw, 46px);
+        letter-spacing: -0.035em;
+        line-height: 1.02;
+      }
+      .get p {
+        margin: 0;
+        color: var(--dark-muted);
+        max-width: 40em;
+      }
+      .get .btn-primary {
+        background-color: var(--dark-accent);
+        color: var(--dark-accent-text);
+      }
+      .get .btn-primary:hover {
+        background-color: color-mix(in oklab, var(--dark-accent) 88%, white);
+      }
+      .get .btn-ghost {
+        color: var(--dark-text);
+        border-color: var(--dark-border);
+      }
+      .get .btn-ghost:hover {
+        background-color: var(--dark-surface);
+      }
+      .get :focus-visible {
+        outline-color: var(--dark-accent);
+      }
+      .foot {
+        background-color: var(--dark-bg);
+        color: var(--dark-muted);
+        border-top: 1px solid var(--dark-border);
+        font-size: 14px;
+      }
+      .foot .wrap {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        flex-wrap: wrap;
+        padding-top: 22px;
+        padding-bottom: 28px;
+      }
+      .foot nav {
+        display: flex;
+        gap: 20px;
+      }
+      .foot a {
+        text-decoration: none;
+      }
+      .foot a:hover {
+        color: var(--dark-text);
+      }
+      .foot :focus-visible {
+        outline-color: var(--dark-accent);
+      }
+
+      /* Responsive */
+      @media (max-width: 1080px) {
+        .demo {
+          grid-template-columns: minmax(0, 1fr);
+        }
+        .pop {
+          margin-top: 0;
+          max-width: 520px;
+        }
+      }
+      @media (max-width: 860px) {
+        .more-grid {
+          grid-template-columns: minmax(0, 1fr);
+        }
+        .feature-apps {
+          grid-row: auto;
+          margin-bottom: 40px;
+        }
+        .get .wrap {
+          grid-template-columns: minmax(0, 1fr);
+          gap: 24px;
+        }
+      }
+      @media (max-width: 720px) {
+        :root {
+          --gutter: 16px;
+        }
+        body {
+          font-size: 16px;
+        }
+        .nav {
+          height: 64px;
+        }
+        .nav-links a:not(.btn) {
+          display: none;
+        }
+        .hero {
+          padding-top: 28px;
+        }
+        .hero-lede {
+          font-size: 18px;
+        }
+        .demo {
+          margin-top: 40px;
+          gap: 20px;
+        }
+        .window {
+          grid-template-columns: minmax(0, 1fr);
+          padding: 0 6px 6px;
+          border-radius: 14px;
+        }
+        .chrome {
+          padding: 6px 2px 6px;
+        }
+        .chrome .tab,
+        .chrome-top {
+          display: none;
+        }
+        .page {
+          height: 470px;
+        }
+        .site-body,
+        .site.no-ads .site-body {
+          grid-template-columns: minmax(0, 1fr);
+          column-gap: 0;
+        }
+        .recs {
+          display: none;
+        }
+        .site-nav {
+          display: none;
+        }
+        .site-head {
+          padding: 12px 14px;
+        }
+        .site-body {
+          padding: 14px 14px 120px;
+        }
+        .ad {
+          grid-template-columns: 90px minmax(0, 1fr);
+        }
+        .more {
+          padding-top: 88px;
+          padding-bottom: 80px;
+        }
+        .more h2 {
+          margin-bottom: 36px;
+        }
+        .feature-apps {
+          padding: 24px 20px 0;
+          border-radius: 18px;
+        }
+        .feature-apps h3 {
+          font-size: 25px;
+        }
+        .mini {
+          grid-template-columns: minmax(0, 1fr);
+        }
+        .mini-app {
+          border-radius: 14px 14px 0 0;
+          min-height: 0;
+        }
+        .mini-agent {
+          display: none;
+        }
+        .get .wrap {
+          padding-top: 64px;
+          padding-bottom: 64px;
+        }
+        .get svg.tile {
+          width: 72px;
+          height: 72px;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          transition: none !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <defs>
+        <linearGradient id="g-rune" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" style="stop-color: var(--rune-top)"></stop>
+          <stop offset="1" style="stop-color: var(--rune-bottom)"></stop>
+        </linearGradient>
+        <linearGradient id="g-cream" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" style="stop-color: var(--bg)"></stop>
+          <stop offset="1" style="stop-color: var(--cream-bottom)"></stop>
+        </linearGradient>
+        <symbol id="logo" viewBox="0 0 1024 1024">
+          <rect x="40" y="40" width="944" height="944" rx="236" fill="url(#g-cream)"></rect>
+          <rect
+            x="42"
+            y="42"
+            width="940"
+            height="940"
+            rx="234"
+            fill="none"
+            stroke="var(--text)"
+            stroke-opacity="0.1"
+            stroke-width="4"
+          ></rect>
+          <path
+            d="M384 772 V252 L664 394 L384 536 L664 772"
+            fill="none"
+            stroke="url(#g-rune)"
+            stroke-width="84"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          ></path>
+        </symbol>
+      </defs>
+    </svg>
+
+    <header class="wrap nav">
+      <a class="brand" href="#top" aria-label="Rune Browser home">
+        <svg aria-hidden="true"><use href="#logo"></use></svg>
+        Rune Browser
+      </a>
+      <nav class="nav-links" aria-label="Main">
+        <a href="https://github.com/nayupls1/rune-browser/blob/master/docs/concepts.md">Docs</a>
+        <a href="https://github.com/nayupls1/rune-browser">GitHub</a>
+        <a class="btn btn-primary" href="https://github.com/nayupls1/rune-browser/releases/latest">Download</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="wrap hero" aria-labelledby="hero-title">
+        <h1 id="hero-title">Websites, the way you&rsquo;d have built them.</h1>
+        <div class="hero-row">
+          <p class="hero-lede">
+            Rune Browser is a desktop browser with a coding agent in it. Point at anything on a page and say what should
+            change. It hides, restyles or adds things, and the change stays.
+            <span>The same agent builds whole apps, on your own Claude Code, Codex or OpenCode login.</span>
+          </p>
+          <div class="hero-ctas">
+            <a class="btn btn-primary" href="https://github.com/nayupls1/rune-browser/releases/latest">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M12 3v12m0 0-5-5m5 5 5-5M5 21h14" />
+              </svg>
+              Download
+            </a>
+            <a class="btn btn-ghost" href="https://github.com/nayupls1/rune-browser">View on GitHub</a>
+          </div>
+        </div>
+
+        <div class="demo">
+          <div
+            class="window"
+            role="img"
+            aria-label="Rune Browser showing a recipe website, changed by the switches beside it"
+          >
+            <div class="chrome" aria-hidden="true">
+              <div class="chrome-top"><i class="dot"></i></div>
+              <div class="address">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                  <circle cx="12" cy="12" r="9" />
+                  <path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18" />
+                </svg>
+                <span class="url">slowsimmer.example/tomato-soup</span>
+                <span class="wand"
+                  ><svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path d="m4 20 11-11M14 4v3M19 9h-3M17.5 5.5l-2 2M18 14l1 1M9 4l1 1" /></svg
+                ></span>
+              </div>
+              <div class="tab active">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                  <circle cx="12" cy="12" r="9" />
+                  <path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18" />
+                </svg>
+                <span>Grandma&rsquo;s tomato soup</span>
+              </div>
+              <div class="tab">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <rect x="3" y="4" width="18" height="16" rx="2" />
+                  <path d="M3 9h18" />
+                </svg>
+                <span>Habits</span>
+              </div>
+              <div class="tab">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                  <circle cx="12" cy="12" r="9" />
+                  <path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18" />
+                </svg>
+                <span>Train times</span>
+              </div>
+            </div>
+
+            <div class="page" id="page">
+              <div class="page-scroll" id="page-scroll">
+                <div class="site" id="site">
+                  <div class="site-head">
+                    <span class="site-logo">slow simmer</span>
+                    <span class="site-nav"
+                      ><span>Recipes</span><span>Stories</span><span>Shop</span><span>Newsletter</span></span
+                    >
+                  </div>
+                  <div class="site-body">
+                    <article>
+                      <h2>Grandma&rsquo;s weeknight tomato soup</h2>
+                      <p class="byline">By Marguerite, updated 3 days ago, 14 min read</p>
+
+                      <div class="collapse" data-for="ads">
+                        <div>
+                          <div class="ad">
+                            <div class="ad-video">
+                              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
+                            </div>
+                            <div>
+                              <small>Advertisement</small
+                              ><strong>This one pan does the work of nine. Chefs are furious.</strong>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div class="collapse" data-for="jump">
+                        <div>
+                          <p>
+                            The first time I made this soup it was raining, the kind of rain that makes the whole street
+                            smell like wet stone. My grandmother stood at the stove in a cardigan two sizes too big,
+                            humming something she never told me the name of.
+                          </p>
+                          <p>
+                            Years later I moved across the country with one suitcase and a notebook of her recipes, most
+                            of them written on the backs of envelopes. This one was on a gas bill from 1987, which I
+                            still have, framed, above my own stove.
+                          </p>
+                          <p>
+                            Before we get to the recipe, a word about tomatoes. I have strong opinions about tomatoes.
+                            Some would say too strong. My partner certainly would, and so would the man at the farmers
+                            market who now hides when he sees me coming.
+                          </p>
+                          <p>
+                            Anyway, autumn is here and the soup pot is out. Here is what you will need, and a few things
+                            I learned the hard way.
+                          </p>
+                        </div>
+                      </div>
+                      <div class="collapse is-off" data-for="jump-note">
+                        <div>
+                          <p class="story-skipped">Skipped the story, 4 paragraphs.</p>
+                        </div>
+                      </div>
+
+                      <div class="recipe" id="recipe">
+                        <h3>Ingredients</h3>
+                        <div class="collapse is-off" data-for="scaler">
+                          <div>
+                            <div class="scaler-row">
+                              Servings
+                              <span class="scaler">
+                                <button type="button" id="less" aria-label="Fewer servings" tabindex="-1">
+                                  &minus;
+                                </button>
+                                <output id="servings">4</output>
+                                <button type="button" id="more" aria-label="More servings" tabindex="-1">+</button>
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        <ul>
+                          <li><span class="qty" data-qty="2" data-unit=" tbsp">2 tbsp</span> olive oil</li>
+                          <li><span class="qty" data-qty="1" data-unit="">1</span> onion, diced</li>
+                          <li><span class="qty" data-qty="3" data-unit=" cloves">3 cloves</span> garlic</li>
+                          <li><span class="qty" data-qty="800" data-unit=" g">800 g</span> canned tomatoes</li>
+                          <li><span class="qty" data-qty="500" data-unit=" ml">500 ml</span> stock</li>
+                          <li><span class="qty" data-qty="0.5" data-unit=" cup">&frac12; cup</span> cream</li>
+                        </ul>
+                      </div>
+                    </article>
+
+                    <aside class="recs">
+                      <h4>Recommended for you</h4>
+                      <div class="rec"><i></i><span>17 spoons that professional cooks secretly hate</span></div>
+                      <div class="rec"><i></i><span>She added this to her soup and her landlord cried</span></div>
+                      <div class="rec"><i></i><span>Quiz: which root vegetable are you?</span></div>
+                      <div class="rec"><i></i><span>The fridge trick nobody is talking about</span></div>
+                      <div class="ad-tall">Win a kitchen makeover! Spin now</div>
+                    </aside>
+                  </div>
+                </div>
+              </div>
+              <div class="cookie" aria-hidden="true">
+                <p>
+                  <b>We value your privacy</b>We and our 742 partners use cookies to personalise ads, measure ads and
+                  improve our services.
+                </p>
+                <div class="c-btns"><span>Accept all</span><span>Manage options</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <section class="pop" aria-labelledby="pop-title">
+              <div class="pop-head" id="pop-title">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="m4 20 11-11M14 4v3M19 9h-3M17.5 5.5l-2 2M18 14l1 1M9 4l1 1" />
+                </svg>
+                Changes on this page
+              </div>
+              <ul class="changes">
+                <li class="change">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M3 3l18 18M10.6 5.1A10 10 0 0 1 12 5c5 0 9 5 9 7a10 10 0 0 1-2.2 3.2M6.5 6.6C4.4 8 3 10.2 3 12c0 2 4 7 9 7a9 9 0 0 0 4.4-1.2M9.9 9.9a3 3 0 0 0 4.2 4.2"
+                    />
+                  </svg>
+                  <span
+                    ><span class="change-title" id="l-cookie">Hide the cookie banner</span
+                    ><span class="change-scope">All of slowsimmer.example</span></span
+                  >
+                  <button
+                    type="button"
+                    class="switch"
+                    role="switch"
+                    aria-checked="true"
+                    aria-labelledby="l-cookie"
+                    data-change="cookie"
+                  ></button>
+                </li>
+                <li class="change">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <rect x="3" y="4" width="18" height="16" rx="2" />
+                    <path d="M15 4v16M3 3l18 18" />
+                  </svg>
+                  <span
+                    ><span class="change-title" id="l-ads">Hide the ads and recommendations</span
+                    ><span class="change-scope">All of slowsimmer.example</span></span
+                  >
+                  <button
+                    type="button"
+                    class="switch"
+                    role="switch"
+                    aria-checked="false"
+                    aria-labelledby="l-ads"
+                    data-change="ads"
+                  ></button>
+                </li>
+                <li class="change">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M12 4v12m0 0-5-5m5 5 5-5M5 20h14" />
+                  </svg>
+                  <span
+                    ><span class="change-title" id="l-jump">Jump to the recipe</span
+                    ><span class="change-scope">Recipe pages on this site</span></span
+                  >
+                  <button
+                    type="button"
+                    class="switch"
+                    role="switch"
+                    aria-checked="false"
+                    aria-labelledby="l-jump"
+                    data-change="jump"
+                  ></button>
+                </li>
+                <li class="change">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M4 7V5h16v2M12 5v14M9 19h6" />
+                  </svg>
+                  <span
+                    ><span class="change-title" id="l-big">Bigger, darker text</span
+                    ><span class="change-scope">All of slowsimmer.example</span></span
+                  >
+                  <button
+                    type="button"
+                    class="switch"
+                    role="switch"
+                    aria-checked="true"
+                    aria-labelledby="l-big"
+                    data-change="big"
+                  ></button>
+                </li>
+                <li class="change">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <rect x="3" y="3" width="18" height="18" rx="3" />
+                    <path d="M12 8v8M8 12h8" />
+                  </svg>
+                  <span
+                    ><span class="change-title" id="l-scaler">Add a servings scaler</span
+                    ><span class="change-scope">Recipe pages on this site</span></span
+                  >
+                  <button
+                    type="button"
+                    class="switch"
+                    role="switch"
+                    aria-checked="false"
+                    aria-labelledby="l-scaler"
+                    data-change="scaler"
+                  ></button>
+                </li>
+              </ul>
+              <div class="pop-foot">
+                Ask the agent to hide, change or add things, or point at an element on the page.
+              </div>
+            </section>
+            <p class="pop-note">
+              <strong>Flip a switch to try it.</strong> Each change is kept per page or per site, and you can bundle
+              them into a mod to share.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section class="wrap more" aria-labelledby="more-title">
+        <h2 id="more-title">And when a page isn&rsquo;t enough, it builds the app.</h2>
+        <div class="more-grid">
+          <div class="feature feature-apps">
+            <h3>Describe an app, get a real one</h3>
+            <p>
+              The agent writes a real project with its own server and SQLite database, runs it in a sandbox and shows it
+              next to the chat. Keep changing it by talking, or close the chat and just use it.
+            </p>
+            <div class="mini" aria-hidden="true">
+              <div class="mini-app">
+                <b>Groceries</b>
+                <div class="mini-item done"><i></i><span>Oat milk</span><small>Sam</small></div>
+                <div class="mini-item done"><i></i><span>Tomatoes, 800 g</span><small>You</small></div>
+                <div class="mini-item"><i></i><span>Sourdough</span><small>Sam</small></div>
+                <div class="mini-item"><i></i><span>Basil</span><small>You</small></div>
+                <div class="mini-item"><i></i><span>Parmesan</span><small>You</small></div>
+              </div>
+              <div class="mini-agent">
+                <div class="bubble">A shared grocery list that updates live on every device</div>
+                <div class="step">Wrote the server and an items table</div>
+                <div class="step">Running. Checked it in the preview</div>
+                <div class="composer"><span>Ask for a change&hellip;</span><em>Send</em></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="feature feature-small">
+            <h3>Your own agents and logins</h3>
+            <p>The CLIs you already use, signed in with your own subscription. No API keys, no account here.</p>
+            <div class="agents" aria-label="Supported agents">
+              <span>Claude Code</span><span>Codex</span><span>OpenCode</span>
+            </div>
+          </div>
+
+          <div class="feature feature-small">
+            <h3>Safe, and nothing is lost</h3>
+            <p>
+              Apps run in a sandbox and ask before reaching beyond it. Secrets never reach agents. Every change is a
+              snapshot you can undo, data included.
+            </p>
+            <div class="snapshot" aria-hidden="true">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 7v5l3 2" />
+              </svg>
+              <span class="s-text">Added a categories column<small>Agent, 2 minutes ago</small></span>
+              <span class="s-btn">Undo this change</span>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <section class="get" aria-labelledby="get-title">
+      <div class="wrap">
+        <svg class="tile" aria-hidden="true"><use href="#logo"></use></svg>
+        <div>
+          <h2 id="get-title">Free, for Linux, Windows and macOS.</h2>
+          <p>
+            Open source under MIT. Install it, then sign in to Claude Code, Codex or OpenCode, whichever you already
+            use.
+          </p>
+        </div>
+        <div class="hero-ctas">
+          <a class="btn btn-primary" href="https://github.com/nayupls1/rune-browser/releases/latest">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M12 3v12m0 0-5-5m5 5 5-5M5 21h14" />
+            </svg>
+            Download
+          </a>
+          <a class="btn btn-ghost" href="https://github.com/nayupls1/rune-browser">View on GitHub</a>
+        </div>
+      </div>
+    </section>
+    <footer class="foot">
+      <div class="wrap">
+        <span>Rune Browser, MIT licensed</span>
+        <nav aria-label="Footer">
+          <a href="https://github.com/nayupls1/rune-browser/blob/master/docs/concepts.md">Docs</a>
+          <a href="https://github.com/nayupls1/rune-browser">GitHub</a>
+          <a href="https://github.com/nayupls1/rune-browser/issues">Issues</a>
+        </nav>
+      </div>
+    </footer>
+
+    <script>
+      const page = document.getElementById("page");
+      const site = document.getElementById("site");
+      const scroller = document.getElementById("page-scroll");
+      const collapse = (name, on) =>
+        document.querySelectorAll(`[data-for="${name}"]`).forEach((el) => el.classList.toggle("is-off", !on));
+      const scalerButtons = [document.getElementById("less"), document.getElementById("more")];
+
+      const apply = {
+        cookie: (on) => page.classList.toggle("no-cookie", on),
+        ads: (on) => {
+          site.classList.toggle("no-ads", on);
+          collapse("ads", !on);
+        },
+        jump: (on) => {
+          collapse("jump", !on);
+          collapse("jump-note", on);
+          if (on) scroller.scrollTo({ top: 0, behavior: "smooth" });
+        },
+        big: (on) => site.classList.toggle("big", on),
+        scaler: (on) => {
+          collapse("scaler", on);
+          scalerButtons.forEach((b) => (b.tabIndex = on ? 0 : -1));
+        },
+      };
+
+      document.querySelectorAll(".switch").forEach((sw) => {
+        const set = (on) => {
+          sw.setAttribute("aria-checked", String(on));
+          apply[sw.dataset.change](on);
+        };
+        set(sw.getAttribute("aria-checked") === "true");
+        sw.addEventListener("click", () => set(sw.getAttribute("aria-checked") !== "true"));
+      });
+
+      const fractions = { 0.25: "¼", 0.5: "½", 0.75: "¾" };
+      const format = (n) => {
+        if (n >= 100) return String(Math.round(n / 10) * 10);
+        const whole = Math.floor(n);
+        const rest = Math.round((n - whole) * 4) / 4;
+        if (rest === 1) return String(whole + 1);
+        const frac = fractions[rest] ?? "";
+        return whole === 0 ? frac || "¼" : `${whole}${frac}`;
+      };
+      let servings = 4;
+      const output = document.getElementById("servings");
+      const render = () => {
+        output.value = servings;
+        document.querySelectorAll(".qty").forEach((q) => {
+          q.textContent = format((Number(q.dataset.qty) * servings) / 4) + q.dataset.unit;
+        });
+      };
+      scalerButtons[0].addEventListener("click", () => {
+        servings = Math.max(1, servings - 1);
+        render();
+      });
+      scalerButtons[1].addEventListener("click", () => {
+        servings = Math.min(12, servings + 1);
+        render();
+      });
+    </script>
+  </body>
+</html>
