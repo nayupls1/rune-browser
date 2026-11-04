@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Rune Browser homepage drafts</title>
+    <style>
+      :root {
+        --bg: #f8f5f0;
+        --surface: #fffdfa;
+        --text: #2b211a;
+        --muted: color-mix(in oklab, #2b211a 64%, #f8f5f0);
+        --border: color-mix(in oklab, #fffdfa 88%, #2b211a);
+        --accent: #c2461f;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font:
+          16px/1.5 system-ui,
+          sans-serif;
+      }
+      main {
+        max-width: 640px;
+        margin: 0 auto;
+        padding: 64px 16px;
+      }
+      h1 {
+        font-size: 28px;
+        margin: 0 0 8px;
+      }
+      p {
+        color: var(--muted);
+        margin: 0 0 32px;
+      }
+      ol {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        display: grid;
+        gap: 8px;
+      }
+      a {
+        display: block;
+        padding: 14px 16px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        color: inherit;
+        text-decoration: none;
+      }
+      a:hover,
+      a:focus-visible {
+        border-color: var(--accent);
+        outline: none;
+      }
+      strong {
+        display: block;
+      }
+      span {
+        color: var(--muted);
+        font-size: 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Homepage drafts</h1>
+      <p>Five directions for the Rune Browser homepage, all on the icon's palette.</p>
+      <ol>
+        <li>
+          <a href="1-prompt.html"
+            ><strong>From a sentence</strong><span>A composer types a prompt and the app builds itself.</span></a
+          >
+        </li>
+        <li>
+          <a href="2-rune.html"
+            ><strong>The rune</strong><span>Dark, with the rune drawing itself at full height.</span></a
+          >
+        </li>
+        <li>
+          <a href="3-your-way.html"
+            ><strong>Websites, your way</strong><span>A cluttered page you clean up with working switches.</span></a
+          >
+        </li>
+        <li>
+          <a href="4-exploded.html"
+            ><strong>How it's built</strong><span>The window taken apart into its layers.</span></a
+          >
+        </li>
+        <li>
+          <a href="5-made-with.html"
+            ><strong>A pile of apps</strong><span>Small apps you can drag around, each with its sentence.</span></a
+          >
+        </li>
+      </ol>
+    </main>
+  </body>
+</html>
