@@ -1137,14 +1137,21 @@ const styles = stylex.create({
     display: "grid",
     gridTemplateColumns: "repeat(auto-fill, minmax(44px, 1fr))",
     gap: 6,
+    marginTop: 2,
     flexShrink: 0,
   },
+  // Pinned tabs: tiles in the address pill's tint, the one on screen lifted like a selected tab.
   tile: {
     justifyContent: "center",
-    height: 40,
+    height: 42,
     paddingInline: 0,
-    borderRadius: radius.md,
-    backgroundColor: { default: colors.surfaceHover, ":hover": colors.surface },
+    borderRadius: 10,
+    backgroundColor: {
+      default: `color-mix(in oklab, ${colors.text} 5.5%, transparent)`,
+      ":hover": `color-mix(in oklab, ${colors.text} 9%, transparent)`,
+    },
+    transitionProperty: "background-color",
+    transitionDuration: "120ms",
   },
   chevron: { marginLeft: "auto", opacity: 0.6 },
   list: { listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 2 },
@@ -1252,6 +1259,7 @@ const styles = stylex.create({
     minWidth: 0,
   },
   workspaceIcon: {
+    position: "relative",
     display: "grid",
     placeItems: "center",
     width: 30,
@@ -1267,7 +1275,20 @@ const styles = stylex.create({
     transitionDuration: "120ms",
   },
   // The workspace on screen: at full strength (no card: the footer stays quieter than the tabs).
-  workspaceIconOn: { opacity: 1 },
+  workspaceIconOn: {
+    opacity: 1,
+    "::after": {
+      content: '""',
+      position: "absolute",
+      bottom: 0,
+      left: "50%",
+      width: 10,
+      height: 2,
+      marginLeft: -5,
+      borderRadius: 1,
+      backgroundColor: colors.accent,
+    },
+  },
   workspaceIconOver: { boxShadow: `0 0 0 2px ${colors.accent}`, opacity: 1 },
   workspaceAdd: { opacity: { default: 0.6, ":hover": 1 } },
 });
