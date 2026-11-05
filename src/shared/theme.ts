@@ -154,22 +154,6 @@ export const themePresets: { name: string; theme: Omit<GlobalTheme, "mode"> & { 
   { name: "Rose", theme: { accent: "#e11d48", radius: "lg" } },
   { name: "Amber", theme: { accent: "#d97706" } },
   { name: "Graphite", theme: { accent: "#52525b", radius: "sm" } },
-  {
-    name: "Midnight",
-    theme: { mode: "dark", accent: "#7c9cff", background: "#0b1020", surface: "#121a2e", text: "#e3e8f7" },
-  },
-  {
-    name: "Terminal",
-    theme: {
-      mode: "dark",
-      accent: "#22c55e",
-      background: "#0a0a0a",
-      surface: "#111111",
-      text: "#d4d4d4",
-      font: "mono",
-      radius: "none",
-    },
-  },
 ];
 
 function tokenBlock(p: Palette, indent: string) {

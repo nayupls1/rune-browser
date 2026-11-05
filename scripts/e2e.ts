@@ -3881,13 +3881,10 @@ try {
       throw new Error("another category is shown too");
     const pageBg = () =>
       page!.eval<string>(`getComputedStyle(document.querySelector("[data-content]")).backgroundColor`);
-    await click("[data-preset]", "Midnight");
-    await page!.waitFor(
-      `getComputedStyle(document.querySelector("[data-content]")).backgroundColor === "rgb(11, 16, 32)"`,
-      {
-        label: "Midnight background",
-      },
-    );
+    await click("[data-preset]", "Ocean");
+    await page!.waitFor(`document.querySelector('[data-settings] input[type="color"]')?.value === "#0284c7"`, {
+      label: "Ocean accent",
+    });
     await Bun.sleep(300); // let color transitions finish
     await shot("settings.png");
     await openSettingsAt("agent");
@@ -3898,8 +3895,8 @@ try {
       return true;
     })()`);
     await waitForValue(async () => {
-      const s = await apiCall<{ agent: { instructions: string }; theme: { background?: string } }>("/api/settings");
-      return s.agent.instructions === "Amounts are in EUR." && s.theme.background === "#0b1020" ? true : undefined;
+      const s = await apiCall<{ agent: { instructions: string }; theme: { accent?: string } }>("/api/settings");
+      return s.agent.instructions === "Amounts are in EUR." && s.theme.accent === "#0284c7" ? true : undefined;
     });
     await openSettingsAt("providers");
     const rows = await page!.eval<string[]>(
@@ -3943,7 +3940,7 @@ try {
     // Resetting goes back to Rune's palette (the icon's cream and burnt orange), in light and dark.
     await openSettingsAt("appearance");
     await click("[data-preset]", "Default");
-    await click('[data-settings] [role="radio"]', "System"); // Midnight made it dark, and presets keep the mode
+    await click('[data-settings] [role="radio"]', "System");
     const rgb = (hex: string) => `rgb(${[1, 3, 5].map((i) => Number.parseInt(hex.slice(i, i + 2), 16)).join(", ")})`;
     const paletteShown = async (mode: Mode) => {
       // The background is the palette's, and the accent field shows the palette's accent as the default.
