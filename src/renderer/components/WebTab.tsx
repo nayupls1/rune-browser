@@ -767,7 +767,14 @@ export function WebTab(props: { appId: string; active: boolean }) {
       go,
       // The site's settings behind its lock (or what the page is using right now: the camera…).
       identity: () => (
-        <Show when={siteForUrl(currentUrl())} fallback={<Icon name={addressIcon()} size={13} />}>
+        <Show
+          when={siteForUrl(currentUrl())}
+          fallback={
+            <Show when={loading()} fallback={<Icon name={addressIcon()} size={13} />}>
+              <Icon name="loader-circle" size={13} {...stylex.attrs(styles.spinning)} data-address-loading />
+            </Show>
+          }
+        >
           <button
             type="button"
             title={
@@ -793,7 +800,12 @@ export function WebTab(props: { appId: string; active: boolean }) {
             <SiteStatusIcon
               contentsId={contentsId()}
               url={currentUrl()}
-              fallback={<Icon name={addressIcon()} size={13} />}
+              fallback={
+                // While the page loads, a spinner in place of its icon (the address bar is the toolbar).
+                <Show when={loading()} fallback={<Icon name={addressIcon()} size={13} />}>
+                  <Icon name="loader-circle" size={13} {...stylex.attrs(styles.spinning)} data-address-loading />
+                </Show>
+              }
             />
           </button>
         </Show>
@@ -1000,6 +1012,8 @@ function StartPage(props: { onGo: (input: string) => boolean }) {
   );
 }
 
+const spin = stylex.keyframes({ from: { transform: "rotate(0deg)" }, to: { transform: "rotate(360deg)" } });
+
 const ping = stylex.keyframes({
   "0%": { transform: "scale(0.6)", opacity: 1 },
   "100%": { transform: "scale(1.6)", opacity: 0 },
@@ -1122,6 +1136,13 @@ const styles = stylex.create({
     cursor: "pointer",
   },
   identityWarning: { color: colors.warning },
+  spinning: {
+    color: colors.accent,
+    animationName: spin,
+    animationDuration: "0.8s",
+    animationIterationCount: "infinite",
+    animationTimingFunction: "linear",
+  },
   siteLive: {
     width: "auto",
     gap: 2,

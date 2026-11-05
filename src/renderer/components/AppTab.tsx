@@ -266,6 +266,8 @@ function Workbench(props: { appId: string; active: boolean }) {
             }
             data-runtime-state={runtime()?.state}
             data-mode={appMode(props.appId)}
+            role="status"
+            aria-label={`${isLive() ? "" : "Editing · "}${stateLabels[runtime()?.state ?? "stopped"]}`}
           >
             <span
               {...stylex.attrs(
@@ -275,7 +277,8 @@ function Workbench(props: { appId: string; active: boolean }) {
                 isCrashed() && styles.dotCrashed,
               )}
             />
-            {isLive() ? "" : "Editing"}
+            {/* Running (the dot says so) needs no word; anything else does. */}
+            {isLive() ? (isRunning() ? "" : stateLabels[runtime()?.state ?? "stopped"]) : "Editing"}
           </span>
         </Show>
       ),

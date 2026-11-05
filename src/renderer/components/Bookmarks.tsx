@@ -124,7 +124,7 @@ function itemMenu(node: BookmarkNode, onDone?: () => void): (MenuItem | "separat
 /** In the address bar of a web tab: filled when the page is bookmarked; adds or edits the bookmark. */
 export function BookmarkStar(props: { tabId: string; url: string }) {
   const bookmarked = () => !!bookmarkOf(props.url);
-  // An empty star shows only while the pointer is over the address (Ctrl+D works either way).
+  // An empty star shows only while the pointer is over the address or it has the keyboard focus (Ctrl+D works either way).
   const quiet = () => !bookmarked() && !addressHovered() && !bookmarkEditor();
   return (
     <Show when={canBookmark(props.url)}>
@@ -592,7 +592,8 @@ const styles = stylex.create({
     cursor: "pointer",
   },
   starOn: { color: { default: colors.accent, ":hover": colors.accent } },
-  starQuiet: { display: "none" },
+  // Invisible but there: Tab reaches it (and shows it), like the hover does.
+  starQuiet: { opacity: { default: 0, ":focus-visible": 1 } },
   popover: {
     position: "fixed",
     zIndex: 1600,

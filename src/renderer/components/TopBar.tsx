@@ -159,6 +159,7 @@ function MoreMenu() {
   const [at, setAt] = createSignal<MenuPosition>();
   const [bookmarksAt, setBookmarksAt] = createSignal<MenuPosition>();
   let button!: HTMLButtonElement;
+  let wasOpen = false;
   const tabId = () => (isTab(selectedId()) ? selectedId() : null);
   const hint = (id: string) => shortcutLabel(id);
   /** What the browser does to the tab's page (its keyboard shortcuts' actions), where it has one. */
@@ -239,8 +240,12 @@ function MoreMenu() {
         title="More: bookmarks, history, downloads, the tab's tools, settings"
         aria-haspopup="menu"
         aria-expanded={!!at()}
+        // The open menu closes itself on this press: the click then mustn't open it again.
+        onPointerDown={() => (wasOpen = !!at())}
         onClick={() => {
-          if (at()) return setAt();
+          const open = wasOpen || !!at();
+          wasOpen = false;
+          if (open) return setAt();
           const r = button.getBoundingClientRect();
           setAt({ x: r.left, y: r.bottom + 4 });
         }}
@@ -297,7 +302,8 @@ export function AddressBar() {
     input.select();
   }
 
-  const loadingShown = () => !editing() && !!chrome()?.loading();
+  // A web tab's site settings button stays while it loads (it shows the spinner itself).
+  const loadingShown = () => !editing() && !chrome()?.identity && !!chrome()?.loading();
   const notSecure = () => !editing() && !!chrome()?.notSecure?.();
   const query = () => (editing() && typed() ? text().trim() : "");
   /**
@@ -436,7 +442,11 @@ export function AddressBar() {
     if (!(c?.go && c.go(target))) void newWebTab(target);
   }
 
+  /** Losing the focus closes it a moment later, unless it gets the focus back first (Ctrl+T, Ctrl+L right after). */
+  let blurTimer: ReturnType<typeof setTimeout> | undefined;
+  onCleanup(() => clearTimeout(blurTimer));
   const start = () => {
+    clearTimeout(blurTimer);
     if (editing()) return;
     setEditing(true);
     setTyped(false);
@@ -519,6 +529,12 @@ export function AddressBar() {
           open(isExtensionUrl(typed) ? typed : normalizeUrl(typed, searchEngine().url), typed);
           finish();
         }}
+        // Open, a click anywhere in it (its padding, the icon, the list's heading) keeps typing in the input.
+        onMouseDown={(e) => {
+          if (!floating() || e.target === input) return;
+          e.preventDefault();
+          input.focus();
+        }}
         onMouseEnter={() => setAddressHovered(true)}
         onMouseLeave={() => setAddressHovered(false)}
         data-address-bar
@@ -573,7 +589,10 @@ export function AddressBar() {
               e.currentTarget.value = text();
               e.currentTarget.select();
             }}
-            onBlur={() => setTimeout(() => editing() && finish(), 120)}
+            onBlur={() => {
+              clearTimeout(blurTimer);
+              blurTimer = setTimeout(() => editing() && finish(), 120);
+            }}
             onInput={(e) => {
               // Typing is editing, whether or not the focus event came first.
               start();

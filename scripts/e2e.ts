@@ -1619,7 +1619,7 @@ try {
     const layout = await page!.eval<{ identityFirst: boolean; starShown: boolean }>(`(() => {
       const row = document.querySelector('${bar}').firstElementChild;
       const star = row.querySelector("[data-bookmark-star]");
-      return { identityFirst: row.firstElementChild.matches("[data-site-info-button]"), starShown: !!star && star.getBoundingClientRect().width > 0 };
+      return { identityFirst: row.firstElementChild.matches("[data-site-info-button]"), starShown: !!star && getComputedStyle(star).opacity !== "0" };
     })()`);
     if (!layout.identityFirst || layout.starShown) throw new Error(`address layout: ${JSON.stringify(layout)}`);
 
@@ -1641,7 +1641,12 @@ try {
       label: "suggestions under it",
     });
     await shot("address-popover.png");
-    // A click outside closes it, and the page under it doesn't get the click.
+    // Focus lost and back right away (Ctrl+T or Ctrl+L just after it closed): it stays open.
+    await page!.eval(`(() => { const i = document.querySelector('${address}'); i.blur(); i.focus(); return true; })()`);
+    await Bun.sleep(400);
+    if (!(await page!.eval<boolean>(`!!document.querySelector('${bar}[data-address-open]')`)))
+      throw new Error("closed although it got the focus back");
+    // A click outside (on the backdrop over the page) closes it.
     await page!.eval(
       `document.querySelector("[data-address-backdrop]").dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true })), true`,
     );
