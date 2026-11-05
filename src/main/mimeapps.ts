@@ -114,7 +114,8 @@ export function withDefault(text: string, desktop: string, types: readonly strin
     for (const type of types) {
       // Every line for the type (a file can list one twice): the first becomes the one, the rest go.
       const at = linesOf(section, type);
-      const listed = at.flatMap((i) => listedFor(`[x]\n${lines[i]}`, "x", type) ?? []);
+      // The last line first: it's the one GLib used, so it stays next in line after Rune Browser.
+      const listed = [...at].reverse().flatMap((i) => listedFor(`[x]\n${lines[i]}`, "x", type) ?? []);
       const others = [...new Set(listed)].filter((d) => d !== desktop);
       const line = `${type}=${[desktop, ...others].join(";")};`;
       if (at.length) {

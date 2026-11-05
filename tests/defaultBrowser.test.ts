@@ -242,7 +242,7 @@ describe("Linux's mimeapps.list", () => {
     expect(defaultFor([twice], "x-scheme-handler/https", () => true)).toBe("chromium.desktop");
     const once = withDefault(twice, LINUX_DESKTOP_FILE, ["x-scheme-handler/https"]);
     expect(once).toContain(
-      "[Default Applications]\nx-scheme-handler/https=rune-browser.desktop;firefox.desktop;chromium.desktop;\n\n",
+      "[Default Applications]\nx-scheme-handler/https=rune-browser.desktop;chromium.desktop;firefox.desktop;\n\n",
     );
     expect(defaultFor([once], "x-scheme-handler/https", () => true)).toBe(LINUX_DESKTOP_FILE);
     // The section twice (GLib reads both, the later line winning): the type ends up once, in the first.
@@ -251,7 +251,7 @@ describe("Linux's mimeapps.list", () => {
     const merged = withDefault(groups, LINUX_DESKTOP_FILE, ["x-scheme-handler/https"]);
     expect(defaultFor([merged], "x-scheme-handler/https", () => true)).toBe(LINUX_DESKTOP_FILE);
     expect(merged.match(/x-scheme-handler\/https=/g)?.length).toBe(2); // Default and Added Associations
-    expect(merged).toContain("x-scheme-handler/https=rune-browser.desktop;firefox.desktop;chrome.desktop;");
+    expect(merged).toContain("x-scheme-handler/https=rune-browser.desktop;chrome.desktop;firefox.desktop;");
     // Again: nothing changes.
     expect(withDefault(after, LINUX_DESKTOP_FILE, types)).toBe(after);
     // And it reads back as the default.
