@@ -337,6 +337,11 @@ export function AddressBar() {
     return { host: m[1]!.replace(/^www\./, ""), rest: m[2] === "/" ? "" : m[2]! };
   };
   const showParts = () => !!parts();
+  /** The site, shown faintly in the address's place while it's popped out. */
+  const ghostHost = () => {
+    const url = chrome()?.url() ?? "";
+    return /^https?:/i.test(url) ? (/^[^/?#]+/.exec(displayUrl(url))?.[0] ?? "").replace(/^www\./, "") : "";
+  };
 
   // Pages from history for what's typed, fetched after a short pause (none in private windows);
   // with nothing typed, the pages visited most. Until the answer comes, the last ones that still
@@ -398,12 +403,24 @@ export function AddressBar() {
         run: () => open(target, q),
       });
     // Open tabs, in every workspace.
+    // One or two letters match the start of a word or of the site (not any letter anywhere); longer, anything.
+    const short = lower.length < 3;
+    const wordStarts = (text: string) =>
+      text
+        .toLowerCase()
+        .split(/[^\p{L}\p{N}]+/u)
+        .some((w) => w.startsWith(lower));
+    const hit = (name: string, url?: string | null) =>
+      short
+        ? wordStarts(name) ||
+          (!!url &&
+            displayUrl(url)
+              .toLowerCase()
+              .replace(/^www\./, "")
+              .startsWith(lower))
+        : name.toLowerCase().includes(lower) || (url ?? "").toLowerCase().includes(lower);
     const tabs = apps
-      .filter(
-        (t) =>
-          t.id !== selectedId() &&
-          (t.name.toLowerCase().includes(lower) || (t.url ?? "").toLowerCase().includes(lower)),
-      )
+      .filter((t) => t.id !== selectedId() && hit(t.name, t.url))
       .sort((a, b) => Number(!a.name.toLowerCase().startsWith(lower)) - Number(!b.name.toLowerCase().startsWith(lower)))
       .slice(0, 6);
     for (const tab of tabs) {
@@ -427,7 +444,9 @@ export function AddressBar() {
     const startsWith = (b: BookmarkNode) => b.title.toLowerCase().startsWith(lower) || bare(b.url!).startsWith(lower);
     const marks: BookmarkNode[] = [];
     for (const mark of allBookmarks(bookmarkTree())
-      .filter((b) => words.every((w) => b.title.toLowerCase().includes(w) || bare(b.url!).includes(w)))
+      .filter((b) =>
+        short ? hit(b.title, b.url) : words.every((w) => b.title.toLowerCase().includes(w) || bare(b.url!).includes(w)),
+      )
       .sort((a, b) => Number(!startsWith(a)) - Number(!startsWith(b)))) {
       if (marks.length === BOOKMARK_SUGGESTIONS) break;
       if (shown.has(samePage(mark.url!))) continue;
@@ -447,7 +466,12 @@ export function AddressBar() {
     // Not the page on screen either (Enter on it would only reload it).
     const here = chrome()?.url();
     const pages = visited()
-      .filter((p) => !shown.has(samePage(p.url)) && (!here || samePage(p.url) !== samePage(here)) && matches(p, words))
+      .filter(
+        (p) =>
+          !shown.has(samePage(p.url)) &&
+          (!here || samePage(p.url) !== samePage(here)) &&
+          (short ? hit(p.title, p.url) : matches(p, words)),
+      )
       .slice(0, HISTORY_SUGGESTIONS);
     for (const page of pages) out.push(historySuggestion(page));
     out.push({
@@ -555,7 +579,10 @@ export function AddressBar() {
     <div {...stylex.attrs(styles.addressSlot)} data-address-slot>
       <Show when={floating()}>
         {/* Its place in the sidebar, faint while it's popped out. */}
-        <div {...stylex.attrs(styles.ghost)} aria-hidden="true" />
+        <div {...stylex.attrs(styles.ghost)} aria-hidden="true">
+          <Icon name="globe" size={13} />
+          {ghostHost()}
+        </div>
         {/* Clicking outside closes it (and isn't a click on what's under it). Not portaled: it stays under the address. */}
         <div
           {...stylex.attrs(styles.backdrop)}
@@ -730,7 +757,7 @@ export function AddressBar() {
                       <span {...stylex.attrs(styles.suggestionDetail)}>{s.detail}</span>
                     </Show>
                   </span>
-                  <Show when={isActive(i()) || s.key.startsWith("tab:")}>
+                  <Show when={isActive(i())}>
                     <span {...stylex.attrs(styles.suggestionAction, isActive(i()) && styles.suggestionActionOn)}>
                       {s.action}
                       <Show when={isActive(i())}>
@@ -802,7 +829,7 @@ const styles = stylex.create({
   },
   navButtonOn: { backgroundColor: ink(9), color: colors.text },
   footerButton: { width: 32, height: 32 },
-  agentOn: { color: { default: colors.accent, ":hover": colors.accent } },
+  agentOn: { backgroundColor: colors.accentSoft, color: { default: colors.accent, ":hover": colors.accent } },
   workingDot: {
     position: "absolute",
     top: 6,
@@ -832,7 +859,21 @@ const styles = stylex.create({
     transitionDuration: "120ms",
   },
   // Focused: over the page, centered near the top of the window, like Zen's and Arc's.
-  ghost: { position: "absolute", inset: 0, borderRadius: 10, backgroundColor: ink(3) },
+  ghost: {
+    position: "absolute",
+    inset: 0,
+    display: "flex",
+    alignItems: "center",
+    gap: 7,
+    paddingInline: 11,
+    overflow: "hidden",
+    whiteSpace: "nowrap",
+    borderRadius: 10,
+    backgroundColor: ink(4),
+    color: ink(32),
+    fontFamily: font.sans,
+    fontSize: font.sm,
+  },
   addressFloating: {
     position: "fixed",
     zIndex: 1500,
@@ -865,7 +906,7 @@ const styles = stylex.create({
     position: "fixed",
     inset: 0,
     zIndex: 1499,
-    backgroundColor: { default: "rgb(0 0 0 / 0.16)", "@media (prefers-color-scheme: dark)": "rgb(0 0 0 / 0.4)" },
+    backgroundColor: { default: "rgb(0 0 0 / 0.12)", "@media (prefers-color-scheme: dark)": "rgb(0 0 0 / 0.28)" },
     animationName: fadeIn,
     animationDuration: "140ms",
   },
@@ -978,7 +1019,7 @@ const styles = stylex.create({
     textAlign: "left",
     cursor: "pointer",
   },
-  suggestionOn: { backgroundColor: ink(6) },
+  suggestionOn: { backgroundColor: ink(9) },
   // Each icon on a small tile, so favicons, stars and globes line up as one column.
   suggestionIcon: {
     display: "grid",
@@ -990,7 +1031,7 @@ const styles = stylex.create({
     backgroundColor: ink(5),
     color: ink(55),
   },
-  suggestionIconOn: { backgroundColor: colors.surface, boxShadow: `0 0 0 1px ${ink(8)}`, color: colors.text },
+  suggestionIconOn: { backgroundColor: colors.surface, boxShadow: `0 0 0 1px ${ink(13)}`, color: colors.text },
   suggestionText: { display: "flex", alignItems: "baseline", gap: 10, flex: 1, minWidth: 0 },
   suggestionTitle: {
     flexShrink: 0,

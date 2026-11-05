@@ -268,7 +268,8 @@ const styles = stylex.create({
   },
   // The sidebar hidden: the page has the window, inset all round.
   columnFull: { position: "relative", paddingLeft: space.sm },
-  dragStrip: { position: "absolute", zIndex: 1, top: 0, left: 0, right: 0, height: space.sm },
+  // Below the window's top edge, which resizes it.
+  dragStrip: { position: "absolute", zIndex: 1, top: 3, left: 0, right: 0, height: 5 },
   // Pages scroll vertically; nothing in it should ever scroll the whole area sideways.
   content: {
     position: "relative",

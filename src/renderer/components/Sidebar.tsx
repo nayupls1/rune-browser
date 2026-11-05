@@ -1003,11 +1003,13 @@ const styles = stylex.create({
   rootOverlay: {
     position: "fixed",
     zIndex: 1400,
-    top: space.sm,
-    bottom: space.sm,
-    left: space.sm,
-    borderRadius: radius.lg,
-    boxShadow: `0 0 0 1px ${colors.border}, 0 24px 64px -12px rgb(0 0 0 / 0.32), 0 6px 18px -6px rgb(0 0 0 / 0.14)`,
+    // Flush with the window's edge, like Zen's: it slides in from there, rounded only where it meets the page.
+    top: 0,
+    bottom: 0,
+    left: 0,
+    borderTopRightRadius: radius.lg,
+    borderBottomRightRadius: radius.lg,
+    boxShadow: `0 0 0 1px color-mix(in oklab, ${colors.text} 13%, transparent), 0 24px 64px -12px rgb(0 0 0 / 0.32), 0 6px 18px -6px rgb(0 0 0 / 0.14)`,
     transitionProperty: "left, box-shadow",
     transitionDuration: "200ms",
     transitionTimingFunction: "cubic-bezier(0.2, 0.8, 0.2, 1)",
@@ -1264,14 +1266,8 @@ const styles = stylex.create({
     transitionProperty: "opacity, background-color",
     transitionDuration: "120ms",
   },
-  // The workspace on screen: at full strength, on a light tint (no card: the footer stays quieter than the tabs).
-  workspaceIconOn: {
-    opacity: 1,
-    backgroundColor: {
-      default: `color-mix(in oklab, ${colors.text} 6%, transparent)`,
-      ":hover": `color-mix(in oklab, ${colors.text} 8%, transparent)`,
-    },
-  },
+  // The workspace on screen: at full strength (no card: the footer stays quieter than the tabs).
+  workspaceIconOn: { opacity: 1 },
   workspaceIconOver: { boxShadow: `0 0 0 2px ${colors.accent}`, opacity: 1 },
   workspaceAdd: { opacity: { default: 0.6, ":hover": 1 } },
 });
