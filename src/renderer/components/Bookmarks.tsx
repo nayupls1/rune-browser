@@ -334,7 +334,13 @@ function FolderMenu(props: {
     const rect = box.getBoundingClientRect();
     setPos({
       x: Math.max(4, Math.min(props.position.x, window.innerWidth - rect.width - 4)),
-      y: Math.max(4, Math.min(props.position.y, window.innerHeight - rect.height - 4)),
+      y: Math.max(
+        4,
+        Math.min(
+          props.position.above ? props.position.y - rect.height : props.position.y,
+          window.innerHeight - rect.height - 4,
+        ),
+      ),
     });
     const onPointer = (e: PointerEvent) => {
       if (!box.contains(e.target as Node) && !(e.target as Element).closest?.("[data-context-menu]")) props.onClose();

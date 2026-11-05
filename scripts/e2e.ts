@@ -466,7 +466,7 @@ const displayHost = (url: string) => url.replace(/^https?:\/\//i, "").replace(/^
  * part of a category's page (General's Search engine…: its category is opened, and the part is on its page).
  */
 const openSettingsAt = async (section: string) => {
-  await click('[data-page-link="Settings"]');
+  await fromMenu("", "settings");
   const nav = `[data-settings-nav="${section}"], [data-settings-parts~="${section}"]`;
   await page!.waitFor(`!!document.querySelector(${JSON.stringify(nav)})`, { label: "settings sidebar" });
   await click(nav);
@@ -538,7 +538,7 @@ try {
   await page.eval(`new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))`);
 
   await check("app boots and shows the sidebar", async () => {
-    await page!.waitFor(`!!document.querySelector('[data-page-link="Settings"]')`, { timeoutMs: 20_000 });
+    await page!.waitFor(`!!document.querySelector("[data-sidebar-footer] [data-more-menu]")`, { timeoutMs: 20_000 });
   });
 
   await check("providers are detected", async () => {
@@ -1064,23 +1064,50 @@ try {
     return mac ? "macOS's own traffic lights" : `${r.controls!.width}px of buttons in the sidebar's top row`;
   });
 
-  await check("sidebar: collapses to icons, resizes, remembers both", async () => {
-    const navWidth = () => page!.eval<number>(`document.querySelector("nav").getBoundingClientRect().width`);
-    await click("[data-sidebar-toggle]");
-    await page!.waitFor(`document.querySelector("nav").dataset.sidebar === "collapsed"`, { label: "collapsed" });
-    const collapsed = await navWidth();
-    if (collapsed > 60) throw new Error(`collapsed sidebar is ${collapsed}px wide`);
-    await shot("sidebar-collapsed.png");
-    // Ctrl+Shift+B brings it back.
-    await page!.eval(
-      `window.dispatchEvent(new KeyboardEvent("keydown", { key: "B", ${mod}: true, shiftKey: true, bubbles: true })), true`,
-    );
-    await page!.waitFor(`document.querySelector("nav").dataset.sidebar === "expanded"`, {
-      label: "expanded by the shortcut",
-    });
-    const before = await navWidth();
-    // Drag the edge 100px to the right.
-    await page!.eval(`(() => {
+  await check(
+    "sidebar: hides completely (shown over the page from the left edge), resizes, remembers both",
+    async () => {
+      const navWidth = () => page!.eval<number>(`document.querySelector("nav").getBoundingClientRect().width`);
+      const navRight = () => page!.eval<number>(`document.querySelector("nav").getBoundingClientRect().right`);
+      await click("[data-sidebar-toggle]");
+      await page!.waitFor(`document.querySelector("nav").dataset.sidebar === "hidden"`, { label: "hidden" });
+      // No icon rail: it's off screen, and the page has the window.
+      await page!.waitFor(`document.querySelector("nav").getBoundingClientRect().right <= 0`, { label: "off screen" });
+      if (!(await page!.eval<boolean>(`JSON.parse(localStorage.getItem("rune.sidebar")).hidden === true`)))
+        throw new Error("hiding it isn't remembered");
+      await shot("sidebar-hidden.png");
+      // The pointer at the window's left edge brings it in over the page; leaving it sends it away.
+      await page!.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 2, y: 300 });
+      await page!.waitFor(`document.querySelector("nav").dataset.sidebar === "peek"`, { label: "peeking" });
+      await page!.waitFor(`document.querySelector("nav").getBoundingClientRect().left >= 0`, { label: "on screen" });
+      await shot("sidebar-peek.png");
+      const peekRight = await navRight();
+      await page!.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: Math.round(peekRight) + 300, y: 300 });
+      await page!.waitFor(`document.querySelector("nav").dataset.sidebar === "hidden"`, { label: "away again" });
+      // Ctrl+L still pops the address out over the page, without bringing the sidebar in.
+      await page!.eval(
+        `window.dispatchEvent(new KeyboardEvent("keydown", { key: "l", code: "KeyL", ${mod}: true, bubbles: true })), true`,
+      );
+      await page!.waitFor(
+        `!!document.querySelector("[data-address-open]") && document.activeElement?.matches("[data-address]")`,
+        { label: "the address focused while the sidebar is hidden" },
+      );
+      if ((await page!.eval<string>(`document.querySelector("nav").dataset.sidebar`)) !== "hidden")
+        throw new Error("Ctrl+L brought the sidebar in");
+      await page!.eval(
+        `document.querySelector("[data-address]").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })), true`,
+      );
+      await page!.waitFor(`!document.querySelector("[data-address-open]")`, { label: "address closed" });
+      // Ctrl+Shift+B brings it back.
+      await page!.eval(
+        `window.dispatchEvent(new KeyboardEvent("keydown", { key: "B", ${mod}: true, shiftKey: true, bubbles: true })), true`,
+      );
+      await page!.waitFor(`document.querySelector("nav").dataset.sidebar === "shown"`, {
+        label: "shown by the shortcut",
+      });
+      const before = await navWidth();
+      // Drag the edge 100px to the right.
+      await page!.eval(`(() => {
       const handle = document.querySelector("[data-sidebar-resizer]");
       const r = handle.getBoundingClientRect();
       const x = r.left + r.width / 2, y = r.top + 200;
@@ -1089,19 +1116,20 @@ try {
       window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, clientX: x + 100, clientY: y }));
       return true;
     })()`);
-    const after = await navWidth();
-    if (Math.abs(after - before - 100) > 2) throw new Error(`width ${before} → ${after}`);
-    const saved = await page!.eval<{ width: number; collapsed: boolean }>(
-      `JSON.parse(localStorage.getItem("rune.sidebar"))`,
-    );
-    if (saved.width !== Math.round(after) || saved.collapsed) throw new Error(`saved ${JSON.stringify(saved)}`);
-    await shot("sidebar-wide.png");
-    // Back to the default width.
-    await page!.eval(
-      `document.querySelector("[data-sidebar-resizer]").dispatchEvent(new MouseEvent("dblclick", { bubbles: true })), true`,
-    );
-    return `${Math.round(collapsed)}px collapsed, ${Math.round(before)} → ${Math.round(after)}px`;
-  });
+      const after = await navWidth();
+      if (Math.abs(after - before - 100) > 2) throw new Error(`width ${before} → ${after}`);
+      const saved = await page!.eval<{ width: number; hidden: boolean }>(
+        `JSON.parse(localStorage.getItem("rune.sidebar"))`,
+      );
+      if (saved.width !== Math.round(after) || saved.hidden) throw new Error(`saved ${JSON.stringify(saved)}`);
+      await shot("sidebar-wide.png");
+      // Back to the default width.
+      await page!.eval(
+        `document.querySelector("[data-sidebar-resizer]").dispatchEvent(new MouseEvent("dblclick", { bubbles: true })), true`,
+      );
+      return `hidden, peeked at ${Math.round(peekRight)}px, ${Math.round(before)} → ${Math.round(after)}px`;
+    },
+  );
 
   await check("agent sidebar: resized by its edge, remembered, reset by double-click", async () => {
     const panel = "[data-agent-sidebar]";
@@ -1159,7 +1187,7 @@ try {
   });
 
   await check(
-    "sidebar: no header; collapse, workspaces and Settings in one row at the bottom, also at the minimum width",
+    "sidebar: no header; the ⋯ menu, workspaces and the agent in one row at the bottom, also at the minimum width",
     async () => {
       if (await page!.eval<boolean>(`!!document.querySelector("[data-workspace-switcher]")`))
         throw new Error("the workspace header is still there");
@@ -1167,7 +1195,7 @@ try {
         page!.eval<{ tops: number[]; order: string[]; inside: boolean; centered: boolean; bottom: boolean }>(`(() => {
         const nav = document.querySelector("nav").getBoundingClientRect();
         const footer = document.querySelector("[data-sidebar-footer]");
-        const parts = [footer.querySelector("[data-sidebar-toggle]"), footer.querySelector("[data-workspace-bar]"), footer.querySelector('[data-page-link="Settings"]')];
+        const parts = [footer.querySelector("[data-more-menu]"), footer.querySelector("[data-workspace-bar]"), footer.querySelector("[data-footer-end]")];
         const rects = parts.map((p) => p.getBoundingClientRect());
         const bar = rects[1];
         const icons = [...footer.querySelectorAll("[data-workspace-bar] button")].map((b) => b.getBoundingClientRect());
@@ -1205,7 +1233,7 @@ try {
       await shot("sidebar.png");
       // The pages that were there are in Settings now.
       await openSettingsAt("history");
-      return "collapse · workspaces · Settings; History in Settings";
+      return "⋯ · workspaces · agent; History in Settings";
     },
   );
 
@@ -1803,7 +1831,7 @@ try {
     await page!.waitFor(`document.querySelectorAll("nav li").length === ${count + 1}`, { label: "Ctrl+W closed it" });
 
     // Ctrl+W in Settings goes back to the tabs instead of closing anything.
-    await click('[data-page-link="Settings"]');
+    await fromMenu("", "settings");
     await page!.waitFor(`!!document.querySelector("[data-settings-shell]")`, { label: "settings" });
     await page!.eval(
       `window.dispatchEvent(new KeyboardEvent("keydown", { key: "w", code: "KeyW", ${mod}: true, bubbles: true })), true`,
@@ -3442,15 +3470,18 @@ try {
       return m?.startsWith("ok|") && !m.endsWith("undefined") ? m : undefined;
     }, 20_000);
     if (marks !== "ok|hello from chrome") throw new Error(`content script: ${marks}`);
-    // One puzzle button in the top row, no separate pinned buttons.
-    const topRow = await page!.eval<{ order: string[]; separate: number }>(`(() => {
+    // One puzzle button at the end of the address, no separate pinned buttons; the top row is the window's
+    // buttons and navigation.
+    const topRow = await page!.eval<{ order: string[]; separate: number; puzzles: number }>(`(() => {
       const nav = document.querySelector('${chromeFor(tab)} [data-nav-row]');
-      const pick = (el) => el.matches("[data-window-controls]") ? "close" : el.matches("[data-agent-show], [title*='agent']") ? "agent" : el.matches("[data-extensions-menu]") ? "extensions" : el.matches("[data-back]") ? "back" : el.matches("[data-forward]") ? "forward" : el.matches("[data-reload]") ? "reload" : null;
-      return { order: [...nav.querySelectorAll("button")].map(pick).filter(Boolean), separate: nav.querySelectorAll("[data-extension-action]").length };
+      const address = document.querySelector('${chromeFor(tab)} [data-address-bar]');
+      const pick = (el) => el.closest("[data-window-controls]") ? el.dataset.windowControl : el.matches("[data-sidebar-toggle]") ? "sidebar" : el.matches("[data-back]") ? "back" : el.matches("[data-forward]") ? "forward" : el.matches("[data-reload]") ? "reload" : "other:" + el.title;
+      return { order: [...nav.querySelectorAll("button")].map(pick), separate: document.querySelectorAll("[data-extension-action]").length, puzzles: address.querySelectorAll("[data-extensions-menu]").length };
     })()`);
-    // macOS has its own traffic lights instead of the close button.
-    const expectedRow = `${process.platform === "darwin" ? "" : "close,"}agent,extensions,back,forward,reload`;
-    if (topRow.order.join() !== expectedRow || topRow.separate) throw new Error(`top row: ${JSON.stringify(topRow)}`);
+    // macOS has its own traffic lights instead of the window's buttons.
+    const expectedRow = `${process.platform === "darwin" ? "" : "close,minimize,maximize,"}sidebar,back,forward,reload`;
+    if (topRow.order.join() !== expectedRow || topRow.separate || topRow.puzzles !== 1)
+      throw new Error(`top row: ${JSON.stringify(topRow)}`);
     await click(`${chromeFor(tab)} [data-extensions-menu]`);
     const badge = await page!.waitFor<string>(
       `document.querySelector('[data-extensions-list] [data-extension-item="${id}"] [data-extension-badge]')?.textContent`,
@@ -5208,7 +5239,9 @@ try {
         pageErrors.push(`${label}: ${e.exceptionDetails?.exception?.description ?? e.exceptionDetails?.text}`),
       );
       await win.send("Emulation.setFocusEmulationEnabled", { enabled: true });
-      await win.waitFor(`!!document.querySelector('[data-page-link="Settings"]')`, { label: `${label} to load` });
+      await win.waitFor(`!!document.querySelector("[data-sidebar-footer] [data-more-menu]")`, {
+        label: `${label} to load`,
+      });
       return { win, id: new URL(target.url).searchParams.get("window")! };
     };
     const windowGone = (id: string) =>

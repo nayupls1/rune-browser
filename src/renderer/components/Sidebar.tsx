@@ -35,16 +35,17 @@ import {
 import {
   draggedSplit,
   draggedTab,
-  isSidebarCollapsed,
+  isSidebarHidden,
   setDraggedSplit,
   setDraggedTab,
-  setSidebarCollapsed,
+  setSidebarHidden,
+  setSidebarPeek,
+  sidebarPeek,
   TAB_DRAG_TYPE,
   setSidebarWidth,
   SIDEBAR_DEFAULT,
   SIDEBAR_MIN,
   sidebarWidth,
-  toggleSidebar,
 } from "../lib/layout";
 import { canUnload, unloadTab } from "../lib/unload";
 import { dropTarget, hasDroppable, openDropped, setDropTarget } from "../lib/drops";
@@ -60,7 +61,7 @@ import {
   visibleTabs,
 } from "../lib/splits";
 import { colors, font, radius, space } from "../theme.stylex";
-import { AddressBar, NavRow } from "./TopBar";
+import { AddressBar, addressOpen, AgentButton, MoreMenu, NavRow } from "./TopBar";
 import { api } from "../lib/api";
 import { confirmDialog } from "./ConfirmDialog";
 import { ContextMenu, type MenuItem, type MenuPosition } from "./ContextMenu";
@@ -98,8 +99,8 @@ const entries = () => {
   return list;
 };
 
-/** Pinned tabs show as tiles above the list (not in a split view, not in the collapsed sidebar). */
-const isTile = (tab: AppSummary) => tab.pinned && !splitOf(tab.id) && !isSidebarCollapsed();
+/** Pinned tabs show as tiles above the list (not in a split view). */
+const isTile = (tab: AppSummary) => tab.pinned && !splitOf(tab.id);
 const tiles = () => workspaceTabs().filter(isTile);
 
 /** Text fields take dropped text themselves. */
@@ -108,8 +109,9 @@ const isField = (target: EventTarget | null) =>
 
 const privateWindow = () => isPrivate;
 
-/** Width of the collapsed sidebar: icons only. */
-const RAIL_WIDTH = 52;
+/** A hidden sidebar is shown over the page while the pointer is in it, or a menu of it is open. */
+const isOverlay = () => isSidebarHidden();
+const isAway = () => isSidebarHidden() && !sidebarPeek();
 
 export function Sidebar() {
   const [newMenu, setNewMenu] = createSignal<MenuPosition>();
@@ -140,14 +142,63 @@ export function Sidebar() {
   ];
   // Closed apps (the library), fresh each time the menu opens.
   createEffect(on(newMenu, (open) => open && void api.library().then(setLibrary, () => setLibrary([]))));
-  const compact = isSidebarCollapsed;
+  let nav!: HTMLElement;
+  // Hidden: it slides back out once the pointer has left it, unless a menu or the address is still open.
+  let leaveTimer: ReturnType<typeof setTimeout> | undefined;
+  onCleanup(() => clearTimeout(leaveTimer));
+  let edge: HTMLDivElement | undefined;
+  const busy = () =>
+    nav.matches(":hover") ||
+    !!edge?.matches(":hover") ||
+    !!document.querySelector("[data-address-open]") ||
+    // A menu of the sidebar's (they're portaled: one next to it, not one of the page's).
+    [...document.querySelectorAll("[data-context-menu], [data-extensions-list], [data-downloads-panel]")].some(
+      (menu) => menu.getBoundingClientRect().left < nav.getBoundingClientRect().right + 16,
+    ) ||
+    (nav.contains(document.activeElement) && document.activeElement instanceof HTMLInputElement);
+  const leaveSoon = () => {
+    clearTimeout(leaveTimer);
+    leaveTimer = setTimeout(() => {
+      if (!sidebarPeek()) return;
+      if (busy()) return leaveSoon();
+      setSidebarPeek(false);
+    }, 260);
+  };
+  // macOS's traffic lights go with it.
+  if (window.rune.window.platform === "darwin")
+    createEffect(on(isAway, (away) => window.rune.window.setButtonsVisible(!away)));
   return (
     <>
+      <Show when={isOverlay()}>
+        {/* The window's left edge: the pointer there brings the sidebar in, like Zen's compact mode. */}
+        <div
+          {...stylex.attrs(styles.edge)}
+          ref={edge}
+          onMouseEnter={() => {
+            setSidebarPeek(true);
+            // From here the pointer may go straight back to the page, without entering the sidebar.
+            leaveSoon();
+          }}
+          data-sidebar-edge
+        />
+      </Show>
       <nav
-        {...stylex.attrs(styles.root, compact() && styles.rootCompact, privateWindow() && styles.rootPrivate)}
-        style={{ width: `${compact() ? RAIL_WIDTH : sidebarWidth()}px` }}
-        data-sidebar={compact() ? "collapsed" : "expanded"}
+        ref={nav}
+        {...stylex.attrs(
+          styles.root,
+          isOverlay() && styles.rootOverlay,
+          isAway() && styles.rootAway,
+          privateWindow() && styles.rootPrivate,
+        )}
+        style={{ width: `${sidebarWidth()}px`, "--sidebar-width": `${sidebarWidth()}px` }}
+        data-sidebar={isSidebarHidden() ? (sidebarPeek() ? "peek" : "hidden") : "shown"}
         data-private-window={isPrivate ? "" : undefined}
+        // The tab on screen's chrome: its navigation, address, agent and ⋯ menu are all in here.
+        data-tab-chrome={selectedId() ?? ""}
+        aria-hidden={isAway() && !addressOpen() ? true : undefined}
+        inert={isAway() && !addressOpen() ? true : undefined}
+        onMouseEnter={() => clearTimeout(leaveTimer)}
+        onMouseLeave={() => isOverlay() && leaveSoon()}
         // Files, links and text dropped on the tab bar open in new tabs (not on fields: they take the text).
         onDragOver={(e) => {
           if (isForeignTabDrag(e.dataTransfer)) {
@@ -174,11 +225,9 @@ export function Sidebar() {
         }}
       >
         {/* The tab on screen: its navigation and address, its tools in the ⋯ menu (components/TopBar.tsx). */}
-        <div {...stylex.attrs(styles.chrome)} data-tab-chrome={selectedId() ?? ""}>
-          <NavRow compact={compact()} />
-          <Show when={!compact()}>
-            <AddressBar />
-          </Show>
+        <div {...stylex.attrs(styles.chrome)}>
+          <NavRow />
+          <AddressBar />
         </div>
         <Show when={tiles().length}>
           <ul {...stylex.attrs(styles.tiles)} data-pinned-tiles>
@@ -197,9 +246,9 @@ export function Sidebar() {
             )}
           </For>
           <Show when={dropTarget()?.kind === "list"}>
-            <li {...stylex.attrs(styles.dropSlot, compact() && styles.dropSlotCompact)} data-drop-slot>
+            <li {...stylex.attrs(styles.dropSlot)} data-drop-slot>
               <Icon name="plus" size={15} />
-              <Show when={!compact()}>Open in a new tab</Show>
+              Open in a new tab
             </li>
           </Show>
         </ul>
@@ -208,13 +257,12 @@ export function Sidebar() {
             const r = e.currentTarget.getBoundingClientRect();
             setNewMenu({ x: r.left, y: r.bottom + 4 });
           }}
-          xstyle={compact() ? styles.newButtonCompact : styles.newButton}
-          title={compact() ? "New tab" : undefined}
+          xstyle={styles.newButton}
           aria-haspopup="menu"
           data-new-tab
         >
           <Icon name="plus" size={15} />
-          <Show when={!compact()}>New tab</Show>
+          New tab
         </Button>
         <Show when={newMenu()}>
           {(position) => <ContextMenu items={newItems()} position={position()} onClose={() => setNewMenu()} />}
@@ -223,21 +271,20 @@ export function Sidebar() {
         <Show when={!isPrivate}>
           <WorkspaceName />
         </Show>
-        {/* At the very bottom: collapse, the workspaces in the middle, Settings (a column when collapsed). */}
-        <div {...stylex.attrs(styles.footer, compact() && styles.footerCompact)} data-sidebar-footer>
-          <Show when={!compact()}>
-            <CollapseButton />
-          </Show>
+        {/* At the very bottom, like Zen's: the ⋯ menu, the workspaces in the middle, the agent. */}
+        <div {...stylex.attrs(styles.footer)} data-sidebar-footer>
+          <MoreMenu />
           <Show when={!isPrivate} fallback={<span {...stylex.attrs(styles.footerSpacer)} />}>
             <WorkspaceBar />
           </Show>
-          <SettingsLink />
-          <Show when={compact()}>
-            <CollapseButton />
+          <Show when={!isPrivate} fallback={<SettingsLink />}>
+            <span {...stylex.attrs(styles.footerEnd)} data-footer-end>
+              <AgentButton />
+            </span>
           </Show>
         </div>
       </nav>
-      <Show when={!compact()}>
+      <Show when={!isSidebarHidden()}>
         <Resizer />
       </Show>
     </>
@@ -246,7 +293,7 @@ export function Sidebar() {
 
 /**
  * The sidebar's right edge: drag to resize, double-click for the default
- * width, arrow keys when focused. Dragging it far past the minimum collapses it.
+ * width, arrow keys when focused. Dragging it far past the minimum hides it.
  */
 function Resizer() {
   const [dragging, setDragging] = createSignal(false);
@@ -271,7 +318,7 @@ function Resizer() {
       stop = () => {};
       if (raw < SIDEBAR_MIN - 60) {
         setSidebarWidth(startWidth);
-        setSidebarCollapsed(true);
+        setSidebarHidden(true);
       } else setSidebarWidth(raw);
     };
     window.addEventListener("pointermove", move);
@@ -343,7 +390,6 @@ const [namingRequest, setNamingRequest] = createSignal(0);
 /** Creates a workspace, switches to it and lets the user name it. */
 async function newWorkspace() {
   await createWorkspace("New workspace");
-  setSidebarCollapsed(false);
   setNamingRequest((n) => n + 1);
 }
 
@@ -366,7 +412,7 @@ function WorkspaceBar() {
   };
   return (
     <div
-      {...stylex.attrs(styles.workspaceBar, isSidebarCollapsed() && styles.workspaceBarCompact)}
+      {...stylex.attrs(styles.workspaceBar)}
       role="tablist"
       aria-label="Workspaces"
       data-workspace-bar
@@ -492,22 +538,6 @@ function WorkspaceBar() {
   );
 }
 
-function CollapseButton() {
-  return (
-    <button
-      type="button"
-      title={withKeys(isSidebarCollapsed() ? "Expand the sidebar" : "Collapse the sidebar", "sidebar.toggle")}
-      aria-label={isSidebarCollapsed() ? "Expand the sidebar" : "Collapse the sidebar"}
-      aria-expanded={!isSidebarCollapsed()}
-      onClick={toggleSidebar}
-      {...stylex.attrs(styles.collapse)}
-      data-sidebar-toggle
-    >
-      <Icon name={isSidebarCollapsed() ? "panel-left-open" : "panel-left-close"} size={16} />
-    </button>
-  );
-}
-
 /** Opens Settings at the current workspace's section. */
 function openWorkspaceSettings() {
   return openSettings("workspace");
@@ -567,12 +597,8 @@ function SplitGroup(props: { splitId: string }) {
       {(s) => (
         <li {...stylex.attrs(styles.group, isDragged() && styles.dragging)} data-split-group={props.splitId}>
           <div
-            {...stylex.attrs(
-              stylex.defaultMarker(),
-              styles.groupHeader,
-              isSidebarCollapsed() && styles.groupHeaderCompact,
-            )}
-            title={isSidebarCollapsed() ? "Split view" : "Drag to move the split view"}
+            {...stylex.attrs(stylex.defaultMarker(), styles.groupHeader)}
+            title="Drag to move the split view"
             draggable
             onDragStart={(e) => {
               e.dataTransfer!.setData(TAB_DRAG_TYPE, `split:${props.splitId}`);
@@ -594,23 +620,21 @@ function SplitGroup(props: { splitId: string }) {
             }}
           >
             <Icon name={isRow() ? "columns-2" : "rows-2"} size={13} />
-            <Show when={!isSidebarCollapsed()}>
-              <span {...stylex.attrs(styles.groupLabel)}>Split view</span>
-              <button
-                type="button"
-                title="Split view options"
-                aria-haspopup="menu"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  const r = e.currentTarget.getBoundingClientRect();
-                  openMenu({ x: r.left, y: r.bottom + 4 });
-                }}
-                {...stylex.attrs(styles.more, styles.groupMore)}
-                data-split-menu
-              >
-                <Icon name="ellipsis" size={14} />
-              </button>
-            </Show>
+            <span {...stylex.attrs(styles.groupLabel)}>Split view</span>
+            <button
+              type="button"
+              title="Split view options"
+              aria-haspopup="menu"
+              onClick={(e) => {
+                e.stopPropagation();
+                const r = e.currentTarget.getBoundingClientRect();
+                openMenu({ x: r.left, y: r.bottom + 4 });
+              }}
+              {...stylex.attrs(styles.more, styles.groupMore)}
+              data-split-menu
+            >
+              <Icon name="ellipsis" size={14} />
+            </button>
           </div>
           <ul {...stylex.attrs(styles.list)}>
             <For each={s().tabs}>{(id) => <Show when={appById(id)}>{(app) => <Item app={app()} />}</Show>}</For>
@@ -681,8 +705,8 @@ function Item(props: { app: AppSummary; tile?: boolean }) {
     return tabs[tabs.findIndex((t) => t.id === props.app.id) + offset];
   };
   const selected = () => selectedId() === props.app.id;
-  /** Icon only: the collapsed sidebar, or a pinned tile. */
-  const hideName = () => isSidebarCollapsed() || !!props.tile;
+  /** Icon only: a pinned tile. */
+  const hideName = () => !!props.tile;
   const running = () => !!states[props.app.id]?.running;
   const menuOpen = () => menu() !== undefined;
   const highlighted = () => selected() || menuOpen();
@@ -696,9 +720,9 @@ function Item(props: { app: AppSummary; tile?: boolean }) {
     if (name && name !== props.app.name) renameApp(props.app.id, name);
   };
 
-  // Renaming needs room: a collapsed sidebar opens first.
+  // Renaming needs the sidebar on screen.
   const rename = () => {
-    setSidebarCollapsed(false);
+    if (isSidebarHidden()) setSidebarPeek(true);
     setEditing(true);
   };
 
@@ -809,19 +833,12 @@ function Item(props: { app: AppSummary; tile?: boolean }) {
         props.tile && styles.tile,
         highlighted() && styles.selected,
         beside() && styles.beside,
-        isSidebarCollapsed() && styles.itemCompact,
         isDragged() && styles.dragging,
         dropBefore() && styles.dropBefore,
         dropAfter() && styles.dropAfter,
         dropInto() && styles.dropInto,
       )}
-      title={
-        isSidebarCollapsed() || props.tile
-          ? props.app.name
-          : asleep()
-            ? "Not loaded: opens where you left it"
-            : undefined
-      }
+      title={props.tile ? props.app.name : asleep() ? "Not loaded: opens where you left it" : undefined}
       onClick={() => selectApp(props.app.id)}
       onAuxClick={(e) => {
         // Middle click closes it, like in a browser.
@@ -928,7 +945,7 @@ function Item(props: { app: AppSummary; tile?: boolean }) {
 
       <Show when={running()}>
         <span
-          {...stylex.attrs(styles.dot, isSidebarCollapsed() && styles.dotCompact, fullAccess() && styles.dotFull)}
+          {...stylex.attrs(styles.dot, fullAccess() && styles.dotFull)}
           title={fullAccess() ? "Agent is working with full access (it doesn't ask)" : "Agent is working"}
           data-running-full={fullAccess() ? "" : undefined}
         />
@@ -980,9 +997,26 @@ const styles = stylex.create({
     overflowX: "hidden",
     overflowY: "auto",
   },
-  rootCompact: { paddingInline: 8 },
   footerSpacer: { flex: 1 },
   // A private window's sidebar is tinted, so it's never mistaken for a normal one.
+  // Hidden: it floats over the page from the left, as a card, while it's shown.
+  rootOverlay: {
+    position: "fixed",
+    zIndex: 1400,
+    top: space.sm,
+    bottom: space.sm,
+    left: space.sm,
+    borderRadius: radius.lg,
+    boxShadow: `0 0 0 1px ${colors.border}, 0 24px 64px -12px rgb(0 0 0 / 0.32), 0 6px 18px -6px rgb(0 0 0 / 0.14)`,
+    transitionProperty: "left, box-shadow",
+    transitionDuration: "200ms",
+    transitionTimingFunction: "cubic-bezier(0.2, 0.8, 0.2, 1)",
+  },
+  // Moved by `left`, not a transform: the address pops out of it with position: fixed (Ctrl+L while it's hidden).
+  rootAway: { left: "calc(-1 * var(--sidebar-width) - 32px)", boxShadow: "none" },
+  // The strip at the window's left edge that brings a hidden sidebar in (over web pages too).
+  edge: { position: "fixed", zIndex: 1399, top: 0, bottom: 0, left: 0, width: 8 },
+  footerEnd: { display: "flex", justifyContent: "flex-end", flexShrink: 0, minWidth: 32 },
   rootPrivate: { backgroundImage: "linear-gradient(rgb(76 29 149 / 0.12), rgb(76 29 149 / 0.12))" },
   naming: { display: "flex", alignItems: "center", gap: space.sm, flexShrink: 0 },
   collapse: {
@@ -1014,8 +1048,6 @@ const styles = stylex.create({
   },
   handleActive: { backgroundColor: colors.accent, opacity: 0.5 },
   dragShield: { position: "fixed", inset: 0, zIndex: 1000, cursor: "col-resize" },
-  newButtonCompact: { justifyContent: "center", width: "100%", paddingInline: 0 },
-  itemCompact: { justifyContent: "center", paddingInline: 0, position: "relative" },
   hiddenText: { display: "none" },
   group: {
     display: "flex",
@@ -1038,7 +1070,6 @@ const styles = stylex.create({
     cursor: "grab",
     userSelect: "none",
   },
-  groupHeaderCompact: { justifyContent: "center", paddingInline: 0 },
   groupLabel: { flex: 1, fontWeight: 600, letterSpacing: "0.02em" },
   groupMore: { width: 18, height: 18 },
   dragging: { opacity: 0.45 },
@@ -1069,8 +1100,6 @@ const styles = stylex.create({
     fontWeight: 500,
     pointerEvents: "none",
   },
-  dropSlotCompact: { justifyContent: "center", paddingInline: 0 },
-  dotCompact: { position: "absolute", top: 5, right: 5 },
   dotFull: { backgroundColor: colors.danger },
   workspaceRename: { height: 30, fontSize: font.md },
   badge: {
@@ -1089,11 +1118,16 @@ const styles = stylex.create({
     justifyContent: "flex-start",
     width: "100%",
     flexShrink: 0,
-    backgroundColor: { default: "transparent", ":hover": colors.surfaceHover },
+    height: 34,
+    paddingInline: 10,
+    borderColor: "transparent",
+    borderRadius: 8,
+    backgroundColor: { default: "transparent", ":hover": `color-mix(in oklab, ${colors.text} 6%, transparent)` },
     boxShadow: "none",
     color: colors.muted,
+    fontWeight: 400,
   },
-  chrome: { display: "flex", flexDirection: "column", gap: space.sm, flexShrink: 0 },
+  chrome: { display: "flex", flexDirection: "column", gap: 6, flexShrink: 0 },
   tiles: {
     listStyle: "none",
     margin: 0,
@@ -1137,16 +1171,13 @@ const styles = stylex.create({
   // Collapse | workspaces (centered) | Settings; a column when the sidebar is collapsed to icons.
   footer: {
     display: "flex",
-    alignItems: "flex-end",
+    alignItems: "center",
     gap: 4,
     flexShrink: 0,
     marginTop: "auto",
-    paddingTop: space.sm,
-    borderTopWidth: 1,
-    borderTopStyle: "solid",
-    borderTopColor: colors.border,
+    marginInline: -4,
+    marginBottom: -4,
   },
-  footerCompact: { flexDirection: "column", alignItems: "center" },
   pageLink: {
     display: "grid",
     placeItems: "center",
@@ -1218,26 +1249,28 @@ const styles = stylex.create({
     flex: 1,
     minWidth: 0,
   },
-  workspaceBarCompact: { flexDirection: "column", flexWrap: "nowrap", flex: "none" },
   workspaceIcon: {
     display: "grid",
     placeItems: "center",
-    width: 34,
-    height: 34,
+    width: 30,
+    height: 30,
     padding: 0,
     borderWidth: 0,
-    borderRadius: radius.sm,
-    backgroundColor: { default: "transparent", ":hover": colors.surfaceHover },
+    borderRadius: 8,
+    backgroundColor: { default: "transparent", ":hover": `color-mix(in oklab, ${colors.text} 6%, transparent)` },
     color: colors.muted,
     cursor: "pointer",
-    opacity: { default: 0.55, ":hover": 1 },
+    opacity: { default: 0.5, ":hover": 1 },
     transitionProperty: "opacity, background-color",
     transitionDuration: "120ms",
   },
+  // The workspace on screen: at full strength, on a light tint (no card: the footer stays quieter than the tabs).
   workspaceIconOn: {
     opacity: 1,
-    backgroundColor: { default: colors.surface, ":hover": colors.surface },
-    boxShadow: `0 0 0 1px ${colors.border}`,
+    backgroundColor: {
+      default: `color-mix(in oklab, ${colors.text} 6%, transparent)`,
+      ":hover": `color-mix(in oklab, ${colors.text} 8%, transparent)`,
+    },
   },
   workspaceIconOver: { boxShadow: `0 0 0 2px ${colors.accent}`, opacity: 1 },
   workspaceAdd: { opacity: { default: 0.6, ":hover": 1 } },

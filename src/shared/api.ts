@@ -67,6 +67,8 @@ export interface RuneBridge {
     platform: string;
     minimize: () => void;
     toggleMaximize: () => void;
+    /** macOS: shows or hides the traffic lights (they go with a hidden sidebar). */
+    setButtonsVisible: (visible: boolean) => void;
     close: () => void;
     /** Closes the window without keeping it to reopen (its last tab went to another window). */
     discard: () => void;

@@ -1,5 +1,6 @@
-// The tab sidebar's width and whether it's collapsed to icons, and the agent
-// sidebar's width. Remembered across restarts.
+// The tab sidebar's width and whether it's hidden (like Zen's compact mode: the page
+// gets the whole window, and the sidebar slides in over it from the left edge), and
+// the agent sidebar's width. Remembered across restarts.
 import { createSignal } from "solid-js";
 
 export const SIDEBAR_MIN = 180;
@@ -10,7 +11,7 @@ const KEY = "rune.sidebar";
 
 const saved = (() => {
   try {
-    return JSON.parse(localStorage.getItem(KEY) ?? "{}") as { width?: number; collapsed?: boolean };
+    return JSON.parse(localStorage.getItem(KEY) ?? "{}") as { width?: number; hidden?: boolean };
   } catch {
     return {};
   }
@@ -19,12 +20,14 @@ const saved = (() => {
 const clamp = (width: number) => Math.round(Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, width)));
 
 const [width, setWidthSignal] = createSignal(clamp(typeof saved.width === "number" ? saved.width : SIDEBAR_DEFAULT));
-const [collapsed, setCollapsedSignal] = createSignal(saved.collapsed === true);
+const [hidden, setHiddenSignal] = createSignal(saved.hidden === true);
 
-const save = () => localStorage.setItem(KEY, JSON.stringify({ width: width(), collapsed: collapsed() }));
+const save = () => localStorage.setItem(KEY, JSON.stringify({ width: width(), hidden: hidden() }));
 
 export const sidebarWidth = width;
-export const isSidebarCollapsed = collapsed;
+export const isSidebarHidden = hidden;
+/** A hidden sidebar shown over the page for now (the pointer at the window's left edge). */
+export const [sidebarPeek, setSidebarPeek] = createSignal(false);
 
 /** While dragging, `persist` is false so only the end of the drag is written. */
 export function setSidebarWidth(value: number, persist = true) {
@@ -32,12 +35,13 @@ export function setSidebarWidth(value: number, persist = true) {
   if (persist) save();
 }
 
-export function setSidebarCollapsed(value: boolean) {
-  setCollapsedSignal(value);
+export function setSidebarHidden(value: boolean) {
+  setHiddenSignal(value);
+  setSidebarPeek(false);
   save();
 }
 
-export const toggleSidebar = () => setSidebarCollapsed(!collapsed());
+export const toggleSidebar = () => setSidebarHidden(!hidden());
 
 /** The tab being dragged from the sidebar, if any (drop targets light up for it). */
 export const [draggedTab, setDraggedTab] = createSignal<string | null>(null);

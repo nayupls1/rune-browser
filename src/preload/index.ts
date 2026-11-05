@@ -21,6 +21,7 @@ const bridge: RuneBridge = {
     platform: process.platform,
     minimize: () => ipcRenderer.send("rune:window", "minimize"),
     toggleMaximize: () => ipcRenderer.send("rune:window", "toggle-maximize"),
+    setButtonsVisible: (visible) => ipcRenderer.send("rune:window", visible ? "show-buttons" : "hide-buttons"),
     close: () => ipcRenderer.send("rune:window", "close"),
     discard: () => ipcRenderer.send("rune:window", "discard"),
     toggleFullScreen: () => ipcRenderer.send("rune:window", "toggle-fullscreen"),
