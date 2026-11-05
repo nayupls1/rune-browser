@@ -11,10 +11,14 @@ import { setupInternals } from "./internals";
 import { startServer, type ServerHandle } from "./server";
 import { appUserModelId, taskbarDetails } from "./taskbar";
 import { setupUpdates } from "./updates";
+import { useChromeUserAgent } from "./userAgent";
 import { guardWindow, setupWebTabs } from "./web";
 import { createWindowManager } from "./windows";
 
 const devServerUrl = process.env.VITE_DEV_SERVER_URL;
+
+// Plain Chrome everywhere, extensions' and sites' service workers included (see userAgent.ts).
+useChromeUserAgent();
 
 // Chromium finds the keyring only on desktops it knows (GNOME, KDE…). Elsewhere
 // (Hyprland, Sway…) it would keep the keys of cookies and safeStorage under a
