@@ -375,13 +375,33 @@ export function AddressBar() {
     url: page.url,
     run: () => open(page.url),
   });
-  /** Nothing typed yet: the pages visited most often and lately (not the one on screen). */
+  const tabSuggestion = (tab: (typeof apps)[number]): Suggestion => {
+    const space = workspaces.find((w) => w.id === tab.workspaceId);
+    return {
+      key: `tab:${tab.id}`,
+      action: "Switch to tab",
+      icon: () => <TabIcon tab={tab} size={16} />,
+      title: tab.name,
+      // The workspace only when it's another one than this window's.
+      detail: [
+        space && space.id !== currentWorkspace()?.id ? space.name : "",
+        tab.url ? displayUrl(tab.url).slice(0, 60) : "",
+      ]
+        .filter(Boolean)
+        .join(" · "),
+      run: () => void selectApp(tab.id),
+    };
+  };
+  /** Nothing typed yet: the pages visited most often and lately; a page open in a tab (a pinned one…) switches to it. */
   const recent = (): Suggestion[] => {
     const here = chrome()?.url();
     return visited()
       .filter((p) => !here || samePage(p.url) !== samePage(here))
       .slice(0, RECENT_SUGGESTIONS)
-      .map(historySuggestion);
+      .map((page) => {
+        const open = apps.find((t) => t.id !== selectedId() && !!t.url && samePage(t.url) === samePage(page.url));
+        return open ? tabSuggestion(open) : historySuggestion(page);
+      });
   };
   const suggestions = (): Suggestion[] => {
     const q = query();
@@ -423,23 +443,7 @@ export function AddressBar() {
       .filter((t) => t.id !== selectedId() && hit(t.name, t.url))
       .sort((a, b) => Number(!a.name.toLowerCase().startsWith(lower)) - Number(!b.name.toLowerCase().startsWith(lower)))
       .slice(0, 6);
-    for (const tab of tabs) {
-      const space = workspaces.find((w) => w.id === tab.workspaceId);
-      out.push({
-        key: `tab:${tab.id}`,
-        action: "Switch to tab",
-        icon: () => <TabIcon tab={tab} size={16} />,
-        title: tab.name,
-        // The workspace only when it's another one than this window's.
-        detail: [
-          space && space.id !== currentWorkspace()?.id ? space.name : "",
-          tab.url ? displayUrl(tab.url).slice(0, 60) : "",
-        ]
-          .filter(Boolean)
-          .join(" · "),
-        run: () => void selectApp(tab.id),
-      });
-    }
+    for (const tab of tabs) out.push(tabSuggestion(tab));
     // Bookmarks, then pages from history, for every word typed (in the name or the address without
     // its scheme); none of them twice, nor the pages open in a tab or the address typed.
     const words = lower.split(/\s+/).filter(Boolean);

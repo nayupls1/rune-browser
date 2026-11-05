@@ -925,7 +925,7 @@ function Item(props: { app: AppSummary; tile?: boolean }) {
       }}
     >
       <span {...stylex.attrs(styles.tabIcon, asleep() && styles.asleep)}>
-        <TabIcon tab={props.app} size={props.tile ? 18 : undefined} />
+        <TabIcon tab={props.app} size={props.tile ? 20 : undefined} />
       </span>
       <Show
         when={editing()}
