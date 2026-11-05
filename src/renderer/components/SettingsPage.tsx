@@ -296,11 +296,8 @@ export function SettingsShell(props: { view: string }) {
           when={!searching()}
           fallback={
             <div {...stylex.attrs(styles.page)} data-settings-results>
-              <header {...stylex.attrs(styles.header)}>
-                <h1 {...stylex.attrs(styles.title, noMatches() && styles.titleQuiet)}>Search results</h1>
-                <Show when={found() && !found()!.length}>
-                  <p {...stylex.attrs(styles.resultCount)}>0 settings</p>
-                </Show>
+              <header {...stylex.attrs(styles.header, noMatches() && styles.headerHidden)}>
+                <h1 {...stylex.attrs(styles.title)}>Search results</h1>
                 <Show when={found()?.length}>
                   <p {...stylex.attrs(styles.resultCount)} data-settings-result-count>
                     {count() === 1 ? "1 setting" : `${count()} settings`} in{" "}
@@ -2701,7 +2698,7 @@ const styles = stylex.create({
   ruleHeaders: { flex: "1 1 240px", width: "auto", minHeight: 0, fontFamily: font.mono, fontSize: font.xs },
   textarea: {
     width: "100%",
-    minHeight: 88,
+    minHeight: 64,
     padding: space.md,
     borderRadius: radius.sm,
     borderWidth: 1,
@@ -2709,9 +2706,11 @@ const styles = stylex.create({
     borderColor: { default: colors.border, ":focus": colors.accent },
     backgroundColor: colors.bg,
     outline: "none",
+    color: colors.text,
     fontSize: font.sm,
     lineHeight: 1.5,
     resize: "vertical",
+    "::placeholder": { color: colors.muted },
   },
   segmented: {
     display: "inline-flex",
@@ -2719,7 +2718,7 @@ const styles = stylex.create({
     gap: 2,
     borderRadius: `calc(${radius.sm} + 3px)`,
     backgroundColor: `light-dark(color-mix(in oklab, ${colors.bg}, ${colors.text} 10%), color-mix(in oklab, ${colors.bg}, #000000 35%))`,
-    boxShadow: `inset 0 0 0 1px light-dark(transparent, color-mix(in oklab, ${colors.border}, transparent 30%))`,
+    boxShadow: `inset 0 0 0 1px light-dark(color-mix(in oklab, ${colors.border}, transparent 40%), color-mix(in oklab, ${colors.border}, transparent 30%))`,
   },
   segment: {
     height: 26,
@@ -2955,7 +2954,7 @@ const styles = stylex.create({
   part: { display: "flex", flexDirection: "column", gap: 28, scrollMarginTop: 24, borderRadius: radius.md },
   sectionHead: { display: "flex", flexDirection: "column", gap: 4, paddingInline: 1, paddingBottom: 2 },
   rowDescription: { color: colors.muted, fontSize: font.sm, lineHeight: 1.45, textWrap: "pretty" },
-  resultPage: { display: "flex", flexDirection: "column", gap: 12, paddingTop: 4 },
+  resultPage: { display: "flex", flexDirection: "column", gap: 12, paddingTop: 16 },
   resultTitle: {
     display: "inline-flex",
     alignItems: "center",
@@ -3047,9 +3046,9 @@ const styles = stylex.create({
     borderBottomRightRadius: radius.md,
   },
   controlLeading: { paddingTop: 2 },
-  titleQuiet: { fontSize: font.lg, color: colors.muted },
   footerLabel: { color: colors.muted, fontSize: font.sm, fontWeight: 400 },
   rowInset: { paddingLeft: 44 },
   installedTitle: { marginBottom: -12, paddingInline: 1 },
   providerToggle: { display: "flex", paddingTop: 5 },
+  headerHidden: { display: "none" },
 });
