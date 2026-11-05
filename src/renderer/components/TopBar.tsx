@@ -62,7 +62,7 @@ export { addressOpen };
 /** History suggestions shown at once (open tabs come first). */
 const HISTORY_SUGGESTIONS = 5;
 /** Pages from history shown when the address opens, before anything's typed. */
-const RECENT_SUGGESTIONS = 6;
+const RECENT_SUGGESTIONS = 5;
 const BOOKMARK_SUGGESTIONS = 4;
 
 /**
@@ -430,7 +430,11 @@ export function AddressBar() {
         action: "Switch to tab",
         icon: () => <TabIcon tab={tab} size={16} />,
         title: tab.name,
-        detail: [workspaces.length > 1 && space ? space.name : "", tab.url ? displayUrl(tab.url).slice(0, 60) : ""]
+        // The workspace only when it's another one than this window's.
+        detail: [
+          space && space.id !== currentWorkspace()?.id ? space.name : "",
+          tab.url ? displayUrl(tab.url).slice(0, 60) : "",
+        ]
           .filter(Boolean)
           .join(" · "),
         run: () => void selectApp(tab.id),
