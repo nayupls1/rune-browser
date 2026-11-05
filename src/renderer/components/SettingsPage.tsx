@@ -181,7 +181,7 @@ export function SettingsShell(props: { view: string }) {
       e.stopPropagation();
       setQuery("");
     } else if (e.key === "Enter") {
-      const first = searchable().find((s) => found()?.includes(s.id));
+      const first = found()?.[0] && sectionById(found()![0]!);
       if (first) open(first);
     }
   };
@@ -395,9 +395,12 @@ function filterSettings(root: HTMLElement, words: string[]) {
     return on;
   };
   const found: string[] = [];
+  const weak: string[] = [];
   let count = 0;
   for (const page of root.querySelectorAll<HTMLElement>("[data-search-page]")) {
     let pageHit = false;
+    // Matched by a title (a row's, a section's), not only a description: listed first.
+    let strong = false;
     for (const part of page.querySelectorAll<HTMLElement>("[data-settings-part]")) {
       const sections = [...part.querySelectorAll<HTMLElement>("[data-setting-section]")].map((el) => {
         const titleHit = matches(el.dataset.title);
@@ -409,6 +412,9 @@ function filterSettings(root: HTMLElement, words: string[]) {
         };
       });
       const direct = sections.some((s) => s.titleHit || s.items.some((i) => i.hit));
+      strong ||= sections.some(
+        (s) => s.titleHit || s.items.some((i) => i.hit && matches(i.item.dataset.searchLabel ?? i.item.textContent)),
+      );
       const whole = !direct && matches(part.dataset.searchText);
       let partShown = false;
       for (const section of sections) {
@@ -423,10 +429,11 @@ function filterSettings(root: HTMLElement, words: string[]) {
       if (!sections.length) partShown = matches(part.dataset.searchText) || matches(part.textContent);
       pageHit = show(part, partShown) || pageHit;
     }
-    if (show(page, pageHit)) found.push(page.dataset.searchPage!);
+    page.style.order = strong ? "0" : "1";
+    if (show(page, pageHit)) (strong ? found : weak).push(page.dataset.searchPage!);
   }
   highlight(root, words);
-  return { found, count };
+  return { found: [...found, ...weak], count };
 }
 
 /** Marks the searched words in what's shown (the CSS Custom Highlight API: no DOM changes). */
@@ -1092,7 +1099,7 @@ function ProviderRow(props: { id: ProviderId }) {
         <span {...stylex.attrs(styles.muted)}>Path</span>
         <input
           value={config().binaryPath}
-          placeholder={status()?.binary ?? `Path to ${props.id}`}
+          placeholder={status()?.binary ?? "Not set"}
           onChange={(e) => setConfig({ binaryPath: e.currentTarget.value.trim() })}
           {...stylex.attrs(styles.textInput, styles.mono, styles.pathInput)}
         />
@@ -2149,6 +2156,7 @@ export function Row(props: {
     <div
       {...stylex.attrs(styles.row, props.wide && styles.rowWide, props.dense && styles.rowDense)}
       data-setting-row
+      data-search-label={props.label}
       data-search-text={`${props.label} ${props.description ?? ""}`}
     >
       <div {...stylex.attrs(styles.rowText, props.wide && styles.rowTextWide)}>
@@ -2212,7 +2220,7 @@ function ColorField(props: {
   onChange: (value: string | undefined) => void;
 }) {
   return (
-    <div {...stylex.attrs(styles.colorField)}>
+    <label {...stylex.attrs(styles.colorField)}>
       <input
         type="color"
         value={props.value ?? props.fallback}
@@ -2221,11 +2229,18 @@ function ColorField(props: {
       />
       <span {...stylex.attrs(styles.colorValue)}>{props.value?.toUpperCase() ?? "Default"}</span>
       <Show when={props.value}>
-        <button type="button" onClick={() => props.onChange(undefined)} {...stylex.attrs(styles.linkButton)}>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            props.onChange(undefined);
+          }}
+          {...stylex.attrs(styles.linkButton)}
+        >
           Reset
         </button>
       </Show>
-    </div>
+    </label>
   );
 }
 
@@ -2449,10 +2464,10 @@ const styles = stylex.create({
   section: { display: "flex", flexDirection: "column", gap: 8 },
   sectionTitle: {
     margin: 0,
-    color: `color-mix(in oklab, ${colors.text}, ${colors.muted} 45%)`,
-    fontSize: font.sm,
+    color: colors.text,
+    fontSize: font.md,
     fontWeight: 600,
-    letterSpacing: "0.01em",
+    letterSpacing: "-0.005em",
   },
   rows: {
     display: "flex",
@@ -2696,19 +2711,34 @@ const styles = stylex.create({
     transition: "transform 160ms cubic-bezier(0.3, 0.7, 0.4, 1)",
   },
   knobOn: { transform: "translateX(16px)" },
-  colorField: { display: "flex", alignItems: "center", gap: space.sm },
-  swatchInput: {
-    width: 34,
-    height: 28,
-    padding: 2,
+  colorField: {
+    display: "flex",
+    alignItems: "center",
+    gap: space.sm,
+    boxSizing: "border-box",
+    width: 220,
+    height: 32,
+    paddingLeft: 4,
+    paddingRight: space.md,
     borderRadius: radius.sm,
     borderWidth: 1,
     borderStyle: "solid",
-    borderColor: colors.border,
-    backgroundColor: colors.bg,
+    borderColor: { default: colors.border, ":hover": `color-mix(in oklab, ${colors.border}, ${colors.text} 20%)` },
+    backgroundColor: colors.surface,
     cursor: "pointer",
   },
-  colorValue: { minWidth: 64, color: colors.muted, fontSize: font.sm, fontVariantNumeric: "tabular-nums" },
+  swatchInput: {
+    width: 24,
+    height: 22,
+    padding: 0,
+    borderWidth: 0,
+    borderRadius: 4,
+    backgroundColor: "transparent",
+    cursor: "pointer",
+    "::-webkit-color-swatch-wrapper": { padding: 0 },
+    "::-webkit-color-swatch": { borderWidth: 0, borderRadius: 4, boxShadow: "inset 0 0 0 1px rgb(0 0 0 / 0.15)" },
+  },
+  colorValue: { flex: 1, color: colors.muted, fontSize: font.sm, fontVariantNumeric: "tabular-nums" },
   linkButton: {
     padding: 0,
     borderWidth: 0,
@@ -2831,7 +2861,7 @@ const styles = stylex.create({
   navList: {
     display: "flex",
     flexDirection: "column",
-    gap: 14,
+    gap: 12,
     flex: 1,
     minHeight: 0,
     paddingTop: 8,
@@ -2840,7 +2870,7 @@ const styles = stylex.create({
     overflowY: "auto",
     scrollbarWidth: "thin",
     scrollbarGutter: "stable",
-    scrollbarColor: `color-mix(in oklab, ${colors.border}, ${colors.text} 15%) transparent`,
+    scrollbarColor: `color-mix(in oklab, ${colors.border}, ${colors.text} 8%) transparent`,
   },
   navGroupLabel: {
     paddingInline: 8,

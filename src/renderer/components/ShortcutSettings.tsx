@@ -278,7 +278,7 @@ const styles = stylex.create({
     flexWrap: "wrap",
     gap: 6,
     flexShrink: 0,
-    width: 410,
+    width: 400,
   },
   chip: {
     boxSizing: "border-box",

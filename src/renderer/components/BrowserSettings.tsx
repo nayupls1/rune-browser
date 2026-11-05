@@ -116,6 +116,7 @@ export function PrivacySection() {
           <Select
             value={range()}
             onChange={(e) => setRange(e.currentTarget.value as (typeof clearRanges)[number]["id"])}
+            xstyle={styles.select}
             data-clear-range
           >
             <For each={clearRanges}>{(r) => <option value={r.id}>{r.label}</option>}</For>
