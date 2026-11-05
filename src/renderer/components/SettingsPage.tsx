@@ -486,7 +486,7 @@ function highlight(root: HTMLElement, words: string[]) {
 // The highlight, and what a page shows around its settings (its own search box, notes) left out of search results.
 const highlightCss = `::highlight(settings-search) { background-color: color-mix(in oklab, transparent, ${colors.accent} 17%); color: ${colors.text}; }
 [data-settings-results] [data-search-hide], [data-settings-results] [data-same-title] > div > h2 { display: none !important; }
-[data-settings-results] [data-search-context] > :first-child { opacity: 0.6; }`;
+[data-settings-results] [data-search-context] { opacity: 0.6; }`;
 
 /** A page's title: a section with the same title doesn't repeat it. */
 const PageTitle = createContext<string>();
@@ -2362,10 +2362,13 @@ function PresetButton(props: { name: string; theme: GlobalTheme; active: boolean
       onClick={props.onClick}
       title={props.name}
       aria-pressed={props.active}
-      {...stylex.attrs(styles.preset, props.active && styles.presetActive, otherMode() && styles.presetOtherMode)}
+      {...stylex.attrs(styles.preset, props.active && styles.presetActive)}
       data-preset={props.name}
     >
-      <span {...stylex.attrs(styles.presetPreview)} style={{ "background-color": vars().bg }}>
+      <span
+        {...stylex.attrs(styles.presetPreview, otherMode() && styles.presetOtherMode)}
+        style={{ "background-color": vars().bg }}
+      >
         <span {...stylex.attrs(styles.presetCard)} style={{ "background-color": vars().surface }}>
           <span {...stylex.attrs(styles.presetDot)} style={{ "background-color": vars().accent }} />
           <span {...stylex.attrs(styles.presetLine)} style={{ "background-color": vars().text }} />
@@ -2731,7 +2734,10 @@ const styles = stylex.create({
     borderRadius: radius.sm,
     borderWidth: 1,
     borderStyle: "solid",
-    borderColor: { default: colors.border, ":focus": colors.accent },
+    borderColor: {
+      default: `color-mix(in oklab, ${colors.border}, ${colors.text} 15%)`,
+      ":focus": colors.accent,
+    },
     backgroundColor: colors.bg,
     outline: "none",
     color: colors.text,
