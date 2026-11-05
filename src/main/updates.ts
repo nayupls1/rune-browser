@@ -5,11 +5,24 @@
 // deb/rpm packages, the Windows installer. macOS builds aren't signed yet, and
 // unsigned apps can't replace themselves there, so they only link to the
 // release (NAT-89).
-import { app, ipcMain, type WebContents } from "electron";
+//
+// Which release is newest is decided here, not by electron-updater: it takes
+// GitHub's latest stable release, or on the daily channel the first daily build in
+// the feed, which skipped stable releases and depended on the feed's order. Here
+// it's the highest version the channel gets (shared/updates.ts), and the updater
+// reads that release's feed (latest*.yml) directly.
+import { app, ipcMain, net, type WebContents } from "electron";
 import { autoUpdater } from "electron-updater";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import type { UpdateChannel, UpdateInfo, UpdateStatus } from "../shared/updates";
+import {
+  defaultChannel,
+  newestRelease,
+  tagsFromFeed,
+  type UpdateChannel,
+  type UpdateInfo,
+  type UpdateStatus,
+} from "../shared/updates";
 import { readJson, writeJson } from "./extensions/registry";
 import type { AppWindows } from "./windows";
 
@@ -30,6 +43,31 @@ function unsupportedReason(): string | null {
   return null;
 }
 
+async function fetchText(url: string, accept: string) {
+  const response = await net.fetch(url, { headers: { Accept: accept }, cache: "no-store" });
+  if (!response.ok) throw new Error(`HttpError: ${response.status} for ${url}`);
+  return response.text();
+}
+
+/**
+ * The release a channel updates to: the latest stable release (GitHub's
+ * "latest", however many daily builds came after it), and on the daily channel the
+ * newest version among it and the releases in the feed. Null if nothing is published.
+ */
+async function releaseFor(channel: UpdateChannel): Promise<string | null> {
+  const [latest, feed] = await Promise.all([
+    fetchText(`${RELEASES_URL}/latest`, "application/json")
+      .then((text) => (JSON.parse(text) as { tag_name?: unknown }).tag_name)
+      .then((tag) => (typeof tag === "string" ? [tag] : []))
+      // None published yet is a 404.
+      .catch((err) => (/HttpError: 404/.test(String(err)) ? [] : Promise.reject(err))),
+    channel === "daily"
+      ? fetchText(`${RELEASES_URL}.atom`, "application/atom+xml, application/xml").then(tagsFromFeed)
+      : Promise.resolve([]),
+  ]);
+  return newestRelease([...latest, ...feed], channel);
+}
+
 /** The first line of electron-updater's errors (the rest is response headers); none published yet isn't one. */
 function errorStatus(err: unknown): UpdateStatus {
   const message = err instanceof Error ? err.message : String(err);
@@ -39,7 +77,8 @@ function errorStatus(err: unknown): UpdateStatus {
 
 export function setupUpdates(windows: AppWindows) {
   const file = join(app.getPath("userData"), "updates.json");
-  let channel: UpdateChannel = readJson<{ channel?: string }>(file)?.channel === "daily" ? "daily" : "stable";
+  const saved = readJson<{ channel?: string }>(file)?.channel;
+  let channel: UpdateChannel = saved === "daily" || saved === "stable" ? saved : defaultChannel(app.getVersion());
   let checkedAt: string | null = null;
   const reason = unsupportedReason();
   let status: UpdateStatus = reason ? { state: "unsupported", reason } : { state: "idle" };
@@ -55,8 +94,15 @@ export function setupUpdates(windows: AppWindows) {
   const check = async () => {
     if (reason || status.state === "checking" || status.state === "downloading" || status.state === "ready")
       return info();
-    autoUpdater.allowPrerelease = channel === "daily";
     try {
+      set({ state: "checking" });
+      const tag = await releaseFor(channel);
+      if (!tag) {
+        set({ state: "idle" });
+        return info();
+      }
+      // That release's own feed (latest.yml, latest-linux.yml…) and installers.
+      autoUpdater.setFeedURL({ provider: "generic", url: `${RELEASES_URL}/download/${encodeURIComponent(tag)}` });
       await autoUpdater.checkForUpdates();
     } catch (err) {
       set(errorStatus(err));

@@ -53,6 +53,12 @@
   -webkit-app-region: no-drag;
 }
 
+/* The address bar while it's open floats over everything, the top bar too. */
+[data-address-backdrop],
+[data-address-bar] {
+  -webkit-app-region: no-drag;
+}
+
 /* Markdown in agent replies (generated HTML, so it can't
    carry StyleX classes). */
 .rune-markdown > :first-child {

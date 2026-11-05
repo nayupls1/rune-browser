@@ -31,9 +31,13 @@ publish:
   repo: rune-browser
   releaseType: draft
 linux:
+  # The AppImage runs anywhere; the packages install it for Debian and Ubuntu (deb),
+  # Fedora and openSUSE (rpm) and Arch (pacman). All of them update themselves.
   target:
     - AppImage
     - deb
+    - rpm
+    - pacman
   category: Network;WebBrowser
   synopsis: A browser where coding agents build your own small apps
   maintainer: nayupls1 <316469236+nathanpls@users.noreply.github.com>
@@ -51,6 +55,19 @@ linux:
 deb:
   # Apps are sandboxed with bubblewrap.
   recommends:
+    - bubblewrap
+pacman:
+  # Electron's libraries as Arch names them (electron-builder's defaults name packages Arch no longer has),
+  # and bubblewrap, which sandboxes apps.
+  depends:
+    - gtk3
+    - nss
+    - alsa-lib
+    - libxss
+    - libxtst
+    - libnotify
+    - libsecret
+    - mesa
     - bubblewrap
 win:
   target: nsis

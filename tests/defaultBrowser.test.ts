@@ -12,6 +12,7 @@ import {
   WINDOWS_REGISTERED_NAME,
 } from "../src/shared/defaultBrowser";
 import { appImageDesktopEntry, desktopExecArg, linksFromArgs, withoutLinks } from "../src/main/links";
+import { defaultFor, mimeappsFiles, withDefault, xdgDirs } from "../src/main/mimeapps";
 import { fileUrl } from "../src/shared/web";
 
 // As the system has them (C:\home\me\… on Windows).
@@ -140,5 +141,104 @@ describe("the installers register what Rune Browser opens", () => {
     );
     // Links can't smuggle in Chromium switches.
     expect(nsis).toContain(`'"$appExe" -- "%1"'`);
+  });
+});
+
+describe("Linux's mimeapps.list", () => {
+  const types = ["x-scheme-handler/http", "x-scheme-handler/https", "text/html"];
+
+  test("read in the spec's order: the desktop's own file, the user's, the system's, then applications/", () => {
+    const dirs = xdgDirs({ XDG_CURRENT_DESKTOP: "ubuntu:GNOME", XDG_DATA_DIRS: "/usr/share" }, "/home/me");
+    expect(mimeappsFiles(dirs)).toEqual([
+      "/home/me/.config/ubuntu-mimeapps.list",
+      "/home/me/.config/gnome-mimeapps.list",
+      "/home/me/.config/mimeapps.list",
+      "/etc/xdg/ubuntu-mimeapps.list",
+      "/etc/xdg/gnome-mimeapps.list",
+      "/etc/xdg/mimeapps.list",
+      "/home/me/.local/share/applications/ubuntu-mimeapps.list",
+      "/home/me/.local/share/applications/gnome-mimeapps.list",
+      "/home/me/.local/share/applications/mimeapps.list",
+      "/usr/share/applications/ubuntu-mimeapps.list",
+      "/usr/share/applications/gnome-mimeapps.list",
+      "/usr/share/applications/mimeapps.list",
+    ]);
+    // No desktop (a bare window manager) and relative paths, which the spec ignores.
+    const bare = xdgDirs({ XDG_CONFIG_HOME: "relative", XDG_DATA_DIRS: "rel:/opt/share" }, "/home/me");
+    expect(bare.configHome).toBe("/home/me/.config");
+    expect(bare.dataDirs).toEqual(["/opt/share"]);
+    expect(bare.desktops).toEqual([]);
+  });
+
+  test("the first default that's installed wins", () => {
+    const user = "[Default Applications]\nx-scheme-handler/https=gone.desktop;firefox.desktop;\n";
+    const system = "[Default Applications]\nx-scheme-handler/https=rune-browser.desktop;\n";
+    const installed = (d: string) => d !== "gone.desktop";
+    expect(defaultFor([null, user, system], "x-scheme-handler/https", installed)).toBe("firefox.desktop");
+    expect(defaultFor([null, system], "x-scheme-handler/https", installed)).toBe(LINUX_DESKTOP_FILE);
+    expect(defaultFor([null, null], "x-scheme-handler/https", installed)).toBeNull();
+    // Added associations aren't defaults.
+    expect(
+      defaultFor(["[Added Associations]\nx-scheme-handler/https=a.desktop;\n"], "x-scheme-handler/https", installed),
+    ).toBeNull();
+  });
+
+  test("making it the default: a new file", () => {
+    expect(withDefault("", LINUX_DESKTOP_FILE, types)).toBe(
+      [
+        "[Default Applications]",
+        "x-scheme-handler/http=rune-browser.desktop;",
+        "x-scheme-handler/https=rune-browser.desktop;",
+        "text/html=rune-browser.desktop;",
+        "",
+        "[Added Associations]",
+        "x-scheme-handler/http=rune-browser.desktop;",
+        "x-scheme-handler/https=rune-browser.desktop;",
+        "text/html=rune-browser.desktop;",
+        "",
+      ].join("\n"),
+    );
+  });
+
+  test("making it the default: first for its types, everything else kept", () => {
+    const before = [
+      "# my defaults",
+      "[Added Associations]",
+      "text/html=firefox.desktop;",
+      "",
+      "[Default Applications]",
+      "x-scheme-handler/https=firefox.desktop;rune-browser.desktop;",
+      "application/pdf=org.gnome.Evince.desktop;",
+      "",
+      "[Removed Associations]",
+      "text/html=rune-browser.desktop;other.desktop;",
+      "image/png=rune-browser.desktop;",
+      "",
+    ].join("\n");
+    const after = withDefault(before, LINUX_DESKTOP_FILE, types);
+    expect(after).toBe(
+      [
+        "# my defaults",
+        "[Added Associations]",
+        "text/html=rune-browser.desktop;firefox.desktop;",
+        "x-scheme-handler/http=rune-browser.desktop;",
+        "x-scheme-handler/https=rune-browser.desktop;",
+        "",
+        "[Default Applications]",
+        "x-scheme-handler/https=rune-browser.desktop;firefox.desktop;",
+        "application/pdf=org.gnome.Evince.desktop;",
+        "x-scheme-handler/http=rune-browser.desktop;",
+        "text/html=rune-browser.desktop;",
+        "",
+        "[Removed Associations]",
+        "text/html=other.desktop;",
+        "image/png=rune-browser.desktop;",
+        "",
+      ].join("\n"),
+    );
+    // Again: nothing changes.
+    expect(withDefault(after, LINUX_DESKTOP_FILE, types)).toBe(after);
+    // And it reads back as the default.
+    expect(defaultFor([after], "x-scheme-handler/https", () => true)).toBe(LINUX_DESKTOP_FILE);
   });
 });

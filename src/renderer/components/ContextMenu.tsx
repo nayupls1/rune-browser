@@ -12,6 +12,10 @@ export interface MenuItem {
   disabled?: boolean;
   /** Shows a check mark (the current choice). */
   checked?: boolean;
+  /** Its keyboard shortcut, shown at the end ("Ctrl+H"). */
+  hint?: string;
+  /** Names it for tests (`data-menu-item`). */
+  id?: string;
   onSelect: () => void;
 }
 
@@ -85,9 +89,13 @@ export function ContextMenu(props: { items: (MenuItem | "separator")[]; position
                     entry().onSelect();
                   }}
                   {...stylex.attrs(styles.item, entry().danger && styles.danger)}
+                  data-menu-item={entry().id}
                 >
                   <Icon name={entry().icon} size={15} {...stylex.attrs(styles.icon)} />
                   <span {...stylex.attrs(styles.label)}>{entry().label}</span>
+                  <Show when={entry().hint}>
+                    <span {...stylex.attrs(styles.hint)}>{entry().hint}</span>
+                  </Show>
                   <Show when={entry().checked}>
                     <Icon name="check" size={14} {...stylex.attrs(styles.check)} />
                   </Show>
@@ -140,5 +148,6 @@ const styles = stylex.create({
   icon: { flexShrink: 0, opacity: 0.8 },
   label: { flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   check: { flexShrink: 0, color: colors.accent },
+  hint: { flexShrink: 0, paddingLeft: space.md, color: colors.muted, fontSize: font.xs },
   separator: { height: 1, marginBlock: space.xs, backgroundColor: colors.border },
 });

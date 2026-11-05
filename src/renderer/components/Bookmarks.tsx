@@ -1,5 +1,5 @@
 // Bookmarks while browsing: the star in the address bar and its popover (also
-// Ctrl+D), the bookmarks menu in the sidebar's top row, and the bookmarks bar
+// Ctrl+D), the bookmarks menu (from the top row's ⋯ menu), and the bookmarks bar
 // above the page. The bookmarks page is BookmarksPage.tsx; the state is
 // lib/bookmarks.ts.
 import * as stylex from "@stylexjs/stylex";
@@ -28,6 +28,7 @@ import {
 } from "../lib/bookmarks";
 import { BOOKMARKS_VIEW, isTab, selectApp, selectedId, appById } from "../lib/store";
 import { shortcutLabel, withKeys } from "../lib/shortcuts";
+import { addressHovered } from "../lib/tabChrome";
 import { colors, font, radius, space } from "../theme.stylex";
 import { ContextMenu, type MenuItem, type MenuPosition } from "./ContextMenu";
 import { Icon } from "./Icon";
@@ -123,13 +124,15 @@ function itemMenu(node: BookmarkNode, onDone?: () => void): (MenuItem | "separat
 /** In the address bar of a web tab: filled when the page is bookmarked; adds or edits the bookmark. */
 export function BookmarkStar(props: { tabId: string; url: string }) {
   const bookmarked = () => !!bookmarkOf(props.url);
+  // An empty star shows only while the pointer is over the address (Ctrl+D works either way).
+  const quiet = () => !bookmarked() && !addressHovered() && !bookmarkEditor();
   return (
     <Show when={canBookmark(props.url)}>
       <button
         type="button"
         title={withKeys(bookmarked() ? "Edit bookmark" : "Bookmark this tab", "bookmark.page")}
         onClick={() => void bookmarkTab(props.tabId)}
-        {...stylex.attrs(styles.star, bookmarked() && styles.starOn)}
+        {...stylex.attrs(styles.star, bookmarked() && styles.starOn, quiet() && styles.starQuiet)}
         data-bookmark-star={bookmarked() ? "on" : "off"}
       >
         <Icon name="star" size={14} fill={bookmarked() ? "currentColor" : "none"} />
@@ -442,10 +445,8 @@ function FolderMenu(props: {
   );
 }
 
-/** The bookmarks menu in the sidebar's top row: bookmarking, the bar, the page, and every bookmark. */
-export function BookmarksMenuButton() {
-  const [at, setAt] = createSignal<MenuPosition>();
-  const isOpen = () => at() !== undefined;
+/** The bookmarks menu, from the top row's ⋯ menu: bookmarking, the bar, the page, and every bookmark. */
+export function BookmarksMenu(props: { position: MenuPosition; onClose: () => void }) {
   const tabId = () => (isTab(selectedId()) ? selectedId() : null);
   const tabUrl = () => appById(tabId())?.url;
   const top = (): (MenuItem | "separator")[] => [
@@ -461,32 +462,13 @@ export function BookmarksMenuButton() {
     "separator",
   ];
   return (
-    <>
-      <button
-        type="button"
-        title={withKeys("Bookmarks", "open.bookmarks")}
-        onClick={(e) => {
-          if (at()) return setAt();
-          const r = e.currentTarget.getBoundingClientRect();
-          setAt({ x: r.left, y: r.bottom + 4 });
-        }}
-        {...stylex.attrs(styles.navButton, isOpen() && styles.navButtonOn)}
-        data-bookmarks-button
-      >
-        <Icon name="bookmark" size={16} />
-      </button>
-      <Show when={at()} keyed>
-        {(position) => (
-          <FolderMenu
-            folder={BAR_ID}
-            position={position}
-            onClose={() => setAt()}
-            top={top()}
-            bottom={[otherFolder()]}
-          />
-        )}
-      </Show>
-    </>
+    <FolderMenu
+      folder={BAR_ID}
+      position={props.position}
+      onClose={props.onClose}
+      top={top()}
+      bottom={[otherFolder()]}
+    />
   );
 }
 
@@ -610,19 +592,7 @@ const styles = stylex.create({
     cursor: "pointer",
   },
   starOn: { color: { default: colors.accent, ":hover": colors.accent } },
-  navButton: {
-    display: "grid",
-    placeItems: "center",
-    width: 30,
-    height: 30,
-    padding: 0,
-    borderWidth: 0,
-    borderRadius: radius.sm,
-    backgroundColor: { default: "transparent", ":hover": colors.surfaceHover },
-    color: { default: colors.muted, ":hover": colors.text },
-    cursor: "pointer",
-  },
-  navButtonOn: { backgroundColor: colors.surfaceHover, color: colors.text },
+  starQuiet: { display: "none" },
   popover: {
     position: "fixed",
     zIndex: 1600,

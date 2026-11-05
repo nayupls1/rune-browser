@@ -60,11 +60,11 @@ Get the latest release from the
 Rune Browser updates itself from there (Settings → About; a Daily channel gets
 builds of the latest changes).
 
-| OS                        | Download              | Notes                                                                                                                   |
-| ------------------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| **Linux** (x64)           | `.AppImage` or `.deb` | Install [bubblewrap](https://github.com/containers/bubblewrap) (`bwrap`) so apps run sandboxed (the deb recommends it). |
-| **Windows** (x64)         | `-setup-x64.exe`      | Not signed yet: on the SmartScreen warning, choose "More info" → "Run anyway".                                          |
-| **macOS** (Apple Silicon) | `.dmg`                | Supported but untested, and not signed yet: right-click → Open the first time. Updates are downloaded by hand.          |
+| OS                        | Download                                                                                                                 | Notes                                                                                                                                                     |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Linux** (x64)           | `.AppImage` (any distribution), `.deb` (Debian, Ubuntu), `.rpm` (Fedora, openSUSE) or `.pacman` (Arch: `sudo pacman -U`) | Install [bubblewrap](https://github.com/containers/bubblewrap) (`bwrap`) so apps run sandboxed (the deb recommends it, the pacman package depends on it). |
+| **Windows** (x64)         | `-setup-x64.exe`                                                                                                         | Not signed yet: on the SmartScreen warning, choose "More info" → "Run anyway".                                                                            |
+| **macOS** (Apple Silicon) | `.dmg`                                                                                                                   | Supported but untested, and not signed yet: right-click → Open the first time. Updates are downloaded by hand.                                            |
 
 Then install and sign in to at least one agent:
 

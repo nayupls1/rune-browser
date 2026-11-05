@@ -1,40 +1,46 @@
 // The top of the sidebar, like Zen Browser's: the window's close button, the
-// agent, extensions, downloads, back, forward and reload, then the address of the tab on screen (an app's localhost URL)
-// with suggestions as you type, and the tab's own tools. Pages get the whole
+// agent, extensions, downloads, back, forward, reload and a ⋯ menu (bookmarks, history,
+// the tab's own tools…), then the address of the tab on screen (an app's localhost URL).
+// Focusing the address pops it out over the page, big, with suggestions from open tabs,
+// bookmarks and history (before anything's typed: the pages visited most). Pages get the whole
 // content area. Each tab provides what's shown here (lib/tabChrome.ts).
 import * as stylex from "@stylexjs/stylex";
-import { createEffect, createMemo, createSignal, For, on, onCleanup, Show, type JSX } from "solid-js";
-import { Portal } from "solid-js/web";
+import { createEffect, createMemo, createSignal, For, Match, on, onCleanup, Show, Switch, type JSX } from "solid-js";
 import { normalizeUrl } from "../../shared/web";
 import { isExtensionUrl } from "../../shared/extensions";
 import { displayUrl, type VisitSuggestion } from "../../shared/visits";
 import { api } from "../lib/api";
 import { searchEngine } from "../lib/settings";
 import {
-  appById,
   apps,
   currentWorkspace,
+  DOWNLOADS_VIEW,
+  HISTORY_VIEW,
   isAgentCollapsed,
   isPrivate,
   isTab,
   newWebTab,
+  openSettings,
   selectApp,
   selectedId,
   states,
   toggleAgent,
   workspaces,
 } from "../lib/store";
-import { chromeOf, focusRequest } from "../lib/tabChrome";
+import { chromeOf, focusRequest, setAddressHovered } from "../lib/tabChrome";
 import { colors, font, radius, space } from "../theme.stylex";
 import { DownloadsButton } from "./Downloads";
 import { Icon } from "./Icon";
 import { TabIcon } from "./TabIcon";
 import { WindowControls } from "./WindowControls";
-import { BookmarksMenuButton } from "./Bookmarks";
+import { BookmarksMenu } from "./Bookmarks";
+import { ContextMenu, type MenuItem, type MenuPosition } from "./ContextMenu";
 import { allBookmarks, samePage, type BookmarkNode } from "../../shared/bookmarks";
 import { bookmarkTree } from "../lib/bookmarks";
-import { withKeys } from "../lib/shortcuts";
+import { runShortcut, shortcutLabel, withKeys } from "../lib/shortcuts";
 import { openInternalPage } from "../lib/internalPages";
+import { newPrivateWindow, newWindow } from "../lib/windows";
+import { pageOf } from "../lib/webtabs";
 
 interface Suggestion {
   key: string;
@@ -48,12 +54,14 @@ interface Suggestion {
 
 /** History suggestions shown at once (open tabs come first). */
 const HISTORY_SUGGESTIONS = 5;
+/** Pages from history shown when the address opens, before anything's typed. */
+const RECENT_SUGGESTIONS = 6;
 const BOOKMARK_SUGGESTIONS = 4;
 
 /**
  * The strip the window is dragged by, like Zen Browser's: the close button
- * (macOS: its own traffic lights), the agent, the tab's extensions, then back,
- * forward and reload.
+ * (macOS: its own traffic lights), the agent, the tab's extensions (once there are
+ * any) and downloads (once there are any), then back, forward, reload and the ⋯ menu.
  */
 export function NavRow(props: { compact: boolean }) {
   const chrome = () => chromeOf(selectedId());
@@ -95,7 +103,6 @@ export function NavRow(props: { compact: boolean }) {
           {(extensions) => extensions()}
         </Show>
         <DownloadsButton />
-        <BookmarksMenuButton />
         <span {...stylex.attrs(styles.spacer)} />
         <button
           type="button"
@@ -136,14 +143,127 @@ export function NavRow(props: { compact: boolean }) {
             <Icon name="x" size={16} />
           </button>
         </Show>
+        <MoreMenu />
       </Show>
     </div>
   );
 }
 
 /**
- * The address of the tab on screen, with suggestions: open tabs (all workspaces), pages
- * from the workspace's history, the URL, a search.
+ * The ⋯ at the end of the top row, like Chrome's ⋮ and Zen's menu: new tabs and
+ * windows, bookmarks, history, downloads and extensions, what the browser does
+ * to the page (find, zoom, print), the tab's own tools (an app's logs, data,
+ * secrets…), Settings. One button instead of a row of them.
+ */
+function MoreMenu() {
+  const [at, setAt] = createSignal<MenuPosition>();
+  const [bookmarksAt, setBookmarksAt] = createSignal<MenuPosition>();
+  let button!: HTMLButtonElement;
+  const tabId = () => (isTab(selectedId()) ? selectedId() : null);
+  const hint = (id: string) => shortcutLabel(id);
+  /** What the browser does to the tab's page (its keyboard shortcuts' actions), where it has one. */
+  const pageItems = (): (MenuItem | "separator")[] => {
+    const id = tabId();
+    if (!id || !pageOf(id)?.view()) return [];
+    const item = (shortcut: string, label: string, icon: string): MenuItem => ({
+      id: shortcut,
+      label,
+      icon,
+      hint: hint(shortcut),
+      onSelect: () => void runShortcut(shortcut, { tabId: id, source: "window" }),
+    });
+    return [
+      "separator",
+      item("find.open", "Find in page…", "search"),
+      item("zoom.in", "Zoom in", "zoom-in"),
+      item("zoom.out", "Zoom out", "zoom-out"),
+      item("page.print", "Print…", "printer"),
+    ];
+  };
+  const items = (): (MenuItem | "separator")[] => {
+    const tab = chromeOf(selectedId())?.menu?.() ?? [];
+    return [
+      { id: "new-tab", label: "New tab", icon: "plus", hint: hint("tab.new"), onSelect: () => void newWebTab() },
+      { id: "new-window", label: "New window", icon: "app-window", hint: hint("window.new"), onSelect: newWindow },
+      {
+        id: "new-private-window",
+        label: "New private window",
+        icon: "hat-glasses",
+        hint: hint("window.private"),
+        onSelect: newPrivateWindow,
+      },
+      "separator",
+      {
+        id: "bookmarks",
+        label: "Bookmarks",
+        icon: "bookmark",
+        hint: hint("open.bookmarks"),
+        // Its own menu, where this one was.
+        onSelect: () => {
+          const r = button.getBoundingClientRect();
+          setBookmarksAt({ x: r.left, y: r.bottom + 4 });
+        },
+      },
+      {
+        id: "history",
+        label: "History",
+        icon: "rotate-ccw-clock",
+        hint: hint("open.history"),
+        onSelect: () => void selectApp(HISTORY_VIEW),
+      },
+      {
+        id: "downloads",
+        label: "Downloads",
+        icon: "download",
+        hint: hint("open.downloads"),
+        onSelect: () => void selectApp(DOWNLOADS_VIEW),
+      },
+      { id: "extensions", label: "Extensions", icon: "puzzle", onSelect: () => openSettings("extensions") },
+      ...pageItems(),
+      ...(tab.length ? (["separator", ...tab] as const) : []),
+      "separator",
+      {
+        id: "settings",
+        label: "Settings",
+        icon: "settings",
+        hint: hint("open.settings"),
+        onSelect: () => openSettings(),
+      },
+    ];
+  };
+  return (
+    <>
+      <button
+        type="button"
+        ref={button}
+        title="More: bookmarks, history, downloads, the tab's tools, settings"
+        aria-haspopup="menu"
+        aria-expanded={!!at()}
+        onClick={() => {
+          if (at()) return setAt();
+          const r = button.getBoundingClientRect();
+          setAt({ x: r.left, y: r.bottom + 4 });
+        }}
+        {...stylex.attrs(styles.navButton, !!at() && styles.navButtonOn)}
+        data-more-menu
+      >
+        <Icon name="ellipsis" size={16} />
+      </button>
+      <Show when={at()} keyed>
+        {(position) => <ContextMenu items={items()} position={position} onClose={() => setAt()} />}
+      </Show>
+      <Show when={bookmarksAt()} keyed>
+        {(position) => <BookmarksMenu position={position} onClose={() => setBookmarksAt()} />}
+      </Show>
+    </>
+  );
+}
+
+/**
+ * The address of the tab on screen, compact in the sidebar (without its scheme). Focused,
+ * it pops out over the page like Zen's: big, centered near the top, with suggestions under
+ * it: open tabs (all workspaces), bookmarks, pages from the workspace's history, the URL,
+ * a search; before anything's typed, the pages visited most often and lately.
  */
 export function AddressBar() {
   const chrome = () => chromeOf(selectedId());
@@ -152,7 +272,8 @@ export function AddressBar() {
   // The suggestion picked with the arrow keys or the mouse (by key: pages from history arrive
   // later and move the others), or the first.
   const [picked, setPicked] = createSignal<string>();
-  const [rect, setRect] = createSignal<DOMRect>();
+  // Something was typed since it opened (until then it shows the address, selected, and the recent pages).
+  const [typed, setTyped] = createSignal(false);
   let input!: HTMLInputElement;
 
   // Shows the tab's address unless you're typing.
@@ -178,30 +299,55 @@ export function AddressBar() {
 
   const loadingShown = () => !editing() && !!chrome()?.loading();
   const notSecure = () => !editing() && !!chrome()?.notSecure?.();
-  const query = () => (editing() ? text().trim() : "");
+  const query = () => (editing() && typed() ? text().trim() : "");
+  /**
+   * In the sidebar the address is shown without its scheme, like Zen's (in full while editing,
+   * and for a page that isn't secure: its http:// is the warning).
+   */
+  const shownText = () => (editing() || notSecure() ? text() : displayUrl(text()));
 
-  // Pages from history for what's typed, fetched after a short pause (none in private windows).
-  // Until the answer comes, the last ones that still match stay, so the list doesn't flicker.
+  // Pages from history for what's typed, fetched after a short pause (none in private windows);
+  // with nothing typed, the pages visited most. Until the answer comes, the last ones that still
+  // match stay, so the list doesn't flicker.
   const [visited, setVisited] = createSignal<VisitSuggestion[]>([]);
   let historyTimer: ReturnType<typeof setTimeout> | undefined;
   createEffect(
-    on([query, () => currentWorkspace()?.id], ([q, workspaceId]) => {
+    on([query, editing, () => currentWorkspace()?.id], ([q, open, workspaceId]) => {
       clearTimeout(historyTimer);
-      if (!q || !workspaceId || isPrivate) return setVisited([]);
-      historyTimer = setTimeout(() => {
-        api.suggestVisits(workspaceId, q, HISTORY_SUGGESTIONS + 3).then(
-          (pages) => query() === q && setVisited(pages),
-          () => {},
-        );
-      }, 60);
+      if (!open || !workspaceId || isPrivate) return setVisited([]);
+      historyTimer = setTimeout(
+        () => {
+          api.suggestVisits(workspaceId, q, (q ? HISTORY_SUGGESTIONS : RECENT_SUGGESTIONS) + 3).then(
+            (pages) => editing() && query() === q && setVisited(pages),
+            () => {},
+          );
+        },
+        q ? 60 : 0,
+      );
     }),
   );
   onCleanup(() => clearTimeout(historyTimer));
   const matches = (page: VisitSuggestion, words: string[]) =>
     words.every((w) => page.title.toLowerCase().includes(w) || page.url.toLowerCase().includes(w));
+  const historySuggestion = (page: VisitSuggestion): Suggestion => ({
+    key: `history:${page.url}`,
+    icon: () => <TabIcon tab={{ kind: "web", icon: null, favicon: page.favicon, url: page.url }} size={14} />,
+    title: page.title || displayUrl(page.url),
+    detail: displayUrl(page.url).slice(0, 80),
+    url: page.url,
+    run: () => open(page.url),
+  });
+  /** Nothing typed yet: the pages visited most often and lately (not the one on screen). */
+  const recent = (): Suggestion[] => {
+    const here = chrome()?.url();
+    return visited()
+      .filter((p) => !here || samePage(p.url) !== samePage(here))
+      .slice(0, RECENT_SUGGESTIONS)
+      .map(historySuggestion);
+  };
   const suggestions = (): Suggestion[] => {
     const q = query();
-    if (!q) return [];
+    if (!q) return editing() ? recent() : [];
     const lower = q.toLowerCase();
     const out: Suggestion[] = [];
     const target = isExtensionUrl(q) ? q : normalizeUrl(q, searchEngine().url);
@@ -260,15 +406,7 @@ export function AddressBar() {
     const pages = visited()
       .filter((p) => !shown.has(samePage(p.url)) && matches(p, words))
       .slice(0, HISTORY_SUGGESTIONS);
-    for (const page of pages)
-      out.push({
-        key: `history:${page.url}`,
-        icon: () => <TabIcon tab={{ kind: "web", icon: null, favicon: page.favicon, url: page.url }} size={14} />,
-        title: page.title || displayUrl(page.url),
-        detail: displayUrl(page.url).slice(0, 80),
-        url: page.url,
-        run: () => open(page.url),
-      });
+    for (const page of pages) out.push(historySuggestion(page));
     out.push({
       key: "search",
       icon: () => <Icon name="search" size={14} />,
@@ -298,8 +436,15 @@ export function AddressBar() {
     if (!(c?.go && c.go(target))) void newWebTab(target);
   }
 
+  const start = () => {
+    if (editing()) return;
+    setEditing(true);
+    setTyped(false);
+    setPicked(undefined);
+  };
   const finish = () => {
     setEditing(false);
+    setTyped(false);
     setText(chrome()?.url() ?? "");
     input.blur();
   };
@@ -339,105 +484,129 @@ export function AddressBar() {
     return true;
   };
   const list = createMemo(() => suggestions());
-  const active = () =>
-    Math.max(
-      0,
-      list().findIndex((s) => s.key === picked()),
-    );
+  // With something typed the first suggestion is what Enter does; before that, only one picked
+  // with the arrow keys or the mouse (Enter goes to the address shown).
+  const active = () => {
+    const i = list().findIndex((s) => s.key === picked());
+    return i === -1 && query() ? 0 : i;
+  };
   const setActive = (i: number) => setPicked(list()[i]?.key);
   const isActive = (i: number) => i === active();
+  const floating = () => editing();
+  const hasList = () => editing() && list().length > 0;
 
   return (
-    <form
-      {...stylex.attrs(styles.address)}
-      onSubmit={(e) => {
-        e.preventDefault();
-        const chosen = list()[active()];
-        if (chosen) return run(chosen);
-        const typed = text().trim();
-        if (!typed) return;
-        open(isExtensionUrl(typed) ? typed : normalizeUrl(typed, searchEngine().url), typed);
-        finish();
-      }}
-      data-address-bar
-      data-address-icon={chrome()?.icon()}
-    >
-      {/* While the page loads, a spinner in place of its icon (the address bar is the toolbar). */}
-      <Show
-        when={loadingShown()}
-        fallback={
-          <Icon
-            name={editing() ? "search" : (chrome()?.icon() ?? "search")}
-            size={13}
-            {...stylex.attrs(styles.addressIcon, notSecure() && styles.notSecure)}
-          />
-        }
-      >
-        <Icon
-          name="loader-circle"
-          size={13}
-          {...stylex.attrs(styles.addressIcon, styles.spinning)}
-          data-address-loading
+    <div {...stylex.attrs(styles.addressSlot)} data-address-slot>
+      <Show when={floating()}>
+        {/* Clicking outside closes it (and isn't a click on what's under it). Not portaled: it stays under the address. */}
+        <div
+          {...stylex.attrs(styles.backdrop)}
+          onMouseDown={(e) => {
+            e.preventDefault();
+            finish();
+          }}
+          data-address-backdrop
         />
       </Show>
-      <Show when={notSecure()}>
-        <span
-          title="The connection to this site isn't encrypted: others on the network can see and change what you send and get"
-          {...stylex.attrs(styles.notSecureLabel)}
-          data-not-secure
-        >
-          Not secure
-        </span>
-      </Show>
-      <input
-        ref={input}
-        value={text()}
-        placeholder="Search or enter an address"
-        spellcheck={false}
-        onFocus={(e) => {
-          setEditing(true);
-          setRect(e.currentTarget.parentElement!.getBoundingClientRect());
-          e.currentTarget.select();
+      <form
+        {...stylex.attrs(styles.address, floating() && styles.addressFloating)}
+        onSubmit={(e) => {
+          e.preventDefault();
+          const chosen = list()[active()];
+          if (chosen) return run(chosen);
+          const typed = text().trim();
+          if (!typed) return;
+          open(isExtensionUrl(typed) ? typed : normalizeUrl(typed, searchEngine().url), typed);
+          finish();
         }}
-        onBlur={() => setTimeout(() => editing() && finish(), 120)}
-        onInput={(e) => {
-          // Typing is editing, whether or not the focus event came first.
-          if (!editing()) {
-            setEditing(true);
-            setRect(e.currentTarget.parentElement!.getBoundingClientRect());
-          }
-          setText(e.currentTarget.value);
-          setPicked(undefined);
-        }}
-        onKeyDown={(e) => {
-          const n = list().length;
-          if (e.key === "Escape") return finish();
-          if (e.key === "Enter" && enterWith(e)) return;
-          if (!n) return;
-          if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-            e.preventDefault();
-            setActive((active() + (e.key === "ArrowDown" ? 1 : n - 1)) % n);
-          }
-        }}
-        {...stylex.attrs(styles.addressInput)}
-        data-address
-      />
-      {/* Keyed: the tab on screen changes, and with it what's shown here. */}
-      <Show when={!editing() && chrome()?.addressExtras} keyed>
-        {(extras) => extras()}
-      </Show>
-      <Show when={list().length && rect()}>
-        <Portal>
-          <div
-            role="listbox"
-            {...stylex.attrs(styles.suggestions)}
-            style={{
-              left: `${rect()!.left}px`,
-              top: `${rect()!.bottom + 4}px`,
-              width: `${Math.max(rect()!.width, 380)}px`,
-            }}
-            data-suggestions
+        onMouseEnter={() => setAddressHovered(true)}
+        onMouseLeave={() => setAddressHovered(false)}
+        data-address-bar
+        data-address-open={floating() ? "" : undefined}
+        data-address-icon={chrome()?.icon()}
+      >
+        <div {...stylex.attrs(styles.addressRow, floating() && styles.addressRowFloating)}>
+          {/* While the page loads, a spinner in place of its icon (the address bar is the toolbar). */}
+          <Switch
+            fallback={
+              <Show
+                when={!editing() && chrome()?.identity}
+                keyed
+                fallback={
+                  <Icon
+                    name={editing() ? "search" : (chrome()?.icon() ?? "search")}
+                    size={floating() ? 16 : 13}
+                    {...stylex.attrs(styles.addressIcon, notSecure() && styles.notSecure)}
+                  />
+                }
+              >
+                {(identity) => identity()}
+              </Show>
+            }
           >
+            <Match when={loadingShown()}>
+              <Icon
+                name="loader-circle"
+                size={13}
+                {...stylex.attrs(styles.addressIcon, styles.spinning)}
+                data-address-loading
+              />
+            </Match>
+          </Switch>
+          <Show when={notSecure()}>
+            <span
+              title="The connection to this site isn't encrypted: others on the network can see and change what you send and get"
+              {...stylex.attrs(styles.notSecureLabel)}
+              data-not-secure
+            >
+              Not secure
+            </span>
+          </Show>
+          <input
+            ref={input}
+            value={shownText()}
+            placeholder="Search or enter an address"
+            spellcheck={false}
+            onFocus={(e) => {
+              start();
+              // The full address (it was shown without its scheme), selected to type over.
+              e.currentTarget.value = text();
+              e.currentTarget.select();
+            }}
+            onBlur={() => setTimeout(() => editing() && finish(), 120)}
+            onInput={(e) => {
+              // Typing is editing, whether or not the focus event came first.
+              start();
+              setTyped(true);
+              setText(e.currentTarget.value);
+              setPicked(undefined);
+            }}
+            onKeyDown={(e) => {
+              const n = list().length;
+              if (e.key === "Escape") return finish();
+              if (e.key === "Enter" && enterWith(e)) return;
+              if (!n) return;
+              if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                e.preventDefault();
+                const from = active();
+                setActive(
+                  from === -1 ? (e.key === "ArrowDown" ? 0 : n - 1) : (from + (e.key === "ArrowDown" ? 1 : n - 1)) % n,
+                );
+              }
+            }}
+            {...stylex.attrs(styles.addressInput, floating() && styles.addressInputFloating)}
+            data-address
+          />
+          {/* Keyed: the tab on screen changes, and with it what's shown here. */}
+          <Show when={!editing() && chrome()?.addressExtras} keyed>
+            {(extras) => extras()}
+          </Show>
+        </div>
+        <Show when={hasList()}>
+          <div role="listbox" {...stylex.attrs(styles.suggestions)} data-suggestions>
+            <Show when={!query()}>
+              <div {...stylex.attrs(styles.suggestionsHeading)}>Visited often</div>
+            </Show>
             <For each={list()}>
               {(s, i) => (
                 <button
@@ -458,30 +627,18 @@ export function AddressBar() {
               )}
             </For>
           </div>
-        </Portal>
-      </Show>
-    </form>
+        </Show>
+      </form>
+    </div>
   );
 }
-
-/** The tab's own tools (extensions, an app's logs, data, tools…), under the address. */
-export function TabTools() {
-  const chrome = () => chromeOf(selectedId());
-  return (
-    <Show when={chrome()?.tools} keyed>
-      {(tools) => (
-        <div {...stylex.attrs(styles.tools)} data-tab-tools>
-          {tools()}
-        </div>
-      )}
-    </Show>
-  );
-}
-
-/** Whether the tab on screen is an app (for labels). */
-export const selectedIsApp = () => appById(selectedId())?.kind === "app";
 
 const spin = stylex.keyframes({ from: { transform: "rotate(0deg)" }, to: { transform: "rotate(360deg)" } });
+
+const popOut = stylex.keyframes({
+  from: { transform: "translateX(-50%) scale(0.97)" },
+  to: { transform: "translateX(-50%) scale(1)" },
+});
 
 const pulse = stylex.keyframes({ "0%": { opacity: 1 }, "50%": { opacity: 0.35 }, "100%": { opacity: 1 } });
 
@@ -525,6 +682,7 @@ const styles = stylex.create({
     color: { default: colors.muted, ":hover": colors.text, ":disabled": colors.border },
     cursor: { default: "pointer", ":disabled": "default" },
   },
+  navButtonOn: { backgroundColor: colors.surfaceHover, color: colors.text },
   agentButton: { color: { default: colors.muted, ":hover": colors.text } },
   agentOn: { color: { default: colors.accent, ":hover": colors.accent } },
   workingDot: {
@@ -540,21 +698,49 @@ const styles = stylex.create({
     animationIterationCount: "infinite",
   },
   spacer: { flex: 1 },
+  // Keeps the address's place in the sidebar while it floats.
+  addressSlot: { position: "relative", flexShrink: 0, height: 32 },
   address: {
     position: "relative",
+    display: "flex",
+    flexDirection: "column",
+    height: 32,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "transparent",
+    backgroundColor: colors.surface,
+    boxShadow: `0 0 0 1px ${colors.border}`,
+    fontFamily: font.sans,
+  },
+  // Focused: over the page, centered near the top of the window, like Zen's address bar.
+  addressFloating: {
+    position: "fixed",
+    zIndex: 1500,
+    top: "max(56px, 14vh)",
+    left: "50%",
+    transform: "translateX(-50%)",
+    width: "min(720px, calc(100vw - 48px))",
+    height: "auto",
+    maxHeight: "calc(100vh - 14vh - 24px)",
+    overflow: "hidden",
+    borderRadius: radius.lg,
+    borderColor: colors.accent,
+    boxShadow: "0 24px 64px rgb(0 0 0 / 0.28), 0 4px 16px rgb(0 0 0 / 0.12)",
+    animationName: popOut,
+    animationDuration: "120ms",
+    animationTimingFunction: "ease-out",
+  },
+  addressRow: {
     display: "flex",
     alignItems: "center",
     gap: 6,
     flexShrink: 0,
-    height: 34,
+    height: 30,
     paddingInline: 10,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: { default: "transparent", ":focus-within": colors.accent },
-    backgroundColor: colors.surface,
-    boxShadow: `0 0 0 1px ${colors.border}`,
   },
+  addressRowFloating: { height: 50, gap: 10, paddingInline: 16 },
+  backdrop: { position: "fixed", inset: 0, zIndex: 1499, backgroundColor: "rgb(0 0 0 / 0.12)" },
   addressIcon: { flexShrink: 0, color: colors.muted },
   notSecure: { color: colors.warning },
   notSecureLabel: {
@@ -587,25 +773,30 @@ const styles = stylex.create({
     fontSize: font.sm,
     textOverflow: "ellipsis",
   },
+  addressInputFloating: { fontSize: 15 },
   suggestions: {
-    position: "fixed",
-    zIndex: 1500,
     display: "flex",
     flexDirection: "column",
-    padding: 4,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    boxShadow: "0 12px 32px rgb(0 0 0 / 0.18)",
-    fontFamily: font.sans,
+    minHeight: 0,
+    overflowY: "auto",
+    padding: 6,
+    borderTopWidth: 1,
+    borderTopStyle: "solid",
+    borderTopColor: colors.border,
+  },
+  suggestionsHeading: {
+    paddingInline: space.sm,
+    paddingBlock: 4,
+    color: colors.muted,
+    fontSize: font.xs,
+    fontWeight: 600,
   },
   suggestion: {
     display: "flex",
     alignItems: "center",
     gap: space.sm,
-    height: 34,
+    flexShrink: 0,
+    height: 38,
     paddingInline: space.sm,
     borderWidth: 0,
     borderRadius: radius.sm,
@@ -635,5 +826,4 @@ const styles = stylex.create({
     color: colors.muted,
     fontSize: font.xs,
   },
-  tools: { display: "flex", alignItems: "center", flexWrap: "wrap", gap: 2, flexShrink: 0, minHeight: 30 },
 });

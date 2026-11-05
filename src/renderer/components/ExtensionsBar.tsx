@@ -35,7 +35,7 @@ export function ExtensionsBar(props: {
   const [actions, setActions] = createSignal<ExtensionAction[]>([]);
   const [popup, setPopup] = createSignal<Popup | null>(null);
   const [menu, setMenu] = createSignal<DOMRect | null>(null);
-  let menuButton!: HTMLButtonElement;
+  let menuButton: HTMLButtonElement | undefined;
 
   createEffect(() => {
     actionsVersion(props.workspaceId);
@@ -44,7 +44,10 @@ export function ExtensionsBar(props: {
     void bridge.actions(props.workspaceId, tabId).then(setActions, () => setActions([]));
   });
 
-  const anchor = () => menuButton.getBoundingClientRect();
+  // Without extensions there's no button (the ⋯ menu leads to Settings → Extensions).
+  const anchor = () =>
+    (menuButton?.isConnected ? menuButton : document.querySelector("[data-more-menu]"))?.getBoundingClientRect() ??
+    new DOMRect(12, 8, 0, 32);
 
   async function activate(action: ExtensionAction, anchor: DOMRect) {
     setMenu(null);
@@ -71,16 +74,18 @@ export function ExtensionsBar(props: {
 
   return (
     <>
-      <button
-        type="button"
-        ref={menuButton}
-        title="Extensions"
-        onClick={(e) => setMenu(menu() ? null : e.currentTarget.getBoundingClientRect())}
-        {...stylex.attrs(styles.button, menuOpen() && styles.buttonOn, showing() && styles.buttonOn)}
-        data-extensions-menu
-      >
-        <Icon name="puzzle" size={16} />
-      </button>
+      <Show when={extensionList().length}>
+        <button
+          type="button"
+          ref={menuButton}
+          title="Extensions"
+          onClick={(e) => setMenu(menu() ? null : e.currentTarget.getBoundingClientRect())}
+          {...stylex.attrs(styles.button, menuOpen() && styles.buttonOn, showing() && styles.buttonOn)}
+          data-extensions-menu
+        >
+          <Icon name="puzzle" size={16} />
+        </button>
+      </Show>
       <Show when={menu()}>
         {(anchor) => (
           <ExtensionsMenu

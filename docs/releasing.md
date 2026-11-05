@@ -45,10 +45,11 @@ Pushing the tag starts the **Release** workflow (`.github/workflows/release.yml`
 2. **Checks:** the whole CI workflow (typecheck, unit tests, build, e2e) on
    Linux and Windows.
 3. **Build:** on each OS, `bun run build` (with the daily version written into
-   `package.json` first) and electron-builder, which uploads
+   `package.json` first) and electron-builder (on Linux with `rpm` and `bsdtar`
+   installed for the rpm and pacman packages), which uploads
    the installers into the draft, with the update feeds the app reads
-   (`latest.yml`, `latest-linux.yml`, `latest-mac.yml`, or `daily*.yml` for
-   daily builds) and their blockmaps.
+   (`latest.yml`, `latest-linux.yml`, `latest-mac.yml`, in daily builds
+   too) and their blockmaps.
 4. **Publish:** adds `SHA256SUMS.txt` and publishes the draft.
 
 Nothing is published unless every step passed. A failed run leaves a draft
@@ -60,11 +61,11 @@ The notes are only as good as the pull request titles: they're the list.
 
 ## What a release contains
 
-| OS      | Files                                                                        | Updates itself                                                                                |
-| ------- | ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| Linux   | `rune-browser-<v>-linux-x86_64.AppImage`, `rune-browser-<v>-linux-amd64.deb` | yes (the AppImage replaces itself; the deb asks for your password to install the new package) |
-| Windows | `rune-browser-<v>-setup-x64.exe` (NSIS, per-user)                            | yes                                                                                           |
-| macOS   | `rune-browser-<v>-mac-arm64.dmg` and `.zip` (Apple Silicon)                  | no: it shows the new version and links to its release                                         |
+| OS      | Files                                                                                                                                                  | Updates itself                                                                                |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------- |
+| Linux   | `rune-browser-<v>-linux-x86_64.AppImage`, `rune-browser-<v>-linux-amd64.deb`, `rune-browser-<v>-linux-x86_64.rpm`, `rune-browser-<v>-linux-x64.pacman` | yes (the AppImage replaces itself; the packages ask for your password to install the new one) |
+| Windows | `rune-browser-<v>-setup-x64.exe` (NSIS, per-user)                                                                                                      | yes                                                                                           |
+| macOS   | `rune-browser-<v>-mac-arm64.dmg` and `.zip` (Apple Silicon)                                                                                            | no: it shows the new version and links to its release                                         |
 
 macOS is supported but not tested, by hand or by CI: its installers are built,
 but the checks only run on Linux and Windows.
@@ -72,7 +73,13 @@ but the checks only run on Linux and Windows.
 ## Updates
 
 `src/main/updates.ts` uses [electron-updater](https://www.electron.build/auto-update)
-with the GitHub releases as the feed. Installed copies check 15 seconds after
+with the GitHub releases as the feed. Which release is newest is decided by
+Rune Browser, by version (`newestRelease` in `src/shared/updates.ts`): on
+Stable, GitHub's latest release; on Daily, the highest version among it and the
+releases in the feed, so a daily copy moves to newer daily builds (0.1.1-daily…
+→ 0.1.2-daily…) and to a stable release that's newer than them (→ 0.2.0).
+The updater then reads that release's `latest*.yml`. A daily build starts on the
+Daily channel until you choose one. Installed copies check 15 seconds after
 starting and every 4 hours, download a newer release in the background and
 install it when the app quits; Settings → About shows the state, "Check for
 updates" and "Restart to update", and a notice appears once an update is ready.

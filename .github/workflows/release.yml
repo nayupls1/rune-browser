@@ -89,6 +89,9 @@ jobs:
         with:
           bun-version-file: package.json
       - run: bun install --frozen-lockfile
+      - name: Packaging tools (rpm for Fedora's package, bsdtar for Arch's)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y rpm libarchive-tools
       - name: Set the version
         # A daily build's version is only in its tag; the app and the installers read package.json.
         shell: bash

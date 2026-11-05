@@ -6,7 +6,7 @@
 // picker. The choices are the site's settings (Settings → Browser → Site
 // settings).
 import * as stylex from "@stylexjs/stylex";
-import { createSignal, For, Match, onCleanup, onMount, Show, Switch } from "solid-js";
+import { createSignal, For, Match, onCleanup, onMount, Show, Switch, type JSX } from "solid-js";
 import { Portal } from "solid-js/web";
 import { siteSettings, type SiteSettingKey } from "../../shared/browser";
 import {
@@ -149,12 +149,12 @@ export function siteUsage(contentsId: number | null, url: string) {
  * page uses right now (camera, microphone, location, screen), else what it
  * was refused, else the settings icon.
  */
-export function SiteStatusIcon(props: { contentsId: number | null; url: string }) {
+export function SiteStatusIcon(props: { contentsId: number | null; url: string; fallback?: JSX.Element }) {
   const usage = () => siteUsage(props.contentsId, props.url);
   const inUse = () => usage()?.inUse ?? [];
   const blocked = () => usage()?.blocked ?? [];
   return (
-    <Switch fallback={<Icon name="sliders-horizontal" size={13} />}>
+    <Switch fallback={props.fallback ?? <Icon name="sliders-horizontal" size={13} />}>
       <Match when={inUse().length}>
         <For each={inUse()}>{(key) => <Icon name={siteSettings[key].icon} size={13} />}</For>
       </Match>

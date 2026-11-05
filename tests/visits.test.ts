@@ -158,6 +158,10 @@ describe("browsing history", () => {
     const suggested = await server.api<VisitSuggestion[]>(`/api/visits/suggest?workspace=${workspace}&q=git`);
     expect(suggested[0]).toMatchObject({ url: "https://github.com/", title: "GitHub", visits: 2 });
     expect(suggested.map((s) => s.url)).toContain("https://github.com/oven-sh/bun");
+    // Nothing typed: the pages visited most often and lately (GitHub twice).
+    const top = await server.api<VisitSuggestion[]>(`/api/visits/suggest?workspace=${workspace}&q=&limit=3`);
+    expect(top.length).toBe(3);
+    expect(top[0]).toMatchObject({ url: "https://github.com/", visits: 2 });
     expect(suggested.map((s) => s.url)).not.toContain("https://news.ycombinator.com/");
   });
 

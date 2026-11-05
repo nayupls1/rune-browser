@@ -1,8 +1,9 @@
 // What the sidebar's top bar shows for the tab on screen (components/TopBar.tsx):
-// its address, back, forward and reload, its extensions and its own tools. Pages get the whole
+// its address, back, forward and reload, its extensions and its own items in the ⋯ menu. Pages get the whole
 // content area, like in Zen Browser; each tab (WebTab, AppTab) registers its
 // chrome here while it's mounted.
 import { createSignal, type JSX } from "solid-js";
+import type { MenuItem } from "../components/ContextMenu";
 
 export interface TabChrome {
   /** What the address field shows (an app's preview: its localhost URL). */
@@ -22,13 +23,22 @@ export interface TabChrome {
   stop?: () => void;
   /** Opens what was typed in this tab (a URL or a search); false if it can't. Without it, typing opens a new web tab. */
   go?: (input: string) => boolean;
-  /** Inside the address field, at its end (a web tab's page changes). */
+  /**
+   * In place of the address field's icon while it isn't being edited: a web tab's site
+   * settings, behind its lock or globe (like Zen's and Firefox's identity button).
+   */
+  identity?: () => JSX.Element;
+  /** Inside the address field, at its end (a web tab's bookmark star and page changes, an app's state). */
   addressExtras?: () => JSX.Element;
   /** Its extensions button, in the top row (a web tab's). */
   extensions?: () => JSX.Element;
-  /** A row of the tab's own tools under the address (an app's logs, data…). */
-  tools?: () => JSX.Element;
+  /** The tab's own items in the top row's ⋯ menu (an app's logs, data, tools…). */
+  menu?: () => (MenuItem | "separator")[];
 }
+
+/** The pointer is over the address field: its quieter buttons (the bookmark star) show. */
+const [addressHovered, setAddressHovered] = createSignal(false);
+export { addressHovered, setAddressHovered };
 
 const [chromes, setChromes] = createSignal<Record<string, TabChrome>>({});
 

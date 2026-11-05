@@ -2616,7 +2616,8 @@ const visitRoutes = HttpRouter.addAll([
         const params = new URL((yield* HttpServerRequest.HttpServerRequest).url, "http://localhost").searchParams;
         const query = (params.get("q") ?? "").trim().slice(0, 200);
         const limit = Math.min(Math.max(Number(params.get("limit")) || 5, 1), 20);
-        return json(query ? yield* (yield* Visits).suggest(workspaceId, query, limit) : []);
+        // Nothing typed yet: the pages visited most often and lately (the address bar shows them when it opens).
+        return json(yield* (yield* Visits).suggest(workspaceId, query, limit));
       }),
     ),
   ),
