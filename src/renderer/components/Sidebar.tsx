@@ -711,6 +711,7 @@ function Item(props: { app: AppSummary; tile?: boolean }) {
   const running = () => !!states[props.app.id]?.running;
   const menuOpen = () => menu() !== undefined;
   const highlighted = () => selected() || menuOpen();
+  const tileOn = () => !!props.tile && highlighted();
   // Its page isn't open (unloaded for being idle, or not opened yet): it loads when clicked.
   const asleep = () => !isLoaded(props.app.id) && !selected();
 
@@ -833,6 +834,7 @@ function Item(props: { app: AppSummary; tile?: boolean }) {
         styles.item,
         props.tile && styles.tile,
         highlighted() && styles.selected,
+        tileOn() && styles.tileOn,
         beside() && styles.beside,
         isDragged() && styles.dragging,
         dropBefore() && styles.dropBefore,
@@ -840,6 +842,7 @@ function Item(props: { app: AppSummary; tile?: boolean }) {
         dropInto() && styles.dropInto,
       )}
       title={props.tile ? props.app.name : asleep() ? "Not loaded: opens where you left it" : undefined}
+      aria-label={props.tile ? props.app.name : undefined}
       onClick={() => selectApp(props.app.id)}
       onAuxClick={(e) => {
         // Middle click closes it, like in a browser.
@@ -1151,12 +1154,16 @@ const styles = stylex.create({
     borderRadius: 10,
     backgroundColor: {
       // Lighter than the address, which stays the anchor of the top.
-      default: `color-mix(in oklab, ${colors.text} 3.5%, transparent)`,
+      default: `color-mix(in oklab, ${colors.text} 4.5%, transparent)`,
       ":hover": `color-mix(in oklab, ${colors.text} 9%, transparent)`,
-      "@media (prefers-color-scheme: dark)": `color-mix(in oklab, ${colors.text} 4.5%, transparent)`,
     },
     transitionProperty: "background-color",
     transitionDuration: "120ms",
+  },
+  // The pinned tab on screen: lifted like a selected tab, its ring a notch stronger so it holds in dark.
+  tileOn: {
+    backgroundColor: { default: colors.surface, ":hover": colors.surface },
+    boxShadow: `0 0 0 1px color-mix(in oklab, ${colors.text} 16%, transparent), 0 1px 2px rgb(0 0 0 / 0.06)`,
   },
   chevron: { marginLeft: "auto", opacity: 0.6 },
   list: { listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 2 },
@@ -1272,10 +1279,14 @@ const styles = stylex.create({
     padding: 0,
     borderWidth: 0,
     borderRadius: 8,
-    backgroundColor: { default: "transparent", ":hover": `color-mix(in oklab, ${colors.text} 6%, transparent)` },
+    // A faint surface at rest, so each reads as a switch, not a letter.
+    backgroundColor: {
+      default: `color-mix(in oklab, ${colors.text} 4%, transparent)`,
+      ":hover": `color-mix(in oklab, ${colors.text} 8%, transparent)`,
+    },
     color: colors.muted,
     cursor: "pointer",
-    opacity: { default: 0.5, ":hover": 1 },
+    opacity: { default: 0.55, ":hover": 1 },
     transitionProperty: "opacity, background-color",
     transitionDuration: "120ms",
   },
@@ -1295,5 +1306,8 @@ const styles = stylex.create({
     },
   },
   workspaceIconOver: { boxShadow: `0 0 0 2px ${colors.accent}`, opacity: 1 },
-  workspaceAdd: { opacity: { default: 0.6, ":hover": 1 } },
+  workspaceAdd: {
+    backgroundColor: { default: "transparent", ":hover": `color-mix(in oklab, ${colors.text} 8%, transparent)` },
+    opacity: { default: 0.6, ":hover": 1 },
+  },
 });

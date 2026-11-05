@@ -395,13 +395,17 @@ export function AddressBar() {
   /** Nothing typed yet: the pages visited most often and lately; a page open in a tab (a pinned one…) switches to it. */
   const recent = (): Suggestion[] => {
     const here = chrome()?.url();
-    return visited()
-      .filter((p) => !here || samePage(p.url) !== samePage(here))
-      .slice(0, RECENT_SUGGESTIONS)
-      .map((page) => {
-        const open = apps.find((t) => t.id !== selectedId() && !!t.url && samePage(t.url) === samePage(page.url));
-        return open ? tabSuggestion(open) : historySuggestion(page);
-      });
+    return (
+      visited()
+        .filter((p) => !here || samePage(p.url) !== samePage(here))
+        .slice(0, RECENT_SUGGESTIONS)
+        .map((page) => {
+          const open = apps.find((t) => t.id !== selectedId() && !!t.url && samePage(t.url) === samePage(page.url));
+          return open ? tabSuggestion(open) : historySuggestion(page);
+        })
+        // Two pages from history can be one open tab.
+        .filter((s, i, all) => all.findIndex((o) => o.key === s.key) === i)
+    );
   };
   const suggestions = (): Suggestion[] => {
     const q = query();
@@ -761,8 +765,14 @@ export function AddressBar() {
                   </span>
                   <span {...stylex.attrs(styles.suggestionText)}>
                     <span {...stylex.attrs(styles.suggestionTitle)}>{s.title}</span>
-                    <Show when={s.detail}>
-                      <span {...stylex.attrs(styles.suggestionDetail)}>{s.detail}</span>
+                    <Show when={s.detail || s.key.startsWith("tab:")}>
+                      <span {...stylex.attrs(styles.suggestionDetail)}>
+                        {/* Open in a tab: Enter switches to it rather than loading it here. */}
+                        <Show when={s.key.startsWith("tab:")}>
+                          <Icon name="app-window" size={12} {...stylex.attrs(styles.tabGlyph)} />
+                        </Show>
+                        {s.detail}
+                      </span>
                     </Show>
                   </span>
                   <Show when={isActive(i())}>
@@ -878,7 +888,7 @@ const styles = stylex.create({
     whiteSpace: "nowrap",
     borderRadius: 10,
     backgroundColor: ink(4),
-    color: { default: ink(32), "@media (prefers-color-scheme: dark)": ink(42) },
+    color: `light-dark(${ink(32)}, ${ink(42)})`,
     fontFamily: font.sans,
     fontSize: font.sm,
   },
@@ -914,7 +924,8 @@ const styles = stylex.create({
     position: "fixed",
     inset: 0,
     zIndex: 1499,
-    backgroundColor: { default: "rgb(0 0 0 / 0.14)", "@media (prefers-color-scheme: dark)": "rgb(0 0 0 / 0.28)" },
+    // light-dark(): the theme's mode (lib/theme.ts sets color-scheme), not the system's.
+    backgroundColor: "light-dark(rgb(0 0 0 / 0.14), rgb(0 0 0 / 0.28))",
     animationName: fadeIn,
     animationDuration: "140ms",
   },
@@ -1059,6 +1070,7 @@ const styles = stylex.create({
     color: ink(45),
     fontSize: font.sm,
   },
+  tabGlyph: { marginRight: 5, verticalAlign: "-1px" },
   suggestionAction: {
     display: "inline-flex",
     alignItems: "center",
