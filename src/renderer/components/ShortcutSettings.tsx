@@ -63,6 +63,9 @@ export function ShortcutSettings() {
 
   return (
     <div {...stylex.attrs(styles.page)} data-shortcut-settings>
+      <p {...stylex.attrs(styles.note)} data-search-hide>
+        A focused page gets most keys first, like in Chrome; opening, closing and switching tabs always work.
+      </p>
       <div {...stylex.attrs(styles.toolbar)} data-search-hide>
         <div {...stylex.attrs(styles.searchBox)}>
           <Icon name="search" size={14} {...stylex.attrs(styles.searchIcon)} />
@@ -80,9 +83,6 @@ export function ShortcutSettings() {
           </Button>
         </Show>
       </div>
-      <p {...stylex.attrs(styles.note)} data-search-hide>
-        A focused page gets most keys first, like in Chrome; opening, closing and switching tabs always work.
-      </p>
       <For each={shortcutCategories}>
         {(category) => {
           const defs = () => shortcutDefs.filter((d) => d.category === category && matches(d));
@@ -161,22 +161,24 @@ function ShortcutRow(props: { def: ShortcutDef }) {
       <div {...stylex.attrs(styles.keys)}>
         <For each={keys()}>
           {(combo) => (
-            <span {...stylex.attrs(styles.chip)} data-shortcut-key={combo}>
-              <kbd {...stylex.attrs(styles.kbd)}>{formatCombo(combo, platform)}</kbd>
-              <button
-                type="button"
-                title="Remove"
-                aria-label={`Remove ${formatCombo(combo, platform)}`}
-                onClick={() =>
-                  setKeys(
-                    props.def.id,
-                    keys().filter((k) => k !== combo),
-                  )
-                }
-                {...stylex.attrs(styles.chipRemove)}
-              >
-                <Icon name="x" size={11} />
-              </button>
+            <span {...stylex.attrs(styles.slot)}>
+              <span {...stylex.attrs(styles.chip)} data-shortcut-key={combo}>
+                <kbd {...stylex.attrs(styles.kbd)}>{formatCombo(combo, platform)}</kbd>
+                <button
+                  type="button"
+                  title="Remove"
+                  aria-label={`Remove ${formatCombo(combo, platform)}`}
+                  onClick={() =>
+                    setKeys(
+                      props.def.id,
+                      keys().filter((k) => k !== combo),
+                    )
+                  }
+                  {...stylex.attrs(styles.chipRemove)}
+                >
+                  <Icon name="x" size={11} />
+                </button>
+              </span>
             </span>
           )}
         </For>
@@ -231,15 +233,15 @@ const styles = stylex.create({
   page: { display: "flex", flexDirection: "column", gap: space.lg },
   toolbar: { display: "flex", alignItems: "center", gap: space.md },
   search: { flex: 1, minWidth: 0, paddingLeft: 32, fontSize: font.sm },
-  note: { margin: 0, color: colors.muted, fontSize: font.sm },
+  note: { margin: 0, marginTop: -16, color: colors.muted, fontSize: font.sm },
   group: { display: "flex", flexDirection: "column", gap: space.sm },
   groupTitle: {
     margin: 0,
-    paddingInline: 2,
-    color: colors.muted,
-    fontSize: font.sm,
+    paddingInline: 1,
+    color: colors.text,
+    fontSize: 15,
     fontWeight: 600,
-    letterSpacing: "0.01em",
+    letterSpacing: "-0.01em",
   },
   rows: {
     display: "flex",
@@ -281,20 +283,18 @@ const styles = stylex.create({
     width: 400,
   },
   chip: {
-    boxSizing: "border-box",
-    width: 168,
-    justifyContent: "space-between",
     display: "inline-flex",
     alignItems: "center",
     gap: 2,
     height: 24,
-    paddingLeft: 8,
+    paddingLeft: 7,
     paddingRight: 2,
-    borderRadius: radius.sm,
+    borderRadius: 5,
     borderWidth: 1,
     borderStyle: "solid",
-    borderColor: colors.border,
-    backgroundColor: colors.bg,
+    borderColor: `color-mix(in oklab, ${colors.border}, transparent 20%)`,
+    borderBottomWidth: 2,
+    backgroundColor: `color-mix(in oklab, ${colors.surface}, ${colors.text} 4%)`,
   },
   kbd: { fontFamily: font.mono, fontSize: font.xs, color: colors.text },
   chipRemove: {
@@ -347,4 +347,5 @@ const styles = stylex.create({
   },
   searchBox: { position: "relative", display: "flex", alignItems: "center", flex: 1, minWidth: 0 },
   searchIcon: { position: "absolute", left: 11, color: colors.muted, pointerEvents: "none" },
+  slot: { display: "flex", width: 168 },
 });

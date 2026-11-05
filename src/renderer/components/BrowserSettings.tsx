@@ -635,7 +635,13 @@ export function AppearanceSection() {
             </For>
           </Select>
         </Row>
-        <Row label="Zoom levels" description="Sites you zoomed keep their zoom." wide>
+        <Row
+          label="Zoom levels"
+          description={
+            zoomed().length ? "Sites you zoomed keep their zoom." : "Sites you zoom keep their zoom; none has one yet."
+          }
+          wide={zoomed().length > 0}
+        >
           <div {...stylex.attrs(styles.list)} data-zoom-levels>
             <For each={zoomed()}>
               {([site, factor]) => (
@@ -659,9 +665,6 @@ export function AppearanceSection() {
                 </div>
               )}
             </For>
-            <Show when={!zoomed().length}>
-              <p {...stylex.attrs(styles.empty)}>No site has a zoom of its own.</p>
-            </Show>
           </div>
         </Row>
       </Section>

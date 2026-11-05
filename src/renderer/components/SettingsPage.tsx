@@ -186,14 +186,13 @@ export function SettingsShell(props: { view: string }) {
     }
   };
   const active = (id: string) => isCurrent(id) && !searching();
-  const Item = (p: { section: SettingsSection; quiet?: boolean }) => {
-    const quiet = () => !!p.quiet;
+  const Item = (p: { section: SettingsSection }) => {
     return (
       <button
         type="button"
         aria-current={active(p.section.id) ? "page" : undefined}
         onClick={() => open(p.section)}
-        {...stylex.attrs(styles.navItem, quiet() && styles.navItemQuiet, active(p.section.id) && styles.navItemOn)}
+        {...stylex.attrs(styles.navItem, active(p.section.id) && styles.navItemOn)}
         data-settings-nav={p.section.id}
         data-settings-parts={partsOf(p.section.id)
           .map((s) => s.id)
@@ -280,7 +279,7 @@ export function SettingsShell(props: { view: string }) {
                 />
               </button>
               <div {...stylex.attrs(styles.navGroup, libraryHidden() && styles.collapsed)}>
-                <For each={group("pages")}>{(section) => <Item section={section} quiet />}</For>
+                <For each={group("pages")}>{(section) => <Item section={section} />}</For>
               </div>
             </div>
           </Show>
@@ -321,7 +320,7 @@ export function SettingsShell(props: { view: string }) {
                   <div data-search-page={section.id} {...stylex.attrs(styles.resultPage)}>
                     <button type="button" onClick={() => open(section)} {...stylex.attrs(styles.resultTitle)}>
                       {section.label}
-                      <Icon name="chevron-right" size={15} {...stylex.attrs(styles.navIcon)} />
+                      <Icon name="arrow-right" size={12} />
                     </button>
                     <CategoryBody section={section.id} />
                   </div>
@@ -425,6 +424,13 @@ function filterSettings(root: HTMLElement, words: string[]) {
           any ||= on;
         }
         partShown = show(section.el, whole || section.titleHit || any) || partShown;
+        const shownItems = section.items.filter(({ item }) => item.style.display !== "none");
+        // The first row shown has no divider above it, like a card's first row.
+        for (const { item } of section.items) item.style.borderTopWidth = item === shownItems[0]?.item ? "0" : "";
+        section.el.toggleAttribute(
+          "data-same-title",
+          shownItems.length === 1 && shownItems[0]!.item.dataset.searchLabel === section.el.dataset.title,
+        );
       }
       if (!sections.length) partShown = matches(part.dataset.searchText) || matches(part.textContent);
       pageHit = show(part, partShown) || pageHit;
@@ -462,7 +468,7 @@ function highlight(root: HTMLElement, words: string[]) {
 
 // The highlight, and what a page shows around its settings (its own search box, notes) left out of search results.
 const highlightCss = `::highlight(settings-search) { background-color: color-mix(in oklab, transparent, ${colors.accent} 26%); color: ${colors.text}; }
-[data-settings-results] [data-search-hide] { display: none !important; }`;
+[data-settings-results] [data-search-hide], [data-settings-results] [data-same-title] > div > h2 { display: none !important; }`;
 
 /** A page's title: a section with the same title doesn't repeat it. */
 const PageTitle = createContext<string>();
@@ -609,10 +615,10 @@ function AppearanceSection() {
         <Segmented
           value={theme().radius ?? "md"}
           options={[
-            ["none", "Square"],
-            ["sm", "Subtle"],
-            ["md", "Rounded"],
-            ["lg", "Round"],
+            ["none", "None"],
+            ["sm", "Small"],
+            ["md", "Medium"],
+            ["lg", "Large"],
           ]}
           onChange={(radius) => setTheme({ radius })}
         />
@@ -662,7 +668,7 @@ function AgentSection() {
       </Row>
       <Row
         label="Instructions for building apps"
-        description="Added to the app builder's prompt in every tab, e.g. your language, currency, style preferences."
+        description="Added to the app builder's prompt in every tab: your language, currency, style."
         wide
       >
         <TextArea
@@ -1026,6 +1032,7 @@ function ProviderRow(props: { id: ProviderId }) {
   const status = () => providerById(props.id);
   const config = () => settings().providers[props.id];
   const [checking, setChecking] = createSignal(false);
+  const [settingPath, setSettingPath] = createSignal(false);
   const setConfig = (value: Partial<Settings["providers"][ProviderId]>) =>
     updateSettings((s) => ({
       ...s,
@@ -1095,15 +1102,28 @@ function ProviderRow(props: { id: ProviderId }) {
           <Toggle checked={config().enabled} onChange={(enabled) => setConfig({ enabled })} />
         </Show>
       </div>
-      <label {...stylex.attrs(styles.providerPath)}>
-        <span {...stylex.attrs(styles.muted)}>Path</span>
-        <input
-          value={config().binaryPath}
-          placeholder={status()?.binary ?? "Not set"}
-          onChange={(e) => setConfig({ binaryPath: e.currentTarget.value.trim() })}
-          {...stylex.attrs(styles.textInput, styles.mono, styles.pathInput)}
-        />
-      </label>
+      <Show
+        when={status()?.state !== "missing" || config().binaryPath || settingPath()}
+        fallback={
+          <button
+            type="button"
+            onClick={() => setSettingPath(true)}
+            {...stylex.attrs(styles.linkButton, styles.pathLink)}
+          >
+            Installed somewhere else? Set its path
+          </button>
+        }
+      >
+        <label {...stylex.attrs(styles.providerPath)}>
+          <span {...stylex.attrs(styles.muted)}>Path</span>
+          <input
+            value={config().binaryPath}
+            placeholder={status()?.binary ?? "Not set"}
+            onChange={(e) => setConfig({ binaryPath: e.currentTarget.value.trim() })}
+            {...stylex.attrs(styles.textInput, styles.mono, styles.pathInput)}
+          />
+        </label>
+      </Show>
     </div>
   );
 }
@@ -2439,7 +2459,7 @@ const styles = stylex.create({
     paddingBlock: 1,
     borderRadius: radius.full,
     backgroundColor: colors.surfaceHover,
-    color: colors.muted,
+    color: `color-mix(in oklab, ${colors.text}, ${colors.muted} 45%)`,
     fontSize: 11.5,
     fontWeight: 500,
     verticalAlign: "1px",
@@ -2465,9 +2485,9 @@ const styles = stylex.create({
   sectionTitle: {
     margin: 0,
     color: colors.text,
-    fontSize: font.md,
+    fontSize: 15,
     fontWeight: 600,
-    letterSpacing: "-0.005em",
+    letterSpacing: "-0.01em",
   },
   rows: {
     display: "flex",
@@ -2736,7 +2756,11 @@ const styles = stylex.create({
     backgroundColor: "transparent",
     cursor: "pointer",
     "::-webkit-color-swatch-wrapper": { padding: 0 },
-    "::-webkit-color-swatch": { borderWidth: 0, borderRadius: 4, boxShadow: "inset 0 0 0 1px rgb(0 0 0 / 0.15)" },
+    "::-webkit-color-swatch": {
+      borderWidth: 0,
+      borderRadius: 4,
+      boxShadow: "inset 0 0 0 1px light-dark(rgb(0 0 0 / 0.2), rgb(255 255 255 / 0.25))",
+    },
   },
   colorValue: { flex: 1, color: colors.muted, fontSize: font.sm, fontVariantNumeric: "tabular-nums" },
   linkButton: {
@@ -2822,7 +2846,10 @@ const styles = stylex.create({
     borderRadius: radius.sm,
     borderWidth: 1,
     borderStyle: "solid",
-    borderColor: { default: colors.border, ":focus-within": colors.accent },
+    borderColor: {
+      default: `light-dark(${colors.border}, color-mix(in oklab, ${colors.border}, ${colors.text} 12%))`,
+      ":focus-within": colors.accent,
+    },
     backgroundColor: colors.surface,
     boxShadow: { default: "none", ":focus-within": `0 0 0 3px ${colors.accentSoft}` },
     cursor: "text",
@@ -2868,9 +2895,7 @@ const styles = stylex.create({
     marginInline: -10,
     paddingInline: 10,
     overflowY: "auto",
-    scrollbarWidth: "thin",
-    scrollbarGutter: "stable",
-    scrollbarColor: `color-mix(in oklab, ${colors.border}, ${colors.text} 8%) transparent`,
+    scrollbarWidth: "none",
   },
   navGroupLabel: {
     paddingInline: 8,
@@ -2883,22 +2908,23 @@ const styles = stylex.create({
   navIcon: { flexShrink: 0, color: colors.muted },
   navLabel: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   part: { display: "flex", flexDirection: "column", gap: 28, scrollMarginTop: 24, borderRadius: radius.md },
-  sectionHead: { display: "flex", flexDirection: "column", gap: 4, paddingInline: 2, paddingBottom: 2 },
-  rowDescription: { maxWidth: "62ch", color: colors.muted, fontSize: font.sm, lineHeight: 1.45 },
+  sectionHead: { display: "flex", flexDirection: "column", gap: 4, paddingInline: 1, paddingBottom: 2 },
+  rowDescription: { maxWidth: "62ch", color: colors.muted, fontSize: font.sm, lineHeight: 1.45, textWrap: "pretty" },
   resultPage: { display: "flex", flexDirection: "column", gap: 12 },
   resultTitle: {
     display: "inline-flex",
     alignItems: "center",
-    gap: 6,
+    gap: 4,
     alignSelf: "flex-start",
     padding: 0,
     borderWidth: 0,
     backgroundColor: "transparent",
-    color: { default: colors.text, ":hover": colors.accent },
+    color: { default: colors.muted, ":hover": colors.accent },
     fontFamily: font.sans,
-    fontSize: font.lg,
-    fontWeight: 650,
-    letterSpacing: "-0.01em",
+    fontSize: font.xs,
+    fontWeight: 600,
+    letterSpacing: "0.04em",
+    textTransform: "uppercase",
     cursor: "pointer",
   },
   presetActive: {
@@ -2943,8 +2969,14 @@ const styles = stylex.create({
   collapsed: { display: "none" },
   resultCount: { margin: 0, color: colors.muted, fontSize: font.sm },
   rowDense: { minHeight: 48, paddingBlock: 8, gap: space.lg },
-  sectionDescription: { margin: 0, color: colors.muted, fontSize: 12.5, lineHeight: 1.5 },
-  navItemQuiet: { color: { default: colors.muted, ":hover": colors.text } },
+  sectionDescription: {
+    margin: 0,
+    maxWidth: 560,
+    color: colors.muted,
+    fontSize: 12.5,
+    lineHeight: 1.5,
+    textWrap: "pretty",
+  },
   navEmpty: { paddingInline: 8, color: colors.muted, fontSize: font.sm },
   toggleSlot: { width: 36, flexShrink: 0 },
   pathInput: {
@@ -2955,5 +2987,11 @@ const styles = stylex.create({
     paddingInline: 6,
     borderColor: { default: "transparent", ":hover": colors.border, ":focus": colors.accent },
     backgroundColor: { default: "transparent", ":focus": colors.surface },
+  },
+  pathLink: {
+    alignSelf: "flex-start",
+    marginLeft: 48,
+    color: { default: colors.muted, ":hover": colors.accent },
+    fontSize: font.xs,
   },
 });
