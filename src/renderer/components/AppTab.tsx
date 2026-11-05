@@ -255,102 +255,89 @@ function Workbench(props: { appId: string; active: boolean }) {
         void webview.loadURL(target).catch(() => {});
         return true;
       },
-      tools: () => (
-        <>
-          <Show when={state().project}>
+      // Its state, small, at the end of the address (the dot says running, starting or crashed).
+      addressExtras: () => (
+        <Show when={state().project}>
+          <span
+            {...stylex.attrs(styles.status)}
+            title={
+              runtime()?.error ??
+              `${isLive() ? "The finished app (open the agent to edit it)" : "Being edited: the dev server, changes appear live"} · ${stateLabels[runtime()?.state ?? "stopped"]}`
+            }
+            data-runtime-state={runtime()?.state}
+            data-mode={appMode(props.appId)}
+            role="status"
+            aria-label={`${isLive() ? "" : "Editing · "}${stateLabels[runtime()?.state ?? "stopped"]}`}
+          >
             <span
-              {...stylex.attrs(styles.status)}
-              title={
-                runtime()?.error ??
-                (isLive()
-                  ? "The finished app (open the agent to edit it)"
-                  : "Being edited: the dev server, changes appear live")
-              }
-              data-runtime-state={runtime()?.state}
-              data-mode={appMode(props.appId)}
-            >
-              <span
-                {...stylex.attrs(
-                  styles.dot,
-                  isRunning() && styles.dotRunning,
-                  busy() && styles.dotBusy,
-                  isCrashed() && styles.dotCrashed,
-                )}
-              />
-              {isLive() ? "" : "Editing · "}
-              {stateLabels[runtime()?.state ?? "stopped"]}
-            </span>
-          </Show>
-          <button
-            type="button"
-            title="Restart the app"
-            disabled={!state().project || busy()}
-            onClick={() => void control("restart")}
-            {...stylex.attrs(styles.iconButton)}
-            data-restart
-          >
-            <Icon name="rotate-cw" size={15} />
-          </button>
-          <button
-            type="button"
-            title="Logs"
-            disabled={!state().project}
-            onClick={() => setLogsOpen((o) => !o)}
-            {...stylex.attrs(styles.iconButton, logsOpen() && styles.iconButtonOn)}
-            data-logs
-          >
-            <Icon name="terminal" size={15} />
-          </button>
-          <button
-            type="button"
-            title="Secrets (API keys, passwords) for this app"
-            onClick={() => setSecretsOpen((o) => !o)}
-            {...stylex.attrs(styles.iconButton, secretsOpen() && styles.iconButtonOn)}
-            data-secrets
-          >
-            <Icon name="key-round" size={15} />
-          </button>
-          <button
-            type="button"
-            title="Snapshots: undo changes, restore earlier versions"
-            disabled={!state().project}
-            onClick={() => setHistoryOpen((o) => !o)}
-            {...stylex.attrs(styles.iconButton, historyOpen() && styles.iconButtonOn)}
-            data-history-button
-          >
-            <Icon name="file-clock" size={15} />
-          </button>
-          <button
-            type="button"
-            title="Data: what the app has stored"
-            disabled={!state().project}
-            onClick={() => setDataOpen((o) => !o)}
-            {...stylex.attrs(styles.iconButton, dataOpen() && styles.iconButtonOn)}
-            data-data-button
-          >
-            <Icon name="database" size={15} />
-          </button>
-          <button
-            type="button"
-            title="Tools: what the app can do, for you, agents and other apps"
-            disabled={!state().project}
-            onClick={() => setToolsOpen((o) => !o)}
-            {...stylex.attrs(styles.iconButton, toolsOpen() && styles.iconButtonOn)}
-            data-tools-button
-          >
-            <Icon name="wrench" size={15} />
-          </button>
-          <button
-            type="button"
-            title="Open in your browser"
-            disabled={!running()}
-            onClick={() => window.rune.web.openExternal(runtime()!.url!)}
-            {...stylex.attrs(styles.iconButton)}
-          >
-            <Icon name="external-link" size={15} />
-          </button>
-        </>
+              {...stylex.attrs(
+                styles.dot,
+                isRunning() && styles.dotRunning,
+                busy() && styles.dotBusy,
+                isCrashed() && styles.dotCrashed,
+              )}
+            />
+            {/* Running (the dot says so) needs no word; anything else does. */}
+            {isLive() ? (isRunning() ? "" : stateLabels[runtime()?.state ?? "stopped"]) : "Editing"}
+          </span>
+        </Show>
       ),
+      // Its tools, in the top row's ⋯ menu.
+      menu: () => [
+        {
+          id: "restart",
+          label: "Restart the app",
+          icon: "rotate-cw",
+          disabled: !state().project || busy(),
+          onSelect: () => void control("restart"),
+        },
+        {
+          id: "logs",
+          label: "Logs",
+          icon: "terminal",
+          checked: logsOpen(),
+          disabled: !state().project,
+          onSelect: () => setLogsOpen((o) => !o),
+        },
+        {
+          id: "secrets",
+          label: "Secrets",
+          icon: "key-round",
+          checked: secretsOpen(),
+          onSelect: () => setSecretsOpen((o) => !o),
+        },
+        {
+          id: "snapshots",
+          label: "Snapshots",
+          icon: "file-clock",
+          checked: historyOpen(),
+          disabled: !state().project,
+          onSelect: () => setHistoryOpen((o) => !o),
+        },
+        {
+          id: "data",
+          label: "Data",
+          icon: "database",
+          checked: dataOpen(),
+          disabled: !state().project,
+          onSelect: () => setDataOpen((o) => !o),
+        },
+        {
+          id: "tools",
+          label: "Tools",
+          icon: "wrench",
+          checked: toolsOpen(),
+          disabled: !state().project,
+          onSelect: () => setToolsOpen((o) => !o),
+        },
+        {
+          id: "open-external",
+          label: "Open in your browser",
+          icon: "external-link",
+          disabled: !running(),
+          onSelect: () => window.rune.web.openExternal(runtime()!.url!),
+        },
+      ],
     }),
   );
 
@@ -575,20 +562,16 @@ const styles = stylex.create({
     borderBottomColor: colors.border,
     backgroundColor: colors.bg,
   },
-  // In the sidebar's top bar: a line of its own above the app's tools.
+  // At the end of the address field.
   status: {
     display: "flex",
     alignItems: "center",
-    gap: 6,
-    flexBasis: "100%",
-    minWidth: 0,
-    paddingInline: space.xs,
-    paddingBottom: 2,
+    gap: 5,
+    flexShrink: 0,
+    paddingInline: 4,
     color: colors.muted,
-    fontSize: font.xs,
+    fontSize: 11,
     whiteSpace: "nowrap",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
   },
   dot: { width: 7, height: 7, borderRadius: radius.full, backgroundColor: colors.muted },
   dotRunning: { backgroundColor: colors.success },
@@ -611,7 +594,6 @@ const styles = stylex.create({
     fontSize: 11.5,
     textAlign: "right",
   },
-  // In the sidebar's top bar: seven of them fit its default width.
   iconButton: {
     display: "grid",
     placeItems: "center",
@@ -625,10 +607,6 @@ const styles = stylex.create({
     color: { default: colors.muted, ":hover": colors.text, ":disabled": colors.muted },
     opacity: { default: 1, ":disabled": 0.4 },
     cursor: { default: "pointer", ":disabled": "default" },
-  },
-  iconButtonOn: {
-    backgroundColor: { default: colors.accentSoft, ":hover": colors.accentSoft },
-    color: { default: colors.accent, ":hover": colors.accent },
   },
   viewport: { position: "relative", flex: 1, minHeight: 0, backgroundColor: colors.bg },
   webview: { position: "absolute", inset: 0, width: "100%", height: "100%" },

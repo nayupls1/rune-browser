@@ -965,8 +965,8 @@ function GlobalSecrets() {
   return (
     <>
       <p {...stylex.attrs(styles.muted, styles.note)}>
-        Secrets are environment variables for apps (API keys, passwords). Add an app's own secrets with the key button
-        in its tab; global ones here can be shared with apps you allow. {protection()} Values can't be viewed after
+        Secrets are environment variables for apps (API keys, passwords). Add an app's own secrets from its tab (⋯ →
+        Secrets); global ones here can be shared with apps you allow. {protection()} Values can't be viewed after
         saving.
       </p>
       <For each={overview()?.secrets}>
@@ -993,8 +993,7 @@ function GlobalSecrets() {
           <div {...stylex.attrs(styles.warning)} role="alert" data-global-secret-warning>
             <strong>Global secrets are riskier.</strong> Every app you allow to use one gets it, and so does any code
             those apps run: their dependencies, or a bug the agent wrote. A leak from one app exposes it for all of
-            them. Prefer a secret per app (the key button in the app's tab) unless several apps really need the same
-            one.
+            them. Prefer a secret per app (⋯ → Secrets in the app's tab) unless several apps really need the same one.
           </div>
           <SecretForm
             saveLabel="Add global secret"

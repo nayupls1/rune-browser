@@ -110,6 +110,17 @@ export function WebTab(props: { appId: string; active: boolean }) {
   const siteLive = () => (siteUsage(contentsId(), currentUrl())?.inUse.length ?? 0) > 0;
   const siteRefused = () => !siteLive() && (siteUsage(contentsId(), currentUrl())?.blocked.length ?? 0) > 0;
   createEffect(on(contentsId, (id) => id !== null && loadUsage(id)));
+  /** The address field's icon: what kind of page this is, and whether it's secure. */
+  const addressIcon = () =>
+    notSecure()
+      ? "triangle-alert"
+      : isExtensionUrl(currentUrl())
+        ? "puzzle"
+        : currentUrl().startsWith("https:")
+          ? "lock"
+          : currentUrl().startsWith("file:")
+            ? "file"
+            : "globe";
   const collapsed = () => isAgentCollapsed(props.appId);
   const state = () => states[props.appId];
 
@@ -737,16 +748,7 @@ export function WebTab(props: { appId: string; active: boolean }) {
     registerChrome(props.appId, {
       url: () => address(),
       blank: () => !src(),
-      icon: () =>
-        notSecure()
-          ? "triangle-alert"
-          : isExtensionUrl(currentUrl())
-            ? "puzzle"
-            : currentUrl().startsWith("https:")
-              ? "lock"
-              : currentUrl().startsWith("file:")
-                ? "file"
-                : "globe",
+      icon: addressIcon,
       notSecure,
       canBack: () => history().back,
       canForward: () => history().forward,
@@ -763,28 +765,54 @@ export function WebTab(props: { appId: string; active: boolean }) {
         webview?.stop();
       },
       go,
+      // The site's settings behind its lock (or what the page is using right now: the camera…).
+      identity: () => (
+        <Show
+          when={siteForUrl(currentUrl())}
+          fallback={
+            <Show when={loading()} fallback={<Icon name={addressIcon()} size={13} />}>
+              <Icon name="loader-circle" size={13} {...stylex.attrs(styles.spinning)} data-address-loading />
+            </Show>
+          }
+        >
+          <button
+            type="button"
+            title={
+              siteStatusTitle(contentsId(), currentUrl()) ??
+              (notSecure()
+                ? "Not secure: see the site's settings, cookies and data"
+                : "Site settings: what this site may use and do, its cookies and data")
+            }
+            onClick={(e) => {
+              const r = e.currentTarget.getBoundingClientRect();
+              setSiteMenu(siteMenu() ? undefined : { x: r.left, y: r.bottom + 6 });
+            }}
+            {...stylex.attrs(
+              styles.identity,
+              notSecure() && styles.identityWarning,
+              siteLive() && styles.siteLive,
+              siteRefused() && styles.siteRefused,
+            )}
+            data-site-info-button
+            data-site-in-use={siteUsage(contentsId(), currentUrl())?.inUse.join(" ") ?? ""}
+            data-site-blocked={siteUsage(contentsId(), currentUrl())?.blocked.join(" ") ?? ""}
+          >
+            <SiteStatusIcon
+              contentsId={contentsId()}
+              url={currentUrl()}
+              fallback={
+                // While the page loads, a spinner in place of its icon (the address bar is the toolbar).
+                <Show when={loading()} fallback={<Icon name={addressIcon()} size={13} />}>
+                  <Icon name="loader-circle" size={13} {...stylex.attrs(styles.spinning)} data-address-loading />
+                </Show>
+              }
+            />
+          </button>
+        </Show>
+      ),
       addressExtras: () => (
         <>
           <ZoomBadge tabId={props.appId} />
-          <Show when={siteForUrl(currentUrl())}>
-            <button
-              type="button"
-              title={
-                siteStatusTitle(contentsId(), currentUrl()) ??
-                "Site settings: what this site may use and do, its cookies and data"
-              }
-              onClick={(e) => {
-                const r = e.currentTarget.getBoundingClientRect();
-                setSiteMenu(siteMenu() ? undefined : { x: r.left, y: r.bottom + 6 });
-              }}
-              {...stylex.attrs(styles.customized, siteLive() && styles.siteLive, siteRefused() && styles.siteRefused)}
-              data-site-info-button
-              data-site-in-use={siteUsage(contentsId(), currentUrl())?.inUse.join(" ") ?? ""}
-              data-site-blocked={siteUsage(contentsId(), currentUrl())?.blocked.join(" ") ?? ""}
-            >
-              <SiteStatusIcon contentsId={contentsId()} url={currentUrl()} />
-            </button>
-          </Show>
           <BookmarkStar tabId={props.appId} url={currentUrl()} />
           <Show when={overridesHere().length}>
             <button
@@ -984,6 +1012,8 @@ function StartPage(props: { onGo: (input: string) => boolean }) {
   );
 }
 
+const spin = stylex.keyframes({ from: { transform: "rotate(0deg)" }, to: { transform: "rotate(360deg)" } });
+
 const ping = stylex.keyframes({
   "0%": { transform: "scale(0.6)", opacity: 1 },
   "100%": { transform: "scale(1.6)", opacity: 0 },
@@ -1089,6 +1119,29 @@ const styles = stylex.create({
     fontSize: 11,
     fontWeight: 600,
     cursor: "pointer",
+  },
+  // In place of the address field's icon, at its start.
+  identity: {
+    display: "grid",
+    placeItems: "center",
+    flexShrink: 0,
+    minWidth: 22,
+    height: 22,
+    marginLeft: -5,
+    padding: 0,
+    borderStyle: "none",
+    borderRadius: radius.full,
+    backgroundColor: { default: "transparent", ":hover": colors.surfaceHover },
+    color: colors.muted,
+    cursor: "pointer",
+  },
+  identityWarning: { color: colors.warning },
+  spinning: {
+    color: colors.accent,
+    animationName: spin,
+    animationDuration: "0.8s",
+    animationIterationCount: "infinite",
+    animationTimingFunction: "linear",
   },
   siteLive: {
     width: "auto",

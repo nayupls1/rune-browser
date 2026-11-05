@@ -6,7 +6,7 @@
 // default and makes it the default (each system has its own way).
 import { app, ipcMain, shell, type WebContents } from "electron";
 import { execFile } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
@@ -19,6 +19,7 @@ import {
   type DefaultBrowserStatus,
 } from "../shared/defaultBrowser";
 import { appImageDesktopEntry, desktopExecArg, linksFromArgs, webLink, withoutLinks } from "./links";
+import { defaultFor, mimeappsFiles, withDefault, xdgDirs } from "./mimeapps";
 import type { AppWindows } from "./windows";
 
 const run = promisify(execFile);
@@ -125,14 +126,44 @@ export function setupLinks(options: { windows: AppWindows; showWindow: () => voi
 
 // --- Whether it's the default, and making it the default -------------------------------
 
-const dataHome = () => process.env.XDG_DATA_HOME || join(homedir(), ".local", "share");
-/** Where an AppImage's .desktop file goes (it installs none itself). */
-const appImageEntryPath = () => join(dataHome(), "applications", LINUX_DESKTOP_FILE);
+/** System tools (xdg-utils, KDE's) are optional: a missing or stuck one just isn't used. */
+const tool = (command: string, args: string[]) =>
+  run(command, args, { timeout: 10_000 }).then(
+    (r) => r.stdout.trim(),
+    () => null,
+  );
 
-/** The installed .desktop file, if there is one. */
-function linuxDesktopEntry() {
-  const dirs = [dataHome(), ...(process.env.XDG_DATA_DIRS || "/usr/local/share:/usr/share").split(":")];
-  return dirs.map((dir) => join(dir, "applications", LINUX_DESKTOP_FILE)).find((path) => existsSync(path));
+const xdg = () => xdgDirs(process.env, homedir());
+/** Where an AppImage's .desktop file goes (it installs none itself). */
+const appImageEntryPath = () => join(xdg().dataHome, "applications", LINUX_DESKTOP_FILE);
+
+/** Where a .desktop file is installed (the user's applications first), if it is. */
+function desktopEntryPath(desktop: string) {
+  const dirs = xdg();
+  return [dirs.dataHome, ...dirs.dataDirs]
+    .map((dir) => join(dir, "applications", desktop))
+    .find((path) => existsSync(path));
+}
+
+const readOrNull = (path: string) => {
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Whether Rune Browser opens web links on this Linux desktop: xdg-utils where
+ * it's installed (it knows each desktop's own setting), else the mimeapps.list
+ * files, as xdg-open reads them.
+ */
+async function isLinuxDefault() {
+  if ((await tool("xdg-settings", ["check", "default-web-browser", LINUX_DESKTOP_FILE])) === "yes") return true;
+  const queried = await tool("xdg-mime", ["query", "default", "x-scheme-handler/https"]);
+  if (queried !== null) return queried === LINUX_DESKTOP_FILE;
+  const files = mimeappsFiles(xdg()).map(readOrNull);
+  return defaultFor(files, "x-scheme-handler/https", (d) => !!desktopEntryPath(d)) === LINUX_DESKTOP_FILE;
 }
 
 export async function defaultBrowserStatus(): Promise<DefaultBrowserStatus> {
@@ -150,12 +181,10 @@ export async function defaultBrowserStatus(): Promise<DefaultBrowserStatus> {
   if (process.platform === "darwin") {
     return app.isDefaultProtocolClient("https") ? { state: "default" } : { state: "not-default", how: "confirm" };
   }
-  if (!process.env.APPIMAGE && !linuxDesktopEntry()) {
+  if (!process.env.APPIMAGE && !desktopEntryPath(LINUX_DESKTOP_FILE)) {
     return { state: "unsupported", reason: `Rune Browser's ${LINUX_DESKTOP_FILE} file isn't installed.` };
   }
-  const current = await run("xdg-mime", ["query", "default", "x-scheme-handler/https"]).catch(() => null);
-  if (!current) return { state: "unsupported", reason: "Choosing the default browser needs xdg-utils (xdg-mime)." };
-  return current.stdout.trim() === LINUX_DESKTOP_FILE ? { state: "default" } : { state: "not-default", how: "direct" };
+  return (await isLinuxDefault()) ? { state: "default" } : { state: "not-default", how: "direct" };
 }
 
 async function makeDefaultBrowser() {
@@ -169,13 +198,51 @@ async function makeDefaultBrowser() {
     // macOS asks the user to confirm.
     for (const scheme of WEB_SCHEMES) app.setAsDefaultProtocolClient(scheme);
   } else {
-    if (process.env.APPIMAGE) writeAppImageEntry(process.env.APPIMAGE);
-    await run("xdg-mime", ["default", LINUX_DESKTOP_FILE, ...LINUX_DEFAULT_TYPES]);
+    await makeLinuxDefault();
+  }
+}
+
+/**
+ * Linux has no one place for the default browser, so it's set in all of them:
+ * the user's mimeapps.list (and the desktop's own one, which comes first) for
+ * links and web pages, which every desktop and xdg-open read; then each
+ * desktop's own setting through xdg-settings (GNOME, KDE and the others it knows) and KDE's
+ * BrowserApplication, where those tools are installed. An AppImage writes its
+ * .desktop file first.
+ */
+async function makeLinuxDefault() {
+  if (process.env.APPIMAGE) writeAppImageEntry(process.env.APPIMAGE);
+  const dirs = xdg();
+  const files = [
+    ...dirs.desktops.map((d) => join(dirs.configHome, `${d}-mimeapps.list`)).filter((path) => existsSync(path)),
+    join(dirs.configHome, "mimeapps.list"),
+  ];
+  for (const link of files) {
+    // A mimeapps.list linked from elsewhere (dotfiles, home-manager) is changed where it is.
+    const file = existsSync(link) ? realpathSync(link) : link;
+    mkdirSync(dirname(file), { recursive: true });
+    // Only a missing file starts empty: one that can't be read (another owner) mustn't be replaced
+    // by one with only Rune Browser's defaults in it.
+    let current = "";
+    try {
+      current = readFileSync(file, "utf8");
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    }
+    const next = withDefault(current, LINUX_DESKTOP_FILE, LINUX_DEFAULT_TYPES);
+    // Whole or not at all: other apps read it at any time.
+    writeFileSync(`${file}.rune-tmp`, next);
+    renameSync(`${file}.rune-tmp`, file);
+  }
+  await tool("xdg-settings", ["set", "default-web-browser", LINUX_DESKTOP_FILE]);
+  if (dirs.desktops.includes("kde")) {
+    const args = ["--file", "kdeglobals", "--group", "General", "--key", "BrowserApplication", LINUX_DESKTOP_FILE];
+    if ((await tool("kwriteconfig6", args)) === null) await tool("kwriteconfig5", args);
   }
 }
 
 function writeAppImageEntry(appImage: string) {
-  const icon = join(dataHome(), "icons", "rune-browser.png");
+  const icon = join(xdg().dataHome, "icons", "rune-browser.png");
   mkdirSync(dirname(icon), { recursive: true });
   writeFileSync(icon, readFileSync(join(app.getAppPath(), "dist", "electron", "icon.png")));
   const entry = appImageEntryPath();
@@ -187,8 +254,14 @@ function writeAppImageEntry(appImage: string) {
 
 /** An AppImage that moved (or was updated to a new file) keeps opening the links. */
 function refreshAppImageEntry() {
-  const appImage = process.env.APPIMAGE;
-  if (process.platform !== "linux" || !appImage) return;
+  if (process.platform === "linux" && process.env.APPIMAGE) appImageMoved(process.env.APPIMAGE);
+}
+
+/**
+ * The AppImage is at another path now (moved, or updated to a file of a new name,
+ * main/updates.ts): the .desktop file written for it (if any) opens links with that one.
+ */
+export function appImageMoved(appImage: string) {
   try {
     const entry = readFileSync(appImageEntryPath(), "utf8");
     const exec = `Exec=${desktopExecArg(appImage)} %U\n`;

@@ -53,6 +53,15 @@
   -webkit-app-region: no-drag;
 }
 
+/* The address bar while it's open floats over everything, the top bars too: none of them
+   drags the window then (Electron adds drag regions in document order, so later ones would
+   win over the backdrop), and a click on them closes it. */
+[data-address-backdrop],
+[data-address-bar],
+body:has([data-address-open]) [data-titlebar] {
+  -webkit-app-region: no-drag;
+}
+
 /* Markdown in agent replies (generated HTML, so it can't
    carry StyleX classes). */
 .rune-markdown > :first-child {

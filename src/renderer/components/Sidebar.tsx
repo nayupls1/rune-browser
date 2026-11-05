@@ -60,7 +60,7 @@ import {
   visibleTabs,
 } from "../lib/splits";
 import { colors, font, radius, space } from "../theme.stylex";
-import { AddressBar, NavRow, TabTools } from "./TopBar";
+import { AddressBar, NavRow } from "./TopBar";
 import { api } from "../lib/api";
 import { confirmDialog } from "./ConfirmDialog";
 import { ContextMenu, type MenuItem, type MenuPosition } from "./ContextMenu";
@@ -173,12 +173,11 @@ export function Sidebar() {
           openDropped(e.dataTransfer!);
         }}
       >
-        {/* The tab on screen: its navigation, address and tools (components/TopBar.tsx). */}
+        {/* The tab on screen: its navigation and address, its tools in the ⋯ menu (components/TopBar.tsx). */}
         <div {...stylex.attrs(styles.chrome)} data-tab-chrome={selectedId() ?? ""}>
           <NavRow compact={compact()} />
           <Show when={!compact()}>
             <AddressBar />
-            <TabTools />
           </Show>
         </div>
         <Show when={tiles().length}>

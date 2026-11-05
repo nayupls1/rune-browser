@@ -450,6 +450,16 @@ const click = (selector: string, text?: string) =>
 
 /** Where the sidebar shows a tab's navigation, address and tools (when it's the tab on screen). */
 const chromeFor = (tabSelector: string) => tabSelector.replace(/^\[data-(?:web|app)-tab=/, "[data-tab-chrome=");
+/** Picks an item of the top row's ⋯ menu (the browser's pages, the tab's tools: an app's logs, data…). */
+const fromMenu = async (chrome: string, id: string) => {
+  await click(`${chrome} [data-more-menu]`.trim());
+  await page!.waitFor(`!!document.querySelector('[data-context-menu] [data-menu-item="${id}"]:not(:disabled)')`, {
+    label: `the ⋯ menu's ${id}`,
+  });
+  await click(`[data-context-menu] [data-menu-item="${id}"]`);
+};
+/** An address as the sidebar shows it while it isn't being edited: without its scheme or a lone trailing slash. */
+const displayHost = (url: string) => url.replace(/^https?:\/\//i, "").replace(/^([^/?#]+)\/$/, "$1");
 
 /** Opens Settings at a category of its sidebar, or one of the pages in it (History, Schedules, Mods, Activity). */
 const openSettingsAt = async (section: string) => {
@@ -625,13 +635,13 @@ try {
         (await inView<string>(appTab(), `document.body.innerText`)).includes("Edited live:") ? true : undefined,
       20_000,
     );
-    await click(`${chromeFor(appTab())} [data-logs]`);
+    await fromMenu(chromeFor(appTab()), "logs");
     await page!.waitFor(
       `document.querySelector('${appTab()} [data-logs-panel]')?.innerText.includes("bun run start")`,
       { label: "logs" },
     );
     await shot("app-live.png");
-    await click(`${chromeFor(appTab())} [data-logs]`);
+    await fromMenu(chromeFor(appTab()), "logs");
     // Showing the agent again goes back to editing: the dev server.
     await click(`${chromeFor(appTab())} [data-agent-show]`);
     await page!.waitFor(`!!document.querySelector('${agentOf(appId)}')`, { label: "agent shown" });
@@ -644,7 +654,7 @@ try {
   });
 
   await check("history: a snapshot shows the change, and undoing it reverts the app", async () => {
-    await click(`${chromeFor(appTab())} [data-history-button]`);
+    await fromMenu(chromeFor(appTab()), "snapshots");
     const panel = `${appTab()} [data-history-panel]`;
     await page!.waitFor(`!!document.querySelector('${panel} [data-snapshot]')`, { label: "template snapshot" });
     await click(`${panel} [data-save-snapshot]`);
@@ -671,7 +681,7 @@ try {
       `[...document.querySelectorAll('${panel} [data-snapshot]')].some((e) => e.innerText.includes("Undid:"))`,
       { label: "undo in the timeline" },
     );
-    await click(`${chromeFor(appTab())} [data-history-button]`);
+    await fromMenu(chromeFor(appTab()), "snapshots");
 
     // The Snapshots page has everything in the workspace.
     await openSettingsAt("snapshots");
@@ -700,7 +710,7 @@ try {
     ] as const)
       db.run("INSERT INTO expenses (label, amount) VALUES (?, ?)", [label, amount]);
     db.close();
-    await click(`${chromeFor(appTab())} [data-data-button]`);
+    await fromMenu(chromeFor(appTab()), "data");
     const panel = `${appTab()} [data-data-panel]`;
     await page!.waitFor(`!!document.querySelector('${panel} [data-data-table="expenses"]')`, {
       label: "expenses table",
@@ -714,11 +724,11 @@ try {
       label: "search",
     });
     await shot("app-data.png");
-    await click(`${chromeFor(appTab())} [data-data-button]`);
+    await fromMenu(chromeFor(appTab()), "data");
   });
 
   await check("tool registry: the app's tools from its data, run from the tools panel", async () => {
-    await click(`${chromeFor(appTab())} [data-tools-button]`);
+    await fromMenu(chromeFor(appTab()), "tools");
     const panel = `${appTab()} [data-tools-panel]`;
     await page!.waitFor(`!!document.querySelector('${panel} [data-tool="add-expenses"]')`, { label: "derived tools" });
     await click(`${panel} [data-tool="add-expenses"] button`);
@@ -730,7 +740,7 @@ try {
       { label: "tool result" },
     );
     await shot("app-tools.png");
-    await click(`${chromeFor(appTab())} [data-tools-button]`);
+    await fromMenu(chromeFor(appTab()), "tools");
     const tools = await apiCall<{ id: string }[]>(`/api/apps/${appId}/tools`);
     return `${tools.length} tools`;
   });
@@ -802,7 +812,7 @@ try {
   await check("secrets: added in the app tab, never shown again", async () => {
     const value = "e2e-secret-value-4711";
     await waitForAppRunning(appTab(), appId, "app running");
-    await click(`${chromeFor(appTab())} [data-secrets]`);
+    await fromMenu(chromeFor(appTab()), "secrets");
     await page!.waitFor(`!!document.querySelector('${appTab()} [data-secrets-panel] [data-secret-form]')`, {
       label: "secrets panel",
     });
@@ -817,7 +827,7 @@ try {
     );
     if (html.includes(value)) throw new Error("the secret value is still in the page");
     await shot("secrets.png");
-    await click(`${chromeFor(appTab())} [data-secrets]`);
+    await fromMenu(chromeFor(appTab()), "secrets");
   });
 
   await check("permissions: an app asking for AI waits for the user", async () => {
@@ -842,7 +852,7 @@ try {
     },`,
         ),
     );
-    await click(`${chromeFor(appTab())} [data-restart]`);
+    await fromMenu(chromeFor(appTab()), "restart");
     await page!
       .waitFor(`!document.querySelector('${appTab()}[data-runtime-state="running"]')`, { timeoutMs: 10_000 })
       .catch(() => {});
@@ -1595,6 +1605,97 @@ try {
     if (after.top !== before.top || after.right !== before.right)
       throw new Error(`after fullscreen: ${JSON.stringify(after)}`);
     return `inset ${before.top}px, corners ${before.radius}; fullscreen fills ${viewport.join("×")}`;
+  });
+
+  await check("address bar: compact in the sidebar, pops out over the page when focused; the ⋯ menu", async () => {
+    const tab = `[data-web-tab="${webTabId}"]`;
+    await click(`nav li[data-app-id="${webTabId}"]`);
+    const address = `${chromeFor(tab)} [data-address]`;
+    await page!.waitFor(`document.querySelector('${address}')?.value === "${displayHost(site.url.origin)}"`, {
+      label: "the address without its scheme",
+    });
+    // The site's settings are behind its icon, at the start; the empty star only shows on hover.
+    const bar = `${chromeFor(tab)} [data-address-bar]`;
+    const layout = await page!.eval<{ identityFirst: boolean; starShown: boolean }>(`(() => {
+      const row = document.querySelector('${bar}').firstElementChild;
+      const star = row.querySelector("[data-bookmark-star]");
+      return { identityFirst: row.firstElementChild.matches("[data-site-info-button]"), starShown: !!star && getComputedStyle(star).opacity !== "0" };
+    })()`);
+    if (!layout.identityFirst || layout.starShown) throw new Error(`address layout: ${JSON.stringify(layout)}`);
+
+    await page!.eval(`document.querySelector('${address}').focus(), true`);
+    const floating = await page!.waitFor<{ width: number; left: number; value: string }>(
+      `(() => {
+        const bar = document.querySelector('${bar}');
+        if (!bar.matches("[data-address-open]")) return undefined;
+        const r = bar.getBoundingClientRect();
+        return { width: Math.round(r.width), left: Math.round(r.left), value: document.querySelector('${address}').value };
+      })()`,
+      { label: "the address popped out" },
+    );
+    const sidebar = await page!.eval<number>(`Math.round(document.querySelector("nav").getBoundingClientRect().width)`);
+    if (floating.width <= sidebar || floating.left < sidebar / 2 || floating.value !== `${site.url.origin}/`)
+      throw new Error(`floating: ${JSON.stringify({ ...floating, sidebar })}`);
+    await type(address, "test");
+    await page!.waitFor(`!!document.querySelector('${bar} [data-suggestions] [data-suggestion="search"]')`, {
+      label: "suggestions under it",
+    });
+    await shot("address-popover.png");
+    // Focus lost and back right away (Ctrl+T or Ctrl+L just after it closed): it stays open.
+    await page!.eval(`(() => { const i = document.querySelector('${address}'); i.blur(); i.focus(); return true; })()`);
+    await Bun.sleep(400);
+    if (!(await page!.eval<boolean>(`!!document.querySelector('${bar}[data-address-open]')`)))
+      throw new Error("closed although it got the focus back");
+    // A click outside (on the backdrop over the page) closes it.
+    await page!.eval(
+      `document.querySelector("[data-address-backdrop]").dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true })), true`,
+    );
+    await page!.waitFor(
+      `!document.querySelector('${bar}[data-address-open]') && !document.querySelector("[data-address-backdrop]") && document.querySelector('${address}').value === "${displayHost(site.url.origin)}"`,
+      { label: "closed again, the address back" },
+    );
+
+    // Typed into without a focus event first (as scripts and some input methods do): what's typed stays.
+    await type(address, "typed first");
+    await page!.waitFor(`document.querySelector('${address}').value === "typed first"`, {
+      label: "the typed text kept",
+      timeoutMs: 2000,
+    });
+    await page!.eval(
+      `document.querySelector('${address}').dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })), true`,
+    );
+    await page!.waitFor(`!document.querySelector('${bar}[data-address-open]')`, { label: "closed with Escape" });
+
+    // One ⋯ menu instead of a row of buttons: the browser's pages, the page's actions, Settings.
+    await click(`${chromeFor(tab)} [data-more-menu]`);
+    await page!.waitFor(`!!document.querySelector('[data-context-menu] [data-menu-item="find.open"]')`, {
+      label: "the ⋯ menu",
+    });
+    const items = await page!.eval<string[]>(
+      `[...document.querySelectorAll("[data-context-menu] [data-menu-item]")].map((b) => b.dataset.menuItem)`,
+    );
+    for (const id of ["new-tab", "bookmarks", "history", "downloads", "extensions", "settings"])
+      if (!items.includes(id)) throw new Error(`the menu has no ${id}: ${items.join(", ")}`);
+    await shot("more-menu.png");
+    // Pressed again (pointerdown, then click, like a real click), ⋯ closes its menu.
+    await page!.eval(`(() => {
+      const b = document.querySelector('${chromeFor(tab)} [data-more-menu]');
+      b.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+      b.click();
+      return true;
+    })()`);
+    await Bun.sleep(150);
+    if (await page!.eval<boolean>(`!!document.querySelector("[data-context-menu]")`))
+      throw new Error("⋯ didn't close its menu");
+    await click(`${chromeFor(tab)} [data-more-menu]`);
+    await page!.waitFor(`!!document.querySelector('[data-context-menu] [data-menu-item="bookmarks"]')`, {
+      label: "the ⋯ menu again",
+    });
+    await click('[data-context-menu] [data-menu-item="bookmarks"]');
+    await page!.waitFor(`!!document.querySelector("[data-bookmarks-menu]")`, { label: "the bookmarks menu" });
+    await page!.eval(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })), true`);
+    await page!.waitFor(`!document.querySelector("[data-bookmarks-menu]")`, { label: "bookmarks menu closed" });
+    return `${floating.width}px wide over a ${sidebar}px sidebar; menu: ${items.length} items`;
   });
 
   await check("keyboard shortcuts: pages keep their own keys, the browser's work everywhere", async () => {
@@ -4801,7 +4902,7 @@ try {
       const refused = await page!.eval<string>(`document.querySelector('${tab} [data-load-error]').innerText`);
       if (!refused.includes("refused to connect") || !refused.includes("ERR_CONNECTION_REFUSED"))
         throw new Error(`the error page says: ${refused}`);
-      await addressShows(`http://127.0.0.1:${closed}/`);
+      await addressShows(`127.0.0.1:${closed}`);
       await shot("load-error-network.png");
       if (!insecure) {
         // CI must cover the certificate warning; a computer without openssl only checks the rest.
@@ -4951,12 +5052,12 @@ try {
       });
 
       // The menu in the sidebar's top row.
-      await click("[data-bookmarks-button]");
+      await fromMenu("", "bookmarks");
       await page!.waitFor(`!!document.querySelector('[data-bookmarks-menu] [data-bookmark-item="${second.id}"]')`, {
         label: "bookmarks menu",
       });
       await shot("bookmarks-menu.png");
-      await click("[data-bookmarks-button]");
+      await page!.eval(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })), true`);
       await page!.waitFor(`!document.querySelector("[data-bookmarks-menu]")`, { label: "menu closed again" });
 
       // The address bar suggests bookmarks while typing; so does the command bar.

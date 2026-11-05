@@ -12,6 +12,10 @@ export interface MenuItem {
   disabled?: boolean;
   /** Shows a check mark (the current choice). */
   checked?: boolean;
+  /** Its keyboard shortcut, shown at the end ("Ctrl+H"). */
+  hint?: string;
+  /** Names it for tests (`data-menu-item`). */
+  id?: string;
   onSelect: () => void;
 }
 
@@ -20,7 +24,13 @@ export interface MenuPosition {
   y: number;
 }
 
-export function ContextMenu(props: { items: (MenuItem | "separator")[]; position: MenuPosition; onClose: () => void }) {
+export function ContextMenu(props: {
+  items: (MenuItem | "separator")[];
+  position: MenuPosition;
+  onClose: () => void;
+  /** The button that opens it: a press there is left to it (it toggles the menu). */
+  anchor?: Element;
+}) {
   let menu!: HTMLDivElement;
   const [pos, setPos] = createSignal(props.position);
 
@@ -41,7 +51,7 @@ export function ContextMenu(props: { items: (MenuItem | "separator")[]; position
     buttons()[0]?.focus();
 
     const onPointer = (e: PointerEvent) => {
-      if (!menu.contains(e.target as Node)) props.onClose();
+      if (!menu.contains(e.target as Node) && !props.anchor?.contains(e.target as Node)) props.onClose();
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") props.onClose();
@@ -85,9 +95,13 @@ export function ContextMenu(props: { items: (MenuItem | "separator")[]; position
                     entry().onSelect();
                   }}
                   {...stylex.attrs(styles.item, entry().danger && styles.danger)}
+                  data-menu-item={entry().id}
                 >
                   <Icon name={entry().icon} size={15} {...stylex.attrs(styles.icon)} />
                   <span {...stylex.attrs(styles.label)}>{entry().label}</span>
+                  <Show when={entry().hint}>
+                    <span {...stylex.attrs(styles.hint)}>{entry().hint}</span>
+                  </Show>
                   <Show when={entry().checked}>
                     <Icon name="check" size={14} {...stylex.attrs(styles.check)} />
                   </Show>
@@ -140,5 +154,6 @@ const styles = stylex.create({
   icon: { flexShrink: 0, opacity: 0.8 },
   label: { flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   check: { flexShrink: 0, color: colors.accent },
+  hint: { flexShrink: 0, paddingLeft: space.md, color: colors.muted, fontSize: font.xs },
   separator: { height: 1, marginBlock: space.xs, backgroundColor: colors.border },
 });
