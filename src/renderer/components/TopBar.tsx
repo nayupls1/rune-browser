@@ -588,10 +588,14 @@ export function AddressBar() {
               blurTimer = setTimeout(() => editing() && finish(), 120);
             }}
             onInput={(e) => {
+              // What's typed, read first: starting to edit puts the full address in the field (it was shown
+              // without its scheme), which would overwrite it when no focus event came first.
+              const value = e.currentTarget.value;
               // Typing is editing, whether or not the focus event came first.
               start();
               setTyped(true);
-              setText(e.currentTarget.value);
+              setText(value);
+              e.currentTarget.value = value;
               setPicked(undefined);
             }}
             onKeyDown={(e) => {

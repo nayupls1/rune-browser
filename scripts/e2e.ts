@@ -1655,6 +1655,17 @@ try {
       { label: "closed again, the address back" },
     );
 
+    // Typed into without a focus event first (as scripts and some input methods do): what's typed stays.
+    await type(address, "typed first");
+    await page!.waitFor(`document.querySelector('${address}').value === "typed first"`, {
+      label: "the typed text kept",
+      timeoutMs: 2000,
+    });
+    await page!.eval(
+      `document.querySelector('${address}').dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })), true`,
+    );
+    await page!.waitFor(`!document.querySelector('${bar}[data-address-open]')`, { label: "closed with Escape" });
+
     // One ⋯ menu instead of a row of buttons: the browser's pages, the page's actions, Settings.
     await click(`${chromeFor(tab)} [data-more-menu]`);
     await page!.waitFor(`!!document.querySelector('[data-context-menu] [data-menu-item="find.open"]')`, {
