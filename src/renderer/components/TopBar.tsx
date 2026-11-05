@@ -198,7 +198,6 @@ function MoreMenu() {
         id: "bookmarks",
         label: "Bookmarks",
         icon: "bookmark",
-        hint: hint("open.bookmarks"),
         // Its own menu, where this one was.
         onSelect: () => {
           const r = button.getBoundingClientRect();

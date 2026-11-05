@@ -74,7 +74,7 @@ resetting or rewriting the project leaves them alone, and the agent's file
 tools never touch them (it reads them with `app_data`). Projects from before
 this keep their old `.rune/data.sqlite`: it moves there on first start.
 
-- **Look at it:** the database button in an app tab lists the tables and pages through their rows, with search.
+- **Look at it:** Data in an app tab's ⋯ menu lists the tables and pages through their rows, with search.
 - **Export:** a `.tar.gz` with the database, every table as JSON and the files.
 - **Delete:** stops the app, deletes its database and files and restarts it. A snapshot is taken first, so Snapshots can bring them back.
 - **Snapshots:** an app's data is part of its snapshots (`@data/…`). Undo and restore leave it alone unless asked.
@@ -173,7 +173,7 @@ Actions are part of a registry of what apps can do, for you, agents and other ap
 
 Every call goes through Rune Browser, the hub between apps:
 
-- **You**: the Tools panel (wrench button in an app tab) lists them with a form to run each; actions are also in the command bar.
+- **You**: the Tools panel (Tools in an app tab's ⋯ menu) lists them with a form to run each; actions are also in the command bar.
 - **Agents**: `list_app_tools` and `use_app_tool`.
 - **Apps**: `GET $RUNE_API_URL/tools` lists the workspace's apps and their tools; `POST $RUNE_API_URL/tools/<app>/<tool>` with `{ params?, input? }` runs one. Server-only, like the data API.
 - **Permissions**: an app and its agent may use the app's own tools. Another app's tools are limited to the same workspace and need your OK: reading data is the app-data permission, anything else is asked per tool. Opening pages is only for you. Every call is in Activity.
@@ -201,7 +201,7 @@ Schedules run apps' tools and commands in the background, without a tab open, an
 
 ## Secrets
 
-Apps get secrets (API keys, passwords) as environment variables. A secret belongs to one app (key button in its tab), to a workspace (Settings → Workspace, for all its apps) or is global (Settings → Secrets, behind a warning). Global ones reach only the apps you allow.
+Apps get secrets (API keys, passwords) as environment variables. A secret belongs to one app (⋯ → Secrets in its tab), to a workspace (Settings → Workspace, for all its apps) or is global (Settings → Secrets, behind a warning). Global ones reach only the apps you allow.
 
 - **At rest:** values are encrypted with AES-256-GCM, bound to the secret's scope and name.
   - Electron keeps the key in the OS keychain (`safeStorage`) and passes it to the server over stdin.
@@ -246,7 +246,7 @@ Agents' processes don't get Rune Browser's own environment variables (`RUNE_*`).
 
 ## Snapshots
 
-Every change is saved as a snapshot you can look at and take back (Settings → Snapshots; the clock button in an app tab). The pages you visited are in History instead (see [Browsing](browsing.md#browsing-history)). A snapshot covers one of:
+Every change is saved as a snapshot you can look at and take back (Settings → Snapshots; Snapshots in an app tab's ⋯ menu). The pages you visited are in History instead (see [Browsing](browsing.md#browsing-history)). A snapshot covers one of:
 
 - an **app**: its project files (without `node_modules`, builds, `.git`) and its data (see App data). SQLite databases are copied consistently even while the app runs, and the timeline shows how their tables' row counts changed;
 - the **site customizations** and **page changes** the website agent (or you) made;

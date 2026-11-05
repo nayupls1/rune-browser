@@ -96,7 +96,7 @@ settings; cookies and site data stay per workspace. The renderer sends them to t
   access (permissions: sites can ask, or not; see [Site permission prompts](#site-permission-prompts)), JavaScript, images and sound (content: allowed or not), each with a default and per site. A site is a
   host without `www.` and covers its subdomains; the most specific one wins. "All sites" lists the sites with their own
   settings, zoom or cookies, and each site's page has its settings, zoom and a button that deletes its cookies and data.
-  The sliders button in a web tab's address bar has the same for the site on screen.
+  The icon at the start of a web tab's address (its lock or globe) has the same for the site on screen.
 - **Search engine:** DuckDuckGo, Google, Bing, Brave Search, Kagi, Ecosia, Startpage, or your own URL with `%s`.
 - **Default browser:** see above.
 - **On startup:** continue where you left off, a new tab, or specific pages (a tab already showing one is reused).
@@ -139,13 +139,13 @@ Sites can ask for the permissions above, and you decide, like in Chrome (`shared
   notifications, which arrive after the page is gone, or screen sharing) or **Never allow**. Closing it decides
   nothing; the site can ask again. A page asking again while its prompt is open joins it, and prompts go away with the
   page.
-- **Remembered** in the site's settings: allowing or blocking sets the site's own Allow or Block, which the sliders
-  button and Settings → Browser → Site settings show and change. "This time" lasts while the tab stays on the site.
+- **Remembered** in the site's settings: allowing or blocking sets the site's own Allow or Block, which the address's
+  site settings button and Settings → Browser → Site settings show and change. "This time" lasts while the tab stays on the site.
 - **Private windows** ask too, but keep their answers in the main process only, until the last private window closes.
   Like Chrome's incognito, they get what normal windows blocked, not what they allowed. Their settings are shown, not
-  changed, in the sliders button.
-- **Visible while in use:** while a page uses the camera, microphone, location or screen sharing, the sliders button
-  shows their icons, and its popover has **Stop** for each (the page's tracks end, as if the device went away; location
+  changed, in the address's site settings button.
+- **Visible while in use:** while a page uses the camera, microphone, location or screen sharing, the site settings button at the start of the address
+  shows their icons in place of the lock, and its popover has **Stop** for each (the page's tracks end, as if the device went away; location
   watches are cleared). Blocking something in use stops it too. A page refused something shows it crossed out there.
 - **Screen sharing** always asks with a picker: entire screens, windows, and the workspace's tabs (with their sound;
   the system's sound only on Windows). On Wayland the system's own picker chooses. It can be blocked, never allowed for
@@ -182,7 +182,7 @@ Web tabs keep a history of the pages they visited, like other browsers (`db/Visi
 Bookmarks work like Chrome's: a bookmarks bar and other bookmarks, with folders in them, the same in every workspace (`bookmarks/Bookmarks.ts`, the tree in `shared/bookmarks.ts`).
 
 - **Bookmarking:** the star in a web tab's address bar, or Ctrl+D, bookmarks the page in the folder used last (the bookmarks bar at first), and a popover shows it to rename or move right away; on a page that's bookmarked already, the star is filled and opens the popover to change it or remove it. Ctrl+Shift+D puts every web tab of the workspace in a new folder.
-- **Finding them:** the bookmark button in the sidebar's top row lists them (folders open inside the menu), the bookmarks bar above the page shows the bar's (turned on in that menu or the command bar), the address bar suggests bookmarks by name or address while you type, and the command bar finds them too. Clicking one opens it in the web tab on screen; Ctrl+click or the middle button in a background tab, Shift+click in a new one.
+- **Finding them:** Bookmarks in the top row's ⋯ menu lists them (folders open inside the menu), the bookmarks bar above the page shows the bar's (turned on in that menu or the command bar), the address bar suggests bookmarks by name or address while you type, and the command bar finds them too. Clicking one opens it in the web tab on screen; Ctrl+click or the middle button in a background tab, Shift+click in a new one.
 - **The bookmarks page** (Ctrl+Shift+O, rune://bookmarks, or Bookmarks in Settings): folders on the left, a folder's bookmarks on the right, or what a search finds in all of them. Rename in place (the pencil or F2), drag to put them in order or into a folder (or Move to…, Move up and down in their menu), Delete to delete one; a folder with things in it asks first.
 - **Import** (the bookmarks page's Import, also in Settings → Browser → Import bookmarks and settings): from Chrome, Chromium, Brave, Edge, Vivaldi and other Chromium browsers (their `Bookmarks` file), Firefox, Zen, LibreWolf, Floorp and Waterfox (a copy of `places.sqlite`, since Firefox keeps it locked), or an HTML file, which Safari and the others export. The other browser's bar goes on the bookmarks bar and the rest into other bookmarks; where there are bookmarks already, they come in an "Imported from …" folder. Scripts (`javascript:`) and browser-only pages are left out, and the count says so.
 - **Export:** an HTML file every browser imports, the bar marked as the toolbar.
@@ -250,7 +250,7 @@ endpoint, grouped by host, with its parameters, request body and responses (`sha
 
 Web tabs run Chrome extensions (Manifest V3 and V2) with Electron's extension support. Each workspace's session loads its own copy, so an extension only sees the tabs of its workspace and keeps separate data there (`chrome.storage.sync` is the exception: one copy per extension, shared). Private windows' session loads only the extensions allowed there ("Allow in private windows" in their details), and sees the private windows' tabs. An extension sees the tabs of its workspace in every window; the focused window's say which tab is active, and tabs it opens go to the window you used last. Settings → Extensions lists them. You can add one from the Chrome Web Store (link or ID), load an unpacked folder, or import from a browser. Store extensions update every 5 hours.
 
-**Import from your browser** (Settings → Extensions, or the puzzle menu in a web tab) reads the profiles of Chrome, Chromium, Brave, Edge and Vivaldi (including Flatpak and Snap installs). It offers what's turned on there. Store extensions are copied and keep their IDs. Unpacked ones are used from their folder. They come along with:
+**Import from your browser** (Settings → Extensions, also ⋯ → Extensions, or the puzzle menu in a web tab once there are extensions) reads the profiles of Chrome, Chromium, Brave, Edge and Vivaldi (including Flatpak and Snap installs). It offers what's turned on there. Store extensions are copied and keep their IDs. Unpacked ones are used from their folder. They come along with:
 
 - which ones are pinned (at the top of the extensions menu);
 - the keyboard shortcuts changed there;
@@ -363,7 +363,7 @@ The rest of Chromium (settings, internal pages, everyday behavior) is in [Chromi
 | New window (Ctrl+N), private window (Ctrl+Shift+N)                                                 | Same (see [Windows](interface.md#windows))                                   |
 | Open file (Ctrl+O)                                                                                 | Not yet                                                                      |
 | Clear browsing data (Ctrl+Shift+Delete), task manager (Shift+Esc), caret browsing (F7)             | Not yet                                                                      |
-| Home (Alt+Home), menu (Alt+F, F10), focus toolbar (Alt+Shift+T)                                    | Not applicable: no home page or menu                                         |
+| Home (Alt+Home), menu (Alt+F, F10), focus toolbar (Alt+Shift+T)                                    | Not applicable: no home page; the ⋯ menu has no shortcut                     |
 
 Rune Browser's own: the command bar (Ctrl+K), the agent (Ctrl+I; Ctrl+J is Chromium's downloads), the sidebar (Ctrl+Shift+B), workspaces 1–9
 (Ctrl+Alt+1–9), Settings (Ctrl+,) and this list (Ctrl+/). Duplicating, pinning, new apps and the bookmarks bar have
