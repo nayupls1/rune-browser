@@ -158,6 +158,7 @@ export function SettingsShell(props: { view: string }) {
     });
   });
   const shown = (section: SettingsSection) => !found() || found()!.includes(section.id);
+  const noMatches = () => !!found() && !found()!.length;
   const group = (name: string) => settingsSections.filter((s) => s.group === name && !s.parent);
   // The address bar shows the page's rune:// address.
   const chrome: TabChrome = {
@@ -296,7 +297,7 @@ export function SettingsShell(props: { view: string }) {
           fallback={
             <div {...stylex.attrs(styles.page)} data-settings-results>
               <header {...stylex.attrs(styles.header)}>
-                <h1 {...stylex.attrs(styles.title)}>Search results</h1>
+                <h1 {...stylex.attrs(styles.title, noMatches() && styles.titleQuiet)}>Search results</h1>
                 <Show when={found() && !found()!.length}>
                   <p {...stylex.attrs(styles.resultCount)}>Every settings page searched</p>
                 </Show>
@@ -898,8 +899,11 @@ export function DefaultBrowserRow() {
     }
   };
   return (
-    <Row label="Open links from other apps here" description={description()}>
+    <Row label="Default browser" description={description()}>
       <span data-default-browser={status()?.state}>
+        <Show when={status()?.state === "unsupported"}>
+          <span {...stylex.attrs(styles.muted)}>Not available</span>
+        </Show>
         <Show when={notDefault()}>
           {(s) => (
             <Button onClick={() => void make()} disabled={making()}>
@@ -2934,7 +2938,7 @@ const styles = stylex.create({
   part: { display: "flex", flexDirection: "column", gap: 28, scrollMarginTop: 24, borderRadius: radius.md },
   sectionHead: { display: "flex", flexDirection: "column", gap: 4, paddingInline: 1, paddingBottom: 2 },
   rowDescription: { maxWidth: "62ch", color: colors.muted, fontSize: font.sm, lineHeight: 1.45, textWrap: "pretty" },
-  resultPage: { display: "flex", flexDirection: "column", gap: 12 },
+  resultPage: { display: "flex", flexDirection: "column", gap: 12, paddingTop: 4 },
   resultTitle: {
     display: "inline-flex",
     alignItems: "center",
@@ -3031,4 +3035,5 @@ const styles = stylex.create({
     borderBottomRightRadius: radius.md,
   },
   controlLeading: { paddingTop: 2 },
+  titleQuiet: { fontSize: font.lg, color: colors.muted },
 });

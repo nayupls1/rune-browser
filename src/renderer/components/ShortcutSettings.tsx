@@ -90,7 +90,13 @@ export function ShortcutSettings() {
           return (
             <Show when={defs().length}>
               <section {...stylex.attrs(styles.group)} data-setting-section data-title={category}>
-                <h3 {...stylex.attrs(styles.groupTitle)}>{category}</h3>
+                <div {...stylex.attrs(styles.groupHead)}>
+                  <h3 {...stylex.attrs(styles.groupTitle)}>{category}</h3>
+                  <div {...stylex.attrs(styles.columns)} aria-hidden="true" data-no-highlight>
+                    <span {...stylex.attrs(styles.column)}>Keys</span>
+                    <span {...stylex.attrs(styles.column)}>Also</span>
+                  </div>
+                </div>
                 <div {...stylex.attrs(styles.rows)} data-setting-rows>
                   <For each={defs()}>{(def) => <ShortcutRow def={def} />}</For>
                 </div>
@@ -365,4 +371,7 @@ const styles = stylex.create({
   searchIcon: { position: "absolute", left: 11, color: colors.muted, pointerEvents: "none" },
   slot: { display: "flex", width: 168 },
   caps: { display: "inline-flex", alignItems: "center", gap: 3 },
+  groupHead: { display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: space.lg },
+  columns: { display: "flex", gap: 6, width: 400, paddingRight: 17, boxSizing: "content-box" },
+  column: { width: 168, color: colors.muted, fontSize: font.xs, fontWeight: 500 },
 });
