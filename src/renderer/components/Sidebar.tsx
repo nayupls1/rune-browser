@@ -513,7 +513,7 @@ function WorkspaceBar() {
                 )}
                 data-workspace={w.id}
               >
-                <WorkspaceBadge workspace={w} />
+                <WorkspaceBadge workspace={w} bare />
               </button>
               <Show when={menu()}>
                 {(position) => <ContextMenu items={items()} position={position()} onClose={() => setMenu()} />}
@@ -544,9 +544,10 @@ function openWorkspaceSettings() {
 }
 
 /** The workspace's icon, or its initial. */
-export function WorkspaceBadge(props: { workspace: WorkspaceInfo }) {
+export function WorkspaceBadge(props: { workspace: WorkspaceInfo; bare?: boolean }) {
+  const bare = () => !!props.bare;
   return (
-    <span {...stylex.attrs(styles.badge)} aria-hidden="true">
+    <span {...stylex.attrs(styles.badge, bare() && styles.badgeBare)} aria-hidden="true">
       <Icon
         name={props.workspace.icon}
         size={13}
@@ -924,7 +925,7 @@ function Item(props: { app: AppSummary; tile?: boolean }) {
       }}
     >
       <span {...stylex.attrs(styles.tabIcon, asleep() && styles.asleep)}>
-        <TabIcon tab={props.app} />
+        <TabIcon tab={props.app} size={props.tile ? 18 : undefined} />
       </span>
       <Show
         when={editing()}
@@ -1116,6 +1117,8 @@ const styles = stylex.create({
     fontSize: font.xs,
     fontWeight: 700,
   },
+  // In the footer: just the glyph, the same in every theme (its chip shows hover and the active mark).
+  badgeBare: { backgroundColor: "transparent", fontSize: font.sm },
   newButton: {
     justifyContent: "flex-start",
     width: "100%",
@@ -1137,7 +1140,7 @@ const styles = stylex.create({
     display: "grid",
     gridTemplateColumns: "repeat(auto-fill, minmax(44px, 1fr))",
     gap: 6,
-    marginTop: 2,
+    marginBottom: 4,
     flexShrink: 0,
   },
   // Pinned tabs: tiles in the address pill's tint, the one on screen lifted like a selected tab.
@@ -1147,8 +1150,10 @@ const styles = stylex.create({
     paddingInline: 0,
     borderRadius: 10,
     backgroundColor: {
-      default: `color-mix(in oklab, ${colors.text} 5.5%, transparent)`,
+      // Lighter than the address, which stays the anchor of the top.
+      default: `color-mix(in oklab, ${colors.text} 3.5%, transparent)`,
       ":hover": `color-mix(in oklab, ${colors.text} 9%, transparent)`,
+      "@media (prefers-color-scheme: dark)": `color-mix(in oklab, ${colors.text} 4.5%, transparent)`,
     },
     transitionProperty: "background-color",
     transitionDuration: "120ms",
