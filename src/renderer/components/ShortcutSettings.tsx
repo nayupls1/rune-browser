@@ -91,7 +91,7 @@ export function ShortcutSettings() {
                   <h3 {...stylex.attrs(styles.groupTitle)}>{category}</h3>
                   <div {...stylex.attrs(styles.columns)} aria-hidden="true" data-no-highlight>
                     <span {...stylex.attrs(styles.column)}>Keys</span>
-                    <span {...stylex.attrs(styles.column)}>Also</span>
+                    <span {...stylex.attrs(styles.column)}>Alternative</span>
                   </div>
                 </div>
                 <div {...stylex.attrs(styles.rows)} data-setting-rows>
@@ -157,6 +157,30 @@ function ShortcutRow(props: { def: ShortcutDef }) {
       toast({ message: `${formatCombo(combo, platform)} moved from “${owner.label}” to “${props.def.label}”` });
   };
 
+  /** One binding: its keys as keycaps, removed with its ×. */
+  const Chip = (p: { combo: string }) => (
+    <span {...stylex.attrs(styles.chip)} data-shortcut-key={p.combo}>
+      <span {...stylex.attrs(styles.caps)} title={formatCombo(p.combo, platform)}>
+        <For each={comboKeys(p.combo, platform).flatMap((key) => (key === "_" ? ["Shift", "-"] : [key]))}>
+          {(key) => <kbd {...stylex.attrs(styles.kbd)}>{key === "-" ? "−" : key}</kbd>}
+        </For>
+      </span>
+      <button
+        type="button"
+        title="Remove"
+        aria-label={`Remove ${formatCombo(p.combo, platform)}`}
+        onClick={() =>
+          setKeys(
+            props.def.id,
+            keys().filter((k) => k !== p.combo),
+          )
+        }
+        {...stylex.attrs(styles.chipRemove)}
+      >
+        <Icon name="x" size={11} />
+      </button>
+    </span>
+  );
   return (
     <div {...stylex.attrs(stylex.defaultMarker(), styles.row)} data-shortcut={props.def.id}>
       <span {...stylex.attrs(styles.label)}>
@@ -166,75 +190,56 @@ function ShortcutRow(props: { def: ShortcutDef }) {
         </Show>
       </span>
       <div {...stylex.attrs(styles.keys)}>
-        <For each={keys()}>
-          {(combo) => (
-            <span {...stylex.attrs(styles.slot)}>
-              <span {...stylex.attrs(styles.chip)} data-shortcut-key={combo}>
-                <span {...stylex.attrs(styles.caps)} title={formatCombo(combo, platform)}>
-                  <For each={comboKeys(combo, platform).flatMap((key) => (key === "_" ? ["Shift", "-"] : [key]))}>
-                    {(key) => <kbd {...stylex.attrs(styles.kbd)}>{key === "-" ? "−" : key}</kbd>}
-                  </For>
-                </span>
-                <button
-                  type="button"
-                  title="Remove"
-                  aria-label={`Remove ${formatCombo(combo, platform)}`}
-                  onClick={() =>
-                    setKeys(
-                      props.def.id,
-                      keys().filter((k) => k !== combo),
-                    )
-                  }
-                  {...stylex.attrs(styles.chipRemove)}
-                >
-                  <Icon name="x" size={11} />
-                </button>
-              </span>
-            </span>
-          )}
-        </For>
-        <Show
-          when={recording()}
-          fallback={
+        <span {...stylex.attrs(styles.slot)}>
+          <Show when={keys()[0]} fallback={<span {...stylex.attrs(styles.notSet)}>Not set</span>}>
+            {(combo) => <Chip combo={combo()} />}
+          </Show>
+        </span>
+        <span {...stylex.attrs(styles.rest)}>
+          <For each={keys().slice(1)}>{(combo) => <Chip combo={combo} />}</For>
+          <Show
+            when={recording()}
+            fallback={
+              <button
+                type="button"
+                title="Add a key"
+                aria-label={`Add a key for ${props.def.label}`}
+                onClick={() => {
+                  setRecording(true);
+                  setRecordingShortcut(true);
+                }}
+                {...stylex.attrs(styles.add)}
+                data-shortcut-add
+              >
+                <Icon name="plus" size={13} />
+              </button>
+            }
+          >
             <button
               type="button"
-              title="Add a key"
-              aria-label={`Add a key for ${props.def.label}`}
-              onClick={() => {
-                setRecording(true);
-                setRecordingShortcut(true);
-              }}
-              {...stylex.attrs(styles.add)}
-              data-shortcut-add
+              ref={(el) => queueMicrotask(() => el.focus())}
+              onKeyDown={recordKey}
+              onMouseUp={recordMouse}
+              onBlur={stop}
+              {...stylex.attrs(styles.recording)}
+              data-shortcut-recording
             >
-              <Icon name="plus" size={13} />
+              Press keys or a mouse button… (Esc to cancel)
             </button>
-          }
-        >
-          <button
-            type="button"
-            ref={(el) => queueMicrotask(() => el.focus())}
-            onKeyDown={recordKey}
-            onMouseUp={recordMouse}
-            onBlur={stop}
-            {...stylex.attrs(styles.recording)}
-            data-shortcut-recording
-          >
-            Press keys or a mouse button… (Esc to cancel)
-          </button>
-        </Show>
-        <Show when={isChanged(props.def.id)}>
-          <button
-            type="button"
-            title="Back to the default keys"
-            aria-label={`Reset ${props.def.label}`}
-            onClick={() => reset(props.def.id)}
-            {...stylex.attrs(styles.add)}
-            data-shortcut-reset
-          >
-            <Icon name="rotate-ccw" size={13} />
-          </button>
-        </Show>
+          </Show>
+          <Show when={isChanged(props.def.id)}>
+            <button
+              type="button"
+              title="Back to the default keys"
+              aria-label={`Reset ${props.def.label}`}
+              onClick={() => reset(props.def.id)}
+              {...stylex.attrs(styles.add)}
+              data-shortcut-reset
+            >
+              <Icon name="rotate-ccw" size={13} />
+            </button>
+          </Show>
+        </span>
       </div>
     </div>
   );
@@ -376,4 +381,6 @@ const styles = stylex.create({
   groupHead: { display: "flex", flexDirection: "column", gap: 6 },
   columns: { display: "flex", alignSelf: "flex-end", gap: 6, width: 400, paddingRight: 17, boxSizing: "content-box" },
   column: { width: 168, color: colors.muted, fontSize: font.xs, fontWeight: 500 },
+  rest: { display: "flex", alignItems: "center", flexWrap: "wrap", gap: 6, width: 226 },
+  notSet: { color: colors.muted, fontSize: font.sm },
 });

@@ -102,6 +102,35 @@ export function PrivacySection() {
   };
   return (
     <>
+      <Section title="Security" anchor="browser-security">
+        <InsecureRows />
+      </Section>
+      <Section title="Cookies and tracking" anchor="browser-cookies">
+        <Row
+          label="Block third-party cookies"
+          description="Stops tracking through embedded content. Some sign-ins may break."
+        >
+          <span data-third-party-cookies>
+            <Toggle
+              checked={browser().privacy.thirdPartyCookies === "block"}
+              onChange={(block) => setPart("privacy", { thirdPartyCookies: block ? "block" : "allow" })}
+            />
+          </span>
+        </Row>
+        <Row label='Send a "Do Not Track" request' description="Asks sites not to track you. Many sites ignore it.">
+          <div data-do-not-track>
+            <Toggle
+              checked={browser().privacy.doNotTrack}
+              onChange={(doNotTrack) => setPart("privacy", { doNotTrack })}
+            />
+          </div>
+        </Row>
+        <Row label="Site settings" description="Location, camera, notifications, JavaScript and more.">
+          <Button onClick={() => void openSettings("browser-sites")}>
+            Open <Icon name="chevron-right" size={14} />
+          </Button>
+        </Row>
+      </Section>
       <Section title="Clear browsing data" anchor="browser-clear" together>
         <Row
           label="Browsing history"
@@ -147,35 +176,6 @@ export function PrivacySection() {
         <Row label="Clears the checked items. This can't be undone." always footer inset>
           <Button variant="danger" disabled={clearing() || nothing()} onClick={() => void clear()} data-clear-data>
             {clearing() ? "Clearing…" : "Clear now"}
-          </Button>
-        </Row>
-      </Section>
-      <Section title="Security" anchor="browser-security">
-        <InsecureRows />
-      </Section>
-      <Section title="Cookies and tracking" anchor="browser-cookies">
-        <Row
-          label="Block third-party cookies"
-          description="Stops tracking through embedded content. Some sign-ins may break."
-        >
-          <span data-third-party-cookies>
-            <Toggle
-              checked={browser().privacy.thirdPartyCookies === "block"}
-              onChange={(block) => setPart("privacy", { thirdPartyCookies: block ? "block" : "allow" })}
-            />
-          </span>
-        </Row>
-        <Row label='Send a "Do Not Track" request' description="Asks sites not to track you. Many sites ignore it.">
-          <div data-do-not-track>
-            <Toggle
-              checked={browser().privacy.doNotTrack}
-              onChange={(doNotTrack) => setPart("privacy", { doNotTrack })}
-            />
-          </div>
-        </Row>
-        <Row label="Site settings" description="Location, camera, notifications, JavaScript and more.">
-          <Button onClick={() => void openSettings("browser-sites")}>
-            Open <Icon name="chevron-right" size={14} />
           </Button>
         </Row>
       </Section>
@@ -247,11 +247,7 @@ function SiteSettingsOverview() {
   const defaultsOf = (kind: "permission" | "content") => siteSettingKeys.filter((k) => siteSettings[k].kind === kind);
   return (
     <>
-      <Section
-        title="Permissions"
-        anchor="browser-permissions"
-        description="Sites ask the first time; change your answer here or in the address bar."
-      >
+      <Section title="Permissions" anchor="browser-permissions">
         <For each={defaultsOf("permission")}>{(key) => <DefaultRow setting={key} />}</For>
       </Section>
       <Section title="Content" anchor="browser-content">
@@ -584,6 +580,13 @@ export function AppearanceSection() {
       ? fontSizes
       : [[fonts().size, `${fonts().size} px`] as [number, string], ...fontSizes];
   const zoomed = () => Object.entries(browser().zoom.sites).sort(([a], [b]) => a.localeCompare(b));
+  // The font families and minimum size, in a line; the fields only while customizing.
+  const [customizingFonts, setCustomizingFonts] = createSignal(false);
+  const fontSummary = () => {
+    const f = fonts();
+    const custom = [f.standard, f.serif, f.sansSerif, f.fixed].filter(Boolean);
+    return custom.length ? custom.join(", ") : "Your system's fonts.";
+  };
   const family = (label: string, key: "standard" | "serif" | "sansSerif" | "fixed", generic: string) => (
     <Row label={label}>
       <Input
@@ -599,7 +602,7 @@ export function AppearanceSection() {
   );
   return (
     <>
-      <Section title="Fonts" anchor="browser-fonts">
+      <Section title="Page fonts" anchor="browser-fonts">
         <Row label="Font size" description="Text on pages that don't set their own size.">
           <Select
             value={String(fonts().size)}
@@ -610,23 +613,37 @@ export function AppearanceSection() {
             <For each={sizes()}>{([n, label]) => <option value={String(n)}>{label}</option>}</For>
           </Select>
         </Row>
-        {family("Standard font", "standard", "serif")}
-        {family("Serif font", "serif", "serif")}
-        {family("Sans-serif font", "sansSerif", "sans-serif")}
-        {family("Fixed-width font", "fixed", "monospace")}
-        <Row label="Minimum font size" description="Smaller text on pages is shown at this size.">
-          <Select
-            value={String(fonts().minimumSize)}
-            onChange={(e) => setPart("fonts", { minimumSize: Number(e.currentTarget.value) })}
-            xstyle={styles.select}
-            data-font-minimum
-          >
-            <option value="0">None</option>
-            <For each={withCurrent([6, 8, 9, 10, 11, 12, 14, 16, 18, 20, 24], fonts().minimumSize || undefined)}>
-              {(n) => <option value={String(n)}>{n} px</option>}
-            </For>
-          </Select>
-        </Row>
+        <Show
+          when={customizingFonts()}
+          fallback={
+            <Row label="Fonts" description={fontSummary()}>
+              <Button onClick={() => setCustomizingFonts(true)} data-customize-fonts>
+                Customize…
+              </Button>
+            </Row>
+          }
+        >
+          {family("Standard font", "standard", "serif")}
+          {family("Serif font", "serif", "serif")}
+          {family("Sans-serif font", "sansSerif", "sans-serif")}
+          {family("Fixed-width font", "fixed", "monospace")}
+          <Row label="Minimum font size" description="Smaller text on pages is shown at this size.">
+            <Select
+              value={String(fonts().minimumSize)}
+              onChange={(e) => setPart("fonts", { minimumSize: Number(e.currentTarget.value) })}
+              xstyle={styles.select}
+              data-font-minimum
+            >
+              <option value="0">None</option>
+              <For each={withCurrent([6, 8, 9, 10, 11, 12, 14, 16, 18, 20, 24], fonts().minimumSize || undefined)}>
+                {(n) => <option value={String(n)}>{n} px</option>}
+              </For>
+            </Select>
+          </Row>
+          <Row label="" footer>
+            <Button onClick={() => setCustomizingFonts(false)}>Done</Button>
+          </Row>
+        </Show>
         <datalist id="browser-fonts">
           <For each={localFonts() ?? []}>{(f) => <option value={f} />}</For>
         </datalist>
@@ -930,12 +947,8 @@ export function PerformanceSection() {
 
 export function AutofillSection() {
   return (
-    <Section
-      title="Passwords and autofill"
-      anchor="browser-autofill"
-      description="Rune Browser leaves passwords to a password manager extension."
-    >
-      <Row label="Password managers" description="Bitwarden, 1Password, Proton Pass… from the Chrome Web Store.">
+    <Section title="Password managers" anchor="browser-autofill">
+      <Row label="Chrome Web Store" description="Bitwarden, 1Password, Proton Pass and others.">
         <Button
           onClick={() => void newWebTab("https://chromewebstore.google.com/category/extensions/productivity/tools")}
         >
@@ -943,8 +956,8 @@ export function AutofillSection() {
           <Icon name="arrow-up-right" size={14} />
         </Button>
       </Row>
-      <Row label="Already have one in another browser?" description="Import it with its settings, signed in.">
-        <Button onClick={openExtensionImport}>Import extensions</Button>
+      <Row label="Import from another browser" description="With its settings, still signed in.">
+        <Button onClick={openExtensionImport}>Import from your browser</Button>
       </Row>
     </Section>
   );

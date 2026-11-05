@@ -570,7 +570,7 @@ function AppearanceSection() {
   const defaults = () => base[resolveMode(theme(), systemDark())];
   return (
     <>
-      <Section title="Theme" anchor="appearance" description="How Rune Browser looks. New apps start with this theme.">
+      <Section title="Theme" anchor="appearance">
         <Row label="Presets" description="A starting point; tweak the colors below." wide>
           <div {...stylex.attrs(styles.presets)}>
             <For each={themePresets}>
@@ -597,7 +597,7 @@ function AppearanceSection() {
           />
         </Row>
       </Section>
-      <Section title="Colors" description="Unset ones follow the theme.">
+      <Section title="Colors">
         <Row label="Accent color" description="Buttons, links, selection.">
           <ColorField value={theme().accent} fallback={defaults().accent} onChange={(accent) => setTheme({ accent })} />
         </Row>
@@ -619,7 +619,7 @@ function AppearanceSection() {
           <ColorField value={theme().text} fallback={defaults().text} onChange={(text) => setTheme({ text })} />
         </Row>
       </Section>
-      <Section title="Shape and type" description="How round things are, and the interface's font.">
+      <Section title="Shape and type">
         <Row label="Corners">
           <Segmented
             value={theme().radius ?? "md"}
@@ -651,11 +651,7 @@ function AppearanceSection() {
 
 function ProvidersSection() {
   return (
-    <Section
-      title="Coding agents"
-      anchor="providers"
-      description="They run on your own logins; sign in with their command-line tools."
-    >
+    <Section title="Coding agents" anchor="providers">
       <For each={[...providerIds]}>{(id) => <ProviderRow id={id} />}</For>
     </Section>
   );
@@ -824,11 +820,8 @@ function AppsSection() {
         </Row>
       </Section>
 
-      <Section
-        title="AI in apps"
-        description="On your own subscription, with no API keys and no tools. Requests show in the app's logs."
-      >
-        <Row label="Let apps use AI">
+      <Section title="AI in apps">
+        <Row label="Let apps use AI" description="On your subscription, with no API keys or tools.">
           <Toggle checked={settings().apps.ai.enabled} onChange={(enabled) => setAi({ enabled })} />
         </Row>
         <Row label="Model" description="A fast one by default, to spare your limits.">
@@ -1152,11 +1145,7 @@ function WorkspaceSection() {
         const current = () => workspaces.find((w) => w.id === workspace.id) ?? workspace;
         const agent = () => current().settings.agent;
         return (
-          <Section
-            title={`Workspace: ${current().name}`}
-            anchor="workspace"
-            description="Its own tabs, agent defaults, secrets and web logins."
-          >
+          <Section title={`Workspace: ${current().name}`} anchor="workspace">
             <Row label="Name">
               <input
                 value={current().name}
@@ -1643,7 +1632,7 @@ function ExtensionsSection() {
                 {busy() ? "Working…" : message()}
               </p>
             </Show>
-            <Section title="Add extensions" description="Each workspace keeps its own extension data.">
+            <Section title="Add extensions">
               <Show when={extensionList().length}>
                 <Row
                   label="Import from your browser"
@@ -2134,7 +2123,6 @@ export const unloadChoices = (current: number): [number, string][] => {
 export function Section(props: {
   title: string;
   anchor?: string;
-  description?: string;
   /** In search results, all its rows or none (Clear browsing data: its checkboxes and the action they're for). */
   together?: boolean;
   children?: JSX.Element;
@@ -2153,15 +2141,8 @@ export function Section(props: {
       data-title={props.title}
       data-search-together={props.together ? "" : undefined}
     >
-      <Show when={showTitle() || props.description}>
-        <div {...stylex.attrs(styles.sectionHead)}>
-          <Show when={showTitle()}>
-            <h2 {...stylex.attrs(styles.sectionTitle)}>{props.title}</h2>
-          </Show>
-          <Show when={props.description}>
-            <p {...stylex.attrs(styles.sectionDescription)}>{props.description}</p>
-          </Show>
-        </div>
+      <Show when={showTitle()}>
+        <h2 {...stylex.attrs(styles.sectionTitle)}>{props.title}</h2>
       </Show>
       <Show when={rows()}>
         <div {...stylex.attrs(styles.rows)} data-setting-rows>
@@ -2476,7 +2457,7 @@ const styles = stylex.create({
     borderTopStyle: "solid",
     borderTopColor: colors.border,
   },
-  providerHead: { display: "flex", alignItems: "flex-start", gap: space.md },
+  providerHead: { display: "flex", alignItems: "flex-start", gap: space.sm },
   providerIcon: {
     display: "grid",
     placeItems: "center",
@@ -2522,10 +2503,11 @@ const styles = stylex.create({
   section: { display: "flex", flexDirection: "column", gap: 8 },
   sectionTitle: {
     margin: 0,
+    paddingInline: 1,
     color: colors.text,
-    fontSize: 15,
+    fontSize: 17,
     fontWeight: 600,
-    letterSpacing: "-0.01em",
+    letterSpacing: "-0.015em",
   },
   rows: {
     display: "flex",
@@ -2702,7 +2684,7 @@ const styles = stylex.create({
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: {
-      default: `color-mix(in oklab, ${colors.border}, ${colors.text} 15%)`,
+      default: `light-dark(color-mix(in oklab, ${colors.border}, ${colors.text} 15%), ${colors.border})`,
       ":focus": colors.accent,
     },
     backgroundColor: colors.bg,
@@ -2952,9 +2934,8 @@ const styles = stylex.create({
   navIcon: { flexShrink: 0, color: colors.muted },
   navLabel: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   part: { display: "flex", flexDirection: "column", gap: 28, scrollMarginTop: 24, borderRadius: radius.md },
-  sectionHead: { display: "flex", flexDirection: "column", gap: 4, paddingInline: 1, paddingBottom: 2 },
   rowDescription: { color: colors.muted, fontSize: font.sm, lineHeight: 1.45, textWrap: "pretty" },
-  resultPage: { display: "flex", flexDirection: "column", gap: 12, paddingTop: 20 },
+  resultPage: { display: "flex", flexDirection: "column", gap: 12, paddingTop: 4 },
   resultTitle: {
     display: "inline-flex",
     alignItems: "center",
@@ -3014,7 +2995,6 @@ const styles = stylex.create({
   collapsed: { display: "none" },
   resultCount: { margin: 0, color: colors.muted, fontSize: font.sm },
   rowDense: { minHeight: 48, paddingBlock: 8, gap: space.lg },
-  sectionDescription: { margin: 0, color: colors.muted, fontSize: 12.5, lineHeight: 1.5, textWrap: "pretty" },
   navEmpty: { paddingInline: 8, color: colors.muted, fontSize: 11.5, fontWeight: 600, letterSpacing: "0.01em" },
   pathInput: {
     flex: 1,
@@ -3046,6 +3026,6 @@ const styles = stylex.create({
   providerToggle: { display: "flex", paddingTop: 5 },
   presetOtherMode: { opacity: 0.55 },
   dt: { color: colors.muted },
-  setPath: { height: 28, marginTop: 1, paddingInline: space.sm, fontSize: font.xs },
+  setPath: { marginTop: -1 },
   rowWarning: { color: colors.warning, fontWeight: 500 },
 });
