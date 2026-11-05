@@ -119,7 +119,7 @@ function candidate(profile: FoundProfile, entry: ProfileExtensionEntry, registry
   };
 }
 
-/** Every browser profile found, with its preferences (Settings → Browser → Import). */
+/** Every browser profile found, with its preferences (Settings → General → Import). */
 export const browserProfiles = () =>
   browserDirs()
     .flatMap(profilesOf)

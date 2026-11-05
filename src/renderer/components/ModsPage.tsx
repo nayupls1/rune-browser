@@ -44,10 +44,7 @@ export function ModsPage() {
   return (
     <div {...stylex.attrs(styles.page)} data-mods>
       <header {...stylex.attrs(styles.header)}>
-        <h1 {...stylex.attrs(styles.title)}>
-          <Icon name="puzzle" size={24} {...stylex.attrs(styles.accent)} />
-          Mods
-        </h1>
+        <h1 {...stylex.attrs(styles.title)}>Mods</h1>
         <p {...stylex.attrs(styles.muted)}>
           Customizations of websites and of Rune Browser, packaged to share: page changes, a theme, extensions. You see
           what a mod changes before installing it, and turning it off or removing it takes all of that back.
@@ -662,13 +659,15 @@ function ReviewDialog(props: { review: NonNullable<ReturnType<typeof pendingModR
 
 const styles = stylex.create({
   page: {
-    maxWidth: 860,
+    boxSizing: "border-box",
+    maxWidth: 760,
     marginInline: "auto",
-    paddingBlock: space.xxl,
-    paddingInline: space.xl,
+    paddingTop: 36,
+    paddingInline: 40,
+    paddingBottom: 96,
     display: "flex",
     flexDirection: "column",
-    gap: space.lg,
+    gap: 20,
   },
   header: { display: "flex", flexDirection: "column", gap: space.xs },
   title: {
@@ -676,7 +675,7 @@ const styles = stylex.create({
     alignItems: "center",
     gap: space.sm,
     margin: 0,
-    fontSize: font.xxl,
+    fontSize: 24,
     fontWeight: 650,
     letterSpacing: "-0.02em",
   },

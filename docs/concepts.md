@@ -90,7 +90,7 @@ Like the AI API, it only answers the app's server (no `Origin` header). Every re
 
 ## Agents
 
-Providers are detected at startup (Settings → Providers shows their status,
+Providers are detected at startup (Settings → Agents shows their status,
 version and models). The picker in the composer chooses provider, model and
 effort per tab. Every provider gets the same instructions and Rune Browser's tools,
 served over MCP at a per-turn URL: `create_project`, `app_status`,
@@ -228,7 +228,7 @@ Anything an app or agent does beyond its own sandbox needs your OK:
 - the website agent using a site for you (per host), and each action with consequences (every time);
 - an agent reading another tab.
 
-Rune Browser asks in a dialog; you can remember the answer. Unanswered requests are denied after a while. Settings → Permissions lists remembered decisions, each revocable.
+Rune Browser asks in a dialog; you can remember the answer. Unanswered requests are denied after a while. Settings → Agent permissions lists remembered decisions, each revocable.
 
 **Full access** (Settings → Agent → Permissions, after a warning) lets agents do all of this without asking: what the website agent does on sites (customizing, acting with your logins, confirming purchases and messages, sending requests), reading other tabs, using other apps' tools and data, scheduling. Apps' own requests (AI, global secrets, other apps' data from their servers) still ask. While it's on, the agent sidebar shows a red "Full access" badge (click it to go back to asking) and working agents a red dot in the tab list. Every request allowed this way is in Activity (`permission.auto`), and Snapshots can still undo what an agent changed in apps and customizations (not what it did on websites).
 

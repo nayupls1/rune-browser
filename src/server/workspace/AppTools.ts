@@ -278,7 +278,7 @@ export const make = Effect.gen(function* () {
       if (!allowed) {
         return yield* new AppToolError({
           status: 403,
-          message: `The user didn't allow using ${tool.id} in "${target.name}". It can be allowed in Rune Browser's Settings → Permissions.`,
+          message: `The user didn't allow using ${tool.id} in "${target.name}". It can be allowed in Rune Browser's Settings → Agent permissions.`,
         });
       }
     });

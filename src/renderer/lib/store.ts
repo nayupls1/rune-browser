@@ -74,7 +74,7 @@ export const isSettingsView = (id: string | null) => !!id && settingsViews.inclu
 
 /** The category Settings shows (SettingsPage.tsx: settingsSections). */
 const [settingsSection, setSettingsSection] = createSignal(
-  sessionStorage.getItem("rune.settings-section") ?? "appearance",
+  sessionStorage.getItem("rune.settings-section") ?? "general",
 );
 export { settingsSection };
 /** Opens Settings, at a category if given (the one last shown otherwise). */

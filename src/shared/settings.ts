@@ -66,7 +66,7 @@ export const Settings = Schema.Struct({
     codex: ProviderSettings.pipe(withDefault({})),
     opencode: ProviderSettings.pipe(withDefault({})),
   }).pipe(withDefault({})),
-  /** What a browser lets you set (Settings → Browser): search, startup, privacy, site settings, fonts… */
+  /** What a browser lets you set (Settings' Browser group): search, startup, privacy, site settings, fonts… */
   browser: BrowserSettings.pipe(withDefault({})),
   web: Schema.Struct({
     /** Apply site customizations (CSS/JS overrides) in web tabs. */

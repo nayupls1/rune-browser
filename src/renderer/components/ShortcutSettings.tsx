@@ -63,32 +63,34 @@ export function ShortcutSettings() {
 
   return (
     <div {...stylex.attrs(styles.page)} data-shortcut-settings>
-      <div {...stylex.attrs(styles.toolbar)}>
-        <Input
-          value={query()}
-          onInput={(e) => setQuery(e.currentTarget.value)}
-          placeholder="Search shortcuts by name or key"
-          xstyle={styles.search}
-          data-shortcut-search
-        />
+      <div {...stylex.attrs(styles.toolbar)} data-search-hide>
+        <div {...stylex.attrs(styles.searchBox)}>
+          <Icon name="search" size={14} {...stylex.attrs(styles.searchIcon)} />
+          <Input
+            value={query()}
+            onInput={(e) => setQuery(e.currentTarget.value)}
+            placeholder="Filter shortcuts by name or key"
+            xstyle={styles.search}
+            data-shortcut-search
+          />
+        </div>
         <Show when={anyChanged()}>
           <Button onClick={() => updateSettings((s) => ({ ...s, shortcuts: {} }))} data-shortcuts-reset-all>
             Reset all
           </Button>
         </Show>
       </div>
-      <p {...stylex.attrs(styles.note)}>
-        Keys work in every tab. While a page has the focus it gets most of them first, like in Chrome: a site that uses
-        a key itself (Ctrl+K in many apps) keeps it. Opening, closing and switching tabs always work.
+      <p {...stylex.attrs(styles.note)} data-search-hide>
+        A focused page gets most keys first, like in Chrome; opening, closing and switching tabs always work.
       </p>
       <For each={shortcutCategories}>
         {(category) => {
           const defs = () => shortcutDefs.filter((d) => d.category === category && matches(d));
           return (
             <Show when={defs().length}>
-              <section {...stylex.attrs(styles.group)}>
+              <section {...stylex.attrs(styles.group)} data-setting-section data-title={category}>
                 <h3 {...stylex.attrs(styles.groupTitle)}>{category}</h3>
-                <div {...stylex.attrs(styles.rows)}>
+                <div {...stylex.attrs(styles.rows)} data-setting-rows>
                   <For each={defs()}>{(def) => <ShortcutRow def={def} />}</For>
                 </div>
               </section>
@@ -149,7 +151,7 @@ function ShortcutRow(props: { def: ShortcutDef }) {
   };
 
   return (
-    <div {...stylex.attrs(styles.row)} data-shortcut={props.def.id}>
+    <div {...stylex.attrs(stylex.defaultMarker(), styles.row)} data-shortcut={props.def.id}>
       <span {...stylex.attrs(styles.label)}>
         {props.def.label}
         <Show when={isChanged(props.def.id)}>
@@ -228,10 +230,17 @@ function ShortcutRow(props: { def: ShortcutDef }) {
 const styles = stylex.create({
   page: { display: "flex", flexDirection: "column", gap: space.lg },
   toolbar: { display: "flex", alignItems: "center", gap: space.md },
-  search: { flex: 1, minWidth: 0 },
+  search: { flex: 1, minWidth: 0, paddingLeft: 32, fontSize: font.sm },
   note: { margin: 0, color: colors.muted, fontSize: font.sm },
   group: { display: "flex", flexDirection: "column", gap: space.sm },
-  groupTitle: { margin: 0, fontSize: font.md, fontWeight: 600 },
+  groupTitle: {
+    margin: 0,
+    paddingInline: 2,
+    color: colors.muted,
+    fontSize: font.sm,
+    fontWeight: 600,
+    letterSpacing: "0.01em",
+  },
   rows: {
     display: "flex",
     flexDirection: "column",
@@ -240,6 +249,7 @@ const styles = stylex.create({
     borderStyle: "solid",
     borderColor: colors.border,
     backgroundColor: colors.surface,
+    boxShadow: "0 1px 2px rgb(0 0 0 / 0.04)",
   },
   row: {
     display: "flex",
@@ -277,6 +287,11 @@ const styles = stylex.create({
   },
   kbd: { fontFamily: font.mono, fontSize: font.xs, color: colors.text },
   chipRemove: {
+    opacity: {
+      default: 0,
+      [stylex.when.ancestor(":hover")]: 1,
+      [stylex.when.ancestor(":focus-within")]: 1,
+    },
     display: "grid",
     placeItems: "center",
     width: 18,
@@ -289,6 +304,12 @@ const styles = stylex.create({
     cursor: "pointer",
   },
   add: {
+    opacity: {
+      default: 0,
+      [stylex.when.ancestor(":hover")]: 1,
+      [stylex.when.ancestor(":focus-within")]: 1,
+      ":focus-visible": 1,
+    },
     display: "grid",
     placeItems: "center",
     width: 24,
@@ -313,4 +334,6 @@ const styles = stylex.create({
     outline: "none",
     cursor: "default",
   },
+  searchBox: { position: "relative", display: "flex", alignItems: "center", flex: 1, minWidth: 0 },
+  searchIcon: { position: "absolute", left: 11, color: colors.muted, pointerEvents: "none" },
 });

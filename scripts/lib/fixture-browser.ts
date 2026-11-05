@@ -235,7 +235,7 @@ export function writeFixtureBrowser(root: string): FixtureBrowser {
         // Chrome keeps one per platform ("linux:", "windows:", "mac:").
         commands: { [`${shortcutPlatform}:Alt+Shift+U`]: { command_name: "bump", extension: id, global: false } },
       },
-      // Browser settings to import (Settings → Browser → Import bookmarks and settings).
+      // Browser settings to import (Settings → General → Import).
       default_search_provider_data: {
         template_url_data: { short_name: "Google", url: "{google:baseURL}search?q={searchTerms}" },
       },

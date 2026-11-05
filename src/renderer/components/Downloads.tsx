@@ -29,7 +29,7 @@ import {
 import { withKeys } from "../lib/shortcuts";
 import { colors, font, radius, space } from "../theme.stylex";
 import { Icon } from "./Icon";
-import { Button } from "./ui";
+import { Button, EmptyState } from "./ui";
 
 /** How many downloads the panel shows. */
 const PANEL_ITEMS = 6;
@@ -180,10 +180,7 @@ export function DownloadsPage() {
   return (
     <div {...stylex.attrs(styles.page)} data-downloads-page>
       <header {...stylex.attrs(styles.header)}>
-        <h1 {...stylex.attrs(styles.title)}>
-          <Icon name="download" size={24} {...stylex.attrs(styles.accent)} />
-          Downloads
-        </h1>
+        <h1 {...stylex.attrs(styles.title)}>Downloads</h1>
         <p {...stylex.attrs(styles.muted)}>
           Everything you downloaded, newest first. Removing a download from the list keeps its file.
         </p>
@@ -207,10 +204,12 @@ export function DownloadsPage() {
       <Show
         when={groups().length}
         fallback={
-          <div {...stylex.attrs(styles.empty)} data-downloads-empty>
-            <Icon name="download" size={28} />
-            {query().trim() ? "No downloads match your search." : "Files you download appear here."}
-          </div>
+          <EmptyState
+            icon={query().trim() ? "search-x" : "download"}
+            title={query().trim() ? "No downloads match your search" : "No downloads yet"}
+            hint={query().trim() ? undefined : "Files you download appear here."}
+            data-downloads-empty
+          />
         }
       >
         <For each={groups()}>
@@ -354,13 +353,15 @@ const slide = stylex.keyframes({ from: { transform: "translateX(-100%)" }, to: {
 
 const styles = stylex.create({
   page: {
-    maxWidth: 820,
+    boxSizing: "border-box",
+    maxWidth: 760,
     marginInline: "auto",
-    paddingBlock: space.xxl,
-    paddingInline: space.xl,
+    paddingTop: 36,
+    paddingInline: 40,
+    paddingBottom: 96,
     display: "flex",
     flexDirection: "column",
-    gap: space.lg,
+    gap: 20,
   },
   header: { display: "flex", flexDirection: "column", gap: space.xs },
   title: {
@@ -368,11 +369,10 @@ const styles = stylex.create({
     alignItems: "center",
     gap: space.sm,
     margin: 0,
-    fontSize: font.xxl,
+    fontSize: 24,
     fontWeight: 650,
     letterSpacing: "-0.02em",
   },
-  accent: { color: colors.accent },
   muted: { margin: 0, color: colors.muted, fontSize: font.sm, lineHeight: 1.5 },
   toolbar: { display: "flex", alignItems: "center", gap: space.sm },
   search: {

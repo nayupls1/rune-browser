@@ -352,10 +352,7 @@ export function HistoryPage() {
   return (
     <div {...stylex.attrs(styles.page)} data-history-page>
       <header {...stylex.attrs(styles.header)}>
-        <h1 {...stylex.attrs(styles.title)}>
-          <Icon name="file-clock" size={24} {...stylex.attrs(styles.accent)} />
-          Snapshots
-        </h1>
+        <h1 {...stylex.attrs(styles.title)}>Snapshots</h1>
         <p {...stylex.attrs(styles.muted)}>
           Every change agents and you make is saved: apps with their data, site customizations and settings. Undo a
           single change, or restore an earlier version.
@@ -434,13 +431,15 @@ export function HistoryPanel(props: { appId: string; onClose: () => void }) {
 
 const styles = stylex.create({
   page: {
-    maxWidth: 900,
+    boxSizing: "border-box",
+    maxWidth: 760,
     marginInline: "auto",
-    paddingBlock: space.xxl,
-    paddingInline: space.xl,
+    paddingTop: 36,
+    paddingInline: 40,
+    paddingBottom: 96,
     display: "flex",
     flexDirection: "column",
-    gap: space.lg,
+    gap: 20,
   },
   header: { display: "flex", flexDirection: "column", gap: space.xs },
   title: {
@@ -448,11 +447,10 @@ const styles = stylex.create({
     alignItems: "center",
     gap: space.sm,
     margin: 0,
-    fontSize: font.xxl,
+    fontSize: 24,
     fontWeight: 650,
     letterSpacing: "-0.02em",
   },
-  accent: { color: colors.accent },
   muted: { margin: 0, color: colors.muted, fontSize: font.sm, lineHeight: 1.5 },
   filters: { display: "flex", gap: space.sm },
   select: {

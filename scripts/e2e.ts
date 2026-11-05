@@ -461,14 +461,19 @@ const fromMenu = async (chrome: string, id: string) => {
 /** An address as the sidebar shows it while it isn't being edited: without its scheme or a lone trailing slash. */
 const displayHost = (url: string) => url.replace(/^https?:\/\//i, "").replace(/^([^/?#]+)\/$/, "$1");
 
-/** Opens Settings at a category of its sidebar, or one of the pages in it (History, Schedules, Mods, Activity). */
+/**
+ * Opens Settings at a category of its sidebar, one of the pages in it (History, Schedules, Mods, Activity), or a
+ * part of a category's page (General's Search engine…: its category is opened, and the part is on its page).
+ */
 const openSettingsAt = async (section: string) => {
   await click('[data-page-link="Settings"]');
-  await page!.waitFor(`!!document.querySelector('[data-settings-nav="${section}"]')`, { label: "settings sidebar" });
-  await click(`[data-settings-nav="${section}"]`);
-  await page!.waitFor(`document.querySelector("[data-settings-shell]")?.dataset.settingsShell === "${section}"`, {
-    label: `settings: ${section}`,
-  });
+  const nav = `[data-settings-nav="${section}"], [data-settings-parts~="${section}"]`;
+  await page!.waitFor(`!!document.querySelector(${JSON.stringify(nav)})`, { label: "settings sidebar" });
+  await click(nav);
+  await page!.waitFor(
+    `document.querySelector("[data-settings-shell]")?.dataset.settingsShell === "${section}" || !!document.querySelector('[data-settings] [data-settings-part="${section}"]')`,
+    { label: `settings: ${section}` },
+  );
 };
 /** The workspace shown (its icon is the selected one at the bottom of the sidebar). */
 const currentWorkspaceName = `document.querySelector("[data-workspace-bar]")?.dataset.currentWorkspace`;
@@ -3177,7 +3182,7 @@ try {
         throw new Error('notifications offered "Allow this time"');
       await click(`${tab} [data-permission-answer="allow"]`);
       if ((await result()) !== "granted") throw new Error("notifications weren't allowed");
-      // Saved in the site's settings (Settings → Browser → Site settings), like a choice made there.
+      // Saved in the site's settings (Settings → Site settings), like a choice made there.
       await waitForValue(async () =>
         (await apiCall<{ browser: { sites: Record<string, Record<string, string>> } }>("/api/settings")).browser.sites[
           "127.0.0.1"
@@ -3314,7 +3319,7 @@ try {
       if (after !== "prompt") throw new Error(`a closed private window's answer was kept: ${after}`);
       await closePrivate(again);
 
-      // Settings → Browser → Site settings has both sites' choices; resetting one makes it ask again.
+      // Settings → Site settings has both sites' choices; resetting one makes it ask again.
       await openSettingsAt("browser-sites");
       const siteRow = (host: string) => `[data-site-row="${host}"]`;
       await page!.waitFor(
@@ -3858,10 +3863,10 @@ try {
       `[...document.querySelectorAll("[data-settings-nav]")].map((b) => b.dataset.settingsNav)`,
     );
     for (const id of [
+      "general",
       "appearance",
       "workspace",
       "agent",
-      "providers",
       "apps",
       "secrets",
       "permissions",
@@ -3902,6 +3907,21 @@ try {
     );
     if (rows.length !== 3) throw new Error(`provider rows: ${rows.join(", ")}`);
     await shot("settings-providers.png");
+    // Searching shows only the matching rows, from every category, and narrows the sidebar to those categories.
+    await type("[data-settings-search]", "third-party cookies");
+    await page!.waitFor(
+      `[...document.querySelectorAll("[data-search-page]")].filter((p) => p.style.display !== "none").map((p) => p.dataset.searchPage).join() === "browser-privacy" && [...document.querySelectorAll('[data-search-page="browser-privacy"] [data-setting-row]')].filter((r) => r.offsetParent).length === 1`,
+      { label: "search: one row, in Privacy and security" },
+    );
+    const navShown = await page!.eval<string>(
+      `[...document.querySelectorAll("[data-settings-nav]")].map((b) => b.dataset.settingsNav).join()`,
+    );
+    if (navShown !== "browser-privacy") throw new Error(`sidebar while searching: ${navShown}`);
+    await shot("settings-search.png");
+    await type("[data-settings-search]", "nothing matches this");
+    await page!.waitFor(`!!document.querySelector("[data-settings-no-results]")`, { label: "no results" });
+    await type("[data-settings-search]", "");
+    await page!.waitFor(`!document.querySelector("[data-settings-results]")`, { label: "search cleared" });
     await openSettingsAt("apps");
     await page!.waitFor(
       `!!document.querySelector("[data-app-ai-agent] [data-agent-picker]") && !!document.querySelector("[data-ai-limit]")`,
@@ -3982,14 +4002,10 @@ try {
         // Settings: the browser's settings are a group of their own, apart from Rune Browser's.
         step = "settings groups";
         await openSettingsAt("browser-privacy");
-        const groups = await page!.eval<Record<string, string[]>>(`(() => {
-        const out = {}; let group = "";
-        for (const el of document.querySelector('[aria-label="Settings categories"]').querySelectorAll("span, button")) {
-          if (el.tagName === "SPAN" && !el.closest("button")) group = el.textContent.trim();
-          else if (el.dataset.settingsNav) (out[group] ??= []).push(el.dataset.settingsNav);
-        }
-        return out;
-      })()`);
+        // Each group's categories, with the parts shown on their pages (General: Search engine…).
+        const groups = await page!.eval<Record<string, string[]>>(
+          `Object.fromEntries([...document.querySelectorAll('[aria-label="Settings categories"] [data-settings-group]')].map((g) => [g.dataset.settingsGroup, [...g.querySelectorAll("[data-settings-nav]")].flatMap((b) => [b.dataset.settingsNav, ...b.dataset.settingsParts.split(" ")])]))`,
+        );
         for (const id of [
           "browser-privacy",
           "browser-sites",
@@ -4002,11 +4018,8 @@ try {
           "browser-reset",
           "extensions",
         ])
-          if (!groups.Browser?.includes(id)) throw new Error(`browser group: ${JSON.stringify(groups)}`);
-        if (
-          groups["Rune Browser"]?.some((id) => id.startsWith("browser-")) ||
-          !groups["Rune Browser"]?.includes("agent")
-        )
+          if (!groups.browser?.includes(id)) throw new Error(`browser group: ${JSON.stringify(groups)}`);
+        if (groups.agents?.some((id) => id.startsWith("browser-")) || !groups.agents?.includes("agent"))
           throw new Error(`Rune Browser's group: ${JSON.stringify(groups)}`);
         await shot("settings-browser-privacy.png");
 
@@ -4813,9 +4826,10 @@ try {
 
     // Settings pages: Chromium's sub-pages, and the address of the one shown.
     await enterAddress("chrome://settings/search");
-    await page!.waitFor(`document.querySelector("[data-settings-shell]")?.dataset.settingsShell === "browser-search"`, {
-      label: "chrome://settings/search → Settings: Search engine",
-    });
+    await page!.waitFor(
+      `document.querySelector("[data-settings-shell]")?.dataset.settingsTarget === "browser-search" && !!document.querySelector('[data-settings="general"] [data-settings-part="browser-search"]')`,
+      { label: "chrome://settings/search → Settings: General, at Search engine" },
+    );
     await addressShows("rune://settings/browser-search");
     await enterAddress("chrome://extensions");
     await page!.waitFor(`document.querySelector("[data-settings-shell]")?.dataset.settingsShell === "extensions"`, {

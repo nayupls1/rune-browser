@@ -74,7 +74,9 @@ export function ApiMapPage() {
               While you browse, Rune Browser notes every API endpoint a site calls, with its parameters and the shape of
               what it sends and gets back, so agents and apps can build on it. Only the shape is kept: names and kinds
               of values (a number, a date, an email), never the values themselves, your logins or personal data.
-              {settings().web.recordNetwork ? "" : " Needs “Record web tabs' traffic” (Settings → Network)."}
+              {settings().web.recordNetwork
+                ? ""
+                : " Needs “Record web tabs' traffic” (Settings → Web tools → Network rules)."}
             </span>
           </span>
         </label>

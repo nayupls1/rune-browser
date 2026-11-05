@@ -1,4 +1,4 @@
-// Settings → Browser: what a browser like Chrome lets you set, named and
+// Settings' Browser group: what a browser like Chrome lets you set, named and
 // grouped the way Chrome does (privacy and security, site settings, search
 // engine, on startup, fonts and zoom, languages, downloads, performance,
 // passwords, import, reset), apart from Rune Browser's own settings.
@@ -102,7 +102,7 @@ export function PrivacySection() {
   };
   return (
     <>
-      <Section title="Clear browsing data" icon="trash" anchor="browser-clear">
+      <Section title="Clear browsing data" anchor="browser-clear">
         <Row label="Browsing history" description="The pages you visited: History and the address bar's suggestions.">
           <Checkbox checked={history()} onChange={(e) => setHistory(e.currentTarget.checked)} data-clear-history />
         </Row>
@@ -112,7 +112,10 @@ export function PrivacySection() {
         <Row label="Cached images and files" description="Frees space; some sites load more slowly the next time.">
           <Checkbox checked={cache()} onChange={(e) => setCache(e.currentTarget.checked)} data-clear-cache />
         </Row>
-        <Row label="Time range" description="For browsing history. Cookies and cached files are cleared for all time.">
+        <Row
+          label="Time range"
+          description="Applies to browsing history; cookies and cached files are always cleared in full."
+        >
           <Select
             value={range()}
             onChange={(e) => setRange(e.currentTarget.value as (typeof clearRanges)[number]["id"])}
@@ -131,30 +134,26 @@ export function PrivacySection() {
             onChange={setEverywhere}
           />
         </Row>
-        <Row label="">
+        <Row label="Clear what's checked" description="It can't be undone.">
           <Button variant="danger" disabled={clearing() || nothing()} onClick={() => void clear()} data-clear-data>
             {clearing() ? "Clearing…" : "Clear data"}
           </Button>
         </Row>
       </Section>
-      <Section title="Security" icon="lock" anchor="browser-security">
+      <Section title="Security" anchor="browser-security">
         <InsecureRows />
       </Section>
-      <Section title="Cookies and tracking" icon="cookie" anchor="browser-cookies">
+      <Section title="Cookies and tracking" anchor="browser-cookies">
         <Row
-          label="Third-party cookies"
-          description="Blocking them keeps sites from following you through what other sites embed (ads, widgets). Some sign-ins and embedded content may stop working."
+          label="Block third-party cookies"
+          description="Keeps sites from following you through what other sites embed (ads, widgets). Some sign-ins and embedded content may stop working."
         >
-          <div data-third-party-cookies>
-            <Segmented
-              value={browser().privacy.thirdPartyCookies}
-              options={[
-                ["allow", "Allow"],
-                ["block", "Block"],
-              ]}
-              onChange={(thirdPartyCookies) => setPart("privacy", { thirdPartyCookies })}
+          <span data-third-party-cookies>
+            <Toggle
+              checked={browser().privacy.thirdPartyCookies === "block"}
+              onChange={(block) => setPart("privacy", { thirdPartyCookies: block ? "block" : "allow" })}
             />
-          </div>
+          </span>
         </Row>
         <Row label='Send a "Do Not Track" request' description="Asks sites not to track you. Many sites ignore it.">
           <div data-do-not-track>
@@ -241,18 +240,17 @@ function SiteSettingsOverview() {
   const defaultsOf = (kind: "permission" | "content") => siteSettingKeys.filter((k) => siteSettings[k].kind === kind);
   return (
     <>
-      <Section title="Permissions" icon="shield-check" anchor="browser-permissions">
-        <p {...stylex.attrs(styles.note)}>
-          What sites may use. A site that can ask gets a prompt in its tab the first time it wants one, and what you
-          choose there becomes the site's setting, which you can change below or from the site controls in the address
-          bar.
-        </p>
+      <Section
+        title="Permissions"
+        anchor="browser-permissions"
+        description="Sites ask the first time they need one of these. Change your answer here or from the address bar."
+      >
         <For each={defaultsOf("permission")}>{(key) => <DefaultRow setting={key} />}</For>
       </Section>
-      <Section title="Content" icon="layout-template" anchor="browser-content">
+      <Section title="Content" anchor="browser-content">
         <For each={defaultsOf("content")}>{(key) => <DefaultRow setting={key} />}</For>
       </Section>
-      <Section title="All sites" icon="globe" anchor="browser-all-sites">
+      <Section title="All sites" anchor="browser-all-sites">
         <Row
           label="Sites with their own settings or data"
           description={`Cookies are those of the workspace ${currentWorkspace()?.name ?? ""}.`}
@@ -296,20 +294,23 @@ function DefaultRow(props: { setting: SiteSettingKey }) {
   const info = () => siteSettings[props.setting];
   const choices = () => (info().kind === "permission" ? (["ask", "block"] as const) : (["allow", "block"] as const));
   return (
-    <Row label={info().label} description={`Sites can ${info().about.toLowerCase()}.`}>
-      <Select
-        value={browser().defaults[props.setting]}
-        onChange={(e) =>
-          updateBrowser((b) => ({ ...b, defaults: { ...b.defaults, [props.setting]: e.currentTarget.value } }))
-        }
-        xstyle={styles.select}
-        data-site-default={props.setting}
-      >
-        <For each={[...choices()]}>{(c) => <option value={c}>{defaultLabels[c]}</option>}</For>
-      </Select>
+    <Row
+      label={info().label}
+      description={`Sites can ${info().about.charAt(0).toLowerCase()}${info().about.slice(1)}.`}
+      dense
+    >
+      <span data-site-default={props.setting}>
+        <Segmented
+          value={browser().defaults[props.setting]}
+          options={choices().map((c) => [c, defaultChoiceLabels[c]] as [typeof c, string])}
+          onChange={(value) => updateBrowser((b) => ({ ...b, defaults: { ...b.defaults, [props.setting]: value } }))}
+        />
+      </span>
     </Row>
   );
 }
+
+const defaultChoiceLabels = { ask: "Ask", allow: "Allow", block: "Block" } as const;
 
 /** One site: its settings, zoom, cookies and data. */
 function SiteDetails(props: { site: string }) {
@@ -349,7 +350,7 @@ function SiteDetails(props: { site: string }) {
       <button type="button" onClick={() => showSite(null)} {...stylex.attrs(styles.back)} data-site-back>
         <Icon name="arrow-left" size={14} /> All sites
       </button>
-      <Section title={props.site} icon="globe" anchor="browser-site">
+      <Section title={props.site} anchor="browser-site">
         <Row
           label="Cookies and site data"
           description={cookies() ? `${plural(cookies(), "cookie")} in this workspace` : "No cookies in this workspace"}
@@ -400,7 +401,7 @@ function SiteDetails(props: { site: string }) {
 export function SearchSection() {
   const search = () => browser().search;
   return (
-    <Section title="Search engine" icon="search" anchor="browser-search">
+    <Section title="Search engine" anchor="browser-search">
       <Row label="Search engine used in the address bar" description="When what you type isn't an address.">
         <Select
           value={search().engine}
@@ -449,7 +450,7 @@ export function SearchSection() {
 
 export function DefaultBrowserSection() {
   return (
-    <Section title="Default browser" icon="app-window" anchor="browser-default">
+    <Section title="Default browser" anchor="browser-default">
       <DefaultBrowserRow />
     </Section>
   );
@@ -485,7 +486,7 @@ export function StartupSection() {
     ["pages", "Open a specific page or set of pages", "These pages, each in a tab (one already open is reused)."],
   ];
   return (
-    <Section title="On startup" icon="power" anchor="browser-startup">
+    <Section title="On startup" anchor="browser-startup">
       <For each={options}>
         {([mode, label, description]) => (
           <label {...stylex.attrs(styles.radioRow)}>
@@ -591,7 +592,7 @@ export function AppearanceSection() {
   );
   return (
     <>
-      <Section title="Fonts" icon="type" anchor="browser-fonts">
+      <Section title="Fonts" anchor="browser-fonts">
         <Row label="Font size" description="Text on pages that don't set their own size.">
           <Select
             value={String(fonts().size)}
@@ -623,7 +624,7 @@ export function AppearanceSection() {
           <For each={localFonts() ?? []}>{(f) => <option value={f} />}</For>
         </datalist>
       </Section>
-      <Section title="Page zoom" icon="zoom-in" anchor="browser-zoom">
+      <Section title="Page zoom" anchor="browser-zoom">
         <Row label="Page zoom" description="For sites you haven't zoomed. Ctrl+0 goes back to it.">
           <Select
             value={String(browser().zoom.default)}
@@ -738,11 +739,11 @@ export function LanguagesSection() {
     });
   return (
     <>
-      <Section title="Preferred languages" icon="languages" anchor="browser-languages">
-        <p {...stylex.attrs(styles.note)}>
-          Websites show their content in the first of these they have.
-          {languages().preferred.length ? "" : " These are your system's languages until you change them."}
-        </p>
+      <Section
+        title="Preferred languages"
+        anchor="browser-languages"
+        description={`Websites show their content in the first of these they have.${languages().preferred.length ? "" : " These are your system's languages until you change them."}`}
+      >
         <Row label="Languages" wide>
           <div {...stylex.attrs(styles.list)} data-languages>
             <For each={preferred()}>
@@ -803,7 +804,7 @@ export function LanguagesSection() {
           </div>
         </Row>
       </Section>
-      <Section title="Spell check" icon="spell-check" anchor="browser-spellcheck">
+      <Section title="Spell check" anchor="browser-spellcheck">
         <Row label="Check for spelling errors when you type text on web pages">
           <Toggle checked={languages().spellcheck} onChange={(spellcheck) => setPart("languages", { spellcheck })} />
         </Row>
@@ -850,7 +851,7 @@ export function DownloadsSection() {
     if (folder) setPart("downloads", { folder });
   };
   return (
-    <Section title="Downloads" icon="download" anchor="browser-downloads">
+    <Section title="Downloads" anchor="browser-downloads">
       <Row label="Location" description={downloads().folder || info()?.downloadsFolder || "Your Downloads folder"}>
         <Button onClick={() => void change()} data-downloads-change>
           Change
@@ -872,7 +873,7 @@ export function DownloadsSection() {
 
 export function PerformanceSection() {
   return (
-    <Section title="Memory" icon="gauge" anchor="browser-performance">
+    <Section title="Performance" anchor="browser-performance">
       <Row
         label="Memory saver"
         description="Tabs you haven't looked at for a while close their page to save memory, and come back where you left them (scroll position, what you typed). Pinned tabs (Keep loaded), tabs playing sound and tabs whose agent is working stay loaded."
@@ -898,12 +899,11 @@ export function PerformanceSection() {
 
 export function AutofillSection() {
   return (
-    <Section title="Autofill and passwords" icon="key-square" anchor="browser-autofill">
-      <p {...stylex.attrs(styles.note)}>
-        Rune Browser doesn't keep passwords, payment methods or addresses itself. A password manager extension
-        (Bitwarden, 1Password, Proton Pass…) saves and fills them in, sign-in prompts of sites included, and brings your
-        passwords along from wherever you keep them.
-      </p>
+    <Section
+      title="Autofill and passwords"
+      anchor="browser-autofill"
+      description="Rune Browser doesn't keep passwords, payment methods or addresses itself. A password manager extension (Bitwarden, 1Password, Proton Pass…) saves and fills them in, sign-in prompts of sites included, and brings your passwords along from wherever you keep them."
+    >
       <Row label="Password managers" description="From the Chrome Web Store.">
         <Button
           onClick={() => void newWebTab("https://chromewebstore.google.com/category/extensions/productivity/tools")}
@@ -946,7 +946,7 @@ export function ImportSection() {
   };
   return (
     <>
-      <Section title="Import bookmarks and settings" icon="import" anchor="browser-import">
+      <Section title="Import bookmarks and settings" anchor="browser-import">
         <Row label="Bookmarks" description="From Chrome, Firefox and the browsers based on them, or an HTML file.">
           <Button onClick={openBookmarkImport} data-import-bookmarks>
             Import bookmarks…
@@ -999,13 +999,10 @@ export function ImportSection() {
           </Row>
         </Show>
       </Section>
-      <Section title="What else comes along" icon="info">
-        <p {...stylex.attrs(styles.note)}>
-          Extensions come with their settings from Settings → Extensions → Import. Passwords stay with your password
-          manager: browsers encrypt their saved passwords for themselves alone, so they can't be read here; a password
-          manager extension brings yours. Browsing history isn't imported.
-        </p>
-      </Section>
+      <Section
+        title="What else comes along"
+        description="Extensions come with their settings from Settings → Extensions → Import. Passwords stay with your password manager: browsers encrypt their saved passwords for themselves alone, so they can't be read here; a password manager extension brings yours. Browsing history isn't imported."
+      ></Section>
     </>
   );
 }
@@ -1025,7 +1022,7 @@ export function ResetSection() {
     toast({ message: "Browser settings restored to their defaults", kind: "success" });
   };
   return (
-    <Section title="Reset settings" icon="rotate-ccw" anchor="browser-reset">
+    <Section title="Reset settings" anchor="browser-reset">
       <Row
         label="Restore settings to their original defaults"
         description="Only the browser settings. Cookies, logins and extensions stay."
@@ -1095,7 +1092,7 @@ const styles = stylex.create({
   rowLabel: { fontSize: font.md, fontWeight: 500 },
   select: { width: 220 },
   compactSelect: { width: 140, height: 28, fontSize: font.sm },
-  textInput: { width: 280 },
+  textInput: { width: 220 },
   empty: { margin: 0, paddingBlock: space.sm, color: colors.muted, fontSize: font.sm },
   siteList: { display: "flex", flexDirection: "column", marginTop: space.sm },
   siteRow: {

@@ -52,4 +52,4 @@ In both modes, text is at least 7:1 on `bg`, `surface`, `sidebar`, `surfaceHover
 
 ## Customizing
 
-Settings → Theme changes the accent, background, surfaces, text, corners and font, or applies a preset. Any color left unset is the palette's, and the color fields show it. The **Default** preset clears them all, back to Rune's palette. Mods can bring a theme of their own; removing the mod brings the previous one back.
+Settings → Appearance changes the accent, background, surfaces, text, corners and font, or applies a preset. Any color left unset is the palette's, and the color fields show it. The **Default** preset clears them all, back to Rune's palette. Mods can bring a theme of their own; removing the mod brings the previous one back.

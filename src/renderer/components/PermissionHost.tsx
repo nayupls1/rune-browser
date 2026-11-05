@@ -114,7 +114,7 @@ function Prompt(props: { request: PermissionRequest; more: number }) {
                 onChange={(e) => setRemember(e.currentTarget.checked)}
                 data-remember
               />
-              Remember my choice (you can change it in Settings → Permissions)
+              Remember my choice (you can change it in Settings → Agent permissions)
             </label>
           </Show>
           <Show when={showWorkspaceOption()}>

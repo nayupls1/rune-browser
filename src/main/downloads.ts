@@ -1,7 +1,7 @@
 // Downloads, like Chromium's: every session's downloads (web tabs, app
 // previews, Rune Browser's own windows) go to the downloads folder under a name
 // that doesn't overwrite anything, or where the user picks when "ask where to
-// save" is on (Settings → Browser → Downloads, main/browser.ts). Risky ones (a
+// save" is on (Settings → General → Downloads, main/browser.ts). Risky ones (a
 // file type that runs code, a site without HTTPS) are saved under a name that
 // can't run until the user keeps them. Progress goes to the windows
 // (components/Downloads.tsx) and the taskbar; the list is kept in the profile
@@ -48,7 +48,7 @@ const quiet = process.env.RUNE_OFFSCREEN === "1";
 
 export function setupDownloads(options: {
   windows: AppWindows;
-  /** Where downloads go (Settings → Browser → Downloads). */
+  /** Where downloads go (Settings → General → Downloads). */
   folder: () => string;
   /** Whether every download asks where to save. */
   ask: () => boolean;

@@ -3,7 +3,7 @@
 // while visiting, allow this time, never allow); what the address bar's site
 // settings button shows while a page uses the camera, microphone, location or
 // screen (with Stop in its popover, components/SiteInfo.tsx); and the screen
-// picker. The choices are the site's settings (Settings → Browser → Site
+// picker. The choices are the site's settings (Settings → Site
 // settings).
 import * as stylex from "@stylexjs/stylex";
 import { createSignal, For, Match, onCleanup, onMount, Show, Switch, type JSX } from "solid-js";

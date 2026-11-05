@@ -1,4 +1,4 @@
-// The browser settings (Settings → Browser) put into effect in web tabs:
+// The browser settings (Settings' Browser group) put into effect in web tabs:
 // sound, fonts, languages and spell check, downloads, and the rules for
 // JavaScript, images, third-party cookies and Do Not Track (applied
 // by the built-in extension, see extensions/builtin.ts). Also clearing
@@ -270,7 +270,7 @@ export function setupBrowser(options: BrowserOptions) {
     settings: () => browser,
     /** The rules for the built-in extension, numbered from `firstId`. */
     rules: (firstId: number) => browserRulesToDnr(browser, firstId),
-    /** Where downloads go (Settings → Browser → Downloads), made if it's missing. */
+    /** Where downloads go (Settings → General → Downloads), made if it's missing. */
     downloadsFolder,
     /** Whether every download asks where to save. */
     askWhereToSave: () => browser.downloads.ask,

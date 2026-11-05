@@ -1,7 +1,7 @@
 // Site permissions in web tabs: Electron asks here whenever a page wants the
 // camera, the microphone, location, notifications, screen sharing…, and
 // checks here whenever a page looks. They're the site settings' permissions
-// (Settings → Browser → Site settings, shared/browser.ts): what a site's
+// (Settings → Site settings, shared/browser.ts): what a site's
 // settings or the default allow or block is answered right away, the rest
 // prompts in the tab's window (components/SitePermissions.tsx), which saves
 // the answer into the site's settings. A private window's answers are kept

@@ -138,7 +138,7 @@ export interface ExtensionPopupRequest {
   url: string;
 }
 
-/** Rune Browser's own extension in every web tab session: it applies the network rules (Settings → Network). */
+/** Rune Browser's own extension in every web tab session: it applies the network rules (Settings → Web tools → Network rules). */
 export const BUILTIN_EXTENSION_ID = "ikphnmngfgaajbhljcknjgjlhpdmmjpg";
 
 export const EXTENSION_URL_PATTERN = /^chrome-extension:\/\/([a-p]{32})(\/|$)/;
@@ -555,7 +555,7 @@ export function parseColor(value: unknown): [number, number, number, number] | n
 
 // --- Network rules as declarativeNetRequest rules -------------------------------------------
 //
-// Rune Browser's own rules (Settings → Network) are applied with declarativeNetRequest
+// Rune Browser's own rules (Settings → Web tools → Network rules) are applied with declarativeNetRequest
 // by a small built-in extension. Session webRequest hooks would switch off every
 // installed extension's blocking (Electron gives the hooks precedence), so the
 // rules and extensions like uBlock Origin Lite can work together.

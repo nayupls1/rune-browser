@@ -12,7 +12,7 @@ import { currentWorkspace, isPrivate, newWebTab, openSettings, workspaces } from
 import { colors, font, radius, space } from "../theme.stylex";
 import { Icon } from "./Icon";
 import { TabIcon } from "./TabIcon";
-import { Button, Input } from "./ui";
+import { Button, EmptyState, Input } from "./ui";
 
 const PAGE = 100;
 /** The most the server returns at once. */
@@ -82,10 +82,7 @@ export function BrowsingHistoryPage() {
   return (
     <div {...stylex.attrs(styles.page)} data-browsing-history>
       <header {...stylex.attrs(styles.header)}>
-        <h1 {...stylex.attrs(styles.title)}>
-          <Icon name="rotate-ccw-clock" size={24} {...stylex.attrs(styles.accent)} />
-          History
-        </h1>
+        <h1 {...stylex.attrs(styles.title)}>History</h1>
         <p {...stylex.attrs(styles.muted)}>
           The pages you visited in web tabs, for the last 90 days. Each workspace keeps its own.
         </p>
@@ -123,7 +120,7 @@ export function BrowsingHistoryPage() {
             </select>
           </Show>
           {/* Like Chrome's: clearing is one thing, with cookies and the cache, in Privacy and security. */}
-          <Button variant="danger" onClick={() => void openSettings("browser-privacy")} data-history-clear>
+          <Button onClick={() => void openSettings("browser-privacy")} data-history-clear>
             <Icon name="trash" size={14} />
             Clear browsing data
           </Button>
@@ -132,9 +129,12 @@ export function BrowsingHistoryPage() {
           when={visits().length}
           fallback={
             <Show when={loaded()}>
-              <p {...stylex.attrs(styles.card, styles.empty)} data-history-empty>
-                {search().trim() ? "No pages match your search." : "No history yet: pages you visit show up here."}
-              </p>
+              <EmptyState
+                icon={search().trim() ? "search-x" : "rotate-ccw-clock"}
+                title={search().trim() ? "No pages match your search" : "No history yet"}
+                hint={search().trim() ? undefined : "Pages you visit in web tabs show up here."}
+                data-history-empty
+              />
             </Show>
           }
         >
@@ -218,13 +218,15 @@ const hostOf = (url: string) => {
 
 const styles = stylex.create({
   page: {
-    maxWidth: 900,
+    boxSizing: "border-box",
+    maxWidth: 760,
     marginInline: "auto",
-    paddingBlock: space.xxl,
-    paddingInline: space.xl,
+    paddingTop: 36,
+    paddingInline: 40,
+    paddingBottom: 96,
     display: "flex",
     flexDirection: "column",
-    gap: space.lg,
+    gap: 20,
   },
   header: { display: "flex", flexDirection: "column", gap: space.xs },
   title: {
@@ -232,11 +234,10 @@ const styles = stylex.create({
     alignItems: "center",
     gap: space.sm,
     margin: 0,
-    fontSize: font.xxl,
+    fontSize: 24,
     fontWeight: 650,
     letterSpacing: "-0.02em",
   },
-  accent: { color: colors.accent },
   muted: { margin: 0, color: colors.muted, fontSize: font.sm, lineHeight: 1.5 },
   filters: { display: "flex", gap: space.sm, alignItems: "center" },
   searchBox: { position: "relative", flex: 1, minWidth: 0 },
