@@ -103,13 +103,25 @@ export function PrivacySection() {
   return (
     <>
       <Section title="Clear browsing data" anchor="browser-clear">
-        <Row label="Browsing history" description="The pages you visited: History and the address bar's suggestions.">
+        <Row
+          label="Browsing history"
+          description="The pages you visited: History and the address bar's suggestions."
+          leading
+        >
           <Checkbox checked={history()} onChange={(e) => setHistory(e.currentTarget.checked)} data-clear-history />
         </Row>
-        <Row label="Cookies and other site data" description="Signs you out of most sites. Extensions keep their data.">
+        <Row
+          label="Cookies and other site data"
+          description="Signs you out of most sites. Extensions keep their data."
+          leading
+        >
           <Checkbox checked={cookies()} onChange={(e) => setCookies(e.currentTarget.checked)} data-clear-cookies />
         </Row>
-        <Row label="Cached images and files" description="Frees space; some sites load more slowly the next time.">
+        <Row
+          label="Cached images and files"
+          description="Frees space; some sites load more slowly the next time."
+          leading
+        >
           <Checkbox checked={cache()} onChange={(e) => setCache(e.currentTarget.checked)} data-clear-cache />
         </Row>
         <Row label="Time range" description="History only. Cookies and cached files are always cleared in full.">
@@ -132,7 +144,7 @@ export function PrivacySection() {
             onChange={setEverywhere}
           />
         </Row>
-        <Row label="Clear what's checked" description="It can't be undone.">
+        <Row label="Clear now" description="Deletes the checked items. It can't be undone." always>
           <Button variant="danger" disabled={clearing() || nothing()} onClick={() => void clear()} data-clear-data>
             {clearing() ? "Clearing…" : "Clear data"}
           </Button>
@@ -623,7 +635,7 @@ export function AppearanceSection() {
         </datalist>
       </Section>
       <Section title="Page zoom" anchor="browser-zoom">
-        <Row label="Page zoom" description="For sites you haven't zoomed. Ctrl+0 goes back to it.">
+        <Row label="Default zoom" description="For sites you haven't zoomed. Ctrl+0 goes back to it.">
           <Select
             value={String(browser().zoom.default)}
             onChange={(e) => setPart("zoom", { default: Number(e.currentTarget.value) })}

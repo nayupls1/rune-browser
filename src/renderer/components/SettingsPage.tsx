@@ -297,6 +297,9 @@ export function SettingsShell(props: { view: string }) {
             <div {...stylex.attrs(styles.page)} data-settings-results>
               <header {...stylex.attrs(styles.header)}>
                 <h1 {...stylex.attrs(styles.title)}>Search results</h1>
+                <Show when={found() && !found()!.length}>
+                  <p {...stylex.attrs(styles.resultCount)}>No settings match</p>
+                </Show>
                 <Show when={found()?.length}>
                   <p {...stylex.attrs(styles.resultCount)} data-settings-result-count>
                     {count() === 1 ? "1 setting" : `${count()} settings`} in{" "}
@@ -418,9 +421,10 @@ function filterSettings(root: HTMLElement, words: string[]) {
       let partShown = false;
       for (const section of sections) {
         let any = false;
+        const sectionHit = whole || section.titleHit || section.items.some((i) => i.hit);
         for (const { item, hit } of section.items) {
-          const on = show(item, whole || section.titleHit || hit);
-          if (on) count++;
+          const on = show(item, whole || section.titleHit || hit || (sectionHit && "searchAlways" in item.dataset));
+          if (on && !("searchAlways" in item.dataset)) count++;
           any ||= on;
         }
         partShown = show(section.el, whole || section.titleHit || any) || partShown;
@@ -467,7 +471,7 @@ function highlight(root: HTMLElement, words: string[]) {
 }
 
 // The highlight, and what a page shows around its settings (its own search box, notes) left out of search results.
-const highlightCss = `::highlight(settings-search) { background-color: color-mix(in oklab, transparent, ${colors.accent} 26%); color: ${colors.text}; }
+const highlightCss = `::highlight(settings-search) { background-color: color-mix(in oklab, transparent, ${colors.accent} 17%); color: ${colors.text}; }
 [data-settings-results] [data-search-hide], [data-settings-results] [data-same-title] > div > h2 { display: none !important; }`;
 
 /** A page's title: a section with the same title doesn't repeat it. */
@@ -565,77 +569,83 @@ function AppearanceSection() {
   // What an unset color is: Rune's palette for the mode on screen.
   const defaults = () => base[resolveMode(theme(), systemDark())];
   return (
-    <Section title="Theme" anchor="appearance" description="How Rune Browser looks. New apps start with this theme.">
-      <Row label="Presets" description="A starting point; tweak the colors below." wide>
-        <div {...stylex.attrs(styles.presets)}>
-          <For each={themePresets}>
-            {(preset) => (
-              <PresetButton
-                name={preset.name}
-                theme={{ mode: theme().mode, ...preset.theme }}
-                active={presetKeys.every((k) => theme()[k] === preset.theme[k])}
-                onClick={() => updateSettings((s) => ({ ...s, theme: { mode: s.theme.mode, ...preset.theme } }))}
-              />
-            )}
-          </For>
-        </div>
-      </Row>
-      <Row label="Mode">
-        <Segmented
-          value={theme().mode}
-          options={[
-            ["system", "System"],
-            ["light", "Light"],
-            ["dark", "Dark"],
-          ]}
-          onChange={(mode) => setTheme({ mode })}
-        />
-      </Row>
-      <Row label="Accent color">
-        <ColorField value={theme().accent} fallback={defaults().accent} onChange={(accent) => setTheme({ accent })} />
-      </Row>
-      <Row label="Background">
-        <ColorField
-          value={theme().background}
-          fallback={defaults().bg}
-          onChange={(background) => setTheme({ background })}
-        />
-      </Row>
-      <Row label="Surfaces" description="Cards, inputs, panels.">
-        <ColorField
-          value={theme().surface}
-          fallback={defaults().surface}
-          onChange={(surface) => setTheme({ surface })}
-        />
-      </Row>
-      <Row label="Text">
-        <ColorField value={theme().text} fallback={defaults().text} onChange={(text) => setTheme({ text })} />
-      </Row>
-      <Row label="Corners">
-        <Segmented
-          value={theme().radius ?? "md"}
-          options={[
-            ["none", "None"],
-            ["sm", "Small"],
-            ["md", "Medium"],
-            ["lg", "Large"],
-          ]}
-          onChange={(radius) => setTheme({ radius })}
-        />
-      </Row>
-      <Row label="Interface font">
-        <Segmented
-          value={theme().font ?? "sans"}
-          options={[
-            ["sans", "Sans"],
-            ["serif", "Serif"],
-            ["mono", "Mono"],
-            ["rounded", "Soft"],
-          ]}
-          onChange={(font) => setTheme({ font })}
-        />
-      </Row>
-    </Section>
+    <>
+      <Section title="Theme" anchor="appearance" description="How Rune Browser looks. New apps start with this theme.">
+        <Row label="Presets" description="A starting point; tweak the colors below." wide>
+          <div {...stylex.attrs(styles.presets)}>
+            <For each={themePresets}>
+              {(preset) => (
+                <PresetButton
+                  name={preset.name}
+                  theme={{ mode: theme().mode, ...preset.theme }}
+                  active={presetKeys.every((k) => theme()[k] === preset.theme[k])}
+                  onClick={() => updateSettings((s) => ({ ...s, theme: { mode: s.theme.mode, ...preset.theme } }))}
+                />
+              )}
+            </For>
+          </div>
+        </Row>
+        <Row label="Mode">
+          <Segmented
+            value={theme().mode}
+            options={[
+              ["system", "System"],
+              ["light", "Light"],
+              ["dark", "Dark"],
+            ]}
+            onChange={(mode) => setTheme({ mode })}
+          />
+        </Row>
+      </Section>
+      <Section title="Colors" description="Unset ones follow the theme.">
+        <Row label="Accent color">
+          <ColorField value={theme().accent} fallback={defaults().accent} onChange={(accent) => setTheme({ accent })} />
+        </Row>
+        <Row label="Background">
+          <ColorField
+            value={theme().background}
+            fallback={defaults().bg}
+            onChange={(background) => setTheme({ background })}
+          />
+        </Row>
+        <Row label="Surfaces" description="Cards, inputs, panels.">
+          <ColorField
+            value={theme().surface}
+            fallback={defaults().surface}
+            onChange={(surface) => setTheme({ surface })}
+          />
+        </Row>
+        <Row label="Text">
+          <ColorField value={theme().text} fallback={defaults().text} onChange={(text) => setTheme({ text })} />
+        </Row>
+      </Section>
+      <Section title="Shape and type">
+        <Row label="Corners">
+          <Segmented
+            value={theme().radius ?? "md"}
+            options={[
+              ["none", "None"],
+              ["sm", "Small"],
+              ["md", "Medium"],
+              ["lg", "Large"],
+            ]}
+            onChange={(radius) => setTheme({ radius })}
+          />
+        </Row>
+        <Row label="Interface font">
+          <Segmented
+            value={theme().font ?? "sans"}
+            options={[
+              ["sans", "Sans"],
+              ["serif", "Serif"],
+              ["mono", "Mono"],
+              ["rounded", "Soft"],
+            ]}
+            onChange={(font) => setTheme({ font })}
+          />
+        </Row>
+      </Section>
+    </>
   );
 }
 
@@ -1110,7 +1120,7 @@ function ProviderRow(props: { id: ProviderId }) {
             onClick={() => setSettingPath(true)}
             {...stylex.attrs(styles.linkButton, styles.pathLink)}
           >
-            Installed somewhere else? Set its path
+            Installed somewhere else? <span {...stylex.attrs(styles.pathLinkAction)}>Set its path</span>
           </button>
         }
       >
@@ -2170,11 +2180,21 @@ export function Row(props: {
   wide?: boolean;
   /** Tighter, for long lists of alike rows (Site settings). */
   dense?: boolean;
+  /** The control before the text: a checkbox in a list to pick from (Clear browsing data). */
+  leading?: boolean;
+  /** Shown in search results whenever its section has a match (the action a matched row is for). */
+  always?: boolean;
   children?: JSX.Element;
 }) {
   return (
     <div
-      {...stylex.attrs(styles.row, props.wide && styles.rowWide, props.dense && styles.rowDense)}
+      {...stylex.attrs(
+        styles.row,
+        props.wide && styles.rowWide,
+        props.dense && styles.rowDense,
+        props.leading && styles.rowLeading,
+      )}
+      data-search-always={props.always ? "" : undefined}
       data-setting-row
       data-search-label={props.label}
       data-search-text={`${props.label} ${props.description ?? ""}`}
@@ -2270,7 +2290,7 @@ function TextArea(props: { value: string; placeholder?: string; name?: string; o
       name={props.name}
       value={props.value}
       placeholder={props.placeholder}
-      rows={4}
+      rows={3}
       onInput={(e) => props.onInput(e.currentTarget.value)}
       {...stylex.attrs(styles.textarea)}
     />
@@ -2675,7 +2695,7 @@ const styles = stylex.create({
     padding: 3,
     gap: 2,
     borderRadius: `calc(${radius.sm} + 3px)`,
-    backgroundColor: `light-dark(color-mix(in oklab, ${colors.bg}, ${colors.text} 6%), color-mix(in oklab, ${colors.bg}, #000000 35%))`,
+    backgroundColor: `light-dark(color-mix(in oklab, ${colors.bg}, ${colors.text} 8%), color-mix(in oklab, ${colors.bg}, #000000 35%))`,
     boxShadow: `inset 0 0 0 1px light-dark(transparent, color-mix(in oklab, ${colors.border}, transparent 30%))`,
   },
   segment: {
@@ -2699,7 +2719,7 @@ const styles = stylex.create({
     backgroundColor: `light-dark(${colors.surface}, color-mix(in oklab, ${colors.surface}, ${colors.text} 24%))`,
     color: colors.text,
     fontWeight: 600,
-    boxShadow: `0 1px 2px rgb(0 0 0 / 0.14), inset 0 0 0 1px light-dark(rgb(0 0 0 / 0.06), rgb(255 255 255 / 0.08))`,
+    boxShadow: `0 1px 2px rgb(0 0 0 / 0.16), inset 0 0 0 1px light-dark(rgb(0 0 0 / 0.1), rgb(255 255 255 / 0.08))`,
   },
   toggle: {
     position: "relative",
@@ -2759,7 +2779,7 @@ const styles = stylex.create({
     "::-webkit-color-swatch": {
       borderWidth: 0,
       borderRadius: 4,
-      boxShadow: "inset 0 0 0 1px light-dark(rgb(0 0 0 / 0.2), rgb(255 255 255 / 0.25))",
+      boxShadow: "inset 0 0 0 1px light-dark(rgb(0 0 0 / 0.3), rgb(255 255 255 / 0.25))",
     },
   },
   colorValue: { flex: 1, color: colors.muted, fontSize: font.sm, fontVariantNumeric: "tabular-nums" },
@@ -2820,11 +2840,13 @@ const styles = stylex.create({
     padding: 0,
     borderWidth: 0,
     backgroundColor: "transparent",
-    color: colors.accent,
+    color: { default: colors.text, ":hover": colors.accent },
     cursor: "pointer",
-    fontFamily: font.mono,
-    fontSize: font.xs,
-    textDecoration: { default: "none", ":hover": "underline" },
+    fontFamily: font.sans,
+    fontSize: font.sm,
+    textDecoration: "underline",
+    textDecorationColor: `color-mix(in oklab, ${colors.text}, transparent 70%)`,
+    textUnderlineOffset: 3,
   },
   about: {
     margin: 0,
@@ -2977,7 +2999,7 @@ const styles = stylex.create({
     lineHeight: 1.5,
     textWrap: "pretty",
   },
-  navEmpty: { paddingInline: 8, color: colors.muted, fontSize: font.sm },
+  navEmpty: { paddingInline: 8, color: colors.muted, fontSize: 11.5, fontWeight: 600, letterSpacing: "0.01em" },
   toggleSlot: { width: 36, flexShrink: 0 },
   pathInput: {
     flex: 1,
@@ -2991,7 +3013,9 @@ const styles = stylex.create({
   pathLink: {
     alignSelf: "flex-start",
     marginLeft: 48,
-    color: { default: colors.muted, ":hover": colors.accent },
+    color: colors.muted,
     fontSize: font.xs,
   },
+  rowLeading: { flexDirection: "row-reverse", justifyContent: "flex-end", flexWrap: "nowrap", gap: space.md },
+  pathLinkAction: { color: colors.accent, textDecoration: { default: "none", ":hover": "underline" } },
 });

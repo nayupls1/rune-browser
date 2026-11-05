@@ -6,6 +6,7 @@ import { createSignal, For, onCleanup, Show } from "solid-js";
 import {
   comboOf,
   defaultKeys,
+  comboKeys,
   formatCombo,
   isUsableCombo,
   mouseComboOf,
@@ -163,7 +164,9 @@ function ShortcutRow(props: { def: ShortcutDef }) {
           {(combo) => (
             <span {...stylex.attrs(styles.slot)}>
               <span {...stylex.attrs(styles.chip)} data-shortcut-key={combo}>
-                <kbd {...stylex.attrs(styles.kbd)}>{formatCombo(combo, platform)}</kbd>
+                <span {...stylex.attrs(styles.caps)} title={formatCombo(combo, platform)}>
+                  <For each={comboKeys(combo, platform)}>{(key) => <kbd {...stylex.attrs(styles.kbd)}>{key}</kbd>}</For>
+                </span>
                 <button
                   type="button"
                   title="Remove"
@@ -287,16 +290,29 @@ const styles = stylex.create({
     alignItems: "center",
     gap: 2,
     height: 24,
-    paddingLeft: 7,
-    paddingRight: 2,
+    paddingInline: 0,
+    borderWidth: 0,
+    backgroundColor: "transparent",
+  },
+  kbd: {
+    display: "inline-grid",
+    placeItems: "center",
+    boxSizing: "border-box",
+    minWidth: 22,
+    height: 22,
+    paddingInline: 5,
     borderRadius: 5,
     borderWidth: 1,
     borderStyle: "solid",
-    borderColor: `color-mix(in oklab, ${colors.border}, transparent 20%)`,
+    borderColor: `color-mix(in oklab, ${colors.border}, ${colors.text} 10%)`,
     borderBottomWidth: 2,
-    backgroundColor: `color-mix(in oklab, ${colors.surface}, ${colors.text} 4%)`,
+    backgroundColor: `color-mix(in oklab, ${colors.surface}, ${colors.text} 6%)`,
+    color: colors.text,
+    fontFamily: font.sans,
+    fontSize: 11.5,
+    fontWeight: 500,
+    lineHeight: 1,
   },
-  kbd: { fontFamily: font.mono, fontSize: font.xs, color: colors.text },
   chipRemove: {
     opacity: {
       default: 0,
@@ -348,4 +364,5 @@ const styles = stylex.create({
   searchBox: { position: "relative", display: "flex", alignItems: "center", flex: 1, minWidth: 0 },
   searchIcon: { position: "absolute", left: 11, color: colors.muted, pointerEvents: "none" },
   slot: { display: "flex", width: 168 },
+  caps: { display: "inline-flex", alignItems: "center", gap: 3 },
 });
