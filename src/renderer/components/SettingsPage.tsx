@@ -299,7 +299,7 @@ export function SettingsShell(props: { view: string }) {
               <header {...stylex.attrs(styles.header)}>
                 <h1 {...stylex.attrs(styles.title, noMatches() && styles.titleQuiet)}>Search results</h1>
                 <Show when={found() && !found()!.length}>
-                  <p {...stylex.attrs(styles.resultCount)}>Every settings page searched</p>
+                  <p {...stylex.attrs(styles.resultCount)}>0 settings</p>
                 </Show>
                 <Show when={found()?.length}>
                   <p {...stylex.attrs(styles.resultCount)} data-settings-result-count>
@@ -406,8 +406,11 @@ function filterSettings(root: HTMLElement, words: string[]) {
     let strong = false;
     for (const part of page.querySelectorAll<HTMLElement>("[data-settings-part]")) {
       const sections = [...part.querySelectorAll<HTMLElement>("[data-setting-section]")].map((el) => {
-        const titleHit = matches(el.dataset.title);
         const items = [...(el.querySelector("[data-setting-rows]")?.children ?? [])] as HTMLElement[];
+        // A section shown whole: any match in it is a match of its title.
+        const together =
+          "searchTogether" in el.dataset && items.some((item) => matches(item.dataset.searchText ?? item.textContent));
+        const titleHit = matches(el.dataset.title) || together;
         return {
           el,
           titleHit,
@@ -1110,7 +1113,9 @@ function ProviderRow(props: { id: ProviderId }) {
           <Icon name="refresh-cw" size={15} />
         </button>
         <Show when={status()?.state !== "missing"} fallback={<span {...stylex.attrs(styles.toggleSlot)} />}>
-          <Toggle checked={config().enabled} onChange={(enabled) => setConfig({ enabled })} />
+          <span {...stylex.attrs(styles.providerToggle)}>
+            <Toggle checked={config().enabled} onChange={(enabled) => setConfig({ enabled })} />
+          </span>
         </Show>
       </div>
       <Show
@@ -1600,6 +1605,7 @@ function ExtensionsSection() {
         when={selected()}
         fallback={
           <>
+            <h2 {...stylex.attrs(styles.sectionTitle, styles.installedTitle)}>Installed</h2>
             <Show
               when={extensionList().length}
               fallback={
@@ -2139,7 +2145,14 @@ export const unloadChoices = (current: number): [number, string][] => {
 };
 
 /** A group of settings: a quiet title (none when it's the page's), then a card of rows. */
-export function Section(props: { title: string; anchor?: string; description?: string; children?: JSX.Element }) {
+export function Section(props: {
+  title: string;
+  anchor?: string;
+  description?: string;
+  /** In search results, all its rows or none (Clear browsing data: its checkboxes and the action they're for). */
+  together?: boolean;
+  children?: JSX.Element;
+}) {
   const pageTitle = useContext(PageTitle);
   const rows = children(() => props.children);
   // A section of one row named like it ("Default browser") doesn't say it twice.
@@ -2154,6 +2167,7 @@ export function Section(props: { title: string; anchor?: string; description?: s
       data-section={props.anchor}
       data-setting-section
       data-title={props.title}
+      data-search-together={props.together ? "" : undefined}
     >
       <Show when={showTitle() || props.description}>
         <div {...stylex.attrs(styles.sectionHead)}>
@@ -2187,6 +2201,8 @@ export function Row(props: {
   always?: boolean;
   /** The card's closing action (Clear now): set apart at its foot. */
   footer?: boolean;
+  /** Text lined up with rows that have a leading control. */
+  inset?: boolean;
   children?: JSX.Element;
 }) {
   return (
@@ -2197,6 +2213,7 @@ export function Row(props: {
         props.dense && styles.rowDense,
         props.leading && styles.rowLeading,
         props.footer && styles.rowFooter,
+        props.inset && styles.rowInset,
       )}
       data-search-always={props.always ? "" : undefined}
       data-setting-row
@@ -2204,7 +2221,7 @@ export function Row(props: {
       data-search-text={`${props.label} ${props.description ?? ""}`}
     >
       <div {...stylex.attrs(styles.rowText, props.wide && styles.rowTextWide)}>
-        <span {...stylex.attrs(styles.rowLabel)}>{props.label}</span>
+        <span {...stylex.attrs(styles.rowLabel, props.footer && styles.footerLabel)}>{props.label}</span>
         <Show when={props.description}>
           <span {...stylex.attrs(styles.rowDescription)}>{props.description}</span>
         </Show>
@@ -2296,7 +2313,7 @@ function TextArea(props: { value: string; placeholder?: string; name?: string; o
       name={props.name}
       value={props.value}
       placeholder={props.placeholder}
-      rows={3}
+      rows={2}
       onInput={(e) => props.onInput(e.currentTarget.value)}
       {...stylex.attrs(styles.textarea)}
     />
@@ -2457,14 +2474,14 @@ const styles = stylex.create({
   provider: {
     display: "flex",
     flexDirection: "column",
-    gap: space.sm,
+    gap: 6,
     paddingBlock: space.md,
     paddingInline: space.lg,
     borderTopWidth: 1,
     borderTopStyle: "solid",
     borderTopColor: colors.border,
   },
-  providerHead: { display: "flex", alignItems: "center", gap: space.md },
+  providerHead: { display: "flex", alignItems: "flex-start", gap: space.md },
   providerIcon: {
     display: "grid",
     placeItems: "center",
@@ -2710,7 +2727,7 @@ const styles = stylex.create({
     borderWidth: 0,
     borderRadius: radius.sm,
     backgroundColor: "transparent",
-    color: { default: colors.muted, ":hover": colors.text },
+    color: { default: `color-mix(in oklab, ${colors.text}, ${colors.muted} 45%)`, ":hover": colors.text },
     fontFamily: font.sans,
     fontSize: font.sm,
     fontWeight: 500,
@@ -2937,7 +2954,7 @@ const styles = stylex.create({
   navLabel: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   part: { display: "flex", flexDirection: "column", gap: 28, scrollMarginTop: 24, borderRadius: radius.md },
   sectionHead: { display: "flex", flexDirection: "column", gap: 4, paddingInline: 1, paddingBottom: 2 },
-  rowDescription: { maxWidth: "62ch", color: colors.muted, fontSize: font.sm, lineHeight: 1.45, textWrap: "pretty" },
+  rowDescription: { color: colors.muted, fontSize: font.sm, lineHeight: 1.45, textWrap: "pretty" },
   resultPage: { display: "flex", flexDirection: "column", gap: 12, paddingTop: 4 },
   resultTitle: {
     display: "inline-flex",
@@ -2996,14 +3013,7 @@ const styles = stylex.create({
   collapsed: { display: "none" },
   resultCount: { margin: 0, color: colors.muted, fontSize: font.sm },
   rowDense: { minHeight: 48, paddingBlock: 8, gap: space.lg },
-  sectionDescription: {
-    margin: 0,
-    maxWidth: 560,
-    color: colors.muted,
-    fontSize: 12.5,
-    lineHeight: 1.5,
-    textWrap: "pretty",
-  },
+  sectionDescription: { margin: 0, color: colors.muted, fontSize: 12.5, lineHeight: 1.5, textWrap: "pretty" },
   navEmpty: { paddingInline: 8, color: colors.muted, fontSize: 11.5, fontWeight: 600, letterSpacing: "0.01em" },
   toggleSlot: { width: 36, flexShrink: 0 },
   pathInput: {
@@ -3030,10 +3040,16 @@ const styles = stylex.create({
   },
   pathLinkAction: { color: colors.accent, textDecoration: { default: "none", ":hover": "underline" } },
   rowFooter: {
-    backgroundColor: `color-mix(in oklab, ${colors.surface}, ${colors.text} 3%)`,
+    minHeight: 48,
+    paddingBlock: 8,
+    backgroundColor: `color-mix(in oklab, ${colors.surface}, ${colors.bg} 60%)`,
     borderBottomLeftRadius: radius.md,
     borderBottomRightRadius: radius.md,
   },
   controlLeading: { paddingTop: 2 },
   titleQuiet: { fontSize: font.lg, color: colors.muted },
+  footerLabel: { color: colors.muted, fontSize: font.sm, fontWeight: 400 },
+  rowInset: { paddingLeft: 44 },
+  installedTitle: { marginBottom: -12, paddingInline: 1 },
+  providerToggle: { display: "flex", paddingTop: 5 },
 });

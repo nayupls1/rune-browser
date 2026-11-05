@@ -102,7 +102,7 @@ export function PrivacySection() {
   };
   return (
     <>
-      <Section title="Clear browsing data" anchor="browser-clear">
+      <Section title="Clear browsing data" anchor="browser-clear" together>
         <Row
           label="Browsing history"
           description="The pages you visited: History and the address bar's suggestions."
@@ -124,7 +124,7 @@ export function PrivacySection() {
         >
           <Checkbox checked={cache()} onChange={(e) => setCache(e.currentTarget.checked)} data-clear-cache />
         </Row>
-        <Row label="Time range" description="History only. Cookies and cached files are always cleared in full.">
+        <Row inset label="Time range" description="History only; cookies and cache clear in full.">
           <Select
             value={range()}
             onChange={(e) => setRange(e.currentTarget.value as (typeof clearRanges)[number]["id"])}
@@ -134,7 +134,7 @@ export function PrivacySection() {
             <For each={clearRanges}>{(r) => <option value={r.id}>{r.label}</option>}</For>
           </Select>
         </Row>
-        <Row label="Apply to" description="Each workspace has its own history, cookies and logins.">
+        <Row inset label="Apply to" description="Each workspace has its own history and logins.">
           <Segmented
             value={everywhere()}
             options={[
@@ -144,7 +144,7 @@ export function PrivacySection() {
             onChange={setEverywhere}
           />
         </Row>
-        <Row label="Clear the checked items" description="This can't be undone." always footer>
+        <Row label="Clears the checked items. This can't be undone." always footer inset>
           <Button variant="danger" disabled={clearing() || nothing()} onClick={() => void clear()} data-clear-data>
             {clearing() ? "Clearing…" : "Clear now"}
           </Button>

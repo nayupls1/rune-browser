@@ -171,7 +171,9 @@ function ShortcutRow(props: { def: ShortcutDef }) {
             <span {...stylex.attrs(styles.slot)}>
               <span {...stylex.attrs(styles.chip)} data-shortcut-key={combo}>
                 <span {...stylex.attrs(styles.caps)} title={formatCombo(combo, platform)}>
-                  <For each={comboKeys(combo, platform)}>{(key) => <kbd {...stylex.attrs(styles.kbd)}>{key}</kbd>}</For>
+                  <For each={comboKeys(combo, platform)}>
+                    {(key) => <kbd {...stylex.attrs(styles.kbd)}>{key === "-" ? "−" : key}</kbd>}
+                  </For>
                 </span>
                 <button
                   type="button"
