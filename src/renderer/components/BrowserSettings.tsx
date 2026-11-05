@@ -970,9 +970,9 @@ export function AutofillSection() {
         label="Import from another browser"
         description={otherBrowsers() === false ? "No other browser found." : "With its settings, still signed in."}
       >
-        <Button onClick={openExtensionImport} disabled={otherBrowsers() === false}>
-          Import from your browser…
-        </Button>
+        <Show when={otherBrowsers() !== false}>
+          <Button onClick={openExtensionImport}>Import from your browser…</Button>
+        </Show>
       </Row>
     </Section>
   );

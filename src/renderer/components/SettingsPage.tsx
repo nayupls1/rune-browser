@@ -1667,12 +1667,14 @@ function ExtensionsSection() {
                   </Button>
                 </Row>
               </Show>
-              <Row label="Chrome Web Store" description="Find extensions to add.">
-                <Button onClick={() => void newWebTab(CHROME_WEB_STORE)} data-open-web-store>
-                  Open store
-                  <Icon name="arrow-up-right" size={14} />
-                </Button>
-              </Row>
+              <Show when={extensionList().length}>
+                <Row label="Chrome Web Store" description="Find extensions to add.">
+                  <Button onClick={() => void newWebTab(CHROME_WEB_STORE)} data-open-web-store>
+                    Open store
+                    <Icon name="arrow-up-right" size={14} />
+                  </Button>
+                </Row>
+              </Show>
               <Row label="Add by link or ID" description="Paste a store link or an extension's ID.">
                 <form onSubmit={add} {...stylex.attrs(styles.extStore)} data-extension-add>
                   <Input
@@ -2014,7 +2016,7 @@ function SandboxRows() {
     const i = info();
     if (!i) return "";
     if (i.platform !== "linux") return "Not sandboxed: the sandbox needs Linux.";
-    if (!i.bwrapAvailable) return "Not sandboxed: install bubblewrap (bwrap) to isolate apps.";
+    if (!i.bwrapAvailable) return "Not sandboxed: install bubblewrap (bwrap).";
     return "";
   };
   const addFolder = async () => {
@@ -2214,7 +2216,12 @@ export function Row(props: {
       <div {...stylex.attrs(styles.rowText, props.wide && styles.rowTextWide)}>
         <span {...stylex.attrs(styles.rowLabel, props.footer && styles.footerLabel)}>{props.label}</span>
         <Show when={props.description}>
-          <span {...stylex.attrs(styles.rowDescription, props.warn && styles.rowWarning)}>{props.description}</span>
+          <span {...stylex.attrs(styles.rowDescription, props.warn && styles.rowWarning)}>
+            <Show when={props.warn}>
+              <Icon name="triangle-alert" size={13} {...stylex.attrs(styles.warningIcon)} />
+            </Show>
+            {props.description}
+          </span>
         </Show>
       </div>
       <div {...stylex.attrs(styles.control, props.wide && styles.controlWide, props.leading && styles.controlLeading)}>
@@ -3053,4 +3060,5 @@ const styles = stylex.create({
   setPath: { marginTop: -1 },
   rowWarning: { color: colors.warning, fontWeight: 500 },
   toggleLabel: { fontSize: font.xs },
+  warningIcon: { marginRight: 5, verticalAlign: "-2px" },
 });
