@@ -333,7 +333,8 @@ export function pageChangesScript(changes: readonly PageChange[]) {
       };
       const stop = watch(c.id, { characterData: true }, () => {
         for (const el of document.querySelectorAll(c.selector)) {
-          if (ours(el)) continue;
+          // One inside another that matches is covered by it (and both changing it would never settle).
+          if (ours(el) || (el.parentElement && el.parentElement.closest(c.selector))) continue;
           const nodes = textNodes(el);
           const main = nodes.find((n) => n.nodeValue.trim()) || nodes[0];
           if (!main) {
