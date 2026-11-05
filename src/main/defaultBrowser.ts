@@ -170,7 +170,7 @@ export async function defaultBrowserStatus(): Promise<DefaultBrowserStatus> {
   if (!app.isPackaged) {
     return {
       state: "unsupported",
-      reason: "Available in installed builds, not when running from source.",
+      reason: "Only an installed build can be the default browser.",
     };
   }
   if (process.platform === "win32") {

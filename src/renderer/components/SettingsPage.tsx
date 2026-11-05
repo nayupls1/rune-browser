@@ -159,7 +159,12 @@ export function SettingsShell(props: { view: string }) {
   });
   const shown = (section: SettingsSection) => !found() || found()!.includes(section.id);
   const noMatches = () => !!found() && !found()!.length;
-  const group = (name: string) => settingsSections.filter((s) => s.group === name && !s.parent);
+  const group = (name: string) => {
+    const sections = settingsSections.filter((s) => s.group === name && !s.parent);
+    // While searching, in the order of the results (best matches first).
+    const order = found();
+    return order ? sections.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id)) : sections;
+  };
   // The address bar shows the page's rune:// address.
   const chrome: TabChrome = {
     url: () => internalUrlOfView(props.view),
@@ -667,61 +672,67 @@ function ProvidersSection() {
 
 function AgentSection() {
   return (
-    <Section title="Defaults" anchor="agent">
-      <Row label="Default agent" description="For new tabs. Each tab remembers its own choice.">
-        <div {...stylex.attrs(styles.pickerBox)} data-default-agent>
-          <AgentPicker
-            choice={{
-              provider: settings().agent.provider,
-              model: settings().agent.model,
-              effort: settings().agent.effort,
-            }}
-            onChange={(choice) => set("agent", choice)}
+    <>
+      <Section title="Defaults" anchor="agent">
+        <Row label="Default agent" description="For new tabs. Each tab remembers its own choice.">
+          <div {...stylex.attrs(styles.pickerBox)} data-default-agent>
+            <AgentPicker
+              choice={{
+                provider: settings().agent.provider,
+                model: settings().agent.model,
+                effort: settings().agent.effort,
+              }}
+              onChange={(choice) => set("agent", choice)}
+            />
+          </div>
+        </Row>
+      </Section>
+      <Section title="Instructions">
+        <Row
+          label="Instructions for building apps"
+          description="Added to the app builder's prompt in every tab: your language, currency, style."
+          wide
+        >
+          <TextArea
+            value={settings().agent.instructions}
+            placeholder={"e.g. Answer in German. Amounts are in EUR. Prefer dark themes with a green accent."}
+            onInput={(instructions) => set("agent", { instructions })}
+            name="instructions"
           />
-        </div>
-      </Row>
-      <Row
-        label="Instructions for building apps"
-        description="Added to the app builder's prompt in every tab: your language, currency, style."
-        wide
-      >
-        <TextArea
-          value={settings().agent.instructions}
-          placeholder={"e.g. Answer in German. Amounts are in EUR. Prefer dark themes with a green accent."}
-          onInput={(instructions) => set("agent", { instructions })}
-          name="instructions"
-        />
-      </Row>
-      <Row label="Instructions for customizing websites" description="Added to the website agent's prompt." wide>
-        <TextArea
-          value={settings().agent.webInstructions}
-          placeholder={"e.g. Keep changes minimal. Never hide ads by removing content the page needs."}
-          onInput={(webInstructions) => set("agent", { webInstructions })}
-          name="webInstructions"
-        />
-      </Row>
-      <Row
-        label="Permissions"
-        description="Ask for everything: agents ask before customizing or using sites, reading other tabs, using other apps or scheduling. Full access: they don't ask (still logged in Activity)."
-      >
-        <div data-permission-mode>
-          <Segmented
-            value={settings().agent.permissions}
-            options={[
-              ["ask", "Ask for everything"],
-              ["full", "Full access"],
-            ]}
-            onChange={(mode) => void setFullAccess(mode === "full")}
+        </Row>
+        <Row label="Instructions for customizing websites" description="Added to the website agent's prompt." wide>
+          <TextArea
+            value={settings().agent.webInstructions}
+            placeholder={"e.g. Keep changes minimal. Never hide ads by removing content the page needs."}
+            onInput={(webInstructions) => set("agent", { webInstructions })}
+            name="webInstructions"
           />
-        </div>
-      </Row>
-      <Row label="Show tool activity" description='Lines like "Edited src/App.tsx" or "Ran bun add zod" in the chat.'>
-        <Toggle
-          checked={settings().agent.showToolMessages}
-          onChange={(showToolMessages) => set("agent", { showToolMessages })}
-        />
-      </Row>
-    </Section>
+        </Row>
+      </Section>
+      <Section title="Behavior">
+        <Row
+          label="Permissions"
+          description="Ask for everything: agents ask before customizing or using sites, reading other tabs, using other apps or scheduling. Full access: they don't ask (still logged in Activity)."
+        >
+          <div data-permission-mode>
+            <Segmented
+              value={settings().agent.permissions}
+              options={[
+                ["ask", "Ask for everything"],
+                ["full", "Full access"],
+              ]}
+              onChange={(mode) => void setFullAccess(mode === "full")}
+            />
+          </div>
+        </Row>
+        <Row label="Show tool activity" description='Lines like "Edited src/App.tsx" or "Ran bun add zod" in the chat.'>
+          <Toggle
+            checked={settings().agent.showToolMessages}
+            onChange={(showToolMessages) => set("agent", { showToolMessages })}
+          />
+        </Row>
+      </Section>
+    </>
   );
 }
 
@@ -905,7 +916,7 @@ export function DefaultBrowserRow() {
     <Row label="Rune Browser as your default" description={description()}>
       <span data-default-browser={status()?.state}>
         <Show when={status()?.state === "unsupported"}>
-          <span {...stylex.attrs(styles.muted)}>Not available</span>
+          <span {...stylex.attrs(styles.pill, styles.pillPlain)}>Not available</span>
         </Show>
         <Show when={notDefault()}>
           {(s) => (
@@ -1016,7 +1027,7 @@ function UpdatesSection() {
               <Button onClick={() => void checkForUpdates()}>Check for updates</Button>
             </Match>
             <Match when={state() === "unsupported"}>
-              <span {...stylex.attrs(styles.muted)}>Not available</span>
+              <span {...stylex.attrs(styles.pill, styles.pillPlain)}>Not available</span>
             </Match>
           </Switch>
         </span>
@@ -1103,6 +1114,11 @@ function ProviderRow(props: { id: ProviderId }) {
             )}
           </Show>
         </div>
+        <Show when={status()?.state !== "missing"}>
+          <span {...stylex.attrs(styles.providerToggle)}>
+            <Toggle checked={config().enabled} onChange={(enabled) => setConfig({ enabled })} />
+          </span>
+        </Show>
         <button
           type="button"
           title="Check again"
@@ -1115,11 +1131,6 @@ function ProviderRow(props: { id: ProviderId }) {
         >
           <Icon name="refresh-cw" size={15} />
         </button>
-        <Show when={status()?.state !== "missing"}>
-          <span {...stylex.attrs(styles.providerToggle)}>
-            <Toggle checked={config().enabled} onChange={(enabled) => setConfig({ enabled })} />
-          </span>
-        </Show>
       </div>
       <Show
         when={status()?.state !== "missing" || config().binaryPath || settingPath()}
@@ -1652,7 +1663,7 @@ function ExtensionsSection() {
               </p>
             </Show>
             <Section
-              title="Add and update"
+              title="Add extensions"
               description="Extensions run in the web tabs of every workspace; each workspace keeps its own extension data, like a browser profile."
             >
               <Show when={extensionList().length}>
@@ -2306,6 +2317,7 @@ function ColorField(props: {
           Reset
         </button>
       </Show>
+      <Icon name="chevron-down" size={14} {...stylex.attrs(styles.navIcon)} />
     </label>
   );
 }
@@ -2325,6 +2337,8 @@ function TextArea(props: { value: string; placeholder?: string; name?: string; o
 
 /** A tiny preview of a preset: background, surface card, accent dot. */
 function PresetButton(props: { name: string; theme: GlobalTheme; active: boolean; onClick: () => void }) {
+  // A light preset in dark mode (or the reverse) is toned down, not a glaring block.
+  const otherMode = () => resolveMode(props.theme, systemDark()) !== resolveMode(settings().theme, systemDark());
   const vars = () => {
     const mode = resolveMode(props.theme, systemDark());
     const v = themeVars(props.theme, mode);
@@ -2341,7 +2355,7 @@ function PresetButton(props: { name: string; theme: GlobalTheme; active: boolean
       onClick={props.onClick}
       title={props.name}
       aria-pressed={props.active}
-      {...stylex.attrs(styles.preset, props.active && styles.presetActive)}
+      {...stylex.attrs(styles.preset, props.active && styles.presetActive, otherMode() && styles.presetOtherMode)}
       data-preset={props.name}
     >
       <span {...stylex.attrs(styles.presetPreview)} style={{ "background-color": vars().bg }}>
@@ -2422,6 +2436,7 @@ const styles = stylex.create({
       default: `light-dark(${colors.accentSoft}, color-mix(in oklab, transparent, ${colors.accent} 16%))`,
       ":hover": `light-dark(${colors.accentSoft}, color-mix(in oklab, transparent, ${colors.accent} 16%))`,
     },
+    color: `light-dark(${colors.text}, color-mix(in oklab, ${colors.accent}, ${colors.text} 25%))`,
     fontWeight: 600,
   },
   main: {
@@ -2810,7 +2825,7 @@ const styles = stylex.create({
       boxShadow: "inset 0 0 0 1px light-dark(rgb(0 0 0 / 0.3), rgb(255 255 255 / 0.25))",
     },
   },
-  colorValue: { flex: 1, color: colors.muted, fontSize: font.sm, fontVariantNumeric: "tabular-nums" },
+  colorValue: { flex: 1, color: colors.text, fontSize: font.sm, fontVariantNumeric: "tabular-nums" },
   linkButton: {
     padding: 0,
     borderWidth: 0,
@@ -2965,14 +2980,16 @@ const styles = stylex.create({
     alignItems: "center",
     gap: 2,
     alignSelf: "flex-start",
+    marginBottom: 4,
     padding: 0,
     borderWidth: 0,
     backgroundColor: "transparent",
-    color: { default: colors.muted, ":hover": colors.accent },
+    color: { default: colors.text, ":hover": colors.accent },
     fontFamily: font.sans,
-    fontSize: font.xs,
-    fontWeight: 600,
-    letterSpacing: "0.01em",
+    fontSize: font.sm,
+    fontWeight: 500,
+    textDecoration: { default: "none", ":hover": "underline" },
+    textUnderlineOffset: 3,
     cursor: "pointer",
   },
   presetActive: {
@@ -3054,4 +3071,6 @@ const styles = stylex.create({
   rowInset: { paddingLeft: 44 },
   installedTitle: { marginBottom: -12, paddingInline: 1 },
   providerToggle: { display: "flex", paddingTop: 5 },
+  presetOtherMode: { filter: "light-dark(none, brightness(0.8))" },
+  pillPlain: { marginLeft: 0, paddingInline: 8, paddingBlock: 2, fontSize: font.xs },
 });

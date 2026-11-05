@@ -33,7 +33,7 @@ const CHECK_EVERY_MS = 4 * 60 * 60_000;
 
 /** Why this copy can't update itself, or null if it can. */
 function unsupportedReason(): string | null {
-  if (!app.isPackaged) return "Updates work in installed builds, not when running from source.";
+  if (!app.isPackaged) return "Only installed builds update.";
   if (
     process.platform === "linux" &&
     !process.env.APPIMAGE &&
