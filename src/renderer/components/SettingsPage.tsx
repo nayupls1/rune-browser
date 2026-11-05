@@ -303,9 +303,6 @@ export function SettingsShell(props: { view: string }) {
             <div {...stylex.attrs(styles.page)} data-settings-results>
               <header {...stylex.attrs(styles.header)}>
                 <h1 {...stylex.attrs(styles.title)}>Search results</h1>
-                <Show when={noMatches()}>
-                  <p {...stylex.attrs(styles.resultCount)}>0 settings</p>
-                </Show>
                 <Show when={found()?.length}>
                   <p {...stylex.attrs(styles.resultCount)} data-settings-result-count>
                     {count() === 1 ? "1 setting" : `${count()} settings`} in{" "}
@@ -439,7 +436,8 @@ function filterSettings(root: HTMLElement, words: string[]) {
             "data-search-context",
             on && section.together && !hit && !("searchAlways" in item.dataset),
           );
-          if (on && !("searchAlways" in item.dataset)) count++;
+          // Counted: what matched, not the rows shown around it.
+          if (on && (hit || whole || (section.titleHit && !section.together))) count++;
           any ||= on;
         }
         partShown = show(section.el, whole || section.titleHit || any) || partShown;
@@ -680,8 +678,8 @@ function ProvidersSection() {
 function AgentSection() {
   return (
     <>
-      <Section title="Defaults" anchor="agent">
-        <Row label="Default agent" description="For new tabs. Each tab remembers its own choice.">
+      <Section title="New tabs" anchor="agent">
+        <Row label="Agent and model" description="Each tab remembers its own choice.">
           <div {...stylex.attrs(styles.pickerBox)} data-default-agent>
             <AgentPicker
               choice={{
@@ -960,13 +958,13 @@ function AboutSection() {
       <UpdatesSection />
       <Section title="This build" anchor="about">
         <dl {...stylex.attrs(styles.about)}>
-          <dt>Data folder</dt>
+          <dt {...stylex.attrs(styles.dt)}>Data folder</dt>
           <dd {...stylex.attrs(styles.dd, styles.mono)}>{health()?.dataDir ?? "…"}</dd>
-          <dt>Versions</dt>
+          <dt {...stylex.attrs(styles.dt)}>Versions</dt>
           <dd {...stylex.attrs(styles.dd, styles.mono)}>
             Electron {window.rune.versions.electron} · Chrome {window.rune.versions.chrome} · Bun {health()?.bun ?? "…"}
           </dd>
-          <dt>Internal pages</dt>
+          <dt {...stylex.attrs(styles.dt)}>Internal pages</dt>
           <dd {...stylex.attrs(styles.dd, styles.internalLinks)}>
             <For each={["rune://version", "rune://gpu", "rune://flags", "rune://rune-urls"]}>
               {(url) => (
@@ -1671,7 +1669,7 @@ function ExtensionsSection() {
             </Show>
             <Section
               title="Add extensions"
-              description="Extensions run in the web tabs of every workspace; each workspace keeps its own extension data, like a browser profile."
+              description="Extensions run in every workspace's web tabs; each workspace keeps its own extension data."
             >
               <Show when={extensionList().length}>
                 <Row
@@ -1697,6 +1695,8 @@ function ExtensionsSection() {
                   </Button>
                 </form>
               </Row>
+            </Section>
+            <Section title="Updates and developer mode">
               <Row
                 label="Update automatically"
                 description="Check for new versions of store extensions every few hours."
@@ -2766,7 +2766,7 @@ const styles = stylex.create({
     outlineColor: colors.accent,
   },
   segmentActive: {
-    backgroundColor: `light-dark(${colors.surface}, color-mix(in oklab, ${colors.surface}, ${colors.text} 26%))`,
+    backgroundColor: `light-dark(${colors.surface}, color-mix(in oklab, ${colors.surface}, ${colors.accent} 32%))`,
     color: colors.text,
     fontWeight: 600,
     boxShadow: `0 1px 2px rgb(0 0 0 / 0.16), inset 0 0 0 1px light-dark(${colors.border}, rgb(255 255 255 / 0.14))`,
@@ -2903,7 +2903,7 @@ const styles = stylex.create({
     paddingInline: space.lg,
     display: "grid",
     gridTemplateColumns: "max-content 1fr",
-    gap: 10,
+    gap: 14,
     columnGap: space.lg,
     fontSize: font.sm,
   },
@@ -3080,4 +3080,5 @@ const styles = stylex.create({
   providerToggle: { display: "flex", paddingTop: 5 },
   presetOtherMode: { filter: "light-dark(none, brightness(0.68) saturate(0.8))" },
   pillPlain: { marginLeft: 0, paddingInline: 8, paddingBlock: 2, fontSize: font.xs },
+  dt: { color: colors.muted },
 });
