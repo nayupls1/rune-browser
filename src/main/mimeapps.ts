@@ -4,7 +4,10 @@
 // xdg-open read them, so Rune Browser reads and writes them itself and doesn't
 // depend on xdg-utils being installed (main/defaultBrowser.ts).
 // https://specifications.freedesktop.org/mime-apps-spec/latest/
-import { join } from "node:path";
+// Linux paths (also where the tests run on Windows).
+import { posix } from "node:path";
+
+const { join } = posix;
 
 export interface XdgDirs {
   configHome: string;
