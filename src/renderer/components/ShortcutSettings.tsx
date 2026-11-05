@@ -65,7 +65,7 @@ export function ShortcutSettings() {
   return (
     <div {...stylex.attrs(styles.page)} data-shortcut-settings>
       <p {...stylex.attrs(styles.note)} data-search-hide>
-        A focused page gets most keys first, like in Chrome; opening, closing and switching tabs always work.
+        Some keys go to the page you're on first. Opening, closing and switching tabs always work.
       </p>
       <div {...stylex.attrs(styles.toolbar)} data-search-hide>
         <div {...stylex.attrs(styles.searchBox)}>
@@ -298,8 +298,8 @@ const styles = stylex.create({
     display: "inline-grid",
     placeItems: "center",
     boxSizing: "border-box",
-    minWidth: 22,
-    height: 22,
+    minWidth: 23,
+    height: 23,
     paddingInline: 5,
     borderRadius: 5,
     borderWidth: 1,
@@ -309,7 +309,7 @@ const styles = stylex.create({
     backgroundColor: `color-mix(in oklab, ${colors.surface}, ${colors.text} 6%)`,
     color: colors.text,
     fontFamily: font.sans,
-    fontSize: 11.5,
+    fontSize: font.xs,
     fontWeight: 500,
     lineHeight: 1,
   },

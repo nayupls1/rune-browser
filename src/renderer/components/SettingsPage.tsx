@@ -298,7 +298,7 @@ export function SettingsShell(props: { view: string }) {
               <header {...stylex.attrs(styles.header)}>
                 <h1 {...stylex.attrs(styles.title)}>Search results</h1>
                 <Show when={found() && !found()!.length}>
-                  <p {...stylex.attrs(styles.resultCount)}>No settings match</p>
+                  <p {...stylex.attrs(styles.resultCount)}>Every settings page searched</p>
                 </Show>
                 <Show when={found()?.length}>
                   <p {...stylex.attrs(styles.resultCount)} data-settings-result-count>
@@ -323,7 +323,7 @@ export function SettingsShell(props: { view: string }) {
                   <div data-search-page={section.id} {...stylex.attrs(styles.resultPage)}>
                     <button type="button" onClick={() => open(section)} {...stylex.attrs(styles.resultTitle)}>
                       {section.label}
-                      <Icon name="arrow-right" size={12} />
+                      <Icon name="chevron-right" size={13} />
                     </button>
                     <CategoryBody section={section.id} />
                   </div>
@@ -598,10 +598,10 @@ function AppearanceSection() {
         </Row>
       </Section>
       <Section title="Colors" description="Unset ones follow the theme.">
-        <Row label="Accent color">
+        <Row label="Accent color" description="Buttons, links, selection.">
           <ColorField value={theme().accent} fallback={defaults().accent} onChange={(accent) => setTheme({ accent })} />
         </Row>
-        <Row label="Background">
+        <Row label="Background" description="The window and pages.">
           <ColorField
             value={theme().background}
             fallback={defaults().bg}
@@ -615,7 +615,7 @@ function AppearanceSection() {
             onChange={(surface) => setTheme({ surface })}
           />
         </Row>
-        <Row label="Text">
+        <Row label="Text" description="Body text and icons.">
           <ColorField value={theme().text} fallback={defaults().text} onChange={(text) => setTheme({ text })} />
         </Row>
       </Section>
@@ -900,9 +900,6 @@ export function DefaultBrowserRow() {
   return (
     <Row label="Open links from other apps here" description={description()}>
       <span data-default-browser={status()?.state}>
-        <Show when={status()?.state === "unsupported"}>
-          <Button disabled>Make default</Button>
-        </Show>
         <Show when={notDefault()}>
           {(s) => (
             <Button onClick={() => void make()} disabled={making()}>
@@ -1049,7 +1046,7 @@ function ProviderRow(props: { id: ProviderId }) {
       providers: { ...s.providers, [props.id]: { ...s.providers[props.id], ...value } },
     }));
   const isReady = () => status()?.state === "ready";
-  const isBad = () => ["missing", "signed-out", "error"].includes(status()?.state ?? "");
+  const isBad = () => ["signed-out", "error"].includes(status()?.state ?? "");
   const details = () =>
     [
       status()?.version && `v${status()!.version}`,
@@ -2184,6 +2181,8 @@ export function Row(props: {
   leading?: boolean;
   /** Shown in search results whenever its section has a match (the action a matched row is for). */
   always?: boolean;
+  /** The card's closing action (Clear now): set apart at its foot. */
+  footer?: boolean;
   children?: JSX.Element;
 }) {
   return (
@@ -2193,6 +2192,7 @@ export function Row(props: {
         props.wide && styles.rowWide,
         props.dense && styles.rowDense,
         props.leading && styles.rowLeading,
+        props.footer && styles.rowFooter,
       )}
       data-search-always={props.always ? "" : undefined}
       data-setting-row
@@ -2205,7 +2205,9 @@ export function Row(props: {
           <span {...stylex.attrs(styles.rowDescription)}>{props.description}</span>
         </Show>
       </div>
-      <div {...stylex.attrs(styles.control, props.wide && styles.controlWide)}>{props.children}</div>
+      <div {...stylex.attrs(styles.control, props.wide && styles.controlWide, props.leading && styles.controlLeading)}>
+        {props.children}
+      </div>
     </div>
   );
 }
@@ -2345,7 +2347,7 @@ const styles = stylex.create({
     paddingBottom: 10,
     borderRightWidth: 1,
     borderRightStyle: "solid",
-    borderRightColor: colors.border,
+    borderRightColor: `light-dark(${colors.border}, color-mix(in oklab, ${colors.border}, ${colors.text} 10%))`,
     backgroundColor: colors.sidebar,
     minHeight: 0,
   },
@@ -2515,7 +2517,7 @@ const styles = stylex.create({
     borderRadius: radius.md,
     borderWidth: 1,
     borderStyle: "solid",
-    borderColor: colors.border,
+    borderColor: `light-dark(${colors.border}, color-mix(in oklab, ${colors.border}, ${colors.text} 10%))`,
     backgroundColor: colors.surface,
     boxShadow: "0 1px 2px rgb(0 0 0 / 0.04)",
   },
@@ -2695,7 +2697,7 @@ const styles = stylex.create({
     padding: 3,
     gap: 2,
     borderRadius: `calc(${radius.sm} + 3px)`,
-    backgroundColor: `light-dark(color-mix(in oklab, ${colors.bg}, ${colors.text} 8%), color-mix(in oklab, ${colors.bg}, #000000 35%))`,
+    backgroundColor: `light-dark(color-mix(in oklab, ${colors.bg}, ${colors.text} 10%), color-mix(in oklab, ${colors.bg}, #000000 35%))`,
     boxShadow: `inset 0 0 0 1px light-dark(transparent, color-mix(in oklab, ${colors.border}, transparent 30%))`,
   },
   segment: {
@@ -2719,7 +2721,7 @@ const styles = stylex.create({
     backgroundColor: `light-dark(${colors.surface}, color-mix(in oklab, ${colors.surface}, ${colors.text} 24%))`,
     color: colors.text,
     fontWeight: 600,
-    boxShadow: `0 1px 2px rgb(0 0 0 / 0.16), inset 0 0 0 1px light-dark(rgb(0 0 0 / 0.1), rgb(255 255 255 / 0.08))`,
+    boxShadow: `0 1px 2px rgb(0 0 0 / 0.16), inset 0 0 0 1px light-dark(${colors.border}, rgb(255 255 255 / 0.08))`,
   },
   toggle: {
     position: "relative",
@@ -2850,11 +2852,11 @@ const styles = stylex.create({
   },
   about: {
     margin: 0,
-    paddingBlock: space.md,
+    paddingBlock: space.lg,
     paddingInline: space.lg,
     display: "grid",
     gridTemplateColumns: "max-content 1fr",
-    gap: space.sm,
+    gap: 10,
     columnGap: space.lg,
     fontSize: font.sm,
   },
@@ -2936,7 +2938,7 @@ const styles = stylex.create({
   resultTitle: {
     display: "inline-flex",
     alignItems: "center",
-    gap: 4,
+    gap: 2,
     alignSelf: "flex-start",
     padding: 0,
     borderWidth: 0,
@@ -2945,8 +2947,7 @@ const styles = stylex.create({
     fontFamily: font.sans,
     fontSize: font.xs,
     fontWeight: 600,
-    letterSpacing: "0.04em",
-    textTransform: "uppercase",
+    letterSpacing: "0.01em",
     cursor: "pointer",
   },
   presetActive: {
@@ -3016,6 +3017,18 @@ const styles = stylex.create({
     color: colors.muted,
     fontSize: font.xs,
   },
-  rowLeading: { flexDirection: "row-reverse", justifyContent: "flex-end", flexWrap: "nowrap", gap: space.md },
+  rowLeading: {
+    flexDirection: "row-reverse",
+    justifyContent: "flex-end",
+    alignItems: "flex-start",
+    flexWrap: "nowrap",
+    gap: space.md,
+  },
   pathLinkAction: { color: colors.accent, textDecoration: { default: "none", ":hover": "underline" } },
+  rowFooter: {
+    backgroundColor: `color-mix(in oklab, ${colors.surface}, ${colors.text} 3%)`,
+    borderBottomLeftRadius: radius.md,
+    borderBottomRightRadius: radius.md,
+  },
+  controlLeading: { paddingTop: 2 },
 });

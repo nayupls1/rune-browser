@@ -101,7 +101,7 @@ export const settingsSections: SettingsSection[] = [
   {
     id: "general",
     label: "General",
-    icon: "settings-2",
+    icon: "toggle-right",
     group: "browser",
     keywords: "startup default browser search engine downloads languages performance import reset",
   },

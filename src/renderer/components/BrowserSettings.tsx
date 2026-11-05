@@ -144,9 +144,9 @@ export function PrivacySection() {
             onChange={setEverywhere}
           />
         </Row>
-        <Row label="Clear now" description="Deletes the checked items. It can't be undone." always>
+        <Row label="Clear the checked items" description="This can't be undone." always footer>
           <Button variant="danger" disabled={clearing() || nothing()} onClick={() => void clear()} data-clear-data>
-            {clearing() ? "Clearing…" : "Clear data"}
+            {clearing() ? "Clearing…" : "Clear now"}
           </Button>
         </Row>
       </Section>
@@ -647,38 +647,34 @@ export function AppearanceSection() {
             </For>
           </Select>
         </Row>
-        <Row
-          label="Zoom levels"
-          description={
-            zoomed().length ? "Sites you zoomed keep their zoom." : "Sites you zoom keep their zoom; none has one yet."
-          }
-          wide={zoomed().length > 0}
-        >
-          <div {...stylex.attrs(styles.list)} data-zoom-levels>
-            <For each={zoomed()}>
-              {([site, factor]) => (
-                <div {...stylex.attrs(styles.listRow)} data-zoom-level={site}>
-                  <span {...stylex.attrs(styles.listText)}>{site}</span>
-                  <span {...stylex.attrs(styles.muted)}>{percent(factor)}</span>
-                  <button
-                    type="button"
-                    title="Remove"
-                    onClick={() =>
-                      updateBrowser((b) => {
-                        const sites = { ...b.zoom.sites };
-                        delete sites[site];
-                        return { ...b, zoom: { ...b.zoom, sites } };
-                      })
-                    }
-                    {...stylex.attrs(styles.iconButton)}
-                  >
-                    <Icon name="x" size={14} />
-                  </button>
-                </div>
-              )}
-            </For>
-          </div>
-        </Row>
+        <Show when={zoomed().length}>
+          <Row label="Zoom levels" description="Sites you zoomed keep their zoom." wide>
+            <div {...stylex.attrs(styles.list)} data-zoom-levels>
+              <For each={zoomed()}>
+                {([site, factor]) => (
+                  <div {...stylex.attrs(styles.listRow)} data-zoom-level={site}>
+                    <span {...stylex.attrs(styles.listText)}>{site}</span>
+                    <span {...stylex.attrs(styles.muted)}>{percent(factor)}</span>
+                    <button
+                      type="button"
+                      title="Remove"
+                      onClick={() =>
+                        updateBrowser((b) => {
+                          const sites = { ...b.zoom.sites };
+                          delete sites[site];
+                          return { ...b, zoom: { ...b.zoom, sites } };
+                        })
+                      }
+                      {...stylex.attrs(styles.iconButton)}
+                    >
+                      <Icon name="x" size={14} />
+                    </button>
+                  </div>
+                )}
+              </For>
+            </div>
+          </Row>
+        </Show>
       </Section>
     </>
   );
@@ -757,7 +753,7 @@ export function LanguagesSection() {
         anchor="browser-languages"
         description={`Websites show their content in the first of these they have.${languages().preferred.length ? "" : " These are your system's languages until you change them."}`}
       >
-        <Row label="Languages" wide>
+        <Row label="Order of preference" wide>
           <div {...stylex.attrs(styles.list)} data-languages>
             <For each={preferred()}>
               {(code, i) => (
