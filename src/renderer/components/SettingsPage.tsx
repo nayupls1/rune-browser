@@ -432,10 +432,7 @@ function filterSettings(root: HTMLElement, words: string[]) {
         for (const { item, hit } of section.items) {
           const on = show(item, whole || section.titleHit || hit || (sectionHit && "searchAlways" in item.dataset));
           // In a section shown whole, the rows that didn't match step back.
-          item.toggleAttribute(
-            "data-search-context",
-            on && section.together && !hit && !("searchAlways" in item.dataset),
-          );
+          item.toggleAttribute("data-search-context", on && !whole && !hit && !("searchAlways" in item.dataset));
           // Counted: what matched, not the rows shown around it.
           if (on && (hit || whole || (section.titleHit && !section.together))) count++;
           any ||= on;
@@ -1115,6 +1112,15 @@ function ProviderRow(props: { id: ProviderId }) {
                 >
                   <Icon name="copy" size={14} />
                 </button>
+                <Show when={!config().binaryPath && !settingPath()}>
+                  <button
+                    type="button"
+                    onClick={() => setSettingPath(true)}
+                    {...stylex.attrs(styles.linkButton, styles.pathLink)}
+                  >
+                    <span {...stylex.attrs(styles.pathLinkAction)}>Set path</span>
+                  </button>
+                </Show>
               </span>
             )}
           </Show>
@@ -1137,18 +1143,7 @@ function ProviderRow(props: { id: ProviderId }) {
           <Icon name="refresh-cw" size={15} />
         </button>
       </div>
-      <Show
-        when={status()?.state !== "missing" || config().binaryPath || settingPath()}
-        fallback={
-          <button
-            type="button"
-            onClick={() => setSettingPath(true)}
-            {...stylex.attrs(styles.linkButton, styles.pathLink)}
-          >
-            Installed somewhere else? <span {...stylex.attrs(styles.pathLinkAction)}>Set its path</span>
-          </button>
-        }
-      >
+      <Show when={status()?.state !== "missing" || config().binaryPath || settingPath()}>
         <label {...stylex.attrs(styles.providerPath)}>
           <span {...stylex.attrs(styles.muted)}>Path</span>
           <input
@@ -2772,7 +2767,7 @@ const styles = stylex.create({
     outlineColor: colors.accent,
   },
   segmentActive: {
-    backgroundColor: `light-dark(${colors.surface}, color-mix(in oklab, ${colors.surface}, ${colors.accent} 32%))`,
+    backgroundColor: `light-dark(${colors.surface}, color-mix(in oklab, ${colors.surface}, ${colors.accent} 22%))`,
     color: colors.text,
     fontWeight: 600,
     boxShadow: `0 1px 2px rgb(0 0 0 / 0.16), inset 0 0 0 1px light-dark(${colors.border}, rgb(255 255 255 / 0.14))`,
@@ -2987,19 +2982,19 @@ const styles = stylex.create({
   part: { display: "flex", flexDirection: "column", gap: 28, scrollMarginTop: 24, borderRadius: radius.md },
   sectionHead: { display: "flex", flexDirection: "column", gap: 4, paddingInline: 1, paddingBottom: 2 },
   rowDescription: { color: colors.muted, fontSize: font.sm, lineHeight: 1.45, textWrap: "pretty" },
-  resultPage: { display: "flex", flexDirection: "column", gap: 12, paddingTop: 16 },
+  resultPage: { display: "flex", flexDirection: "column", gap: 12, paddingTop: 20 },
   resultTitle: {
     display: "inline-flex",
     alignItems: "center",
     gap: 2,
     alignSelf: "flex-start",
-    marginBottom: 4,
+    marginBottom: -4,
     padding: 0,
     borderWidth: 0,
     backgroundColor: "transparent",
-    color: { default: colors.text, ":hover": colors.accent },
+    color: { default: colors.muted, ":hover": colors.accent },
     fontFamily: font.sans,
-    fontSize: font.sm,
+    fontSize: font.xs,
     fontWeight: 500,
     textDecoration: { default: "none", ":hover": "underline" },
     textUnderlineOffset: 3,
@@ -3058,12 +3053,7 @@ const styles = stylex.create({
     borderColor: { default: "transparent", ":hover": colors.border, ":focus": colors.accent },
     backgroundColor: { default: "transparent", ":focus": colors.surface },
   },
-  pathLink: {
-    alignSelf: "flex-start",
-    marginLeft: 48,
-    color: colors.muted,
-    fontSize: font.xs,
-  },
+  pathLink: { marginLeft: space.sm, color: colors.muted, fontSize: font.xs, whiteSpace: "nowrap" },
   rowLeading: {
     flexDirection: "row-reverse",
     justifyContent: "flex-end",
@@ -3084,7 +3074,7 @@ const styles = stylex.create({
   rowInset: { paddingLeft: 44 },
   installedTitle: { marginBottom: -12, paddingInline: 1 },
   providerToggle: { display: "flex", paddingTop: 5 },
-  presetOtherMode: { filter: "light-dark(none, brightness(0.68) saturate(0.8))" },
+  presetOtherMode: { opacity: 0.7 },
   pillPlain: { marginLeft: 0, paddingInline: 8, paddingBlock: 2, fontSize: font.xs },
   dt: { color: colors.muted },
 });
