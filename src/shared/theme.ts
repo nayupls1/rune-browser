@@ -159,17 +159,6 @@ export const themePresets: { name: string; theme: Omit<GlobalTheme, "mode"> & { 
     theme: { mode: "dark", accent: "#7c9cff", background: "#0b1020", surface: "#121a2e", text: "#e3e8f7" },
   },
   {
-    name: "Paper",
-    theme: {
-      mode: "light",
-      accent: "#9a3412",
-      background: "#f6f1e7",
-      surface: "#fffdf8",
-      text: "#2b2118",
-      font: "serif",
-    },
-  },
-  {
     name: "Terminal",
     theme: {
       mode: "dark",

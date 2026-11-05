@@ -740,8 +740,15 @@ export function LanguagesSection() {
     setPreferred(list);
   };
   const addable = () => commonLanguages.filter((l) => !preferred().includes(l));
-  const dictionaries = () => info()?.spellcheckLanguages ?? [];
+  const dictionaries = () =>
+    [...(info()?.spellcheckLanguages ?? [])].sort((a, b) => languageName(a).localeCompare(languageName(b)));
   const spellChosen = () => languages().spellcheckLanguages;
+  const noPreferred = () => !preferred().length;
+  // The spell check list shows what's chosen and your languages; the other dictionaries behind "Show all".
+  const [allDictionaries, setAllDictionaries] = createSignal(false);
+  const likely = (code: string) =>
+    spellChosen().includes(code) || preferred().some((l) => l === code || l.split("-")[0] === code.split("-")[0]);
+  const shownDictionaries = () => (allDictionaries() ? dictionaries() : dictionaries().filter(likely));
   const toggleDictionary = (code: string, on: boolean) =>
     setPart("languages", {
       spellcheckLanguages: on ? [...spellChosen(), code] : spellChosen().filter((l) => l !== code),
@@ -753,8 +760,12 @@ export function LanguagesSection() {
         anchor="browser-languages"
         description={`Sites use the first one they support.${languages().preferred.length ? "" : " Your system's, until you change them."}`}
       >
-        <Row label="Order of preference" wide>
-          <div {...stylex.attrs(styles.list)} data-languages>
+        <Row
+          label="Order of preference"
+          description={preferred().length ? undefined : "Using your system's languages."}
+          wide={preferred().length > 0}
+        >
+          <div {...stylex.attrs(styles.list)} data-languages hidden={!preferred().length}>
             <For each={preferred()}>
               {(code, i) => (
                 <div {...stylex.attrs(styles.listRow)} data-language={code}>
@@ -792,7 +803,7 @@ export function LanguagesSection() {
               )}
             </For>
           </div>
-          <div {...stylex.attrs(styles.inline)}>
+          <div {...stylex.attrs(styles.inline, noPreferred() && styles.inlineAlone)}>
             <Select
               value=""
               onChange={(e) => {
@@ -830,7 +841,7 @@ export function LanguagesSection() {
               wide
             >
               <div {...stylex.attrs(styles.checkGrid)}>
-                <For each={dictionaries()}>
+                <For each={shownDictionaries()}>
                   {(code) => (
                     <label {...stylex.attrs(styles.checkItem)}>
                       <Checkbox
@@ -842,6 +853,11 @@ export function LanguagesSection() {
                   )}
                 </For>
               </div>
+              <Show when={shownDictionaries().length < dictionaries().length || allDictionaries()}>
+                <Button variant="ghost" onClick={() => setAllDictionaries(!allDictionaries())} data-all-dictionaries>
+                  {allDictionaries() ? "Show fewer" : `Show all ${dictionaries().length} languages`}
+                </Button>
+              </Show>
             </Row>
           </Show>
         </Show>
@@ -885,7 +901,7 @@ export function PerformanceSection() {
     <Section title="Performance" anchor="browser-performance">
       <Row
         label="Memory saver"
-        description="Tabs you haven't looked at for a while close their page to save memory, and come back where you left them (scroll position, what you typed). Pinned tabs (Keep loaded), tabs playing sound and tabs whose agent is working stay loaded."
+        description="Idle tabs free their memory and come back where you left them. Tabs playing sound or with a working agent stay loaded."
       >
         <Select
           value={String(settings().tabs.unloadAfterMinutes)}
@@ -1159,6 +1175,7 @@ const styles = stylex.create({
   listRow: { display: "flex", alignItems: "center", gap: space.sm, minHeight: 32 },
   listText: { flex: 1, minWidth: 0, overflowWrap: "anywhere", fontSize: font.sm },
   inline: { display: "flex", alignItems: "center", gap: space.sm, marginTop: space.sm, width: "100%" },
+  inlineAlone: { marginTop: 0, width: "auto" },
   iconButton: {
     display: "grid",
     placeItems: "center",

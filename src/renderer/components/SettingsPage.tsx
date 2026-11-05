@@ -714,7 +714,11 @@ function AgentSection() {
       <Section title="Behavior">
         <Row
           label="Permissions"
-          description="Ask for everything: agents ask before customizing or using sites, reading other tabs, using other apps or scheduling. Full access: they don't ask (still logged in Activity)."
+          description={
+            settings().agent.permissions === "full"
+              ? "Agents don't ask. Everything is still logged in Activity."
+              : "Agents ask before using sites, other tabs, other apps or schedules."
+          }
         >
           <div data-permission-mode>
             <Segmented
@@ -3074,7 +3078,7 @@ const styles = stylex.create({
   rowInset: { paddingLeft: 44 },
   installedTitle: { marginBottom: -12, paddingInline: 1 },
   providerToggle: { display: "flex", paddingTop: 5 },
-  presetOtherMode: { opacity: 0.7 },
+  presetOtherMode: { opacity: 0.55 },
   pillPlain: { marginLeft: 0, paddingInline: 8, paddingBlock: 2, fontSize: font.xs },
   dt: { color: colors.muted },
 });
