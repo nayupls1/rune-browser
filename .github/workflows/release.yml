@@ -7,7 +7,7 @@
 #      (tags pushed with the workflow's token don't start another run)
 #   2. the full CI checks on every OS
 #   3. installers built on each OS and uploaded to the draft by electron-builder,
-#      with the update feeds (latest*.yml / daily*.yml) the app reads
+#      with the update feeds (latest*.yml, in daily builds too) the app reads
 #   4. SHA256SUMS.txt, then the draft is published
 # Nothing is published unless every step passed; a failed run leaves a draft
 # (and the tag) to delete before tagging again.

@@ -6,7 +6,7 @@
 // default and makes it the default (each system has its own way).
 import { app, ipcMain, shell, type WebContents } from "electron";
 import { execFile } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
@@ -206,7 +206,7 @@ async function makeDefaultBrowser() {
  * Linux has no one place for the default browser, so it's set in all of them:
  * the user's mimeapps.list (and the desktop's own one, which comes first) for
  * links and web pages, which every desktop and xdg-open read; then each
- * desktop's own setting through xdg-settings (GNOME, KDE, Xfce…) and KDE's
+ * desktop's own setting through xdg-settings (GNOME, KDE and the others it knows) and KDE's
  * BrowserApplication, where those tools are installed. An AppImage writes its
  * .desktop file first.
  */
@@ -217,9 +217,19 @@ async function makeLinuxDefault() {
     ...dirs.desktops.map((d) => join(dirs.configHome, `${d}-mimeapps.list`)).filter((path) => existsSync(path)),
     join(dirs.configHome, "mimeapps.list"),
   ];
-  for (const file of files) {
+  for (const link of files) {
+    // A mimeapps.list linked from elsewhere (dotfiles, home-manager) is changed where it is.
+    const file = existsSync(link) ? realpathSync(link) : link;
     mkdirSync(dirname(file), { recursive: true });
-    const next = withDefault(readOrNull(file) ?? "", LINUX_DESKTOP_FILE, LINUX_DEFAULT_TYPES);
+    // Only a missing file starts empty: one that can't be read (another owner) mustn't be replaced
+    // by one with only Rune Browser's defaults in it.
+    let current = "";
+    try {
+      current = readFileSync(file, "utf8");
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    }
+    const next = withDefault(current, LINUX_DESKTOP_FILE, LINUX_DEFAULT_TYPES);
     // Whole or not at all: other apps read it at any time.
     writeFileSync(`${file}.rune-tmp`, next);
     renameSync(`${file}.rune-tmp`, file);
@@ -244,8 +254,14 @@ function writeAppImageEntry(appImage: string) {
 
 /** An AppImage that moved (or was updated to a new file) keeps opening the links. */
 function refreshAppImageEntry() {
-  const appImage = process.env.APPIMAGE;
-  if (process.platform !== "linux" || !appImage) return;
+  if (process.platform === "linux" && process.env.APPIMAGE) appImageMoved(process.env.APPIMAGE);
+}
+
+/**
+ * The AppImage is at another path now (moved, or updated to a file of a new name,
+ * main/updates.ts): the .desktop file written for it (if any) opens links with that one.
+ */
+export function appImageMoved(appImage: string) {
   try {
     const entry = readFileSync(appImageEntryPath(), "utf8");
     const exec = `Exec=${desktopExecArg(appImage)} %U\n`;

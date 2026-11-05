@@ -66,21 +66,27 @@ export const isPrerelease = (version: string) => !!parseVersion(version)?.pre.le
 export const defaultChannel = (version: string): UpdateChannel => (isPrerelease(version) ? "daily" : "stable");
 
 /**
- * The newest release a channel gets, from the releases' tags (`v0.2.0`,
- * `v0.2.1-daily.20261031.42`): stable ones only, or the daily builds too, by
- * version rather than by date, so a daily copy moves to a newer daily build and to a newer
- * stable release alike. Null if there's none.
+ * The releases a channel can update to, newest first, from the releases' tags
+ * (`v0.2.0`, `v0.2.1-daily.20261031.42`): stable ones only, or the daily builds
+ * too, by version rather than by date, so a daily copy moves to a newer daily build and to a
+ * newer stable release alike. Each tag once.
  */
-export function newestRelease(tags: readonly string[], channel: UpdateChannel): string | null {
-  let best: string | null = null;
-  for (const tag of tags) {
-    if (!parseVersion(tag) || (channel === "stable" && isPrerelease(tag))) continue;
-    if (!best || compareVersions(tag, best) > 0) best = tag;
-  }
-  return best;
+export function releasesNewestFirst(tags: readonly string[], channel: UpdateChannel): string[] {
+  const usable = tags.filter((tag) => parseVersion(tag) && !(channel === "stable" && isPrerelease(tag)));
+  return [...new Set(usable)].sort((a, b) => compareVersions(b, a));
 }
 
-/** The release tags in GitHub's releases feed (`releases.atom`), newest first. */
-export function tagsFromFeed(xml: string): string[] {
-  return [...xml.matchAll(/\/releases\/tag\/([^"'<>\s/]+)/g)].map((m) => decodeURIComponent(m[1]!));
+/** The newest release a channel gets (see releasesNewestFirst), null if there's none. */
+export const newestRelease = (tags: readonly string[], channel: UpdateChannel): string | null =>
+  releasesNewestFirst(tags, channel)[0] ?? null;
+
+/**
+ * The release tags in GitHub's releases feed (`releases.atom`) of a repository, in its order.
+ * Only its entries' own links: links in the release notes (to other repositories) don't count.
+ * The feed also lists tags whose release isn't published (yet), so they're checked before use.
+ */
+export function tagsFromFeed(xml: string, repo: string): string[] {
+  const escaped = repo.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const link = new RegExp(`<link[^>]*href="https://github\\.com/${escaped}/releases/tag/([^"<>\\s/]+)"`, "g");
+  return [...xml.matchAll(link)].map((m) => decodeURIComponent(m[1]!));
 }

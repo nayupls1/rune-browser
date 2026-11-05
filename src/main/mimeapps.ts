@@ -49,9 +49,13 @@ export function mimeappsFiles(dirs: XdgDirs): string[] {
   ];
 }
 
-/** The .desktop files a section lists for a type, in order (`a.desktop;b.desktop;`). */
+/**
+ * The .desktop files a section lists for a type, in order (`a.desktop;b.desktop;`). A type
+ * listed twice counts as its last line, as GLib (GNOME, gio) reads it.
+ */
 export function listedFor(text: string, section: string, type: string): string[] | null {
   let current = "";
+  let found: string[] | null = null;
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.trim();
     const header = /^\[(.+)\]$/.exec(line);
@@ -62,13 +66,13 @@ export function listedFor(text: string, section: string, type: string): string[]
     if (current !== section) continue;
     const eq = line.indexOf("=");
     if (eq === -1 || line.slice(0, eq).trim() !== type) continue;
-    return line
+    found = line
       .slice(eq + 1)
       .split(";")
       .map((s) => s.trim())
       .filter(Boolean);
   }
-  return null;
+  return found;
 }
 
 /**
@@ -103,11 +107,19 @@ export function withDefault(text: string, desktop: string, types: readonly strin
     // After the section's last entry, before the blank lines that end it.
     while (end - 1 > start && lines[end - 1]!.trim() === "") end--;
     for (const type of types) {
-      const at = lines.findIndex((l, i) => i > start && i < end && l.split("=")[0]!.trim() === type);
-      const others = (at === -1 ? [] : (listedFor(`[x]\n${lines[at]}`, "x", type) ?? [])).filter((d) => d !== desktop);
+      // Every line for the type (a file can list one twice): the first becomes the one, the rest go.
+      const at: number[] = [];
+      for (let i = start + 1; i < end; i++) if (lines[i]!.split("=")[0]!.trim() === type) at.push(i);
+      const listed = at.flatMap((i) => listedFor(`[x]\n${lines[i]}`, "x", type) ?? []);
+      const others = [...new Set(listed)].filter((d) => d !== desktop);
       const line = `${type}=${[desktop, ...others].join(";")};`;
-      if (at === -1) lines.splice(end++, 0, line);
-      else lines[at] = line;
+      if (!at.length) {
+        lines.splice(end++, 0, line);
+        continue;
+      }
+      lines[at[0]!] = line;
+      for (const i of at.slice(1).reverse()) lines.splice(i, 1);
+      end -= at.length - 1;
     }
   };
   put("Default Applications");

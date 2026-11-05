@@ -74,11 +74,14 @@ but the checks only run on Linux and Windows.
 
 `src/main/updates.ts` uses [electron-updater](https://www.electron.build/auto-update)
 with the GitHub releases as the feed. Which release is newest is decided by
-Rune Browser, by version (`newestRelease` in `src/shared/updates.ts`): on
+Rune Browser, by version (`releasesNewestFirst` in `src/shared/updates.ts`): on
 Stable, GitHub's latest release; on Daily, the highest version among it and the
 releases in the feed, so a daily copy moves to newer daily builds (0.1.1-daily…
 → 0.1.2-daily…) and to a stable release that's newer than them (→ 0.2.0).
-The updater then reads that release's `latest*.yml`. A daily build starts on the
+A tag whose release isn't published (still being made, or failed) is skipped:
+it's the newest one that has this platform's `latest*.yml`, which the updater
+then reads (without multi-range requests: GitHub's file host refuses them, and
+differential downloads need it that way). A daily build starts on the
 Daily channel until you choose one. Installed copies check 15 seconds after
 starting and every 4 hours, download a newer release in the background and
 install it when the app quits; Settings → About shows the state, "Check for

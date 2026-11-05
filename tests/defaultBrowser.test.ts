@@ -236,6 +236,15 @@ describe("Linux's mimeapps.list", () => {
         "",
       ].join("\n"),
     );
+    // A type listed twice reads as its last line (as GLib does); making it the default leaves one line.
+    const twice =
+      "[Default Applications]\nx-scheme-handler/https=firefox.desktop;\nx-scheme-handler/https=chromium.desktop;\n";
+    expect(defaultFor([twice], "x-scheme-handler/https", () => true)).toBe("chromium.desktop");
+    const once = withDefault(twice, LINUX_DESKTOP_FILE, ["x-scheme-handler/https"]);
+    expect(once).toContain(
+      "[Default Applications]\nx-scheme-handler/https=rune-browser.desktop;firefox.desktop;chromium.desktop;\n\n",
+    );
+    expect(defaultFor([once], "x-scheme-handler/https", () => true)).toBe(LINUX_DESKTOP_FILE);
     // Again: nothing changes.
     expect(withDefault(after, LINUX_DESKTOP_FILE, types)).toBe(after);
     // And it reads back as the default.
