@@ -1,7 +1,7 @@
 // Site permission prompts in this window (main/sitePermissions.ts decides):
 // the prompts waiting in its web tabs, what each tab's page uses or was
 // refused, the screen picker's requests, and notices that the OS hasn't given
-// access. Answers are saved into the site's settings (Settings → Browser →
+// access. Answers are saved into the site's settings (Settings →
 // Site settings), except in a private window, whose answers main keeps until
 // the private windows close.
 import { createSignal } from "solid-js";

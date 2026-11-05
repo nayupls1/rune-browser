@@ -12,14 +12,14 @@ open page and saves changes that apply on every visit. It gets only the page too
 - **What:** hide elements, restyle them (CSS declarations), replace their text, set an attribute, insert HTML next to or inside them, add a button with a click handler, or a stylesheet or script.
 - **Where:** a site (host; what the agent uses by default, so a change stays when you move around the site), a pattern (`*.example.com/*`, `example.com/docs/*`; `*.` also covers the bare domain), or one page (host and path, ignoring query and hash) when you ask for just that page. A change's scope can be changed from its row (click where it applies).
 - **Lasting:** they're applied on every load and in single-page apps on in-page navigation. A MutationObserver applies them to content the page adds later. CSS goes in through `insertCSS`, so pages' content security policies don't block it, and button handlers are compiled with the injected script rather than `eval`ed.
-- **Visible:** the paintbrush in the address bar lists every change on the page (and the site's CSS/JS override) with a switch and a remove button, and Settings → Site customizations lists all of them. Turning one off undoes it in place; only scripts need a reload, since what they did can't be taken back.
+- **Visible:** the paintbrush in the address bar lists every change on the page (and the site's CSS/JS override) with a switch and a remove button, and Settings → Web tools lists all of them. Turning one off undoes it in place; only scripts need a reload, since what they did can't be taken back.
 - **Tools:** the website agent uses `add_page_change`, `update_page_change`, `remove_page_change` and `list_page_changes`, and asks per site or pattern first (`agent.site`). The API is `/api/page-changes`.
 - **History:** changes are part of the site customizations' snapshots (`@changes/<id>.json`). The agent improves an existing change rather than adding another, and has `list_snapshots`, `view_snapshot` and `restore_snapshot` (only the site it's on; the app builder has the same for its app). Agents can't delete snapshots.
 
 **Using pages for you.** The website agent can also do things on the web: open pages, click, type, fill in forms, press keys, scroll and wait for content (`agent/browseTools.ts`), with real input events in the tab you're looking at, so it works with your logins there.
 
 - **Every action names its element first** (by selector, visible text or a point on a screenshot; `lib/browse.ts` finds it in the page), so Rune Browser can check it before anything happens.
-- **Your OK per site:** acting on a site with your session asks once per site (`agent.browse`, rememberable in Settings → Permissions).
+- **Your OK per site:** acting on a site with your session asks once per site (`agent.browse`, rememberable in Settings → Agent permissions).
 - **Confirmation every time** for what has consequences: clicking or submitting something that buys, pays, books, sends, posts, subscribes or deletes, submitting a form that takes card details, and typing card details (`agent.confirm`, never remembered). The agent asks for anything else with consequences itself (`confirm_action`). Passwords are never typed: you sign in yourself.
 - **Visible:** a marker shows where it clicks or types, and a banner says the agent is using the page, with **Take over**, which stops it.
 - **App actions:** what it finds can go into your apps with `use_app_tool` (after your OK for that app's tool).
@@ -40,7 +40,7 @@ showing one that can't, like other browsers (`shared/insecure.ts`).
   warning instead of the page (`components/InsecureWarning.tsx`). An address with a port of its own is warned about
   without trying.
 - **The warning:** **Go back** returns to the page before; **Continue to site** opens it over HTTP until Rune Browser
-  restarts, or for good with "Don't warn me about this site again". Settings → Browser → Privacy and security lists those sites (with a
+  restarts, or for good with "Don't warn me about this site again". Settings → Privacy and security lists those sites (with a
   remove button) and has a switch that turns the whole thing off. "Until Rune Browser restarts" is per window, and a
   private window doesn't offer "for good" (it remembers nothing).
 - **Not for local addresses:** this computer and the private network (`localhost`, `*.localhost`, private, link-local
@@ -56,7 +56,7 @@ showing one that can't, like other browsers (`shared/insecure.ts`).
 
 - **Registered as a browser:** the installers declare http and https links and `.html`, `.htm`, `.xhtml`, `.shtml`, `.pdf`, `.svg` and `.webp` files (`shared/defaultBrowser.ts`): on Windows in the registry, so it's in Default apps and "Open with" (`build/installer.nsh`, removed again when uninstalled); on macOS in its Info.plist; on Linux in the `.desktop` file. It never takes files over by itself.
 - **One copy:** launching it again (which is what opening a link does) hands the links and files to the running Rune Browser, where each opens in a new tab of the normal window used last (never a private one; with none open, the last one comes back or an empty one opens), and quits. macOS sends them as events instead. Links it's started with open once the window is ready. Anything that isn't a web link or an existing web file is ignored, and on Windows links come after `--`, so they can't pass switches to Chromium.
-- **Settings → Browser → Default browser** shows whether it's the default. **Make default** asks macOS, which confirms with the user, and on Windows opens Settings at Rune Browser's default apps, since only the user can choose there. Runs from source can't be the default.
+- **Settings → General → Default browser** shows whether it's the default. **Make default** asks macOS, which confirms with the user, and on Windows opens Settings at Rune Browser's default apps, since only the user can choose there. Runs from source can't be the default.
 - **On Linux** (any distribution: the AppImage, or the deb, rpm and pacman packages) there's no one place for the default browser, so Make default sets it everywhere it's kept (`main/defaultBrowser.ts`, `main/mimeapps.ts`): the user's `mimeapps.list` (and the desktop's own `<desktop>-mimeapps.list` when there is one, which is read first) for links and web pages, which every desktop and `xdg-open` read, written by Rune Browser itself so it works without xdg-utils (a bare Arch install, a tiling window manager); then, where they're installed, `xdg-settings` for the desktop's own setting (GNOME, KDE and the others it knows) and KDE's `BrowserApplication`. Whether it's the default comes from `xdg-settings`/`xdg-mime` where they're installed, else from the `mimeapps.list` files in the spec's order. An AppImage first writes its own `.desktop` file to `~/.local/share/applications` (and rewrites it when the AppImage moves or updates itself to a file of a new name).
 
 **Error pages** are Chromium's (`shared/loadErrors.ts`, `components/LoadError.tsx`): "This site can't be reached" and
@@ -83,7 +83,7 @@ Web tabs say they're plain Chrome, because some sites turn away other browsers. 
 
 ## Browser settings
 
-Settings → Browser has what a browser like Chrome lets you set, named and ordered like Chrome's and apart from Rune
+Settings' Browser group has what a browser like Chrome lets you set, named like Chrome's and apart from Rune
 Browser's own settings (`components/BrowserSettings.tsx`, `shared/browser.ts`). They're global, like the rest of the
 settings; cookies and site data stay per workspace. The renderer sends them to the main process whenever they change
 (`main/browser.ts`), which puts them into effect in web tabs:
@@ -140,7 +140,7 @@ Sites can ask for the permissions above, and you decide, like in Chrome (`shared
   nothing; the site can ask again. A page asking again while its prompt is open joins it, and prompts go away with the
   page.
 - **Remembered** in the site's settings: allowing or blocking sets the site's own Allow or Block, which the address's
-  site settings button and Settings → Browser → Site settings show and change. "This time" lasts while the tab stays on the site.
+  site settings button and Settings → Site settings show and change. "This time" lasts while the tab stays on the site.
 - **Private windows** ask too, but keep their answers in the main process only, until the last private window closes.
   Like Chrome's incognito, they get what normal windows blocked, not what they allowed. Their settings are shown, not
   changed, in the address's site settings button.
@@ -184,7 +184,7 @@ Bookmarks work like Chrome's: a bookmarks bar and other bookmarks, with folders 
 - **Bookmarking:** the star in a web tab's address bar, or Ctrl+D, bookmarks the page in the folder used last (the bookmarks bar at first), and a popover shows it to rename or move right away; on a page that's bookmarked already, the star is filled and opens the popover to change it or remove it. Ctrl+Shift+D puts every web tab of the workspace in a new folder.
 - **Finding them:** Bookmarks in the top row's ⋯ menu lists them (folders open inside the menu), the bookmarks bar above the page shows the bar's (turned on in that menu or the command bar), the address bar suggests bookmarks by name or address while you type, and the command bar finds them too. Clicking one opens it in the web tab on screen; Ctrl+click or the middle button in a background tab, Shift+click in a new one.
 - **The bookmarks page** (Ctrl+Shift+O, rune://bookmarks, or Bookmarks in Settings): folders on the left, a folder's bookmarks on the right, or what a search finds in all of them. Rename in place (the pencil or F2), drag to put them in order or into a folder (or Move to…, Move up and down in their menu), Delete to delete one; a folder with things in it asks first.
-- **Import** (the bookmarks page's Import, also in Settings → Browser → Import bookmarks and settings): from Chrome, Chromium, Brave, Edge, Vivaldi and other Chromium browsers (their `Bookmarks` file), Firefox, Zen, LibreWolf, Floorp and Waterfox (a copy of `places.sqlite`, since Firefox keeps it locked), or an HTML file, which Safari and the others export. The other browser's bar goes on the bookmarks bar and the rest into other bookmarks; where there are bookmarks already, they come in an "Imported from …" folder. Scripts (`javascript:`) and browser-only pages are left out, and the count says so.
+- **Import** (the bookmarks page's Import, also in Settings → General → Import): from Chrome, Chromium, Brave, Edge, Vivaldi and other Chromium browsers (their `Bookmarks` file), Firefox, Zen, LibreWolf, Floorp and Waterfox (a copy of `places.sqlite`, since Firefox keeps it locked), or an HTML file, which Safari and the others export. The other browser's bar goes on the bookmarks bar and the rest into other bookmarks; where there are bookmarks already, they come in an "Imported from …" folder. Scripts (`javascript:`) and browser-only pages are left out, and the count says so.
 - **Export:** an HTML file every browser imports, the bar marked as the toolbar.
 - **Extensions** with the `bookmarks` permission read and change the same bookmarks through `chrome.bookmarks`, and get its events, whoever made the change. The main process asks the server (`main/extensions/apis.ts`); the renderer passes on the server's changes from the hub.
 - **API:** `/api/bookmarks` (the tree, create, `PATCH` to rename or move with Chrome's indexes, `DELETE` with `?recursive=1` for a folder), `/api/bookmarks/sources`, `/api/bookmarks/import`, `/api/bookmarks/export`.
@@ -193,11 +193,11 @@ Bookmarks work like Chrome's: a bookmarks bar and other bookmarks, with folders 
 
 Every web tab's traffic is recorded in Electron's main process over the DevTools protocol (`src/main/network.ts`). "Network requests" in the command bar opens the Network panel: requests with their headers and the data they returned, filterable, data (fetch/XHR, JSON, XML, forms) by default.
 
-- **Bounded memory:** the last 500 requests per tab; the oldest ordinary requests go first, while requests that change things (POST, PUT, PATCH, DELETE) outlast them (the last 100), and up to 100 requests the website agent has looked at or replayed stay until its chat ends, so a reload's traffic doesn't push out a request it's using. When the agent asks for one that's gone, it's told why. Response bodies are kept for structured data only, at most 256 kB each, 3 MB per tab and 24 MB in all; the oldest go first. Settings → Network turns recording off.
+- **Bounded memory:** the last 500 requests per tab; the oldest ordinary requests go first, while requests that change things (POST, PUT, PATCH, DELETE) outlast them (the last 100), and up to 100 requests the website agent has looked at or replayed stay until its chat ends, so a reload's traffic doesn't push out a request it's using. When the agent asks for one that's gone, it's told why. Response bodies are kept for structured data only, at most 256 kB each, 3 MB per tab and 24 MB in all; the oldest go first. Settings → Web tools → Network rules turns recording off.
 - **Credentials stay hidden:** cookies, `Authorization` and other credential headers, token-like URL parameters and JSON or form fields (`password`, `accessToken`…), JWTs and bearer tokens show as `[redacted]`. In the panel you can show them; the website agent only ever gets them redacted.
 - **Send again:** a captured request is sent again with the workspace's session (its cookies, plus the original credential headers), optionally changed.
 - **Save for later:** a saved request is stored per workspace with its credentials sealed (AES-GCM, with a key only the main process uses; the server stores the blob but never returns it). It can be sent from the panel's Saved tab or by the website agent without opening the site.
-- **Rules** block requests or set and remove request or response headers, for every workspace or one (Settings → Network, or "Block like this" in the panel). Patterns use `*` over the whole URL, or match text anywhere in it. A small built-in extension applies them as `declarativeNetRequest` session rules (`src/main/extensions/builtin.ts`), so they work alongside extensions like uBlock Origin Lite: Electron turns off every extension's blocking in a session that has `webRequest` hooks. Requests sent again from the panel check the rules themselves.
+- **Rules** block requests or set and remove request or response headers, for every workspace or one (Settings → Web tools → Network rules, or "Block like this" in the panel). Patterns use `*` over the whole URL, or match text anywhere in it. A small built-in extension applies them as `declarativeNetRequest` session rules (`src/main/extensions/builtin.ts`), so they work alongside extensions like uBlock Origin Lite: Electron turns off every extension's blocking in a session that has `webRequest` hooks. Requests sent again from the panel check the rules themselves.
 
 The website agent has `network_requests`, `network_request`, `replay_request`, `save_request`, `saved_requests`, `send_saved_request`, `cancel_requests` (stops the page's pending requests without reloading it) and `batch_requests` (`agent/batchTools.ts`): a captured or saved request sent once for each item in a list, a few at a time (3 by default, at most 10), through the same approval, session and redaction as `replay_request`. A batch that changes things (POST, PUT, DELETE…) is confirmed first, showing how many requests go where. Results go into a file in the chat's folder, one per item with its status and body or its error. `batch_requests` waits for the batch to finish (up to `wait_seconds`), `wait_for_batch` waits for the rest and `cancel_batch` stops it; batches belong to the agent's turn, so stopping the agent stops them. Sending anything with the user's session asks first, once per site (permission `agent.network`), and every call is in the activity log.
 
@@ -221,7 +221,7 @@ see or test (empty, failing, slow, still loading) without touching its backend (
 - **Tools:** `override_response`, `response_overrides` and `remove_response_override` (e.g. to go through every state of
   a page and take a screenshot of each). The tabs have the new list before a tool returns, so a reload right after sees it.
 - **Your OK, visible, removable:** overriding a site asks first, per site (`agent.override`, rememberable). The flask in
-  the address bar counts the overrides on the page and lists them with remove buttons; Settings → Network lists all of
+  the address bar counts the overrides on the page and lists them with remove buttons; Settings → Web tools → Network rules lists all of
   them. Requests they answered have the flask in the Network panel. Every tool call and every removal
   (`network.override.delete`) is in the activity log. The API only lists and removes them (`/api/response-overrides`).
 
@@ -288,7 +288,7 @@ Stopped service workers are started again for the events they listened to. Elect
 Downloads work like Chromium's (`main/downloads.ts`, shown by `components/Downloads.tsx`), for every session: web
 tabs, app previews and Rune Browser's own window.
 
-- **Saving:** files go to the downloads folder (Settings → Browser → Downloads: the system's, or one you pick), under a
+- **Saving:** files go to the downloads folder (Settings → General → Downloads: the system's, or one you pick), under a
   name that doesn't overwrite anything (`report (1).pdf`), or wherever you pick when "Ask where to save each file" is on
   there. "Save link as…" and "Save image as…"
   in a page's context menu always ask, and so do app previews (a sandboxed app only gets a file out where you say).

@@ -275,7 +275,7 @@ export function setupWebTabs(
   }
 
   /**
-   * Websites get what their site settings allow and are asked for the rest (Settings → Browser → Site
+   * Websites get what their site settings allow and are asked for the rest (Settings → Site
    * settings, sitePermissions.ts); extension pages also get what their manifest asks for (clipboardRead,
    * notifications).
    */

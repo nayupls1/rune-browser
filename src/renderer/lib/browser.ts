@@ -21,7 +21,7 @@ createRoot(() => {
   });
 });
 
-/** The site Settings → Browser → Site settings shows (null: all of them). */
+/** The site Settings → Site settings shows (null: all of them). */
 const [siteShown, setSiteShown] = createSignal<string | null>(null);
 export { siteShown };
 export const showSite = (site: string | null) => setSiteShown(site);

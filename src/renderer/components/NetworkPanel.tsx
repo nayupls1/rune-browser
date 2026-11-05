@@ -285,7 +285,10 @@ function RequestDetail(props: {
       requestHeaders: {},
       responseHeaders: {},
     });
-    toast({ message: `Blocking ${pattern}. Rules are in Settings → Network.`, kind: "success" });
+    toast({
+      message: `Blocking ${pattern}. Rules are in Settings → Web tools → Network rules.`,
+      kind: "success",
+    });
   };
 
   return (

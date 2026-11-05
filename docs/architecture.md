@@ -43,7 +43,7 @@ separate ports).
   standalone executable. It doubles as the `bun` apps run on (`BUN_BE_BUN=1`),
   so users don't need Bun.
 - **Agents:** Claude Code, Codex and OpenCode are the user's own installs,
-  found on `PATH` (or at the path set in Settings → Providers). Rune Browser
+  found on `PATH` (or at the path set in Settings → Agents). Rune Browser
   doesn't ship any of them.
 
 Data lives in Electron's userData dir (`~/.config/Rune Browser/data` on Linux), or

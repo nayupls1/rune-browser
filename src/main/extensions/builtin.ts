@@ -1,5 +1,5 @@
 // Rune Browser's own extension, loaded into every web tab session: it applies the
-// network rules (Settings → Network) as declarativeNetRequest session rules.
+// network rules (Settings → Web tools → Network rules) as declarativeNetRequest session rules.
 // Electron gives session webRequest hooks precedence over extensions, so hooks
 // would switch off uBlock Origin Lite and the like; rules that are DNR rules
 // work alongside theirs. The work happens in its service worker's preload

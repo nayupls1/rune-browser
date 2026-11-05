@@ -441,13 +441,18 @@ const KEY_LABELS: Record<string, string> = {
 
 /** As shown to people: "Ctrl+Shift+T" (Linux, Windows), "⇧⌘T" (macOS). */
 export function formatCombo(text: string, platform: KeyPlatform) {
+  return comboKeys(text, platform).join(platform === "mac" ? "" : "+");
+}
+
+/** A combination's keys, each as it's labeled (a keycap each in Settings): ["Ctrl", "+"]. */
+export function comboKeys(text: string, platform: KeyPlatform) {
   const parts = text.split("+");
   const name = parts[parts.length - 1]!;
   const key = KEY_LABELS[name] ?? name;
   const mods = parts.slice(0, -1);
-  if (platform === "mac") return mods.map((m) => MAC_SYMBOLS[m] ?? m).join("") + key;
+  if (platform === "mac") return [...mods.map((m) => MAC_SYMBOLS[m] ?? m), key];
   const meta = platform === "windows" ? "Win" : "Super";
-  return [...mods.map((m) => (m === "Meta" ? meta : m)), key].join("+");
+  return [...mods.map((m) => (m === "Meta" ? meta : m)), key];
 }
 
 // --- The keymap --------------------------------------------------------------------

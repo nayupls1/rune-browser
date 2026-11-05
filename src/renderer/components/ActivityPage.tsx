@@ -88,15 +88,6 @@ export function ActivityPage() {
 
   return (
     <div {...stylex.attrs(styles.page)} data-activity>
-      <header {...stylex.attrs(styles.header)}>
-        <h1 {...stylex.attrs(styles.title)}>
-          <Icon name="scroll-text" size={24} {...stylex.attrs(styles.accent)} />
-          Activity
-        </h1>
-        <p {...stylex.attrs(styles.muted)}>
-          What agents, apps and you did: tools used, AI requests, secrets, permissions. Secret values are never logged.
-        </p>
-      </header>
       <div {...stylex.attrs(styles.filters)}>
         <select
           value={everywhere() ? "all" : "current"}
@@ -179,25 +170,16 @@ export function ActivityPage() {
 
 const styles = stylex.create({
   page: {
-    maxWidth: 820,
+    boxSizing: "border-box",
+    maxWidth: 760,
     marginInline: "auto",
-    paddingBlock: space.xxl,
-    paddingInline: space.xl,
+    paddingTop: 32,
+    paddingInline: 40,
+    paddingBottom: 96,
     display: "flex",
     flexDirection: "column",
-    gap: space.lg,
+    gap: 20,
   },
-  header: { display: "flex", flexDirection: "column", gap: space.xs },
-  title: {
-    display: "flex",
-    alignItems: "center",
-    gap: space.sm,
-    margin: 0,
-    fontSize: font.xxl,
-    fontWeight: 650,
-    letterSpacing: "-0.02em",
-  },
-  accent: { color: colors.accent },
   muted: { margin: 0, color: colors.muted, fontSize: font.sm, lineHeight: 1.5 },
   filters: { display: "flex", gap: space.sm },
   select: {

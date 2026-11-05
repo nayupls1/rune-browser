@@ -1,4 +1,4 @@
-// Settings → Browser: what a browser like Chrome lets you set, named and
+// Settings' Browser group: what a browser like Chrome lets you set, named and
 // grouped the way Chrome does (privacy and security, site settings, search
 // engine, on startup, fonts and zoom, languages, downloads, performance,
 // passwords, import, reset), apart from Rune Browser's own settings.
@@ -44,7 +44,16 @@ import { confirmDialog } from "./ConfirmDialog";
 import { openExtensionImport } from "./ExtensionImport";
 import { openBookmarkImport } from "./BookmarksPage";
 import { Icon } from "./Icon";
-import { DefaultBrowserRow, InsecureRows, Row, Section, Segmented, Toggle, unloadChoices } from "./SettingsPage";
+import {
+  browsersToImportFrom,
+  DefaultBrowserRow,
+  InsecureRows,
+  Row,
+  Section,
+  Segmented,
+  Toggle,
+  unloadChoices,
+} from "./SettingsPage";
 import { toast } from "./Toast";
 import { Button, Checkbox, Input, Select } from "./ui";
 
@@ -102,59 +111,20 @@ export function PrivacySection() {
   };
   return (
     <>
-      <Section title="Clear browsing data" icon="trash" anchor="browser-clear">
-        <Row label="Browsing history" description="The pages you visited: History and the address bar's suggestions.">
-          <Checkbox checked={history()} onChange={(e) => setHistory(e.currentTarget.checked)} data-clear-history />
-        </Row>
-        <Row label="Cookies and other site data" description="Signs you out of most sites. Extensions keep their data.">
-          <Checkbox checked={cookies()} onChange={(e) => setCookies(e.currentTarget.checked)} data-clear-cookies />
-        </Row>
-        <Row label="Cached images and files" description="Frees space; some sites load more slowly the next time.">
-          <Checkbox checked={cache()} onChange={(e) => setCache(e.currentTarget.checked)} data-clear-cache />
-        </Row>
-        <Row label="Time range" description="For browsing history. Cookies and cached files are cleared for all time.">
-          <Select
-            value={range()}
-            onChange={(e) => setRange(e.currentTarget.value as (typeof clearRanges)[number]["id"])}
-            data-clear-range
-          >
-            <For each={clearRanges}>{(r) => <option value={r.id}>{r.label}</option>}</For>
-          </Select>
-        </Row>
-        <Row label="Where" description="Each workspace has its own history, cookies and logins.">
-          <Segmented
-            value={everywhere()}
-            options={[
-              ["this", "This workspace"],
-              ["all", "All workspaces"],
-            ]}
-            onChange={setEverywhere}
-          />
-        </Row>
-        <Row label="">
-          <Button variant="danger" disabled={clearing() || nothing()} onClick={() => void clear()} data-clear-data>
-            {clearing() ? "Clearing…" : "Clear data"}
-          </Button>
-        </Row>
-      </Section>
-      <Section title="Security" icon="lock" anchor="browser-security">
+      <Section title="Security" anchor="browser-security">
         <InsecureRows />
       </Section>
-      <Section title="Cookies and tracking" icon="cookie" anchor="browser-cookies">
+      <Section title="Cookies and site settings" anchor="browser-cookies">
         <Row
-          label="Third-party cookies"
-          description="Blocking them keeps sites from following you through what other sites embed (ads, widgets). Some sign-ins and embedded content may stop working."
+          label="Block third-party cookies"
+          description="Stops tracking through embedded content. Some sign-ins may break."
         >
-          <div data-third-party-cookies>
-            <Segmented
-              value={browser().privacy.thirdPartyCookies}
-              options={[
-                ["allow", "Allow"],
-                ["block", "Block"],
-              ]}
-              onChange={(thirdPartyCookies) => setPart("privacy", { thirdPartyCookies })}
+          <span data-third-party-cookies>
+            <Toggle
+              checked={browser().privacy.thirdPartyCookies === "block"}
+              onChange={(block) => setPart("privacy", { thirdPartyCookies: block ? "block" : "allow" })}
             />
-          </div>
+          </span>
         </Row>
         <Row label='Send a "Do Not Track" request' description="Asks sites not to track you. Many sites ignore it.">
           <div data-do-not-track>
@@ -164,12 +134,57 @@ export function PrivacySection() {
             />
           </div>
         </Row>
-        <Row
-          label="Site settings"
-          description="What sites may use and do: location, camera, microphone, notifications, JavaScript, images, sound."
-        >
+        <Row label="Site settings" description="Location, camera, notifications, JavaScript and more.">
           <Button onClick={() => void openSettings("browser-sites")}>
             Open <Icon name="chevron-right" size={14} />
+          </Button>
+        </Row>
+      </Section>
+      <Section title="Clear browsing data" anchor="browser-clear" together>
+        <Row
+          label="Browsing history"
+          description="The pages you visited: History and the address bar's suggestions."
+          leading
+        >
+          <Checkbox checked={history()} onChange={(e) => setHistory(e.currentTarget.checked)} data-clear-history />
+        </Row>
+        <Row
+          label="Cookies and other site data"
+          description="Signs you out of most sites. Extensions keep their data."
+          leading
+        >
+          <Checkbox checked={cookies()} onChange={(e) => setCookies(e.currentTarget.checked)} data-clear-cookies />
+        </Row>
+        <Row
+          label="Cached images and files"
+          description="Frees space; some sites load more slowly the next time."
+          leading
+        >
+          <Checkbox checked={cache()} onChange={(e) => setCache(e.currentTarget.checked)} data-clear-cache />
+        </Row>
+        <Row inset label="Time range" description="History only; cookies and cache clear in full.">
+          <Select
+            value={range()}
+            onChange={(e) => setRange(e.currentTarget.value as (typeof clearRanges)[number]["id"])}
+            xstyle={styles.select}
+            data-clear-range
+          >
+            <For each={clearRanges}>{(r) => <option value={r.id}>{r.label}</option>}</For>
+          </Select>
+        </Row>
+        <Row inset label="Apply to" description="Each workspace has its own history and logins.">
+          <Segmented
+            value={everywhere()}
+            options={[
+              ["this", "This workspace"],
+              ["all", "All workspaces"],
+            ]}
+            onChange={setEverywhere}
+          />
+        </Row>
+        <Row label="Clears the checked items. This can't be undone." always footer inset>
+          <Button variant="danger" disabled={clearing() || nothing()} onClick={() => void clear()} data-clear-data>
+            {clearing() ? "Clearing…" : "Clear now"}
           </Button>
         </Row>
       </Section>
@@ -241,18 +256,13 @@ function SiteSettingsOverview() {
   const defaultsOf = (kind: "permission" | "content") => siteSettingKeys.filter((k) => siteSettings[k].kind === kind);
   return (
     <>
-      <Section title="Permissions" icon="shield-check" anchor="browser-permissions">
-        <p {...stylex.attrs(styles.note)}>
-          What sites may use. A site that can ask gets a prompt in its tab the first time it wants one, and what you
-          choose there becomes the site's setting, which you can change below or from the site controls in the address
-          bar.
-        </p>
+      <Section title="Permissions" anchor="browser-permissions">
         <For each={defaultsOf("permission")}>{(key) => <DefaultRow setting={key} />}</For>
       </Section>
-      <Section title="Content" icon="layout-template" anchor="browser-content">
+      <Section title="Content" anchor="browser-content">
         <For each={defaultsOf("content")}>{(key) => <DefaultRow setting={key} />}</For>
       </Section>
-      <Section title="All sites" icon="globe" anchor="browser-all-sites">
+      <Section title="All sites" anchor="browser-all-sites">
         <Row
           label="Sites with their own settings or data"
           description={`Cookies are those of the workspace ${currentWorkspace()?.name ?? ""}.`}
@@ -296,20 +306,23 @@ function DefaultRow(props: { setting: SiteSettingKey }) {
   const info = () => siteSettings[props.setting];
   const choices = () => (info().kind === "permission" ? (["ask", "block"] as const) : (["allow", "block"] as const));
   return (
-    <Row label={info().label} description={`Sites can ${info().about.toLowerCase()}.`}>
-      <Select
-        value={browser().defaults[props.setting]}
-        onChange={(e) =>
-          updateBrowser((b) => ({ ...b, defaults: { ...b.defaults, [props.setting]: e.currentTarget.value } }))
-        }
-        xstyle={styles.select}
-        data-site-default={props.setting}
-      >
-        <For each={[...choices()]}>{(c) => <option value={c}>{defaultLabels[c]}</option>}</For>
-      </Select>
+    <Row
+      label={info().label}
+      description={`Sites can ${info().about.charAt(0).toLowerCase()}${info().about.slice(1)}.`}
+      dense
+    >
+      <span data-site-default={props.setting}>
+        <Segmented
+          value={browser().defaults[props.setting]}
+          options={choices().map((c) => [c, defaultChoiceLabels[c]] as [typeof c, string])}
+          onChange={(value) => updateBrowser((b) => ({ ...b, defaults: { ...b.defaults, [props.setting]: value } }))}
+        />
+      </span>
     </Row>
   );
 }
+
+const defaultChoiceLabels = { ask: "Ask", allow: "Allow", block: "Block" } as const;
 
 /** One site: its settings, zoom, cookies and data. */
 function SiteDetails(props: { site: string }) {
@@ -349,7 +362,7 @@ function SiteDetails(props: { site: string }) {
       <button type="button" onClick={() => showSite(null)} {...stylex.attrs(styles.back)} data-site-back>
         <Icon name="arrow-left" size={14} /> All sites
       </button>
-      <Section title={props.site} icon="globe" anchor="browser-site">
+      <Section title={props.site} anchor="browser-site">
         <Row
           label="Cookies and site data"
           description={cookies() ? `${plural(cookies(), "cookie")} in this workspace` : "No cookies in this workspace"}
@@ -400,8 +413,8 @@ function SiteDetails(props: { site: string }) {
 export function SearchSection() {
   const search = () => browser().search;
   return (
-    <Section title="Search engine" icon="search" anchor="browser-search">
-      <Row label="Search engine used in the address bar" description="When what you type isn't an address.">
+    <Section title="Search engine" anchor="browser-search">
+      <Row label="Used in the address bar" description="When what you type isn't an address.">
         <Select
           value={search().engine}
           onChange={(e) => setPart("search", { engine: e.currentTarget.value as BrowserSettings["search"]["engine"] })}
@@ -449,7 +462,7 @@ export function SearchSection() {
 
 export function DefaultBrowserSection() {
   return (
-    <Section title="Default browser" icon="app-window" anchor="browser-default">
+    <Section title="Default browser" anchor="browser-default">
       <DefaultBrowserRow />
     </Section>
   );
@@ -481,11 +494,11 @@ export function StartupSection() {
       .slice(0, 20);
   const options: [BrowserSettings["startup"]["mode"], string, string][] = [
     ["continue", "Continue where you left off", "Your tabs, as you left them."],
-    ["newTab", "Open the New Tab page", "A new tab on top of your tabs (they stay in the sidebar)."],
-    ["pages", "Open a specific page or set of pages", "These pages, each in a tab (one already open is reused)."],
+    ["newTab", "Open the New Tab page", "Your tabs stay in the sidebar."],
+    ["pages", "Open a specific page or set of pages", "Each in its own tab."],
   ];
   return (
-    <Section title="On startup" icon="power" anchor="browser-startup">
+    <Section title="On startup" anchor="browser-startup">
       <For each={options}>
         {([mode, label, description]) => (
           <label {...stylex.attrs(styles.radioRow)}>
@@ -576,6 +589,13 @@ export function AppearanceSection() {
       ? fontSizes
       : [[fonts().size, `${fonts().size} px`] as [number, string], ...fontSizes];
   const zoomed = () => Object.entries(browser().zoom.sites).sort(([a], [b]) => a.localeCompare(b));
+  // The font families and minimum size, in a line; the fields only while customizing.
+  const [customizingFonts, setCustomizingFonts] = createSignal(false);
+  const fontSummary = () => {
+    const f = fonts();
+    const custom = [f.standard, f.serif, f.sansSerif, f.fixed].filter(Boolean);
+    return custom.length ? custom.join(", ") : "Your system's fonts.";
+  };
   const family = (label: string, key: "standard" | "serif" | "sansSerif" | "fixed", generic: string) => (
     <Row label={label}>
       <Input
@@ -591,7 +611,7 @@ export function AppearanceSection() {
   );
   return (
     <>
-      <Section title="Fonts" icon="type" anchor="browser-fonts">
+      <Section title="Page fonts" anchor="browser-fonts">
         <Row label="Font size" description="Text on pages that don't set their own size.">
           <Select
             value={String(fonts().size)}
@@ -602,29 +622,43 @@ export function AppearanceSection() {
             <For each={sizes()}>{([n, label]) => <option value={String(n)}>{label}</option>}</For>
           </Select>
         </Row>
-        {family("Standard font", "standard", "serif")}
-        {family("Serif font", "serif", "serif")}
-        {family("Sans-serif font", "sansSerif", "sans-serif")}
-        {family("Fixed-width font", "fixed", "monospace")}
-        <Row label="Minimum font size" description="Smaller text on pages is shown at this size.">
-          <Select
-            value={String(fonts().minimumSize)}
-            onChange={(e) => setPart("fonts", { minimumSize: Number(e.currentTarget.value) })}
-            xstyle={styles.select}
-            data-font-minimum
-          >
-            <option value="0">None</option>
-            <For each={withCurrent([6, 8, 9, 10, 11, 12, 14, 16, 18, 20, 24], fonts().minimumSize || undefined)}>
-              {(n) => <option value={String(n)}>{n} px</option>}
-            </For>
-          </Select>
-        </Row>
+        <Show
+          when={customizingFonts()}
+          fallback={
+            <Row label="Fonts" description={fontSummary()}>
+              <Button onClick={() => setCustomizingFonts(true)} data-customize-fonts>
+                Customize…
+              </Button>
+            </Row>
+          }
+        >
+          {family("Standard font", "standard", "serif")}
+          {family("Serif font", "serif", "serif")}
+          {family("Sans-serif font", "sansSerif", "sans-serif")}
+          {family("Fixed-width font", "fixed", "monospace")}
+          <Row label="Minimum font size" description="Smaller text on pages is shown at this size.">
+            <Select
+              value={String(fonts().minimumSize)}
+              onChange={(e) => setPart("fonts", { minimumSize: Number(e.currentTarget.value) })}
+              xstyle={styles.select}
+              data-font-minimum
+            >
+              <option value="0">None</option>
+              <For each={withCurrent([6, 8, 9, 10, 11, 12, 14, 16, 18, 20, 24], fonts().minimumSize || undefined)}>
+                {(n) => <option value={String(n)}>{n} px</option>}
+              </For>
+            </Select>
+          </Row>
+          <Row label="" footer>
+            <Button onClick={() => setCustomizingFonts(false)}>Done</Button>
+          </Row>
+        </Show>
         <datalist id="browser-fonts">
           <For each={localFonts() ?? []}>{(f) => <option value={f} />}</For>
         </datalist>
       </Section>
-      <Section title="Page zoom" icon="zoom-in" anchor="browser-zoom">
-        <Row label="Page zoom" description="For sites you haven't zoomed. Ctrl+0 goes back to it.">
+      <Section title="Page zoom" anchor="browser-zoom">
+        <Row label="Default zoom" description="For sites you haven't zoomed. Ctrl+0 goes back to it.">
           <Select
             value={String(browser().zoom.default)}
             onChange={(e) => setPart("zoom", { default: Number(e.currentTarget.value) })}
@@ -636,35 +670,34 @@ export function AppearanceSection() {
             </For>
           </Select>
         </Row>
-        <Row label="Zoom levels" description="Sites you zoomed keep their zoom." wide>
-          <div {...stylex.attrs(styles.list)} data-zoom-levels>
-            <For each={zoomed()}>
-              {([site, factor]) => (
-                <div {...stylex.attrs(styles.listRow)} data-zoom-level={site}>
-                  <span {...stylex.attrs(styles.listText)}>{site}</span>
-                  <span {...stylex.attrs(styles.muted)}>{percent(factor)}</span>
-                  <button
-                    type="button"
-                    title="Remove"
-                    onClick={() =>
-                      updateBrowser((b) => {
-                        const sites = { ...b.zoom.sites };
-                        delete sites[site];
-                        return { ...b, zoom: { ...b.zoom, sites } };
-                      })
-                    }
-                    {...stylex.attrs(styles.iconButton)}
-                  >
-                    <Icon name="x" size={14} />
-                  </button>
-                </div>
-              )}
-            </For>
-            <Show when={!zoomed().length}>
-              <p {...stylex.attrs(styles.empty)}>No site has a zoom of its own.</p>
-            </Show>
-          </div>
-        </Row>
+        <Show when={zoomed().length}>
+          <Row label="Zoom levels" description="Sites you zoomed keep their zoom." wide>
+            <div {...stylex.attrs(styles.list)} data-zoom-levels>
+              <For each={zoomed()}>
+                {([site, factor]) => (
+                  <div {...stylex.attrs(styles.listRow)} data-zoom-level={site}>
+                    <span {...stylex.attrs(styles.listText)}>{site}</span>
+                    <span {...stylex.attrs(styles.muted)}>{percent(factor)}</span>
+                    <button
+                      type="button"
+                      title="Remove"
+                      onClick={() =>
+                        updateBrowser((b) => {
+                          const sites = { ...b.zoom.sites };
+                          delete sites[site];
+                          return { ...b, zoom: { ...b.zoom, sites } };
+                        })
+                      }
+                      {...stylex.attrs(styles.iconButton)}
+                    >
+                      <Icon name="x" size={14} />
+                    </button>
+                  </div>
+                )}
+              </For>
+            </div>
+          </Row>
+        </Show>
       </Section>
     </>
   );
@@ -730,108 +763,136 @@ export function LanguagesSection() {
     setPreferred(list);
   };
   const addable = () => commonLanguages.filter((l) => !preferred().includes(l));
-  const dictionaries = () => info()?.spellcheckLanguages ?? [];
+  const dictionaries = () =>
+    [...(info()?.spellcheckLanguages ?? [])].sort((a, b) => languageName(a).localeCompare(languageName(b)));
   const spellChosen = () => languages().spellcheckLanguages;
+  // The dictionaries in use, in a line; the whole list (60 or so) only while choosing.
+  const [choosingDictionaries, setChoosingDictionaries] = createSignal(false);
+  const spellSummary = () => {
+    const names = spellChosen().map(languageName);
+    if (!names.length) return "Your preferred languages.";
+    return names.length > 3 ? `${names.slice(0, 3).join(", ")} and ${names.length - 3} more` : names.join(", ");
+  };
+  // The order of languages, in a line; editing it in place.
+  const [editingLanguages, setEditingLanguages] = createSignal(false);
+  const preferredSummary = () => {
+    const names = preferred().map(languageName);
+    const list = names.length > 3 ? `${names.slice(0, 3).join(", ")} and ${names.length - 3} more` : names.join(", ");
+    if (languages().preferred.length) return list;
+    return list ? `${list} (your system's)` : "Your system's languages.";
+  };
   const toggleDictionary = (code: string, on: boolean) =>
     setPart("languages", {
       spellcheckLanguages: on ? [...spellChosen(), code] : spellChosen().filter((l) => l !== code),
     });
   return (
     <>
-      <Section title="Preferred languages" icon="languages" anchor="browser-languages">
-        <p {...stylex.attrs(styles.note)}>
-          Websites show their content in the first of these they have.
-          {languages().preferred.length ? "" : " These are your system's languages until you change them."}
-        </p>
-        <Row label="Languages" wide>
-          <div {...stylex.attrs(styles.list)} data-languages>
-            <For each={preferred()}>
-              {(code, i) => (
-                <div {...stylex.attrs(styles.listRow)} data-language={code}>
-                  <span {...stylex.attrs(styles.listText)}>
-                    {languageName(code)} <span {...stylex.attrs(styles.muted)}>{code}</span>
-                  </span>
-                  <button
-                    type="button"
-                    title="Move up"
-                    disabled={i() === 0}
-                    onClick={() => move(i(), -1)}
-                    {...stylex.attrs(styles.iconButton)}
-                  >
-                    <Icon name="arrow-up" size={14} />
-                  </button>
-                  <button
-                    type="button"
-                    title="Move down"
-                    disabled={i() === preferred().length - 1}
-                    onClick={() => move(i(), 1)}
-                    {...stylex.attrs(styles.iconButton)}
-                  >
-                    <Icon name="arrow-down" size={14} />
-                  </button>
-                  <button
-                    type="button"
-                    title="Remove"
-                    disabled={preferred().length === 1}
-                    onClick={() => setPreferred(preferred().filter((l) => l !== code))}
-                    {...stylex.attrs(styles.iconButton)}
-                  >
-                    <Icon name="x" size={14} />
-                  </button>
-                </div>
-              )}
-            </For>
-          </div>
-          <div {...stylex.attrs(styles.inline)}>
-            <Select
-              value=""
-              onChange={(e) => {
-                if (e.currentTarget.value) setPreferred([...preferred(), e.currentTarget.value]);
-                e.currentTarget.value = "";
-              }}
-              xstyle={styles.select}
-              data-add-language
-            >
-              <option value="">Add a language…</option>
-              <For each={addable()}>{(code) => <option value={code}>{languageName(code)}</option>}</For>
-            </Select>
-            <Show when={languages().preferred.length}>
-              <Button variant="ghost" onClick={() => setPreferred([])}>
-                Use the system's
+      <Section title="Languages" anchor="browser-languages">
+        <Row
+          label="Preferred languages"
+          description={editingLanguages() ? "Sites use the first one they support." : preferredSummary()}
+          wide={editingLanguages()}
+        >
+          <Show
+            when={editingLanguages()}
+            fallback={
+              <Button onClick={() => setEditingLanguages(true)} data-edit-languages>
+                Edit…
               </Button>
-            </Show>
-          </div>
+            }
+          >
+            <div {...stylex.attrs(styles.list)} data-languages>
+              <For each={preferred()}>
+                {(code, i) => (
+                  <div {...stylex.attrs(styles.listRow)} data-language={code}>
+                    <span {...stylex.attrs(styles.listText)}>
+                      {languageName(code)} <span {...stylex.attrs(styles.muted)}>{code}</span>
+                    </span>
+                    <button
+                      type="button"
+                      title="Move up"
+                      disabled={i() === 0}
+                      onClick={() => move(i(), -1)}
+                      {...stylex.attrs(styles.iconButton)}
+                    >
+                      <Icon name="arrow-up" size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      title="Move down"
+                      disabled={i() === preferred().length - 1}
+                      onClick={() => move(i(), 1)}
+                      {...stylex.attrs(styles.iconButton)}
+                    >
+                      <Icon name="arrow-down" size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      title="Remove"
+                      disabled={preferred().length === 1}
+                      onClick={() => setPreferred(preferred().filter((l) => l !== code))}
+                      {...stylex.attrs(styles.iconButton)}
+                    >
+                      <Icon name="x" size={14} />
+                    </button>
+                  </div>
+                )}
+              </For>
+            </div>
+            <div {...stylex.attrs(styles.inline)}>
+              <Select
+                value=""
+                onChange={(e) => {
+                  if (e.currentTarget.value) setPreferred([...preferred(), e.currentTarget.value]);
+                  e.currentTarget.value = "";
+                }}
+                xstyle={styles.select}
+                data-add-language
+              >
+                <option value="">Add a language…</option>
+                <For each={addable()}>{(code) => <option value={code}>{languageName(code)}</option>}</For>
+              </Select>
+              <Show when={languages().preferred.length}>
+                <Button variant="ghost" onClick={() => setPreferred([])}>
+                  Use the system's
+                </Button>
+              </Show>
+            </div>
+            <Button onClick={() => setEditingLanguages(false)}>Done</Button>
+          </Show>
         </Row>
-      </Section>
-      <Section title="Spell check" icon="spell-check" anchor="browser-spellcheck">
-        <Row label="Check for spelling errors when you type text on web pages">
+        <Row label="Check spelling as you type">
           <Toggle checked={languages().spellcheck} onChange={(spellcheck) => setPart("languages", { spellcheck })} />
         </Row>
         <Show when={languages().spellcheck}>
           <Show
             when={dictionaries().length}
-            fallback={
-              <p {...stylex.attrs(styles.note)}>Spell check uses your system's spell checker and its languages here.</p>
-            }
+            fallback={<Row label="Spell check languages" description="Your system's spell checker decides." />}
           >
-            <Row
-              label="Use spell check for"
-              description={spellChosen().length ? undefined : "Your preferred languages, while none is chosen here."}
-              wide
-            >
-              <div {...stylex.attrs(styles.checkGrid)}>
-                <For each={dictionaries()}>
-                  {(code) => (
-                    <label {...stylex.attrs(styles.checkItem)}>
-                      <Checkbox
-                        checked={spellChosen().includes(code)}
-                        onChange={(e) => toggleDictionary(code, e.currentTarget.checked)}
-                      />
-                      {languageName(code)}
-                    </label>
-                  )}
-                </For>
-              </div>
+            <Row label="Spell check languages" description={spellSummary()} wide={choosingDictionaries()}>
+              <Show
+                when={choosingDictionaries()}
+                fallback={
+                  <Button onClick={() => setChoosingDictionaries(true)} data-choose-dictionaries>
+                    Choose…
+                  </Button>
+                }
+              >
+                <div {...stylex.attrs(styles.checkGrid)}>
+                  <For each={dictionaries()}>
+                    {(code) => (
+                      <label {...stylex.attrs(styles.checkItem)}>
+                        <Checkbox
+                          checked={spellChosen().includes(code)}
+                          onChange={(e) => toggleDictionary(code, e.currentTarget.checked)}
+                        />
+                        {languageName(code)}
+                      </label>
+                    )}
+                  </For>
+                </div>
+                <Button onClick={() => setChoosingDictionaries(false)}>Done</Button>
+              </Show>
             </Row>
           </Show>
         </Show>
@@ -850,10 +911,10 @@ export function DownloadsSection() {
     if (folder) setPart("downloads", { folder });
   };
   return (
-    <Section title="Downloads" icon="download" anchor="browser-downloads">
+    <Section title="Downloads" anchor="browser-downloads">
       <Row label="Location" description={downloads().folder || info()?.downloadsFolder || "Your Downloads folder"}>
         <Button onClick={() => void change()} data-downloads-change>
-          Change
+          Change…
         </Button>
         <Show when={downloads().folder}>
           <Button variant="ghost" onClick={() => setPart("downloads", { folder: "" })}>
@@ -872,11 +933,8 @@ export function DownloadsSection() {
 
 export function PerformanceSection() {
   return (
-    <Section title="Memory" icon="gauge" anchor="browser-performance">
-      <Row
-        label="Memory saver"
-        description="Tabs you haven't looked at for a while close their page to save memory, and come back where you left them (scroll position, what you typed). Pinned tabs (Keep loaded), tabs playing sound and tabs whose agent is working stay loaded."
-      >
+    <Section title="Performance" anchor="browser-performance">
+      <Row label="Memory saver" description="Idle tabs free memory and come back as you left them.">
         <Select
           value={String(settings().tabs.unloadAfterMinutes)}
           onChange={(e) =>
@@ -897,22 +955,24 @@ export function PerformanceSection() {
 // --- Autofill and passwords ---------------------------------------------------------------------
 
 export function AutofillSection() {
+  const otherBrowsers = browsersToImportFrom();
   return (
-    <Section title="Autofill and passwords" icon="key-square" anchor="browser-autofill">
-      <p {...stylex.attrs(styles.note)}>
-        Rune Browser doesn't keep passwords, payment methods or addresses itself. A password manager extension
-        (Bitwarden, 1Password, Proton Pass…) saves and fills them in, sign-in prompts of sites included, and brings your
-        passwords along from wherever you keep them.
-      </p>
-      <Row label="Password managers" description="From the Chrome Web Store.">
+    <Section title="Password managers" anchor="browser-autofill">
+      <Row label="Chrome Web Store" description="Bitwarden, 1Password, Proton Pass and others.">
         <Button
           onClick={() => void newWebTab("https://chromewebstore.google.com/category/extensions/productivity/tools")}
         >
-          Find one
+          Open store
+          <Icon name="arrow-up-right" size={14} />
         </Button>
       </Row>
-      <Row label="Already have one in another browser?" description="Import it with its settings, signed in.">
-        <Button onClick={openExtensionImport}>Import extensions</Button>
+      <Row
+        label="Import from another browser"
+        description={otherBrowsers() === false ? "No other browser found." : "With its settings, still signed in."}
+      >
+        <Show when={otherBrowsers() !== false}>
+          <Button onClick={openExtensionImport}>Import from your browser…</Button>
+        </Show>
       </Row>
     </Section>
   );
@@ -946,7 +1006,7 @@ export function ImportSection() {
   };
   return (
     <>
-      <Section title="Import bookmarks and settings" icon="import" anchor="browser-import">
+      <Section title="Import" anchor="browser-import">
         <Row label="Bookmarks" description="From Chrome, Firefox and the browsers based on them, or an HTML file.">
           <Button onClick={openBookmarkImport} data-import-bookmarks>
             Import bookmarks…
@@ -955,11 +1015,10 @@ export function ImportSection() {
         <Show
           when={profiles()?.length}
           fallback={
-            <p {...stylex.attrs(styles.note)}>
-              {profiles.loading
-                ? "Looking for browsers…"
-                : "No browser with settings to import was found (Chrome, Chromium, Brave, Edge, Vivaldi and others based on Chromium)."}
-            </p>
+            <Row
+              label="Settings from another browser"
+              description={profiles.loading ? "Looking for browsers…" : "No other browser found."}
+            />
           }
         >
           <Row label="From">
@@ -992,19 +1051,12 @@ export function ImportSection() {
               </Row>
             )}
           </For>
-          <Row label="" description="Site settings and zoom levels are added to yours; the rest replaces them.">
+          <Row label="Import settings" description="Site settings and zoom are merged; the rest is replaced.">
             <Button variant="primary" disabled={!parts().length} onClick={run} data-import-run>
               Import
             </Button>
           </Row>
         </Show>
-      </Section>
-      <Section title="What else comes along" icon="info">
-        <p {...stylex.attrs(styles.note)}>
-          Extensions come with their settings from Settings → Extensions → Import. Passwords stay with your password
-          manager: browsers encrypt their saved passwords for themselves alone, so they can't be read here; a password
-          manager extension brings yours. Browsing history isn't imported.
-        </p>
       </Section>
     </>
   );
@@ -1025,7 +1077,7 @@ export function ResetSection() {
     toast({ message: "Browser settings restored to their defaults", kind: "success" });
   };
   return (
-    <Section title="Reset settings" icon="rotate-ccw" anchor="browser-reset">
+    <Section title="Reset settings" anchor="browser-reset">
       <Row
         label="Restore settings to their original defaults"
         description="Only the browser settings. Cookies, logins and extensions stay."
@@ -1095,7 +1147,7 @@ const styles = stylex.create({
   rowLabel: { fontSize: font.md, fontWeight: 500 },
   select: { width: 220 },
   compactSelect: { width: 140, height: 28, fontSize: font.sm },
-  textInput: { width: 280 },
+  textInput: { width: 220 },
   empty: { margin: 0, paddingBlock: space.sm, color: colors.muted, fontSize: font.sm },
   siteList: { display: "flex", flexDirection: "column", marginTop: space.sm },
   siteRow: {

@@ -1605,7 +1605,7 @@ const mayRead = (app: { id: string; name: string; workspaceId: string }, targetI
     if (!allowed)
       return yield* fail(
         403,
-        `The user didn't allow reading the data of "${target.name}". It can be allowed in Rune Browser's Settings → Permissions.`,
+        `The user didn't allow reading the data of "${target.name}". It can be allowed in Rune Browser's Settings → Agent permissions.`,
       );
     return target;
   });
@@ -1679,7 +1679,7 @@ const appApiRoutes = HttpRouter.addAll([
         if (!allowed)
           return yield* fail(
             403,
-            "The user didn't allow reading the API map. It can be allowed in Rune Browser's Settings → Permissions.",
+            "The user didn't allow reading the API map. It can be allowed in Rune Browser's Settings → Agent permissions.",
           );
         const limit = Math.min(Math.max(Number(params.get("limit")) || 50, 1), 200);
         const endpoints = yield* (yield* Endpoints).search(app.workspaceId, params.get("search") ?? "", limit);

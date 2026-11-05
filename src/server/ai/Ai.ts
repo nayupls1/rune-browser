@@ -185,7 +185,7 @@ export const make = Effect.gen(function* () {
           return yield* new AiError({
             status: 403,
             message:
-              "The user didn't allow this app to use AI. It can be allowed in Rune Browser's Settings → Permissions.",
+              "The user didn't allow this app to use AI. It can be allowed in Rune Browser's Settings → Agent permissions.",
           });
         }
 

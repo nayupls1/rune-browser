@@ -15,7 +15,7 @@ import { allApps, currentWorkspace } from "../lib/store";
 import { colors, font, radius, space } from "../theme.stylex";
 import { confirmDialog } from "./ConfirmDialog";
 import { Icon } from "./Icon";
-import { Button } from "./ui";
+import { Button, EmptyState } from "./ui";
 
 const appName = (id: string) => allApps().find((a) => a.id === id)?.name ?? "a deleted app";
 const taskIcons: Record<ScheduleTask["type"], string> = { tool: "wrench", command: "terminal", prompt: "sparkles" };
@@ -92,22 +92,12 @@ export function SchedulesPage() {
 
   return (
     <div {...stylex.attrs(styles.page)} data-schedules>
-      <header {...stylex.attrs(styles.header)}>
-        <div {...stylex.attrs(styles.titleRow)}>
-          <h1 {...stylex.attrs(styles.title)}>
-            <Icon name="calendar-clock" size={24} {...stylex.attrs(styles.accent)} />
-            Schedules
-          </h1>
-          <Button variant="primary" onClick={() => setEditing("new")} data-new-schedule>
-            + New schedule
-          </Button>
-        </div>
-        <p {...stylex.attrs(styles.muted)}>
-          Apps' tools and commands that run in the background (no tab needed), and prompts for a tab's agent (each run
-          is a new chat in the tab, to read and continue): at a time, on a repeating schedule, or when something
-          happens. At most two run at once, each with a time limit.
-        </p>
-      </header>
+      <div {...stylex.attrs(styles.titleRow)}>
+        <p {...stylex.attrs(styles.muted)}>Tools, commands and agent prompts that run on their own.</p>
+        <Button variant="primary" onClick={() => setEditing("new")} data-new-schedule>
+          + New schedule
+        </Button>
+      </div>
       <Show when={error()}>
         <p {...stylex.attrs(styles.error)}>{error()}</p>
       </Show>
@@ -126,9 +116,11 @@ export function SchedulesPage() {
           <For
             each={schedules()}
             fallback={
-              <p {...stylex.attrs(styles.empty)}>
-                No schedules yet. Create one, or ask an app's agent ("check for new articles every morning").
-              </p>
+              <EmptyState
+                icon="calendar-clock"
+                title="No schedules yet"
+                hint={'Create one, or ask an app\'s agent ("check for new articles every morning").'}
+              />
             }
           >
             {(s) => (
@@ -638,26 +630,17 @@ function ScheduleEditor(props: { schedule: Schedule | null; onDone: () => void }
 
 const styles = stylex.create({
   page: {
-    maxWidth: 860,
+    boxSizing: "border-box",
+    maxWidth: 760,
     marginInline: "auto",
-    paddingBlock: space.xxl,
-    paddingInline: space.xl,
+    paddingTop: 32,
+    paddingInline: 40,
+    paddingBottom: 96,
     display: "flex",
     flexDirection: "column",
-    gap: space.lg,
+    gap: 20,
   },
-  header: { display: "flex", flexDirection: "column", gap: space.xs },
   titleRow: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: space.md },
-  title: {
-    display: "flex",
-    alignItems: "center",
-    gap: space.sm,
-    margin: 0,
-    fontSize: font.xxl,
-    fontWeight: 650,
-    letterSpacing: "-0.02em",
-  },
-  accent: { color: colors.accent },
   muted: { margin: 0, color: colors.muted, fontSize: font.sm, lineHeight: 1.5 },
   error: { margin: 0, color: colors.danger, fontSize: font.sm },
   section: { display: "flex", flexDirection: "column", gap: space.sm },

@@ -1,9 +1,9 @@
-// Settings: a sidebar of categories (appearance, the current workspace,
-// agent defaults and providers, apps, web tabs and their network and
-// extensions, secrets and permissions) and Rune Browser's pages (History, Snapshots,
-// Schedules, Mods, Activity), with the chosen one beside it.
+// Settings: a sidebar of categories (General, Appearance, Privacy… for browsing; Agents, Apps,
+// Secrets… for Rune Browser's own) with a search over all of them, Rune Browser's pages (History,
+// Snapshots, Schedules, Mods, Activity), and the chosen one beside it.
 import * as stylex from "@stylexjs/stylex";
 import {
+  children,
   createEffect,
   createResource,
   createSignal,
@@ -60,7 +60,7 @@ import {
   updateWorkspace,
   workspaces,
 } from "../lib/store";
-import { settingsSections } from "../lib/settingsSections";
+import { settingsSections, type SettingsSection } from "../lib/settingsSections";
 import { ActivityPage } from "./ActivityPage";
 import { FlagsPage, GpuPage, RuneUrlsPage, VersionPage } from "./InternalPages";
 import { internalUrlOfView, openInternalPage } from "../lib/internalPages";
@@ -86,31 +86,83 @@ import { Icon } from "./Icon";
 import { ProviderIcon } from "./ProviderIcon";
 import { setFullAccess } from "../lib/access";
 import { SecretForm, SecretRow } from "./Secrets";
-import { Button, Select } from "./ui";
+import { Button, EmptyState, Input, Select } from "./ui";
+import { toast } from "./Toast";
 
 /**
- * Settings: a sidebar of categories on the left, the chosen one on the right.
- * Rune Browser's pages (Downloads, History, Snapshots, Schedules, Mods, Activity) are categories too.
+ * Settings: a sidebar of categories on the left (with a search above it), the chosen one on the right.
+ * Some categories have parts (General: On startup, Search engine…), shown on the same page. Rune Browser's
+ * pages (Bookmarks, History, Snapshots, Schedules, Mods, Activity) are in the sidebar too.
  */
 export function SettingsShell(props: { view: string }) {
-  const current = () =>
+  /** What's asked for: a category, one of its parts, or a page. */
+  const target = () =>
     settingsSections.find((s) =>
       s.view ? s.view === props.view : props.view === SETTINGS_VIEW && s.id === settingsSection(),
-    ) ?? settingsSections[0]!;
+    ) ?? settingsSections.find((s) => s.id === "general")!;
+  /** The category shown: the part's, or the target itself. */
+  const current = () => (target().parent && sectionById(target().parent!)) || target();
   // The internal pages (rune://version…) aren't in the sidebar: they're About's.
   const isCurrent = (id: string) => (current().group === "internal" ? "about" : current().id) === id;
-  const open = (section: (typeof settingsSections)[number]) =>
+  const [query, setQuery] = createSignal("");
+  const [found, setFound] = createSignal<string[] | undefined>();
+  const [count, setCount] = createSignal(0);
+  const searching = () => query().trim().length > 0;
+  const open = (section: SettingsSection) => {
+    setQuery("");
     void (section.view ? selectApp(section.view) : openSettings(section.id));
+  };
   let main!: HTMLDivElement;
-  // A new category starts at its top.
+  let search!: HTMLInputElement;
+  // A new category starts at its top; a part is scrolled to (and flashes, to show where it is).
   createEffect(
     on(
-      () => current().id,
-      () => main?.scrollTo({ top: 0 }),
-      { defer: true },
+      () => [target().id, searching()] as const,
+      ([id, searching]) => {
+        if (searching) return main?.scrollTo({ top: 0 });
+        const part = target().parent ? main?.querySelector<HTMLElement>(`[data-settings-part="${id}"]`) : null;
+        if (!part) return main?.scrollTo({ top: 0 });
+        requestAnimationFrame(() => {
+          part.scrollIntoView({ block: "start" });
+          part.animate([{ backgroundColor: colorOf(colors.accentSoft) }, { backgroundColor: "transparent" }], {
+            duration: 1200,
+            easing: "ease-out",
+          });
+        });
+      },
     ),
   );
-  const group = (name: string) => settingsSections.filter((s) => s.group === name);
+  // While searching, every category is on the page; only what matches is shown, and highlighted.
+  createEffect(() => {
+    if (!searching()) return setFound(undefined);
+    const words = query().trim().toLowerCase().split(/\s+/);
+    let frame = 0;
+    const apply = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const result = filterSettings(main, words);
+        setFound(result.found);
+        setCount(result.count);
+      });
+    };
+    apply();
+    // Lists that load later (extensions, sites…) are filtered too.
+    const observer = new MutationObserver(apply);
+    observer.observe(main, { childList: true, subtree: true, characterData: true });
+    onCleanup(() => {
+      observer.disconnect();
+      cancelAnimationFrame(frame);
+      CSS.highlights?.delete("settings-search");
+    });
+  });
+  const shown = (section: SettingsSection) => !found() || found()!.includes(section.id);
+  const noMatches = () => !!found() && !found()!.length;
+  const group = (name: string) => {
+    const sections = settingsSections.filter((s) => s.group === name && !s.parent);
+    // While searching, in the order of the results (best matches first).
+    const order = found();
+    return order ? sections.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id)) : sections;
+  };
   // The address bar shows the page's rune:// address.
   const chrome: TabChrome = {
     url: () => internalUrlOfView(props.view),
@@ -128,78 +180,307 @@ export function SettingsShell(props: { view: string }) {
       (view) => onCleanup(registerChrome(view, chrome)),
     ),
   );
-  const Item = (p: { section: (typeof settingsSections)[number] }) => (
-    <button
-      type="button"
-      aria-current={isCurrent(p.section.id) ? "page" : undefined}
-      onClick={() => open(p.section)}
-      {...stylex.attrs(styles.navItem, isCurrent(p.section.id) && styles.navItemOn)}
-      data-settings-nav={p.section.id}
-      data-page-link={p.section.view ? p.section.label : undefined}
-    >
-      <Icon name={p.section.icon} size={16} />
-      {p.section.label}
-    </button>
+  const onSearchKey = (e: KeyboardEvent) => {
+    if (e.key === "Escape" && query()) {
+      e.stopPropagation();
+      setQuery("");
+    } else if (e.key === "Enter") {
+      const first = found()?.[0] && sectionById(found()![0]!);
+      if (first) open(first);
+    }
+  };
+  const active = (id: string) => isCurrent(id) && !searching();
+  const Item = (p: { section: SettingsSection }) => {
+    return (
+      <button
+        type="button"
+        aria-current={active(p.section.id) ? "page" : undefined}
+        onClick={() => open(p.section)}
+        {...stylex.attrs(styles.navItem, active(p.section.id) && styles.navItemOn)}
+        data-settings-nav={p.section.id}
+        data-settings-parts={partsOf(p.section.id)
+          .map((s) => s.id)
+          .join(" ")}
+        data-page-link={p.section.view ? p.section.label : undefined}
+      >
+        <Icon name={p.section.icon} size={16} {...stylex.attrs(styles.navIcon)} />
+        <span {...stylex.attrs(styles.navLabel)}>{p.section.label}</span>
+      </button>
+    );
+  };
+  const Group = (p: { name: SettingsSection["group"]; label: string }) => (
+    <Show when={group(p.name).some(shown)}>
+      <div {...stylex.attrs(styles.navGroup)} data-settings-group={p.name}>
+        <span {...stylex.attrs(styles.navGroupLabel)}>{p.label}</span>
+        <For each={group(p.name).filter(shown)}>{(section) => <Item section={section} />}</For>
+      </div>
+    </Show>
   );
+  // Rune Browser's pages aren't settings: they're folded away below them until opened.
+  const [libraryOpen, setLibraryOpen] = createSignal(localStorage.getItem("rune.settings-library") === "1");
+  const libraryShown = () => libraryOpen() || current().group === "pages";
+  const libraryHidden = () => !libraryShown();
+  const toggleLibrary = () => {
+    const open = !libraryShown();
+    setLibraryOpen(open);
+    localStorage.setItem("rune.settings-library", open ? "1" : "0");
+  };
   return (
-    <div {...stylex.attrs(styles.shell)} data-settings-shell={current().id}>
+    <div {...stylex.attrs(styles.shell)} data-settings-shell={current().id} data-settings-target={target().id}>
+      <style>{highlightCss}</style>
       <aside {...stylex.attrs(styles.nav)} aria-label="Settings categories">
         <div {...stylex.attrs(styles.navTitle)} data-titlebar>
-          <Icon name="settings" size={18} {...stylex.attrs(styles.accent)} />
           Settings
         </div>
-        <span {...stylex.attrs(styles.navGroup)}>Rune Browser</span>
-        <For each={group("settings")}>{(section) => <Item section={section} />}</For>
-        <span {...stylex.attrs(styles.navGroup)} data-settings-group="browser">
-          Browser
-        </span>
-        <For each={group("browser")}>{(section) => <Item section={section} />}</For>
-        <span {...stylex.attrs(styles.navGroup)}>Activity and history</span>
-        <For each={group("pages")}>{(section) => <Item section={section} />}</For>
-        <div {...stylex.attrs(styles.navEnd)}>
-          <For each={group("about")}>{(section) => <Item section={section} />}</For>
+        <label {...stylex.attrs(styles.search)}>
+          <Icon name="search" size={14} {...stylex.attrs(styles.searchIcon)} />
+          <input
+            ref={search}
+            type="search"
+            value={query()}
+            onInput={(e) => setQuery(e.currentTarget.value)}
+            onKeyDown={onSearchKey}
+            placeholder="Search settings"
+            aria-label="Search settings"
+            spellcheck={false}
+            {...stylex.attrs(styles.searchInput)}
+            data-settings-search
+          />
+          <Show when={query()}>
+            <button
+              type="button"
+              aria-label="Clear search"
+              onClick={() => {
+                setQuery("");
+                search.focus();
+              }}
+              {...stylex.attrs(styles.searchClear)}
+            >
+              <Icon name="x" size={13} />
+            </button>
+          </Show>
+        </label>
+        <div {...stylex.attrs(styles.navList)}>
+          <Show when={found() && !found()!.length}>
+            <span {...stylex.attrs(styles.navEmpty)}>No matches</span>
+          </Show>
+          <Group name="browser" label="Browser" />
+          <Group name="agents" label="Agents and apps" />
+          <Show when={!searching()}>
+            <div {...stylex.attrs(styles.navGroup)} data-settings-group="pages">
+              <button
+                type="button"
+                aria-expanded={libraryShown()}
+                onClick={toggleLibrary}
+                {...stylex.attrs(styles.navGroupToggle)}
+                data-settings-library
+              >
+                Library
+                <Icon
+                  name="chevron-right"
+                  size={13}
+                  {...stylex.attrs(styles.chevron, libraryShown() && styles.chevronOpen)}
+                />
+              </button>
+              <div {...stylex.attrs(styles.navGroup, libraryHidden() && styles.collapsed)}>
+                <For each={group("pages")}>{(section) => <Item section={section} />}</For>
+              </div>
+            </div>
+          </Show>
         </div>
+        <Show when={!searching() || group("about").some(shown)}>
+          <div {...stylex.attrs(styles.navEnd)}>
+            <For each={group("about")}>{(section) => <Item section={section} />}</For>
+          </div>
+        </Show>
       </aside>
-      <div ref={main} {...stylex.attrs(styles.main)}>
-        <Switch fallback={<SettingsPage section={current().id} />}>
-          <Match when={props.view === DOWNLOADS_VIEW}>
-            <DownloadsPage />
-          </Match>
-          <Match when={props.view === HISTORY_VIEW}>
-            <BrowsingHistoryPage />
-          </Match>
-          <Match when={props.view === SNAPSHOTS_VIEW}>
-            <HistoryPage />
-          </Match>
-          <Match when={props.view === SCHEDULES_VIEW}>
-            <SchedulesPage />
-          </Match>
-          <Match when={props.view === MODS_VIEW}>
-            <ModsPage />
-          </Match>
-          <Match when={props.view === ACTIVITY_VIEW}>
-            <ActivityPage />
-          </Match>
-          <Match when={props.view === VERSION_VIEW}>
-            <VersionPage />
-          </Match>
-          <Match when={props.view === GPU_VIEW}>
-            <GpuPage />
-          </Match>
-          <Match when={props.view === FLAGS_VIEW}>
-            <FlagsPage />
-          </Match>
-          <Match when={props.view === URLS_VIEW}>
-            <RuneUrlsPage />
-          </Match>
-          <Match when={props.view === BOOKMARKS_VIEW}>
-            <BookmarksPage />
-          </Match>
-        </Switch>
+      <div ref={main} {...stylex.attrs(styles.main)} data-settings-main>
+        <Show
+          when={!searching()}
+          fallback={
+            <div {...stylex.attrs(styles.page)} data-settings-results>
+              <header {...stylex.attrs(styles.header)}>
+                <Show when={found()?.length}>
+                  <p {...stylex.attrs(styles.resultCount)} data-settings-result-count>
+                    {count() === 1 ? "1 result" : `${count()} results`} on{" "}
+                    {found()!.length === 1 ? "1 page" : `${found()!.length} pages`}
+                  </p>
+                </Show>
+              </header>
+              <Show when={found() && !found()!.length}>
+                <EmptyState
+                  icon="search-x"
+                  title={`No settings match “${query().trim()}”`}
+                  hint="Try another word, like “cookies”, “theme” or “zoom”."
+                  data-settings-no-results
+                  data-no-highlight
+                >
+                  <Button onClick={() => setQuery("")}>Clear search</Button>
+                </EmptyState>
+              </Show>
+              <For each={searchable()}>
+                {(section) => (
+                  <div data-search-page={section.id} {...stylex.attrs(styles.resultPage)}>
+                    <button type="button" onClick={() => open(section)} {...stylex.attrs(styles.resultTitle)}>
+                      {section.label}
+                      <Icon name="chevron-right" size={13} />
+                    </button>
+                    <CategoryBody section={section.id} />
+                  </div>
+                )}
+              </For>
+            </div>
+          }
+        >
+          <Switch fallback={<SettingsPage section={current().id} />}>
+            <Match when={props.view === DOWNLOADS_VIEW}>
+              <DownloadsPage />
+            </Match>
+            <Match when={props.view === HISTORY_VIEW}>
+              <BrowsingHistoryPage />
+            </Match>
+            <Match when={props.view === SNAPSHOTS_VIEW}>
+              <HistoryPage />
+            </Match>
+            <Match when={props.view === SCHEDULES_VIEW}>
+              <SchedulesPage />
+            </Match>
+            <Match when={props.view === MODS_VIEW}>
+              <ModsPage />
+            </Match>
+            <Match when={props.view === ACTIVITY_VIEW}>
+              <ActivityPage />
+            </Match>
+            <Match when={props.view === VERSION_VIEW}>
+              <VersionPage />
+            </Match>
+            <Match when={props.view === GPU_VIEW}>
+              <GpuPage />
+            </Match>
+            <Match when={props.view === FLAGS_VIEW}>
+              <FlagsPage />
+            </Match>
+            <Match when={props.view === URLS_VIEW}>
+              <RuneUrlsPage />
+            </Match>
+            <Match when={props.view === BOOKMARKS_VIEW}>
+              <BookmarksPage />
+            </Match>
+          </Switch>
+        </Show>
       </div>
     </div>
   );
 }
+
+const sectionById = (id: string) => settingsSections.find((s) => s.id === id);
+/** A category's parts, in order: its own settings and the parts shown with them. */
+const partsOf = (id: string) => settingsSections.filter((s) => (s.id === id || s.parent === id) && !s.view);
+/** The categories Settings' search looks through: every page of settings (not Rune Browser's pages). */
+const searchable = () =>
+  settingsSections.filter((s) => !s.parent && !s.view && ["browser", "agents", "about"].includes(s.group));
+/** A color variable's value, for animations (which don't take var()). */
+const colorOf = (ref: string) => getComputedStyle(document.documentElement).getPropertyValue(varOf(ref)).trim();
+
+/**
+ * Shows only the settings whose words match: the rows whose label and description (or text) match, every row
+ * of a section whose title matches, and a whole part (General's Search engine…) when only its name or
+ * keywords do. Highlights the matches; returns the categories with any.
+ */
+function filterSettings(root: HTMLElement, words: string[]) {
+  const matches = (text: string | null | undefined) => {
+    const t = (text ?? "").toLowerCase();
+    return words.every((w) => t.includes(w));
+  };
+  const show = (el: HTMLElement, on: boolean) => {
+    el.style.display = on ? "" : "none";
+    return on;
+  };
+  const found: string[] = [];
+  const weak: string[] = [];
+  let count = 0;
+  for (const page of root.querySelectorAll<HTMLElement>("[data-search-page]")) {
+    let pageHit = false;
+    // Matched by a title (a row's, a section's), not only a description: listed first.
+    let strong = false;
+    for (const part of page.querySelectorAll<HTMLElement>("[data-settings-part]")) {
+      const sections = [...part.querySelectorAll<HTMLElement>("[data-setting-section]")].map((el) => {
+        const items = [...(el.querySelector("[data-setting-rows]")?.children ?? [])] as HTMLElement[];
+        // A section shown whole: any match in it is a match of its title.
+        const together =
+          "searchTogether" in el.dataset && items.some((item) => matches(item.dataset.searchText ?? item.textContent));
+        const titleHit = matches(el.dataset.title) || together;
+        return {
+          el,
+          together,
+          titleHit,
+          items: items.map((item) => ({ item, hit: matches(item.dataset.searchText ?? item.textContent) })),
+        };
+      });
+      const direct = sections.some((s) => s.titleHit || s.items.some((i) => i.hit));
+      strong ||= sections.some(
+        (s) => s.titleHit || s.items.some((i) => i.hit && matches(i.item.dataset.searchLabel ?? i.item.textContent)),
+      );
+      const whole = !direct && matches(part.dataset.searchText);
+      let partShown = false;
+      for (const section of sections) {
+        let any = false;
+        const sectionHit = whole || section.titleHit || section.items.some((i) => i.hit);
+        for (const { item, hit } of section.items) {
+          const on = show(item, whole || section.titleHit || hit || (sectionHit && "searchAlways" in item.dataset));
+          // In a section shown whole, the rows that didn't match step back.
+          item.toggleAttribute("data-search-context", on && !whole && !hit && !("searchAlways" in item.dataset));
+          // Counted: what matched, not the rows shown around it.
+          if (on && (hit || whole || (section.titleHit && !section.together))) count++;
+          any ||= on;
+        }
+        partShown = show(section.el, whole || section.titleHit || any) || partShown;
+        const shownItems = section.items.filter(({ item }) => item.style.display !== "none");
+        // The first row shown has no divider above it, like a card's first row.
+        for (const { item } of section.items) item.style.borderTopWidth = item === shownItems[0]?.item ? "0" : "";
+        section.el.toggleAttribute(
+          "data-same-title",
+          shownItems.length === 1 && shownItems[0]!.item.dataset.searchLabel === section.el.dataset.title,
+        );
+      }
+      if (!sections.length) partShown = matches(part.dataset.searchText) || matches(part.textContent);
+      pageHit = show(part, partShown) || pageHit;
+    }
+    page.style.order = strong ? "0" : "1";
+    if (show(page, pageHit)) (strong ? found : weak).push(page.dataset.searchPage!);
+  }
+  highlight(root, words);
+  return { found: [...found, ...weak], count };
+}
+
+/** Marks the searched words in what's shown (the CSS Custom Highlight API: no DOM changes). */
+function highlight(root: HTMLElement, words: string[]) {
+  if (!CSS.highlights) return;
+  const ranges: Range[] = [];
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode: (node) =>
+      node.parentElement?.closest("button, [role=radiogroup], select, input, textarea, h1, [data-no-highlight]")
+        ? NodeFilter.FILTER_REJECT
+        : NodeFilter.FILTER_ACCEPT,
+  });
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const text = node.textContent!.toLowerCase();
+    for (const word of words) {
+      for (let i = text.indexOf(word); i !== -1; i = text.indexOf(word, i + word.length)) {
+        const range = new Range();
+        range.setStart(node, i);
+        range.setEnd(node, i + word.length);
+        ranges.push(range);
+      }
+    }
+  }
+  CSS.highlights.set("settings-search", new Highlight(...ranges));
+}
+
+// The highlight, and what a page shows around its settings (its own search box, notes) left out of search results.
+const highlightCss = `::highlight(settings-search) { background-color: color-mix(in oklab, transparent, ${colors.accent} 17%); color: ${colors.text}; }
+[data-settings-results] [data-search-hide], [data-settings-results] [data-same-title] > div > h2 { display: none !important; }
+[data-settings-results] [data-search-context] { opacity: 0.6; }`;
 
 const set = <K extends keyof Settings>(key: K, value: Partial<Settings[K]>) =>
   updateSettings((s) => ({ ...s, [key]: typeof value === "object" ? { ...(s[key] as object), ...value } : value }));
@@ -207,60 +488,79 @@ const setTheme = (value: Partial<GlobalTheme>) => set("theme", value);
 const setAi = (value: Partial<Settings["apps"]["ai"]>) =>
   updateSettings((s) => ({ ...s, apps: { ...s.apps, ai: { ...s.apps.ai, ...value } } }));
 
-/** One category of settings. */
+/** One category of settings: its title, then its parts. */
 export function SettingsPage(props: { section: string }) {
-  const title = () => settingsSections.find((s) => s.id === props.section)?.label ?? "Settings";
+  const title = () => sectionById(props.section)?.label ?? "Settings";
   return (
-    <div {...stylex.attrs(styles.page)} data-settings={props.section}>
-      <header {...stylex.attrs(styles.header)}>
-        <h1 {...stylex.attrs(styles.title)}>{title()}</h1>
-        <p {...stylex.attrs(styles.muted)}>Changes are saved automatically.</p>
-      </header>
-      <Switch>
-        <Match when={props.section === "appearance"}>
-          <AppearanceSection />
-        </Match>
-        <Match when={props.section === "workspace"}>
-          <WorkspaceSection />
-        </Match>
-        <Match when={props.section === "agent"}>
-          <AgentSection />
-        </Match>
-        <Match when={props.section === "providers"}>
-          <ProvidersSection />
-        </Match>
-        <Match when={props.section === "apps"}>
-          <AppsSection />
-        </Match>
-        <Match when={props.section === "web"}>
-          <WebSection />
-        </Match>
-        <Match when={props.section === "network"}>
-          <NetworkSection />
-        </Match>
-        <Match when={props.section === "extensions"}>
-          <ExtensionsSection />
-        </Match>
-        <Match when={props.section === "secrets"}>
-          <SecretsSection />
-        </Match>
-        <Match when={props.section === "permissions"}>
-          <PermissionsSection />
-        </Match>
-        <Match when={props.section === "shortcuts"}>
-          <ShortcutSettings />
-        </Match>
-        <Match when={props.section === "api-map"}>
-          <ApiMapPage />
-        </Match>
-        <Match when={props.section === "about"}>
-          <AboutSection />
-        </Match>
-        <Match when={props.section.startsWith("browser-")}>
-          <BrowserSection section={props.section} />
-        </Match>
-      </Switch>
+    <div {...stylex.attrs(styles.page)} data-settings={props.section} aria-label={title()}>
+      <CategoryBody section={props.section} />
     </div>
+  );
+}
+
+/** A category's parts, one after another. */
+function CategoryBody(props: { section: string }) {
+  return (
+    <For each={partsOf(props.section)}>
+      {(part) => (
+        <div
+          {...stylex.attrs(styles.part)}
+          data-settings-part={part.id}
+          data-search-text={`${part.label} ${part.keywords ?? ""}`}
+        >
+          <SettingsPart section={part.id} />
+        </div>
+      )}
+    </For>
+  );
+}
+
+function SettingsPart(props: { section: string }) {
+  return (
+    <Switch>
+      <Match when={props.section === "appearance"}>
+        <AppearanceSection />
+      </Match>
+      <Match when={props.section === "workspace"}>
+        <WorkspaceSection />
+      </Match>
+      <Match when={props.section === "agent"}>
+        <AgentSection />
+      </Match>
+      <Match when={props.section === "providers"}>
+        <ProvidersSection />
+      </Match>
+      <Match when={props.section === "apps"}>
+        <AppsSection />
+      </Match>
+      <Match when={props.section === "web"}>
+        <WebSection />
+      </Match>
+      <Match when={props.section === "network"}>
+        <NetworkSection />
+      </Match>
+      <Match when={props.section === "extensions"}>
+        <ExtensionsSection />
+      </Match>
+      <Match when={props.section === "secrets"}>
+        <SecretsSection />
+      </Match>
+      <Match when={props.section === "permissions"}>
+        <PermissionsSection />
+      </Match>
+      <Match when={props.section === "shortcuts"}>
+        <ShortcutSettings />
+      </Match>
+      <Match when={props.section === "api-map"}>
+        <ApiMapPage />
+      </Match>
+      <Match when={props.section === "about"}>
+        <AboutSection />
+      </Match>
+      <Match when={props.section.startsWith("browser-")}>
+        <BrowserSection section={props.section} />
+      </Match>
+    </Switch>
   );
 }
 
@@ -269,90 +569,89 @@ function AppearanceSection() {
   // What an unset color is: Rune's palette for the mode on screen.
   const defaults = () => base[resolveMode(theme(), systemDark())];
   return (
-    <Section title="Theme" icon="palette" anchor="appearance">
-      <Row label="Theme presets" description="A starting point; tweak the colors below." wide>
-        <div {...stylex.attrs(styles.presets)}>
-          <For each={themePresets}>
-            {(preset) => (
-              <PresetButton
-                name={preset.name}
-                theme={{ mode: theme().mode, ...preset.theme }}
-                onClick={() => updateSettings((s) => ({ ...s, theme: { mode: s.theme.mode, ...preset.theme } }))}
-              />
-            )}
-          </For>
-        </div>
-      </Row>
-      <Row label="Mode">
-        <Segmented
-          value={theme().mode}
-          options={[
-            ["system", "System"],
-            ["light", "Light"],
-            ["dark", "Dark"],
-          ]}
-          onChange={(mode) => setTheme({ mode })}
-        />
-      </Row>
-      <Row label="Accent color">
-        <ColorField value={theme().accent} fallback={defaults().accent} onChange={(accent) => setTheme({ accent })} />
-      </Row>
-      <Row label="Background">
-        <ColorField
-          value={theme().background}
-          fallback={defaults().bg}
-          onChange={(background) => setTheme({ background })}
-        />
-      </Row>
-      <Row label="Surfaces" description="Cards, inputs, panels.">
-        <ColorField
-          value={theme().surface}
-          fallback={defaults().surface}
-          onChange={(surface) => setTheme({ surface })}
-        />
-      </Row>
-      <Row label="Text">
-        <ColorField value={theme().text} fallback={defaults().text} onChange={(text) => setTheme({ text })} />
-      </Row>
-      <Row label="Corners">
-        <Segmented
-          value={theme().radius ?? "md"}
-          options={[
-            ["none", "Square"],
-            ["sm", "Subtle"],
-            ["md", "Rounded"],
-            ["lg", "Round"],
-          ]}
-          onChange={(radius) => setTheme({ radius })}
-        />
-      </Row>
-      <Row label="Font">
-        <Segmented
-          value={theme().font ?? "sans"}
-          options={[
-            ["sans", "Sans"],
-            ["serif", "Serif"],
-            ["mono", "Mono"],
-            ["rounded", "Rounded"],
-          ]}
-          onChange={(font) => setTheme({ font })}
-        />
-      </Row>
-      <p {...stylex.attrs(styles.muted, styles.note)}>
-        New apps start with this look as their design tokens (src/tokens.css); the agent can change an app's tokens when
-        you ask for a different style.
-      </p>
-    </Section>
+    <>
+      <Section title="Theme" anchor="appearance">
+        <Row label="Presets" description="A starting point; tweak the colors below." wide>
+          <div {...stylex.attrs(styles.presets)}>
+            <For each={themePresets}>
+              {(preset) => (
+                <PresetButton
+                  name={preset.name}
+                  theme={{ mode: theme().mode, ...preset.theme }}
+                  active={presetKeys.every((k) => theme()[k] === preset.theme[k])}
+                  onClick={() => updateSettings((s) => ({ ...s, theme: { mode: s.theme.mode, ...preset.theme } }))}
+                />
+              )}
+            </For>
+          </div>
+        </Row>
+        <Row label="Mode">
+          <Segmented
+            value={theme().mode}
+            options={[
+              ["system", "System"],
+              ["light", "Light"],
+              ["dark", "Dark"],
+            ]}
+            onChange={(mode) => setTheme({ mode })}
+          />
+        </Row>
+      </Section>
+      <Section title="Colors">
+        <Row label="Accent color" description="Buttons, links, selection.">
+          <ColorField value={theme().accent} fallback={defaults().accent} onChange={(accent) => setTheme({ accent })} />
+        </Row>
+        <Row label="Background" description="The window and pages.">
+          <ColorField
+            value={theme().background}
+            fallback={defaults().bg}
+            onChange={(background) => setTheme({ background })}
+          />
+        </Row>
+        <Row label="Surfaces" description="Cards, inputs, panels.">
+          <ColorField
+            value={theme().surface}
+            fallback={defaults().surface}
+            onChange={(surface) => setTheme({ surface })}
+          />
+        </Row>
+        <Row label="Text" description="Body text and icons.">
+          <ColorField value={theme().text} fallback={defaults().text} onChange={(text) => setTheme({ text })} />
+        </Row>
+      </Section>
+      <Section title="Shape and type">
+        <Row label="Corners">
+          <Segmented
+            value={theme().radius ?? "md"}
+            options={[
+              ["none", "None"],
+              ["sm", "Small"],
+              ["md", "Medium"],
+              ["lg", "Large"],
+            ]}
+            onChange={(radius) => setTheme({ radius })}
+          />
+        </Row>
+        <Row label="Interface font">
+          <Segmented
+            value={theme().font ?? "sans"}
+            options={[
+              ["sans", "Sans"],
+              ["serif", "Serif"],
+              ["mono", "Mono"],
+              ["rounded", "Soft"],
+            ]}
+            onChange={(font) => setTheme({ font })}
+          />
+        </Row>
+      </Section>
+    </>
   );
 }
 
 function ProvidersSection() {
   return (
-    <Section title="Coding agents" icon="plug" anchor="providers">
-      <p {...stylex.attrs(styles.muted, styles.note)}>
-        The coding agents Rune Browser can use. They run on your own logins (Claude Code, Codex, OpenCode); sign in with
-        their CLIs.
-      </p>
+    <Section title="Coding agents" anchor="providers">
       <For each={[...providerIds]}>{(id) => <ProviderRow id={id} />}</For>
     </Section>
   );
@@ -360,72 +659,79 @@ function ProvidersSection() {
 
 function AgentSection() {
   return (
-    <Section title="Defaults" icon="bot" anchor="agent">
-      <Row label="Default agent" description="For new tabs. Each tab remembers its own choice.">
-        <div {...stylex.attrs(styles.pickerBox)} data-default-agent>
-          <AgentPicker
-            choice={{
-              provider: settings().agent.provider,
-              model: settings().agent.model,
-              effort: settings().agent.effort,
-            }}
-            onChange={(choice) => set("agent", choice)}
+    <>
+      <Section title="New tabs" anchor="agent">
+        <Row label="Agent and model" description="Each tab remembers its own choice.">
+          <div {...stylex.attrs(styles.pickerBox)} data-default-agent>
+            <AgentPicker
+              choice={{
+                provider: settings().agent.provider,
+                model: settings().agent.model,
+                effort: settings().agent.effort,
+              }}
+              onChange={(choice) => set("agent", choice)}
+            />
+          </div>
+        </Row>
+      </Section>
+      <Section title="Instructions">
+        <Row
+          label="Instructions for building apps"
+          description="Added to the app builder's prompt in every tab: your language, currency, style."
+          wide
+        >
+          <TextArea
+            value={settings().agent.instructions}
+            placeholder={"e.g. Answer in German. Amounts are in EUR. Prefer dark themes with a green accent."}
+            onInput={(instructions) => set("agent", { instructions })}
+            name="instructions"
           />
-        </div>
-      </Row>
-      <Row
-        label="Instructions for building apps"
-        description="Added to the app builder's prompt in every tab, e.g. your language, currency, style preferences."
-        wide
-      >
-        <TextArea
-          value={settings().agent.instructions}
-          placeholder={"e.g. Answer in German. Amounts are in EUR. Prefer dark themes with a green accent."}
-          onInput={(instructions) => set("agent", { instructions })}
-          name="instructions"
-        />
-      </Row>
-      <Row label="Instructions for customizing websites" description="Added to the website agent's prompt." wide>
-        <TextArea
-          value={settings().agent.webInstructions}
-          placeholder={"e.g. Keep changes minimal. Never hide ads by removing content the page needs."}
-          onInput={(webInstructions) => set("agent", { webInstructions })}
-          name="webInstructions"
-        />
-      </Row>
-      <Row
-        label="Permissions"
-        description="Ask for everything: agents ask before customizing or using sites, reading other tabs, using other apps or scheduling. Full access: they don't ask (still logged in Activity)."
-      >
-        <div data-permission-mode>
-          <Segmented
-            value={settings().agent.permissions}
-            options={[
-              ["ask", "Ask for everything"],
-              ["full", "Full access"],
-            ]}
-            onChange={(mode) => void setFullAccess(mode === "full")}
+        </Row>
+        <Row label="Instructions for customizing websites" description="Added to the website agent's prompt." wide>
+          <TextArea
+            value={settings().agent.webInstructions}
+            placeholder={"e.g. Keep changes minimal. Never hide ads by removing content the page needs."}
+            onInput={(webInstructions) => set("agent", { webInstructions })}
+            name="webInstructions"
           />
-        </div>
-      </Row>
-      <Row label="Show tool activity" description='Lines like "Edited src/App.tsx" or "Ran bun add zod" in the chat.'>
-        <Toggle
-          checked={settings().agent.showToolMessages}
-          onChange={(showToolMessages) => set("agent", { showToolMessages })}
-        />
-      </Row>
-    </Section>
+        </Row>
+      </Section>
+      <Section title="Behavior">
+        <Row
+          label="Permissions"
+          description={
+            settings().agent.permissions === "full"
+              ? "Agents don't ask; it's all still in Activity."
+              : "Agents ask before acting outside their tab."
+          }
+        >
+          <div data-permission-mode>
+            <Segmented
+              value={settings().agent.permissions}
+              options={[
+                ["ask", "Ask for everything"],
+                ["full", "Full access"],
+              ]}
+              onChange={(mode) => void setFullAccess(mode === "full")}
+            />
+          </div>
+        </Row>
+        <Row label="Show tool activity" description='Lines like "Edited src/App.tsx" or "Ran bun add zod" in the chat.'>
+          <Toggle
+            checked={settings().agent.showToolMessages}
+            onChange={(showToolMessages) => set("agent", { showToolMessages })}
+          />
+        </Row>
+      </Section>
+    </>
   );
 }
 
 function WebSection() {
   return (
     <>
-      <Section title="Site customizations" icon="paintbrush" anchor="web">
-        <Row
-          label="Site customizations and page changes"
-          description="Apply the changes the agent made to websites (hidden, restyled or added elements, CSS and JavaScript)."
-        >
+      <Section title="Site customizations" anchor="web">
+        <Row label="Site customizations and page changes" description="Apply what the agent changed on websites.">
           <Toggle checked={settings().web.overrides} onChange={(overrides) => set("web", { overrides })} />
         </Row>
         <SiteRows />
@@ -441,14 +747,11 @@ function WebSection() {
   );
 }
 
-/** Plain HTTP: try HTTPS and warn (Settings → Browser → Privacy and security). */
+/** Plain HTTP: try HTTPS and warn (Settings → Privacy and security). */
 export function InsecureRows() {
   return (
     <>
-      <Row
-        label="Warn before insecure sites"
-        description="Open http:// pages over HTTPS when they can be, and warn before showing a site that has no secure version. Local addresses (this computer, your network) are never warned about."
-      >
+      <Row label="Use secure connections" description="Upgrades to HTTPS and warns before sites that aren't secure.">
         <Toggle checked={settings().web.warnInsecure} onChange={(warnInsecure) => set("web", { warnInsecure })} />
       </Row>
       <Show when={settings().web.insecureAllowed.length}>
@@ -478,17 +781,17 @@ export function InsecureRows() {
 
 function NetworkSection() {
   return (
-    <Section title="Network" icon="network" anchor="network">
+    <Section title="Network" anchor="network">
       <Row
         label="Record web tabs' traffic"
-        description="Keep each web tab's recent requests (in memory, bounded) for the Network panel and the website agent, which only ever sees them with credentials hidden."
+        description="Recent requests per tab, for the Network panel and the website agent."
       >
         <Toggle checked={settings().web.recordNetwork} onChange={(recordNetwork) => set("web", { recordNetwork })} />
       </Row>
       <NetworkRules />
       <Row
         label="Response overrides"
-        description="What the website agent made sites return in your tabs (other data, errors, failures, slow or no answers) to see every state of a page. Remove one to get the site's real answers again; the address bar shows when a page has any."
+        description="Answers the website agent made sites return. Remove one to get the real ones back."
         wide
       >
         <OverrideRows />
@@ -504,32 +807,24 @@ function AppsSection() {
   };
   return (
     <>
-      <Section title="Running apps" icon="box" anchor="apps">
+      <Section title="Running apps" anchor="apps">
         <SandboxRows />
         <Row label="Start apps when opened" description="Run an app's server as soon as you open its tab.">
           <Toggle checked={settings().apps.autoStart} onChange={(autoStart) => set("apps", { autoStart })} />
         </Row>
         <Row
           label="Publish when the agent is done"
-          description="Build the app and switch to the finished version after every agent turn (this hides the agent; opening it goes back to editing)."
+          description="Build and switch to the finished app after every agent turn."
         >
           <Toggle checked={settings().apps.autoPublish} onChange={(autoPublish) => set("apps", { autoPublish })} />
         </Row>
       </Section>
 
-      <Section title="AI in apps" icon="sparkles">
-        <p {...stylex.attrs(styles.muted, styles.note)}>
-          Apps can use AI (summaries, suggestions, chat) through Rune Browser, on your own subscription: no API keys in
-          your apps. Only an app's server can ask, with a key that's its own; the model gets no tools, so it can't touch
-          your files. Every request shows up in the app's logs.
-        </p>
-        <Row label="Let apps use AI">
+      <Section title="AI in apps">
+        <Row label="Let apps use AI" description="On your subscription, with no API keys or tools.">
           <Toggle checked={settings().apps.ai.enabled} onChange={(enabled) => setAi({ enabled })} />
         </Row>
-        <Row
-          label="Model"
-          description="Who answers apps' requests. By default a fast model, to spare your plan's limits."
-        >
+        <Row label="Model" description="A fast one by default, to spare your limits.">
           <div {...stylex.attrs(styles.pickerBox)} data-app-ai-agent>
             <AgentPicker
               choice={{
@@ -597,8 +892,11 @@ export function DefaultBrowserRow() {
     }
   };
   return (
-    <Row label="Default browser" description={description()}>
+    <Row label="Rune Browser as your default" description={description()}>
       <span data-default-browser={status()?.state}>
+        <Show when={status()?.state === "unsupported"}>
+          <span {...stylex.attrs(styles.muted)}>Not available</span>
+        </Show>
         <Show when={notDefault()}>
           {(s) => (
             <Button onClick={() => void make()} disabled={making()}>
@@ -613,7 +911,7 @@ export function DefaultBrowserRow() {
 
 function SecretsSection() {
   return (
-    <Section title="Global secrets" icon="key-round" anchor="secrets">
+    <Section title="Global secrets" anchor="secrets">
       <GlobalSecrets />
     </Section>
   );
@@ -621,7 +919,7 @@ function SecretsSection() {
 
 function PermissionsSection() {
   return (
-    <Section title="Remembered decisions" icon="shield-check" anchor="permissions">
+    <Section title="Remembered decisions" anchor="permissions">
       <PermissionRows />
     </Section>
   );
@@ -632,15 +930,15 @@ function AboutSection() {
   return (
     <>
       <UpdatesSection />
-      <Section title="Rune Browser" icon="info" anchor="about">
+      <Section title="This build" anchor="about">
         <dl {...stylex.attrs(styles.about)}>
-          <dt>Data folder</dt>
+          <dt {...stylex.attrs(styles.dt)}>Data folder</dt>
           <dd {...stylex.attrs(styles.dd, styles.mono)}>{health()?.dataDir ?? "…"}</dd>
-          <dt>Versions</dt>
+          <dt {...stylex.attrs(styles.dt)}>Versions</dt>
           <dd {...stylex.attrs(styles.dd, styles.mono)}>
             Electron {window.rune.versions.electron} · Chrome {window.rune.versions.chrome} · Bun {health()?.bun ?? "…"}
           </dd>
-          <dt>Internal pages</dt>
+          <dt {...stylex.attrs(styles.dt)}>Internal pages</dt>
           <dd {...stylex.attrs(styles.dd, styles.internalLinks)}>
             <For each={["rune://version", "rune://gpu", "rune://flags", "rune://rune-urls"]}>
               {(url) => (
@@ -694,7 +992,7 @@ function UpdatesSection() {
   const canCheck = () => state() === "idle" || state() === "error";
 
   return (
-    <Section title="Updates" icon="refresh-cw" anchor="updates">
+    <Section title="Updates" anchor="updates">
       <Row label={`Rune Browser ${info()?.version ?? ""}`} description={description()}>
         <span data-update-state={state()}>
           <Switch>
@@ -707,13 +1005,13 @@ function UpdatesSection() {
             <Match when={canCheck()}>
               <Button onClick={() => void checkForUpdates()}>Check for updates</Button>
             </Match>
+            <Match when={state() === "unsupported"}>
+              <span {...stylex.attrs(styles.muted)}>Not available</span>
+            </Match>
           </Switch>
         </span>
       </Row>
-      <Row
-        label="Channel"
-        description="Daily also gets builds of the latest changes: new features earlier, and sometimes rough edges."
-      >
+      <Row label="Channel" description="Daily gets new features first, with the odd rough edge.">
         <Segmented
           value={info()?.channel ?? "stable"}
           options={[
@@ -741,13 +1039,14 @@ function ProviderRow(props: { id: ProviderId }) {
   const status = () => providerById(props.id);
   const config = () => settings().providers[props.id];
   const [checking, setChecking] = createSignal(false);
+  const [settingPath, setSettingPath] = createSignal(false);
   const setConfig = (value: Partial<Settings["providers"][ProviderId]>) =>
     updateSettings((s) => ({
       ...s,
       providers: { ...s.providers, [props.id]: { ...s.providers[props.id], ...value } },
     }));
   const isReady = () => status()?.state === "ready";
-  const isBad = () => ["missing", "signed-out", "error"].includes(status()?.state ?? "");
+  const isBad = () => ["signed-out", "error"].includes(status()?.state ?? "");
   const details = () =>
     [
       status()?.version && `v${status()!.version}`,
@@ -756,6 +1055,9 @@ function ProviderRow(props: { id: ProviderId }) {
     ]
       .filter(Boolean)
       .join(" · ");
+  /** The command that installs a missing CLI ("Install Codex: npm install -g @openai/codex"). */
+  const install = () =>
+    status()?.state === "missing" ? /^Install [^:]+: (.+)$/.exec(status()?.message ?? "")?.[1] : undefined;
 
   return (
     <div {...stylex.attrs(styles.provider)} data-provider-row={props.id}>
@@ -766,15 +1068,50 @@ function ProviderRow(props: { id: ProviderId }) {
         <div {...stylex.attrs(styles.rowText)}>
           <span {...stylex.attrs(styles.rowLabel)}>
             {status()?.label ?? props.id}
-            <span
-              {...stylex.attrs(styles.pill, isReady() && styles.pillReady, isBad() && styles.pillBad)}
-              data-provider-state={status()?.state}
-            >
+            <span {...stylex.attrs(styles.pill)} data-provider-state={status()?.state}>
+              <span {...stylex.attrs(styles.pillDot, isReady() && styles.dotReady, isBad() && styles.dotBad)} />
               {stateLabels[status()?.state ?? "checking"]}
             </span>
           </span>
-          <span {...stylex.attrs(styles.muted)}>{details()}</span>
+          <Show when={install()} fallback={<span {...stylex.attrs(styles.muted)}>{details()}</span>}>
+            {(command) => (
+              <span {...stylex.attrs(styles.installLine)}>
+                <code {...stylex.attrs(styles.code)}>{command()}</code>
+                <button
+                  type="button"
+                  title="Copy"
+                  aria-label="Copy the install command"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(command());
+                    toast({ message: "Copied" });
+                  }}
+                  {...stylex.attrs(styles.iconButton, styles.iconButtonPlain)}
+                >
+                  <Icon name="copy" size={14} />
+                </button>
+              </span>
+            )}
+          </Show>
         </div>
+        <Show when={status()?.state === "missing" && !config().binaryPath && !settingPath()}>
+          <Button
+            title="Installed somewhere else? Set where it is"
+            onClick={() => setSettingPath(true)}
+            xstyle={styles.setPath}
+          >
+            Set path…
+          </Button>
+        </Show>
+        <Show when={status()?.state !== "missing"}>
+          <span {...stylex.attrs(styles.providerToggle)}>
+            <span {...stylex.attrs(styles.muted, styles.toggleLabel)}>{config().enabled ? "On" : "Off"}</span>
+            <Toggle
+              title={`Use ${status()?.label ?? props.id}`}
+              checked={config().enabled}
+              onChange={(enabled) => setConfig({ enabled })}
+            />
+          </span>
+        </Show>
         <button
           type="button"
           title="Check again"
@@ -783,21 +1120,22 @@ function ProviderRow(props: { id: ProviderId }) {
             setChecking(true);
             await refreshProviders(props.id).finally(() => setChecking(false));
           }}
-          {...stylex.attrs(styles.iconButton)}
+          {...stylex.attrs(styles.iconButton, styles.iconButtonPlain)}
         >
           <Icon name="refresh-cw" size={15} />
         </button>
-        <Toggle checked={config().enabled} onChange={(enabled) => setConfig({ enabled })} />
       </div>
-      <label {...stylex.attrs(styles.providerPath)}>
-        <span {...stylex.attrs(styles.muted)}>Binary</span>
-        <input
-          value={config().binaryPath}
-          placeholder={status()?.binary ?? `${props.id} on your PATH`}
-          onChange={(e) => setConfig({ binaryPath: e.currentTarget.value.trim() })}
-          {...stylex.attrs(styles.textInput, styles.mono)}
-        />
-      </label>
+      <Show when={status()?.state !== "missing" || config().binaryPath || settingPath()}>
+        <label {...stylex.attrs(styles.providerPath)}>
+          <span {...stylex.attrs(styles.muted)}>Path</span>
+          <input
+            value={config().binaryPath}
+            placeholder={status()?.binary ?? "Not set"}
+            onChange={(e) => setConfig({ binaryPath: e.currentTarget.value.trim() })}
+            {...stylex.attrs(styles.textInput, styles.mono, styles.pathInput)}
+          />
+        </label>
+      </Show>
     </div>
   );
 }
@@ -812,12 +1150,7 @@ function WorkspaceSection() {
         const current = () => workspaces.find((w) => w.id === workspace.id) ?? workspace;
         const agent = () => current().settings.agent;
         return (
-          <Section title={`Workspace: ${current().name}`} icon="layers" anchor="workspace">
-            <p {...stylex.attrs(styles.muted, styles.note)}>
-              Workspaces keep projects apart: each has its own tabs, agent defaults and instructions, secrets for its
-              apps, and its own web logins (cookies). Switch between them with the icons at the bottom of the sidebar
-              (or Ctrl+Alt+1…9).
-            </p>
+          <Section title={`Workspace: ${current().name}`} anchor="workspace">
             <Row label="Name">
               <input
                 value={current().name}
@@ -914,10 +1247,7 @@ function WorkspaceSecrets(props: { workspaceId: string }) {
   const [adding, setAdding] = createSignal(false);
   return (
     <>
-      <Row
-        label="Secrets for its apps"
-        description="Every app in this workspace gets these as environment variables. An app's own secret of the same name wins."
-      >
+      <Row label="Secrets for its apps" description="Environment variables for every app here; an app's own wins.">
         <Show when={!adding()}>
           <button
             type="button"
@@ -1211,6 +1541,7 @@ function NetworkRules() {
  */
 function ExtensionsSection() {
   const ext = window.rune.extensions;
+  const otherBrowsers = browsersToImportFrom();
   const [input, setInput] = createSignal("");
   const [query, setQuery] = createSignal("");
   const [developer, setDeveloper] = createSignal(localStorage.getItem("rune.extensions-developer") === "1");
@@ -1259,88 +1590,131 @@ function ExtensionsSection() {
   const selected = () => extensionList().find((x) => x.id === details());
 
   return (
-    <section {...stylex.attrs(styles.section)} data-section="extensions">
+    <section {...stylex.attrs(styles.extPage)} data-section="extensions">
       <Show
         when={selected()}
         fallback={
           <>
-            <div {...stylex.attrs(styles.extToolbar)}>
-              <div {...stylex.attrs(styles.extSearch)}>
-                <Icon name="search" size={15} {...stylex.attrs(styles.extSearchIcon)} />
+            <h2 {...stylex.attrs(styles.sectionTitle, styles.installedTitle)}>Installed</h2>
+            <Show
+              when={extensionList().length}
+              fallback={
+                <EmptyState
+                  icon="blocks"
+                  title="No extensions yet"
+                  hint={
+                    otherBrowsers() === false
+                      ? "Add some from the Chrome Web Store."
+                      : "Bring over the ones you use in Chrome, Brave or Edge, or add some from the Chrome Web Store."
+                  }
+                  data-extensions-empty
+                  data-search-hide
+                >
+                  <Show
+                    when={otherBrowsers() !== false}
+                    fallback={
+                      <Button variant="primary" onClick={() => void newWebTab(CHROME_WEB_STORE)}>
+                        Open Chrome Web Store
+                        <Icon name="arrow-up-right" size={14} />
+                      </Button>
+                    }
+                  >
+                    <Button variant="primary" onClick={openExtensionImport} data-extensions-import>
+                      <Icon name="download" size={14} />
+                      Import from your browser…
+                    </Button>
+                    <Button variant="ghost" onClick={() => void newWebTab(CHROME_WEB_STORE)}>
+                      Open store
+                      <Icon name="arrow-up-right" size={14} />
+                    </Button>
+                  </Show>
+                </EmptyState>
+              }
+            >
+              <label {...stylex.attrs(styles.search, styles.extSearch)} data-search-hide>
+                <Icon name="search" size={14} {...stylex.attrs(styles.searchIcon)} />
                 <input
+                  type="search"
                   value={query()}
                   onInput={(e) => setQuery(e.currentTarget.value)}
                   placeholder="Search extensions"
                   spellcheck={false}
-                  {...stylex.attrs(styles.extSearchInput)}
+                  {...stylex.attrs(styles.searchInput)}
                   data-extension-search
                 />
-              </div>
-              <label {...stylex.attrs(styles.extDeveloper)}>
-                Developer mode
-                <Toggle checked={developer()} onChange={toggleDeveloper} />
               </label>
-            </div>
-            <div {...stylex.attrs(styles.extActions)}>
-              <Button onClick={openExtensionImport} data-extensions-import>
-                <Icon name="download" size={14} />
-                Import from your browser
-              </Button>
-              <form onSubmit={add} {...stylex.attrs(styles.extStore)} data-extension-add>
-                <input
-                  value={input()}
-                  onInput={(e) => setInput(e.currentTarget.value)}
-                  placeholder="Chrome Web Store link or ID"
-                  spellcheck={false}
-                  {...stylex.attrs(styles.textInput, styles.extStoreInput)}
-                />
-                <Button type="submit" disabled={busy() || !input().trim()}>
-                  Add
-                </Button>
-              </form>
-              <Show when={developer()}>
-                <Button
-                  disabled={busy()}
-                  onClick={() => void run(async () => report(await ext.loadUnpacked()))}
-                  data-extension-unpacked
+              <div {...stylex.attrs(styles.extGrid)} data-search-hide>
+                <For each={shown()} fallback={<p {...stylex.attrs(styles.muted)}>No extensions match.</p>}>
+                  {(info) => (
+                    <ExtensionCard info={info} developer={developer()} onDetails={() => setDetails(info.id)} />
+                  )}
+                </For>
+              </div>
+            </Show>
+            <Show when={busy() || message()}>
+              <p {...stylex.attrs(styles.muted)} data-extension-message>
+                {busy() ? "Working…" : message()}
+              </p>
+            </Show>
+            <Section title="Add extensions">
+              <Show when={extensionList().length}>
+                <Row
+                  label="Import from your browser"
+                  description="Chrome, Brave, Edge or Vivaldi, with their settings."
                 >
-                  <Icon name="folder-open" size={14} />
-                  Load unpacked
-                </Button>
-                <Button disabled={busy()} onClick={checkNow}>
-                  <Icon name="refresh-cw" size={14} />
-                  Update
-                </Button>
+                  <Button onClick={openExtensionImport} data-extensions-import>
+                    Import from your browser…
+                  </Button>
+                </Row>
               </Show>
-            </div>
-            <p {...stylex.attrs(styles.muted)} data-extension-message>
-              {busy()
-                ? "Working…"
-                : (message() ??
-                  "Extensions run in the web tabs of every workspace; each workspace keeps its own extension data, like a browser profile.")}
-            </p>
-            <div {...stylex.attrs(styles.extGrid)}>
-              <For
-                each={shown()}
-                fallback={
-                  <p {...stylex.attrs(styles.muted)}>
-                    {query()
-                      ? "No extensions match."
-                      : "No extensions yet: import them from your browser or add one from the Chrome Web Store."}
-                  </p>
-                }
-              >
-                {(info) => <ExtensionCard info={info} developer={developer()} onDetails={() => setDetails(info.id)} />}
-              </For>
-            </div>
-            <div {...stylex.attrs(styles.rows)}>
+              <Show when={extensionList().length}>
+                <Row label="Chrome Web Store" description="Find extensions to add.">
+                  <Button onClick={() => void newWebTab(CHROME_WEB_STORE)} data-open-web-store>
+                    Open store
+                    <Icon name="arrow-up-right" size={14} />
+                  </Button>
+                </Row>
+              </Show>
+              <Row label="Add by link or ID" description="Paste a store link or an extension's ID.">
+                <form onSubmit={add} {...stylex.attrs(styles.extStore)} data-extension-add>
+                  <Input
+                    value={input()}
+                    onInput={(e) => setInput(e.currentTarget.value)}
+                    placeholder="Link or ID"
+                    spellcheck={false}
+                    xstyle={styles.extStoreInput}
+                  />
+                  <Button type="submit" disabled={busy() || !input().trim()}>
+                    Add
+                  </Button>
+                </form>
+              </Row>
+            </Section>
+            <Section title="Updates and developer mode">
               <Row
                 label="Update automatically"
                 description="Check for new versions of store extensions every few hours."
               >
                 <Toggle checked={autoUpdate()} onChange={(on) => void ext.setAutoUpdate(on)} />
               </Row>
-            </div>
+              <Row label="Developer mode" description="Load unpacked extensions, see their IDs, update them now.">
+                <Show when={developer()}>
+                  <Button
+                    disabled={busy()}
+                    onClick={() => void run(async () => report(await ext.loadUnpacked()))}
+                    data-extension-unpacked
+                  >
+                    <Icon name="folder-open" size={14} />
+                    Load unpacked
+                  </Button>
+                  <Button disabled={busy()} onClick={checkNow}>
+                    <Icon name="refresh-cw" size={14} />
+                    Update
+                  </Button>
+                </Show>
+                <Toggle checked={developer()} onChange={toggleDeveloper} />
+              </Row>
+            </Section>
           </>
         }
       >
@@ -1539,10 +1913,7 @@ function ExtensionDetails(props: { info: ExtensionInfo; onBack: () => void }) {
             description="It talks to programs installed for it (native messaging)."
           />
         </Show>
-        <Row
-          label="Allow in private windows"
-          description="Private windows run only the extensions you allow there. It can then see what you do in them, and Rune Browser can't stop it from keeping that."
-        >
+        <Row label="Allow in private windows" description="It can see what you do in private windows.">
           <span data-extension-private>
             <Toggle checked={info().allowPrivate} onChange={(on) => void ext.setAllowPrivate(info().id, on)} />
           </span>
@@ -1644,8 +2015,8 @@ function SandboxRows() {
   const sandboxNote = () => {
     const i = info();
     if (!i) return "";
-    if (i.platform !== "linux") return "Apps run directly in their project folder: the sandbox needs Linux.";
-    if (!i.bwrapAvailable) return "Bubblewrap (bwrap) isn't installed or doesn't work here, so apps run unsandboxed.";
+    if (i.platform !== "linux") return "Not sandboxed: the sandbox needs Linux.";
+    if (!i.bwrapAvailable) return "Not sandboxed: install bubblewrap (bwrap).";
     return "";
   };
   const addFolder = async () => {
@@ -1656,10 +2027,7 @@ function SandboxRows() {
 
   return (
     <>
-      <Row
-        label="Sandbox"
-        description={`How app processes are isolated. Bubblewrap gives every app its own view of the system: only its project folder is writable, your files are invisible. ${sandboxNote()}`}
-      >
+      <Row label="Sandbox" description={sandboxNote() || "How apps are isolated."} warn={!!sandboxNote()}>
         <Segmented
           value={apps().sandbox}
           options={[
@@ -1672,7 +2040,12 @@ function SandboxRows() {
       </Row>
       <Row
         label="Shell"
-        description="What app commands run in: installing, the dev server, builds, the agent's commands and scheduled ones. Bun's shell works the same on every system."
+        description={
+          shellValue() === "custom" && info()?.shell.id !== "custom"
+            ? "That program wasn't found; the automatic shell is used."
+            : "What app commands run in."
+        }
+        warn={shellValue() === "custom" && info()?.shell.id !== "custom"}
       >
         <div {...stylex.attrs(styles.control)} data-shell>
           <Select
@@ -1703,27 +2076,14 @@ function SandboxRows() {
           </Show>
         </div>
       </Row>
-      <Show when={info()?.shell.id === "bun" || info()?.shell.path}>
-        <p {...stylex.attrs(styles.muted, styles.note)}>
-          Commands run with{" "}
-          <span {...stylex.attrs(styles.mono)}>{info()?.shell.id === "bun" ? "bun exec" : info()?.shell.path}</span>
-          {shellValue() === "custom" && info()?.shell.id !== "custom"
-            ? " (that program wasn't found, so the automatic shell is used)"
-            : ""}
-          .
-        </p>
-      </Show>
       <Show when={isLinux()}>
-        <Row
-          label="Your toolchains"
-          description="Show the runtimes you installed with version managers (mise, asdf, nvm, Volta, rustup, pyenv, Bun, Deno, Go…) to apps, read-only. System tools like git, curl and compilers are always there; your other files and credentials never are."
-        >
+        <Row label="Your toolchains" description="Runtimes from mise, asdf, nvm, rustup and others, read-only.">
           <Toggle checked={apps().sandboxToolchains} onChange={(sandboxToolchains) => setApps({ sandboxToolchains })} />
         </Row>
         <Row
           label="More folders apps can read"
-          description="Read-only, in every app's sandbox. Rune Browser's own data stays hidden even if it's inside one."
-          wide
+          description="Read-only in every app's sandbox."
+          wide={apps().sandboxReadOnly.length > 0}
         >
           <div {...stylex.attrs(styles.folderList)} data-sandbox-folders>
             <For each={apps().sandboxReadOnly}>
@@ -1742,9 +2102,9 @@ function SandboxRows() {
                 </div>
               )}
             </For>
-            <button type="button" onClick={() => void addFolder()} {...stylex.attrs(styles.linkButton)}>
-              Add a folder…
-            </button>
+            <Button onClick={() => void addFolder()} data-add-folder>
+              Add folder…
+            </Button>
           </div>
         </Row>
         <Show when={sandboxed()}>
@@ -1785,28 +2145,88 @@ export const unloadChoices = (current: number): [number, string][] => {
   return choices.some(([m]) => m === current) ? choices : [[current, `After ${current} minutes`], ...choices];
 };
 
-export function Section(props: { title: string; icon: string; anchor?: string; children: JSX.Element }) {
+/** A group of settings: a quiet title (none when it's the page's), then a card of rows. */
+export function Section(props: {
+  title: string;
+  anchor?: string;
+  /** In search results, all its rows or none (Clear browsing data: its checkboxes and the action they're for). */
+  together?: boolean;
+  children?: JSX.Element;
+}) {
+  const rows = children(() => props.children);
+  // A section of one row named like it ("Default browser") doesn't say it twice.
+  const showTitle = () => {
+    const r = rows.toArray();
+    return !(r.length === 1 && r[0] instanceof HTMLElement && r[0].dataset.searchText?.startsWith(`${props.title} `));
+  };
   return (
-    <section {...stylex.attrs(styles.section)} data-section={props.anchor}>
-      <h2 {...stylex.attrs(styles.sectionTitle)}>
-        <Icon name={props.icon} size={18} {...stylex.attrs(styles.accent)} />
-        {props.title}
-      </h2>
-      <div {...stylex.attrs(styles.rows)}>{props.children}</div>
+    <section
+      {...stylex.attrs(styles.section)}
+      data-section={props.anchor}
+      data-setting-section
+      data-title={props.title}
+      data-search-together={props.together ? "" : undefined}
+    >
+      <Show when={showTitle()}>
+        <h2 {...stylex.attrs(styles.sectionTitle)}>{props.title}</h2>
+      </Show>
+      <Show when={rows()}>
+        <div {...stylex.attrs(styles.rows)} data-setting-rows>
+          {rows()}
+        </div>
+      </Show>
     </section>
   );
 }
 
-export function Row(props: { label: string; description?: string; wide?: boolean; children?: JSX.Element }) {
+/** One setting: its label and description on the left, its control on the right (or below, `wide`). */
+export function Row(props: {
+  label: string;
+  description?: string;
+  wide?: boolean;
+  /** Tighter, for long lists of alike rows (Site settings). */
+  dense?: boolean;
+  /** The control before the text: a checkbox in a list to pick from (Clear browsing data). */
+  leading?: boolean;
+  /** Shown in search results whenever its section has a match (the action a matched row is for). */
+  always?: boolean;
+  /** The card's closing action (Clear now): set apart at its foot. */
+  footer?: boolean;
+  /** Text lined up with rows that have a leading control. */
+  inset?: boolean;
+  /** The description is a warning (apps run unsandboxed). */
+  warn?: boolean;
+  children?: JSX.Element;
+}) {
   return (
-    <div {...stylex.attrs(styles.row, props.wide && styles.rowWide)}>
+    <div
+      {...stylex.attrs(
+        styles.row,
+        props.wide && styles.rowWide,
+        props.dense && styles.rowDense,
+        props.leading && styles.rowLeading,
+        props.footer && styles.rowFooter,
+        props.inset && styles.rowInset,
+      )}
+      data-search-always={props.always ? "" : undefined}
+      data-setting-row
+      data-search-label={props.label}
+      data-search-text={`${props.label} ${props.description ?? ""}`}
+    >
       <div {...stylex.attrs(styles.rowText, props.wide && styles.rowTextWide)}>
-        <span {...stylex.attrs(styles.rowLabel)}>{props.label}</span>
+        <span {...stylex.attrs(styles.rowLabel, props.footer && styles.footerLabel)}>{props.label}</span>
         <Show when={props.description}>
-          <span {...stylex.attrs(styles.muted)}>{props.description}</span>
+          <span {...stylex.attrs(styles.rowDescription, props.warn && styles.rowWarning)}>
+            <Show when={props.warn}>
+              <Icon name="triangle-alert" size={13} {...stylex.attrs(styles.warningIcon)} />
+            </Show>
+            {props.description}
+          </span>
         </Show>
       </div>
-      <div {...stylex.attrs(styles.control, props.wide && styles.controlWide)}>{props.children}</div>
+      <div {...stylex.attrs(styles.control, props.wide && styles.controlWide, props.leading && styles.controlLeading)}>
+        {props.children}
+      </div>
     </div>
   );
 }
@@ -1834,11 +2254,18 @@ export function Segmented<T extends string>(props: { value: T; options: [T, stri
   );
 }
 
-export function Toggle(props: { checked: boolean; onChange: (checked: boolean) => void }) {
+export function Toggle(props: {
+  checked: boolean;
+  disabled?: boolean;
+  title?: string;
+  onChange: (checked: boolean) => void;
+}) {
   return (
     <button
       type="button"
       role="switch"
+      title={props.title}
+      disabled={props.disabled}
       aria-checked={props.checked}
       onClick={() => props.onChange(!props.checked)}
       {...stylex.attrs(styles.toggle, props.checked && styles.toggleOn)}
@@ -1854,20 +2281,28 @@ function ColorField(props: {
   onChange: (value: string | undefined) => void;
 }) {
   return (
-    <div {...stylex.attrs(styles.colorField)}>
+    <label {...stylex.attrs(styles.colorField)}>
       <input
         type="color"
         value={props.value ?? props.fallback}
         onInput={(e) => props.onChange(e.currentTarget.value)}
         {...stylex.attrs(styles.swatchInput)}
       />
-      <span {...stylex.attrs(styles.mono, styles.colorValue)}>{props.value ?? "Default"}</span>
+      <span {...stylex.attrs(styles.colorValue)}>{props.value?.toUpperCase() ?? "Default"}</span>
       <Show when={props.value}>
-        <button type="button" onClick={() => props.onChange(undefined)} {...stylex.attrs(styles.linkButton)}>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            props.onChange(undefined);
+          }}
+          {...stylex.attrs(styles.linkButton)}
+        >
           Reset
         </button>
       </Show>
-    </div>
+      <Icon name="chevron-down" size={14} {...stylex.attrs(styles.navIcon)} />
+    </label>
   );
 }
 
@@ -1877,7 +2312,7 @@ function TextArea(props: { value: string; placeholder?: string; name?: string; o
       name={props.name}
       value={props.value}
       placeholder={props.placeholder}
-      rows={4}
+      rows={2}
       onInput={(e) => props.onInput(e.currentTarget.value)}
       {...stylex.attrs(styles.textarea)}
     />
@@ -1885,7 +2320,7 @@ function TextArea(props: { value: string; placeholder?: string; name?: string; o
 }
 
 /** A tiny preview of a preset: background, surface card, accent dot. */
-function PresetButton(props: { name: string; theme: GlobalTheme; onClick: () => void }) {
+function PresetButton(props: { name: string; theme: GlobalTheme; active: boolean; onClick: () => void }) {
   const vars = () => {
     const mode = resolveMode(props.theme, systemDark());
     const v = themeVars(props.theme, mode);
@@ -1901,7 +2336,8 @@ function PresetButton(props: { name: string; theme: GlobalTheme; onClick: () => 
       type="button"
       onClick={props.onClick}
       title={props.name}
-      {...stylex.attrs(styles.preset)}
+      aria-pressed={props.active}
+      {...stylex.attrs(styles.preset, props.active && styles.presetActive)}
       data-preset={props.name}
     >
       <span {...stylex.attrs(styles.presetPreview)} style={{ "background-color": vars().bg }}>
@@ -1915,6 +2351,17 @@ function PresetButton(props: { name: string; theme: GlobalTheme; onClick: () => 
   );
 }
 
+export const CHROME_WEB_STORE = "https://chromewebstore.google.com/";
+
+/** Whether another browser with extensions to import is on this computer (undefined while looking). */
+export const browsersToImportFrom = () => {
+  const [profiles] = createResource(() => window.rune.extensions.detectBrowsers().catch(() => []));
+  return () => (profiles.loading ? undefined : (profiles()?.length ?? 0) > 0);
+};
+
+/** What a preset sets (and the Default preset clears). */
+const presetKeys = ["accent", "background", "surface", "text", "radius", "font"] as const;
+
 const varOf = (ref: string) => /var\((--[^),\s]+)/.exec(ref)?.[1] ?? ref;
 
 const styles = stylex.create({
@@ -1922,50 +2369,48 @@ const styles = stylex.create({
   nav: {
     display: "flex",
     flexDirection: "column",
-    gap: 1,
     flexShrink: 0,
-    width: 220,
-    paddingInline: space.sm,
-    paddingBottom: space.md,
+    width: 232,
+    paddingInline: 10,
+    paddingBottom: 10,
     borderRightWidth: 1,
     borderRightStyle: "solid",
-    borderRightColor: colors.border,
+    borderRightColor: `light-dark(${colors.border}, color-mix(in oklab, ${colors.border}, ${colors.text} 10%))`,
     backgroundColor: colors.sidebar,
-    overflowY: "auto",
+    minHeight: 0,
   },
   navTitle: {
     display: "flex",
     alignItems: "center",
-    gap: space.sm,
     flexShrink: 0,
-    height: 52,
-    paddingInline: space.sm,
-    fontSize: font.lg,
+    height: 48,
+    paddingInline: 8,
+    fontSize: font.md,
     fontWeight: 650,
     letterSpacing: "-0.01em",
   },
-  navGroup: {
-    marginTop: space.md,
-    marginBottom: 2,
-    paddingInline: space.sm,
-    color: colors.muted,
-    fontSize: font.xs,
-    fontWeight: 600,
-    textTransform: "uppercase",
-    letterSpacing: "0.04em",
+  navGroup: { display: "flex", flexDirection: "column", gap: 1 },
+  navEnd: {
+    display: "flex",
+    flexDirection: "column",
+    flexShrink: 0,
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopStyle: "solid",
+    borderTopColor: colors.border,
   },
-  navEnd: { display: "flex", flexDirection: "column", marginTop: "auto", paddingTop: space.md },
   navItem: {
     display: "flex",
     alignItems: "center",
-    gap: space.sm,
+    gap: 10,
     flexShrink: 0,
-    height: 32,
-    paddingInline: space.sm,
+    height: 30,
+    paddingInline: 8,
     borderWidth: 0,
     borderRadius: radius.sm,
     backgroundColor: { default: "transparent", ":hover": colors.surfaceHover },
-    color: { default: colors.muted, ":hover": colors.text },
+    color: colors.text,
     fontFamily: font.sans,
     fontSize: font.sm,
     textAlign: "left",
@@ -1974,14 +2419,24 @@ const styles = stylex.create({
     outlineWidth: 2,
     outlineColor: colors.accent,
     outlineOffset: -2,
+    transition: "background-color 100ms",
   },
   navItemOn: {
-    backgroundColor: { default: colors.surface, ":hover": colors.surface },
-    color: colors.text,
-    fontWeight: 500,
-    boxShadow: `0 0 0 1px ${colors.border}`,
+    backgroundColor: {
+      default: `light-dark(${colors.accentSoft}, color-mix(in oklab, transparent, ${colors.accent} 16%))`,
+      ":hover": `light-dark(${colors.accentSoft}, color-mix(in oklab, transparent, ${colors.accent} 16%))`,
+    },
+    color: `light-dark(${colors.text}, color-mix(in oklab, ${colors.accent}, ${colors.text} 25%))`,
+    fontWeight: 600,
   },
-  main: { flex: 1, minWidth: 0, overflowY: "auto" },
+  main: {
+    flex: 1,
+    minWidth: 0,
+    overflowY: "auto",
+    scrollbarGutter: "stable",
+    scrollbarWidth: "thin",
+    scrollbarColor: `color-mix(in oklab, ${colors.border}, ${colors.text} 15%) transparent`,
+  },
   numberInput: { width: 110 },
   folderList: { display: "flex", flexDirection: "column", alignItems: "flex-start", gap: space.xs, width: "100%" },
   folderRow: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: space.sm, width: "100%" },
@@ -2027,14 +2482,14 @@ const styles = stylex.create({
   provider: {
     display: "flex",
     flexDirection: "column",
-    gap: space.sm,
+    gap: 6,
     paddingBlock: space.md,
     paddingInline: space.lg,
     borderTopWidth: 1,
     borderTopStyle: "solid",
     borderTopColor: colors.border,
   },
-  providerHead: { display: "flex", alignItems: "center", gap: space.md },
+  providerHead: { display: "flex", alignItems: "flex-start", gap: space.sm },
   providerIcon: {
     display: "grid",
     placeItems: "center",
@@ -2045,102 +2500,84 @@ const styles = stylex.create({
     backgroundColor: colors.bg,
     color: colors.text,
   },
-  providerPath: { display: "flex", alignItems: "center", gap: space.sm, fontSize: font.xs },
+  providerPath: { display: "flex", alignItems: "center", gap: space.sm, paddingLeft: 44, fontSize: font.xs },
   pill: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 5,
     marginLeft: space.sm,
     paddingInline: 7,
     paddingBlock: 1,
     borderRadius: radius.full,
     backgroundColor: colors.surfaceHover,
-    color: colors.muted,
-    fontSize: 11,
+    color: `color-mix(in oklab, ${colors.text}, ${colors.muted} 45%)`,
+    fontSize: 11.5,
     fontWeight: 500,
+    verticalAlign: "1px",
   },
-  pillReady: { backgroundColor: colors.accentSoft, color: colors.success },
-  pillBad: { color: colors.danger },
   page: {
-    maxWidth: 820,
+    boxSizing: "border-box",
+    maxWidth: 760,
     marginInline: "auto",
-    padding: space.xl,
-    paddingBottom: space.xxl,
+    paddingTop: 32,
+    paddingInline: 40,
+    paddingBottom: 96,
     display: "flex",
     flexDirection: "column",
-    gap: space.xxl,
+    gap: 28,
   },
-  header: { display: "flex", flexDirection: "column", gap: space.sm },
-  title: { margin: 0, display: "flex", alignItems: "center", gap: space.sm, fontSize: 28, fontWeight: 650 },
+  header: { display: "flex", flexDirection: "column", gap: space.xs },
+  title: { margin: 0, fontSize: 24, fontWeight: 650, letterSpacing: "-0.02em", lineHeight: 1.2 },
   accent: { color: colors.accent, flexShrink: 0 },
   muted: { margin: 0, color: colors.muted, fontSize: font.sm },
   mono: { fontFamily: font.mono, fontSize: font.xs },
   dd: { margin: 0, overflowWrap: "anywhere" },
-  section: { display: "flex", flexDirection: "column", gap: space.md },
-  sectionTitle: { margin: 0, display: "flex", alignItems: "center", gap: space.sm, fontSize: font.xl, fontWeight: 650 },
+  section: { display: "flex", flexDirection: "column", gap: 8 },
+  sectionTitle: {
+    margin: 0,
+    paddingInline: 1,
+    color: colors.text,
+    fontSize: 17,
+    fontWeight: 600,
+    letterSpacing: "-0.015em",
+  },
   rows: {
     display: "flex",
     flexDirection: "column",
     borderRadius: radius.md,
     borderWidth: 1,
     borderStyle: "solid",
-    borderColor: colors.border,
+    borderColor: `light-dark(${colors.border}, color-mix(in oklab, ${colors.border}, ${colors.text} 10%))`,
     backgroundColor: colors.surface,
+    boxShadow: "0 1px 2px rgb(0 0 0 / 0.04)",
   },
   row: {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: space.lg,
+    gap: space.xl,
+    minHeight: 52,
+    boxSizing: "border-box",
     paddingBlock: space.md,
     paddingInline: space.lg,
     borderTopWidth: { default: 1, ":first-child": 0 },
     borderTopStyle: "solid",
-    borderTopColor: colors.border,
+    borderTopColor: `color-mix(in oklab, ${colors.border}, ${colors.surface} 35%)`,
     flexWrap: "wrap",
   },
-  rowWide: { flexDirection: "column", alignItems: "stretch" },
-  rowText: { display: "flex", flexDirection: "column", gap: 2, minWidth: 200, flex: "1 1 240px" },
+  rowWide: { flexDirection: "column", alignItems: "stretch", gap: space.md },
+  rowText: { display: "flex", flexDirection: "column", gap: 3, minWidth: 200, flex: "1 1 240px" },
   rowTextWide: { flex: "none" },
-  rowLabel: { fontSize: font.md, fontWeight: 500 },
+  rowLabel: { fontSize: font.md, fontWeight: 500, lineHeight: 1.35 },
   control: { display: "flex", alignItems: "center", gap: space.sm, flexWrap: "wrap" },
   controlWide: { width: "100%" },
   select: { width: 220 },
   siteControls: { display: "flex", alignItems: "center", gap: space.sm },
   siteList: { display: "flex", flexDirection: "column", gap: space.xs },
   siteHost: { flex: 1, minWidth: 0, fontSize: font.sm, overflowWrap: "anywhere" },
-  extToolbar: { display: "flex", alignItems: "center", gap: space.md, flexWrap: "wrap" },
-  extSearch: {
-    display: "flex",
-    alignItems: "center",
-    gap: space.sm,
-    flex: "1 1 260px",
-    height: 38,
-    paddingInline: space.md,
-    borderRadius: radius.full,
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: { default: colors.border, ":focus-within": colors.accent },
-    backgroundColor: colors.surface,
-  },
-  extSearchIcon: { color: colors.muted, flexShrink: 0 },
-  extSearchInput: {
-    flex: 1,
-    minWidth: 0,
-    borderWidth: 0,
-    outline: "none",
-    backgroundColor: "transparent",
-    color: colors.text,
-    fontSize: font.sm,
-  },
-  extDeveloper: {
-    display: "flex",
-    alignItems: "center",
-    gap: space.sm,
-    color: colors.muted,
-    fontSize: font.sm,
-    cursor: "pointer",
-  },
-  extActions: { display: "flex", alignItems: "center", gap: space.sm, flexWrap: "wrap" },
-  extStore: { display: "flex", alignItems: "center", gap: space.xs, flex: "1 1 280px" },
-  extStoreInput: { flex: 1, width: "auto", minWidth: 0 },
+  extSearch: { height: 34, marginBottom: 0 },
+  extStore: { display: "flex", alignItems: "center", gap: space.sm },
+  extStoreInput: { width: 220 },
   extGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: space.md },
   extCard: {
     display: "flex",
@@ -2246,15 +2683,17 @@ const styles = stylex.create({
     color: { default: colors.muted, ":hover": colors.danger },
     cursor: "pointer",
   },
+  iconButtonPlain: { color: { default: colors.muted, ":hover": colors.text } },
   textInput: {
-    width: 280,
-    height: 34,
+    width: 220,
+    height: 32,
     paddingInline: space.md,
     borderRadius: radius.sm,
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: { default: colors.border, ":focus": colors.accent },
-    backgroundColor: colors.bg,
+    backgroundColor: colors.surface,
+    color: colors.text,
     outline: "none",
     fontSize: font.sm,
   },
@@ -2271,81 +2710,116 @@ const styles = stylex.create({
   ruleHeaders: { flex: "1 1 240px", width: "auto", minHeight: 0, fontFamily: font.mono, fontSize: font.xs },
   textarea: {
     width: "100%",
-    minHeight: 88,
+    minHeight: 64,
     padding: space.md,
     borderRadius: radius.sm,
     borderWidth: 1,
     borderStyle: "solid",
-    borderColor: { default: colors.border, ":focus": colors.accent },
+    borderColor: {
+      default: `light-dark(color-mix(in oklab, ${colors.border}, ${colors.text} 15%), ${colors.border})`,
+      ":focus": colors.accent,
+    },
     backgroundColor: colors.bg,
     outline: "none",
+    color: colors.text,
     fontSize: font.sm,
     lineHeight: 1.5,
     resize: "vertical",
+    "::placeholder": { color: colors.muted },
   },
   segmented: {
     display: "inline-flex",
-    padding: 2,
+    padding: 3,
     gap: 2,
-    borderRadius: radius.sm,
-    backgroundColor: colors.bg,
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: colors.border,
+    borderRadius: `calc(${radius.sm} + 3px)`,
+    backgroundColor: `light-dark(color-mix(in oklab, ${colors.bg}, ${colors.text} 10%), color-mix(in oklab, ${colors.surface}, ${colors.text} 7%))`,
+    boxShadow: `inset 0 0 0 1px light-dark(color-mix(in oklab, ${colors.border}, transparent 40%), color-mix(in oklab, ${colors.border}, transparent 30%))`,
   },
   segment: {
-    height: 28,
+    height: 26,
     paddingInline: space.md,
     borderWidth: 0,
     borderRadius: radius.sm,
-    backgroundColor: { default: "transparent", ":hover": colors.surfaceHover },
-    color: colors.muted,
+    backgroundColor: "transparent",
+    color: { default: `color-mix(in oklab, ${colors.text}, ${colors.muted} 45%)`, ":hover": colors.text },
+    fontFamily: font.sans,
     fontSize: font.sm,
+    fontWeight: 500,
     cursor: "pointer",
+    whiteSpace: "nowrap",
+    transition: "color 100ms, background-color 100ms",
+    outlineStyle: { default: "none", ":focus-visible": "solid" },
+    outlineWidth: 2,
+    outlineColor: colors.accent,
   },
   segmentActive: {
-    backgroundColor: { default: colors.surface, ":hover": colors.surface },
+    backgroundColor: `light-dark(${colors.surface}, color-mix(in oklab, ${colors.surface}, ${colors.accent} 22%))`,
     color: colors.text,
-    fontWeight: 500,
-    boxShadow: `0 0 0 1px ${colors.border}, 0 1px 2px rgb(0 0 0 / 0.06)`,
+    fontWeight: 600,
+    boxShadow: `0 1px 2px rgb(0 0 0 / 0.16), inset 0 0 0 1px light-dark(${colors.border}, rgb(255 255 255 / 0.14))`,
   },
   toggle: {
     position: "relative",
-    width: 38,
-    height: 22,
+    flexShrink: 0,
+    width: 36,
+    height: 20,
     padding: 0,
     borderWidth: 0,
     borderRadius: radius.full,
-    backgroundColor: colors.border,
-    cursor: "pointer",
+    backgroundColor: `light-dark(color-mix(in oklab, ${colors.border}, ${colors.text} 22%), color-mix(in oklab, ${colors.border}, ${colors.text} 12%))`,
+    cursor: { default: "pointer", ":disabled": "default" },
+    opacity: { default: 1, ":disabled": 0.4 },
     transition: "background-color 150ms",
+    outlineStyle: { default: "none", ":focus-visible": "solid" },
+    outlineWidth: 2,
+    outlineColor: colors.accent,
+    outlineOffset: 2,
   },
   toggleOn: { backgroundColor: colors.accent },
   knob: {
     position: "absolute",
-    top: 3,
-    left: 3,
+    top: 2,
+    left: 2,
     width: 16,
     height: 16,
     borderRadius: radius.full,
     backgroundColor: "#ffffff",
     boxShadow: "0 1px 2px rgb(0 0 0 / 0.25)",
-    transition: "transform 150ms",
+    transition: "transform 160ms cubic-bezier(0.3, 0.7, 0.4, 1)",
   },
   knobOn: { transform: "translateX(16px)" },
-  colorField: { display: "flex", alignItems: "center", gap: space.sm },
-  swatchInput: {
-    width: 34,
-    height: 28,
-    padding: 2,
+  colorField: {
+    display: "flex",
+    alignItems: "center",
+    gap: space.sm,
+    boxSizing: "border-box",
+    width: 220,
+    height: 32,
+    paddingLeft: 4,
+    paddingRight: space.md,
     borderRadius: radius.sm,
     borderWidth: 1,
     borderStyle: "solid",
-    borderColor: colors.border,
-    backgroundColor: colors.bg,
+    borderColor: { default: colors.border, ":hover": `color-mix(in oklab, ${colors.border}, ${colors.text} 20%)` },
+    backgroundColor: colors.surface,
     cursor: "pointer",
   },
-  colorValue: { minWidth: 64, color: colors.muted },
+  swatchInput: {
+    width: 24,
+    height: 22,
+    padding: 0,
+    borderWidth: 0,
+    borderRadius: 4,
+    backgroundColor: "transparent",
+    cursor: "pointer",
+    "::-webkit-color-swatch-wrapper": { padding: 0 },
+    "::-webkit-color-swatch": {
+      borderWidth: 0,
+      borderRadius: 4,
+      boxShadow: "inset 0 0 0 1px light-dark(rgb(0 0 0 / 0.3), rgb(255 255 255 / 0.25))",
+    },
+  },
+  colorValue: { flex: 1, color: colors.text, fontSize: font.sm, fontVariantNumeric: "tabular-nums" },
   linkButton: {
     padding: 0,
     borderWidth: 0,
@@ -2358,7 +2832,7 @@ const styles = stylex.create({
   dangerButton: { color: colors.danger },
   presets: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fill, minmax(84px, 1fr))",
+    gridTemplateColumns: "repeat(auto-fill, minmax(62px, 1fr))",
     gap: space.sm,
     width: "100%",
   },
@@ -2366,16 +2840,26 @@ const styles = stylex.create({
     display: "flex",
     flexDirection: "column",
     gap: 6,
-    padding: 6,
+    padding: 4,
+    paddingBottom: 6,
     borderRadius: radius.md,
     borderWidth: 1,
     borderStyle: "solid",
-    borderColor: { default: colors.border, ":hover": colors.accent },
+    borderColor: { default: colors.border, ":hover": `color-mix(in oklab, ${colors.border}, ${colors.text} 25%)` },
     backgroundColor: "transparent",
     cursor: "pointer",
     color: colors.text,
+    fontFamily: font.sans,
+    transition: "border-color 100ms",
   },
-  presetPreview: { display: "flex", alignItems: "flex-end", height: 44, padding: 6, borderRadius: radius.sm },
+  presetPreview: {
+    display: "flex",
+    alignItems: "flex-end",
+    height: 36,
+    padding: 5,
+    borderRadius: `calc(${radius.md} - 4px)`,
+    boxShadow: "inset 0 0 0 1px rgb(0 0 0 / 0.06)",
+  },
   presetCard: {
     display: "flex",
     alignItems: "center",
@@ -2387,7 +2871,7 @@ const styles = stylex.create({
   },
   presetDot: { width: 8, height: 8, borderRadius: radius.full, flexShrink: 0 },
   presetLine: { height: 3, flex: 1, borderRadius: 2, opacity: 0.6 },
-  presetName: { fontSize: font.xs },
+  presetName: { fontSize: font.xs, fontWeight: 500 },
   internalLinks: { display: "flex", flexWrap: "wrap", gap: space.md },
   internalLink: {
     padding: 0,
@@ -2395,18 +2879,186 @@ const styles = stylex.create({
     backgroundColor: "transparent",
     color: colors.accent,
     cursor: "pointer",
-    fontFamily: font.mono,
-    fontSize: font.xs,
+    fontFamily: font.sans,
+    fontSize: font.sm,
     textDecoration: { default: "none", ":hover": "underline" },
+    textUnderlineOffset: 3,
   },
   about: {
     margin: 0,
-    paddingBlock: space.md,
+    paddingBlock: space.lg,
     paddingInline: space.lg,
     display: "grid",
     gridTemplateColumns: "max-content 1fr",
-    gap: space.sm,
+    gap: 14,
     columnGap: space.lg,
     fontSize: font.sm,
   },
+  search: {
+    position: "relative",
+    display: "flex",
+    alignItems: "center",
+    flexShrink: 0,
+    height: 32,
+    marginBottom: 6,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: {
+      default: `light-dark(${colors.border}, color-mix(in oklab, ${colors.border}, ${colors.text} 12%))`,
+      ":focus-within": colors.accent,
+    },
+    backgroundColor: colors.surface,
+    boxShadow: { default: "none", ":focus-within": `0 0 0 3px ${colors.accentSoft}` },
+    cursor: "text",
+    transition: "border-color 120ms, box-shadow 120ms",
+  },
+  searchIcon: { position: "absolute", left: 10, color: colors.muted, pointerEvents: "none" },
+  searchInput: {
+    flex: 1,
+    minWidth: 0,
+    height: "100%",
+    paddingLeft: 31,
+    paddingRight: 8,
+    borderWidth: 0,
+    backgroundColor: "transparent",
+    color: colors.text,
+    fontFamily: font.sans,
+    fontSize: font.sm,
+    outline: "none",
+    appearance: "none",
+    "::placeholder": { color: colors.muted },
+    "::-webkit-search-cancel-button": { display: "none" },
+  },
+  searchClear: {
+    display: "grid",
+    placeItems: "center",
+    width: 22,
+    height: 22,
+    marginRight: 4,
+    padding: 0,
+    borderWidth: 0,
+    borderRadius: radius.sm,
+    backgroundColor: { default: "transparent", ":hover": colors.surfaceHover },
+    color: colors.muted,
+    cursor: "pointer",
+  },
+  navList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 12,
+    flex: 1,
+    minHeight: 0,
+    paddingTop: 8,
+    marginInline: -10,
+    paddingInline: 10,
+    overflowY: "auto",
+    scrollbarWidth: "none",
+  },
+  navGroupLabel: {
+    paddingInline: 8,
+    paddingBottom: 4,
+    color: colors.muted,
+    fontSize: 11.5,
+    fontWeight: 600,
+    letterSpacing: "0.01em",
+  },
+  navIcon: { flexShrink: 0, color: colors.muted },
+  navLabel: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  part: { display: "flex", flexDirection: "column", gap: 28, scrollMarginTop: 24, borderRadius: radius.md },
+  rowDescription: { color: colors.muted, fontSize: font.sm, lineHeight: 1.45, textWrap: "pretty" },
+  resultPage: { display: "flex", flexDirection: "column", gap: 12, paddingTop: 4 },
+  resultTitle: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 2,
+    alignSelf: "flex-start",
+    marginBottom: -4,
+    padding: 0,
+    borderWidth: 0,
+    backgroundColor: "transparent",
+    color: { default: colors.muted, ":hover": colors.accent },
+    fontFamily: font.sans,
+    fontSize: font.xs,
+    fontWeight: 500,
+    textDecoration: { default: "none", ":hover": "underline" },
+    textUnderlineOffset: 3,
+    cursor: "pointer",
+  },
+  presetActive: {
+    borderColor: { default: colors.accent, ":hover": colors.accent },
+    boxShadow: `0 0 0 1px ${colors.accent}`,
+  },
+  pillDot: { width: 6, height: 6, borderRadius: radius.full, backgroundColor: colors.muted },
+  dotReady: { backgroundColor: colors.success },
+  dotBad: { backgroundColor: colors.warning },
+  installLine: { display: "flex", alignItems: "center", gap: space.xs, minWidth: 0 },
+  code: {
+    minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    paddingInline: 6,
+    paddingBlock: 2,
+    borderRadius: 5,
+    backgroundColor: colors.surfaceHover,
+    fontFamily: font.mono,
+    fontSize: font.xs,
+  },
+  extPage: { display: "flex", flexDirection: "column", gap: 28 },
+  navGroupToggle: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingInline: 8,
+    paddingBottom: 4,
+    borderWidth: 0,
+    backgroundColor: "transparent",
+    color: { default: colors.muted, ":hover": colors.text },
+    fontFamily: font.sans,
+    fontSize: 11.5,
+    fontWeight: 600,
+    letterSpacing: "0.01em",
+    textAlign: "left",
+    cursor: "pointer",
+  },
+  chevron: { transition: "transform 150ms" },
+  chevronOpen: { transform: "rotate(90deg)" },
+  collapsed: { display: "none" },
+  resultCount: { margin: 0, color: colors.muted, fontSize: font.sm },
+  rowDense: { minHeight: 48, paddingBlock: 8, gap: space.lg },
+  navEmpty: { paddingInline: 8, color: colors.muted, fontSize: 11.5, fontWeight: 600, letterSpacing: "0.01em" },
+  pathInput: {
+    flex: 1,
+    minWidth: 0,
+    maxWidth: 360,
+    height: 28,
+    paddingInline: 6,
+    borderColor: { default: "transparent", ":hover": colors.border, ":focus": colors.accent },
+    backgroundColor: { default: "transparent", ":focus": colors.surface },
+  },
+  rowLeading: {
+    flexDirection: "row-reverse",
+    justifyContent: "flex-end",
+    alignItems: "flex-start",
+    flexWrap: "nowrap",
+    gap: space.md,
+  },
+  rowFooter: {
+    minHeight: 48,
+    paddingBlock: 8,
+    backgroundColor: `color-mix(in oklab, ${colors.surface}, ${colors.bg} 60%)`,
+    borderBottomLeftRadius: radius.md,
+    borderBottomRightRadius: radius.md,
+  },
+  controlLeading: { paddingTop: 2 },
+  footerLabel: { color: colors.muted, fontSize: font.sm, fontWeight: 400 },
+  rowInset: { paddingLeft: 44 },
+  installedTitle: { marginBottom: -12, paddingInline: 1 },
+  providerToggle: { display: "flex", alignItems: "center", gap: space.sm, paddingTop: 5 },
+  dt: { color: colors.muted },
+  setPath: { marginTop: -1 },
+  rowWarning: { color: colors.warning, fontWeight: 500 },
+  toggleLabel: { fontSize: font.xs },
+  warningIcon: { marginRight: 5, verticalAlign: "-2px" },
 });

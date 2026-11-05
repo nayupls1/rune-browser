@@ -1,4 +1,4 @@
-// Browser settings (Settings → Browser): what a browser like Chrome lets you
+// Browser settings (Settings' Browser group): what a browser like Chrome lets you
 // set, kept apart from Rune Browser's own settings. The schema lives here with
 // what's computed from it: a site's settings, the search engine, the
 // declarativeNetRequest rules for the privacy and content settings, and what

@@ -170,7 +170,7 @@ export async function defaultBrowserStatus(): Promise<DefaultBrowserStatus> {
   if (!app.isPackaged) {
     return {
       state: "unsupported",
-      reason: "Rune Browser can be the default browser when it's installed, not when it runs from source.",
+      reason: "Only an installed build can be the default browser.",
     };
   }
   if (process.platform === "win32") {

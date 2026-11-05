@@ -44,7 +44,7 @@ export type WindowIntent = "new-tab" | "startup" | null;
 
 export const DEFAULT_BOUNDS: WindowBounds = { width: 1100, height: 750 };
 
-/** Settings → Browser → On startup (shared/browser.ts): the windows as they were, a new tab, or the startup pages. */
+/** Settings → General → On startup (shared/browser.ts): the windows as they were, a new tab, or the startup pages. */
 export type OnStartup = "continue" | "newTab" | "pages";
 
 export interface StartupPlan {

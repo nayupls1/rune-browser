@@ -375,15 +375,6 @@ export function BookmarksPage() {
 
   return (
     <div {...stylex.attrs(styles.page)} data-bookmarks-page>
-      <header {...stylex.attrs(styles.header)}>
-        <h1 {...stylex.attrs(styles.title)}>
-          <Icon name="bookmark" size={24} {...stylex.attrs(styles.accent)} />
-          Bookmarks
-        </h1>
-        <p {...stylex.attrs(styles.muted)}>
-          The same in every workspace. Drag bookmarks to put them in order or into folders; right-click for more.
-        </p>
-      </header>
       <div {...stylex.attrs(styles.toolbar)}>
         <label {...stylex.attrs(styles.search)}>
           <Icon name="search" size={14} {...stylex.attrs(styles.searchIcon)} />
@@ -626,23 +617,15 @@ function ImportDialog(props: { onClose: () => void }) {
 
 const styles = stylex.create({
   page: {
-    maxWidth: 1040,
+    boxSizing: "border-box",
+    maxWidth: 760,
     marginInline: "auto",
-    paddingBlock: space.xxl,
-    paddingInline: space.xl,
+    paddingTop: 32,
+    paddingInline: 40,
+    paddingBottom: 96,
     display: "flex",
     flexDirection: "column",
-    gap: space.lg,
-  },
-  header: { display: "flex", flexDirection: "column", gap: space.xs },
-  title: {
-    display: "flex",
-    alignItems: "center",
-    gap: space.sm,
-    margin: 0,
-    fontSize: font.xxl,
-    fontWeight: 650,
-    letterSpacing: "-0.02em",
+    gap: 20,
   },
   accent: { color: colors.accent, flexShrink: 0 },
   muted: { margin: 0, color: colors.muted, fontSize: font.sm, lineHeight: 1.5 },

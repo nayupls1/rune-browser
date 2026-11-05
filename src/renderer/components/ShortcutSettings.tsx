@@ -6,6 +6,7 @@ import { createSignal, For, onCleanup, Show } from "solid-js";
 import {
   comboOf,
   defaultKeys,
+  comboKeys,
   formatCombo,
   isUsableCombo,
   mouseComboOf,
@@ -63,32 +64,37 @@ export function ShortcutSettings() {
 
   return (
     <div {...stylex.attrs(styles.page)} data-shortcut-settings>
-      <div {...stylex.attrs(styles.toolbar)}>
-        <Input
-          value={query()}
-          onInput={(e) => setQuery(e.currentTarget.value)}
-          placeholder="Search shortcuts by name or key"
-          xstyle={styles.search}
-          data-shortcut-search
-        />
+      <div {...stylex.attrs(styles.toolbar)} data-search-hide>
+        <div {...stylex.attrs(styles.searchBox)}>
+          <Icon name="search" size={14} {...stylex.attrs(styles.searchIcon)} />
+          <Input
+            value={query()}
+            onInput={(e) => setQuery(e.currentTarget.value)}
+            placeholder="Filter shortcuts by name or key"
+            xstyle={styles.search}
+            data-shortcut-search
+          />
+        </div>
         <Show when={anyChanged()}>
           <Button onClick={() => updateSettings((s) => ({ ...s, shortcuts: {} }))} data-shortcuts-reset-all>
             Reset all
           </Button>
         </Show>
       </div>
-      <p {...stylex.attrs(styles.note)}>
-        Keys work in every tab. While a page has the focus it gets most of them first, like in Chrome: a site that uses
-        a key itself (Ctrl+K in many apps) keeps it. Opening, closing and switching tabs always work.
-      </p>
       <For each={shortcutCategories}>
         {(category) => {
           const defs = () => shortcutDefs.filter((d) => d.category === category && matches(d));
           return (
             <Show when={defs().length}>
-              <section {...stylex.attrs(styles.group)}>
-                <h3 {...stylex.attrs(styles.groupTitle)}>{category}</h3>
-                <div {...stylex.attrs(styles.rows)}>
+              <section {...stylex.attrs(styles.group)} data-setting-section data-title={category}>
+                <div {...stylex.attrs(styles.groupHead)}>
+                  <h3 {...stylex.attrs(styles.groupTitle)}>{category}</h3>
+                  <div {...stylex.attrs(styles.columns)} aria-hidden="true" data-no-highlight>
+                    <span {...stylex.attrs(styles.column)}>Keys</span>
+                    <span {...stylex.attrs(styles.column, styles.columnWide)}>Alternative</span>
+                  </div>
+                </div>
+                <div {...stylex.attrs(styles.rows)} data-setting-rows>
                   <For each={defs()}>{(def) => <ShortcutRow def={def} />}</For>
                 </div>
               </section>
@@ -96,6 +102,9 @@ export function ShortcutSettings() {
           );
         }}
       </For>
+      <p {...stylex.attrs(styles.note)} data-search-hide>
+        Some keys go to the page you're on first. Opening, closing and switching tabs always work.
+      </p>
     </div>
   );
 }
@@ -148,8 +157,32 @@ function ShortcutRow(props: { def: ShortcutDef }) {
       toast({ message: `${formatCombo(combo, platform)} moved from “${owner.label}” to “${props.def.label}”` });
   };
 
+  /** One binding: its keys as keycaps, removed with its ×. */
+  const Chip = (p: { combo: string }) => (
+    <span {...stylex.attrs(styles.chip)} data-shortcut-key={p.combo}>
+      <span {...stylex.attrs(styles.caps)} title={formatCombo(p.combo, platform)}>
+        <For each={comboKeys(p.combo, platform).flatMap((key) => (key === "_" ? ["Shift", "-"] : [key]))}>
+          {(key) => <kbd {...stylex.attrs(styles.kbd)}>{key === "-" ? "−" : key}</kbd>}
+        </For>
+      </span>
+      <button
+        type="button"
+        title="Remove"
+        aria-label={`Remove ${formatCombo(p.combo, platform)}`}
+        onClick={() =>
+          setKeys(
+            props.def.id,
+            keys().filter((k) => k !== p.combo),
+          )
+        }
+        {...stylex.attrs(styles.chipRemove)}
+      >
+        <Icon name="x" size={11} />
+      </button>
+    </span>
+  );
   return (
-    <div {...stylex.attrs(styles.row)} data-shortcut={props.def.id}>
+    <div {...stylex.attrs(stylex.defaultMarker(), styles.row)} data-shortcut={props.def.id}>
       <span {...stylex.attrs(styles.label)}>
         {props.def.label}
         <Show when={isChanged(props.def.id)}>
@@ -157,81 +190,75 @@ function ShortcutRow(props: { def: ShortcutDef }) {
         </Show>
       </span>
       <div {...stylex.attrs(styles.keys)}>
-        <For each={keys()}>
-          {(combo) => (
-            <span {...stylex.attrs(styles.chip)} data-shortcut-key={combo}>
-              <kbd {...stylex.attrs(styles.kbd)}>{formatCombo(combo, platform)}</kbd>
+        <span {...stylex.attrs(styles.slot)}>
+          <Show when={keys()[0]} fallback={<span {...stylex.attrs(styles.notSet)}>Not set</span>}>
+            {(combo) => <Chip combo={combo()} />}
+          </Show>
+        </span>
+        <span {...stylex.attrs(styles.rest)}>
+          <For each={keys().slice(1)}>{(combo) => <Chip combo={combo} />}</For>
+          <Show
+            when={recording()}
+            fallback={
               <button
                 type="button"
-                title="Remove"
-                aria-label={`Remove ${formatCombo(combo, platform)}`}
-                onClick={() =>
-                  setKeys(
-                    props.def.id,
-                    keys().filter((k) => k !== combo),
-                  )
-                }
-                {...stylex.attrs(styles.chipRemove)}
+                title="Add a key"
+                aria-label={`Add a key for ${props.def.label}`}
+                onClick={() => {
+                  setRecording(true);
+                  setRecordingShortcut(true);
+                }}
+                {...stylex.attrs(styles.add)}
+                data-shortcut-add
               >
-                <Icon name="x" size={11} />
+                <Icon name="plus" size={13} />
               </button>
-            </span>
-          )}
-        </For>
-        <Show
-          when={recording()}
-          fallback={
+            }
+          >
             <button
               type="button"
-              title="Add a key"
-              aria-label={`Add a key for ${props.def.label}`}
-              onClick={() => {
-                setRecording(true);
-                setRecordingShortcut(true);
-              }}
-              {...stylex.attrs(styles.add)}
-              data-shortcut-add
+              ref={(el) => queueMicrotask(() => el.focus())}
+              onKeyDown={recordKey}
+              onMouseUp={recordMouse}
+              onBlur={stop}
+              {...stylex.attrs(styles.recording)}
+              data-shortcut-recording
             >
-              <Icon name="plus" size={13} />
+              Press keys or a mouse button… (Esc to cancel)
             </button>
-          }
-        >
-          <button
-            type="button"
-            ref={(el) => queueMicrotask(() => el.focus())}
-            onKeyDown={recordKey}
-            onMouseUp={recordMouse}
-            onBlur={stop}
-            {...stylex.attrs(styles.recording)}
-            data-shortcut-recording
-          >
-            Press keys or a mouse button… (Esc to cancel)
-          </button>
-        </Show>
-        <Show when={isChanged(props.def.id)}>
-          <button
-            type="button"
-            title="Back to the default keys"
-            aria-label={`Reset ${props.def.label}`}
-            onClick={() => reset(props.def.id)}
-            {...stylex.attrs(styles.add)}
-            data-shortcut-reset
-          >
-            <Icon name="rotate-ccw" size={13} />
-          </button>
-        </Show>
+          </Show>
+          <Show when={isChanged(props.def.id)}>
+            <button
+              type="button"
+              title="Back to the default keys"
+              aria-label={`Reset ${props.def.label}`}
+              onClick={() => reset(props.def.id)}
+              {...stylex.attrs(styles.add)}
+              data-shortcut-reset
+            >
+              <Icon name="rotate-ccw" size={13} />
+            </button>
+          </Show>
+        </span>
       </div>
     </div>
   );
 }
 
 const styles = stylex.create({
-  page: { display: "flex", flexDirection: "column", gap: space.lg },
+  page: { display: "flex", flexDirection: "column", gap: space.xl },
   toolbar: { display: "flex", alignItems: "center", gap: space.md },
-  search: { flex: 1, minWidth: 0 },
+  search: { flex: 1, minWidth: 0, paddingLeft: 32, fontSize: font.sm },
   note: { margin: 0, color: colors.muted, fontSize: font.sm },
   group: { display: "flex", flexDirection: "column", gap: space.sm },
-  groupTitle: { margin: 0, fontSize: font.md, fontWeight: 600 },
+  groupTitle: {
+    margin: 0,
+    paddingInline: 1,
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: 600,
+    letterSpacing: "-0.01em",
+  },
   rows: {
     display: "flex",
     flexDirection: "column",
@@ -240,6 +267,7 @@ const styles = stylex.create({
     borderStyle: "solid",
     borderColor: colors.border,
     backgroundColor: colors.surface,
+    boxShadow: "0 1px 2px rgb(0 0 0 / 0.04)",
   },
   row: {
     display: "flex",
@@ -261,27 +289,49 @@ const styles = stylex.create({
     color: colors.accent,
     fontSize: font.xs,
   },
-  keys: { display: "flex", alignItems: "center", justifyContent: "flex-end", flexWrap: "wrap", gap: 6 },
+  keys: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "flex-start",
+    gap: 6,
+    flexShrink: 0,
+    width: 440,
+  },
   chip: {
     display: "inline-flex",
     alignItems: "center",
     gap: 2,
     height: 24,
-    paddingLeft: 8,
-    paddingRight: 2,
-    borderRadius: radius.sm,
+    paddingInline: 0,
+    borderWidth: 0,
+    backgroundColor: "transparent",
+  },
+  kbd: {
+    display: "inline-grid",
+    placeItems: "center",
+    boxSizing: "border-box",
+    minWidth: 23,
+    height: 23,
+    paddingInline: 5,
+    borderRadius: 5,
     borderWidth: 1,
     borderStyle: "solid",
-    borderColor: colors.border,
-    backgroundColor: colors.bg,
+    borderColor: `color-mix(in oklab, ${colors.border}, ${colors.text} 10%)`,
+    borderBottomWidth: 2,
+    backgroundColor: `color-mix(in oklab, ${colors.surface}, ${colors.text} 6%)`,
+    color: colors.text,
+    fontFamily: font.sans,
+    fontSize: font.xs,
+    fontWeight: 500,
+    lineHeight: 1,
   },
-  kbd: { fontFamily: font.mono, fontSize: font.xs, color: colors.text },
   chipRemove: {
     display: "grid",
     placeItems: "center",
-    width: 18,
+    width: { default: 0, [stylex.when.ancestor(":hover")]: 18, [stylex.when.ancestor(":focus-within")]: 18 },
     height: 18,
     padding: 0,
+    overflow: "hidden",
     borderStyle: "none",
     borderRadius: radius.sm,
     backgroundColor: { default: "transparent", ":hover": colors.surfaceHover },
@@ -289,6 +339,12 @@ const styles = stylex.create({
     cursor: "pointer",
   },
   add: {
+    opacity: {
+      default: 0,
+      [stylex.when.ancestor(":hover")]: 1,
+      [stylex.when.ancestor(":focus-within")]: 1,
+      ":focus-visible": 1,
+    },
     display: "grid",
     placeItems: "center",
     width: 24,
@@ -313,4 +369,14 @@ const styles = stylex.create({
     outline: "none",
     cursor: "default",
   },
+  searchBox: { position: "relative", display: "flex", alignItems: "center", flex: 1, minWidth: 0 },
+  searchIcon: { position: "absolute", left: 11, color: colors.muted, pointerEvents: "none" },
+  slot: { display: "flex", flexShrink: 0, width: 160 },
+  caps: { display: "inline-flex", alignItems: "center", gap: 3 },
+  groupHead: { display: "flex", flexDirection: "column", gap: 6 },
+  columns: { display: "flex", alignSelf: "flex-end", gap: 6, width: 440, paddingRight: 17, boxSizing: "content-box" },
+  column: { width: 160, flexShrink: 0, color: colors.muted, fontSize: font.xs, fontWeight: 500 },
+  rest: { display: "flex", alignItems: "center", flexWrap: "wrap", columnGap: 12, rowGap: 6, width: 274 },
+  notSet: { color: colors.muted, fontSize: font.sm },
+  columnWide: { width: 274 },
 });
