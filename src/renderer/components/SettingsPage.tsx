@@ -418,6 +418,7 @@ function filterSettings(root: HTMLElement, words: string[]) {
         const titleHit = matches(el.dataset.title) || together;
         return {
           el,
+          together,
           titleHit,
           items: items.map((item) => ({ item, hit: matches(item.dataset.searchText ?? item.textContent) })),
         };
@@ -433,6 +434,11 @@ function filterSettings(root: HTMLElement, words: string[]) {
         const sectionHit = whole || section.titleHit || section.items.some((i) => i.hit);
         for (const { item, hit } of section.items) {
           const on = show(item, whole || section.titleHit || hit || (sectionHit && "searchAlways" in item.dataset));
+          // In a section shown whole, the rows that didn't match step back.
+          item.toggleAttribute(
+            "data-search-context",
+            on && section.together && !hit && !("searchAlways" in item.dataset),
+          );
           if (on && !("searchAlways" in item.dataset)) count++;
           any ||= on;
         }
@@ -481,7 +487,8 @@ function highlight(root: HTMLElement, words: string[]) {
 
 // The highlight, and what a page shows around its settings (its own search box, notes) left out of search results.
 const highlightCss = `::highlight(settings-search) { background-color: color-mix(in oklab, transparent, ${colors.accent} 17%); color: ${colors.text}; }
-[data-settings-results] [data-search-hide], [data-settings-results] [data-same-title] > div > h2 { display: none !important; }`;
+[data-settings-results] [data-search-hide], [data-settings-results] [data-same-title] > div > h2 { display: none !important; }
+[data-settings-results] [data-search-context] > :first-child { opacity: 0.6; }`;
 
 /** A page's title: a section with the same title doesn't repeat it. */
 const PageTitle = createContext<string>();
@@ -628,7 +635,7 @@ function AppearanceSection() {
           <ColorField value={theme().text} fallback={defaults().text} onChange={(text) => setTheme({ text })} />
         </Row>
       </Section>
-      <Section title="Shape and type">
+      <Section title="Shape and type" description="How round things are, and the interface's font.">
         <Row label="Corners">
           <Segmented
             value={theme().radius ?? "md"}
@@ -2762,7 +2769,7 @@ const styles = stylex.create({
     backgroundColor: `light-dark(${colors.surface}, color-mix(in oklab, ${colors.surface}, ${colors.text} 26%))`,
     color: colors.text,
     fontWeight: 600,
-    boxShadow: `0 1px 2px rgb(0 0 0 / 0.16), inset 0 0 0 1px light-dark(${colors.border}, rgb(255 255 255 / 0.08))`,
+    boxShadow: `0 1px 2px rgb(0 0 0 / 0.16), inset 0 0 0 1px light-dark(${colors.border}, rgb(255 255 255 / 0.14))`,
   },
   toggle: {
     position: "relative",
@@ -3071,6 +3078,6 @@ const styles = stylex.create({
   rowInset: { paddingLeft: 44 },
   installedTitle: { marginBottom: -12, paddingInline: 1 },
   providerToggle: { display: "flex", paddingTop: 5 },
-  presetOtherMode: { filter: "light-dark(none, brightness(0.8))" },
+  presetOtherMode: { filter: "light-dark(none, brightness(0.68) saturate(0.8))" },
   pillPlain: { marginLeft: 0, paddingInline: 8, paddingBlock: 2, fontSize: font.xs },
 });
