@@ -48,6 +48,7 @@ import { pageOf, tabOfContents } from "./webtabs";
 import { findStep, openFind, zoom } from "./pageTools";
 import { bookmarkAllTabs, bookmarkTab, canBookmark, toggleBookmarksBar } from "./bookmarks";
 import { newPrivateWindow, newWindow } from "./windows";
+import { pickAndOpenFiles } from "./files";
 
 export const platform = keyPlatform(window.rune.window.platform);
 
@@ -201,6 +202,7 @@ const actions: Record<string, Action> = {
   "page.inspect": { when: (ctx) => contentsIdOf(ctx) !== undefined, run: (ctx) => devtools(ctx, "inspect") },
 
   "window.new": { run: () => newWindow() },
+  "file.open": { run: () => pickAndOpenFiles() },
   "window.private": { run: () => newPrivateWindow() },
   "window.fullscreen": { run: () => window.rune.window.toggleFullScreen() },
   "window.close": { run: () => window.rune.window.close() },
@@ -215,6 +217,7 @@ const actions: Record<string, Action> = {
   "bookmarks.bar": { run: () => toggleBookmarksBar() },
   "open.history": { run: () => selectApp(HISTORY_VIEW) },
   "open.downloads": { run: () => selectApp(DOWNLOADS_VIEW) },
+  "open.clear-data": { run: () => openSettings("browser-clear") },
   "open.settings": { run: () => openSettings() },
   "open.extensions": { run: () => openSettings("extensions") },
   "open.shortcuts": { run: () => openSettings("shortcuts") },

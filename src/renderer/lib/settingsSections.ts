@@ -125,7 +125,15 @@ export const settingsSections: SettingsSection[] = [
     label: "Privacy and security",
     icon: "shield",
     group: "browser",
-    keywords: "clear browsing data cookies cache third-party do not track https http insecure not secure",
+    keywords: "cookies third-party do not track https http insecure not secure",
+  },
+  {
+    id: "browser-clear",
+    label: "Clear browsing data",
+    icon: "trash",
+    group: "browser",
+    parent: "browser-privacy",
+    keywords: "clear delete browsing history download history cookies site data cache time range",
   },
   {
     id: "browser-sites",

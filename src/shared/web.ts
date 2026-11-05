@@ -269,19 +269,40 @@ export function pageChangesScript(changes: readonly PageChange[]) {
       s.html = (x) => x;
     }
   }
-  // Runs fn now and whenever the page changes (batched per frame).
+  // The page's DOM is only changed once it has settled: loaded, and its scripts idle. Frameworks (React,
+  // Vue, Svelte…) hydrate server-rendered pages right after it loads, and a DOM that changed under them
+  // makes them fail or render it all again.
+  if (!s.settled && !s.pending) {
+    s.pending = [];
+    const settle = () => {
+      if (s.settled) return;
+      s.settled = true;
+      for (const start of s.pending.splice(0)) start();
+    };
+    const idle = () => (window.requestIdleCallback ? requestIdleCallback(settle, { timeout: 2000 }) : setTimeout(settle, 100));
+    if (document.readyState === "complete") idle(); else window.addEventListener("load", idle, { once: true });
+    // A page that never finishes loading (a stuck request) still gets them.
+    setTimeout(settle, 8000);
+  }
+  // Runs fn once the page has settled and whenever it changes (batched per frame).
   const watch = (id, options, fn) => {
     let queued = false;
+    let observer = null;
+    let stopped = false;
     const run = () => {
       queued = false;
       try { fn(); delete s.errors[id]; } catch (e) { s.errors[id] = String((e && e.message) || e); }
     };
-    run();
-    const observer = new MutationObserver(() => {
-      if (!queued) { queued = true; requestAnimationFrame(run); }
-    });
-    observer.observe(document.documentElement, { childList: true, subtree: true, ...options });
-    return () => observer.disconnect();
+    const start = () => {
+      if (stopped) return;
+      run();
+      observer = new MutationObserver(() => {
+        if (!queued) { queued = true; requestAnimationFrame(run); }
+      });
+      observer.observe(document.documentElement, { childList: true, subtree: true, ...options });
+    };
+    if (s.settled) start(); else s.pending.push(start);
+    return () => { stopped = true; if (observer) observer.disconnect(); };
   };
   const place = (anchor, node, position) => {
     if (position === "before") anchor.before(node);
@@ -289,20 +310,49 @@ export function pageChangesScript(changes: readonly PageChange[]) {
     else if (position === "append") anchor.append(node);
     else anchor.after(node);
   };
-  const ours = (el) => !!(el.closest && el.closest("[" + ATTR + "]"));
+  const ours = (el) => !!(el && el.closest && el.closest("[" + ATTR + "]"));
   for (const c of want) {
     if (s.active.has(c.id)) continue;
+    // A selector that doesn't parse is reported now, not once the page has settled.
+    try { document.querySelector(c.selector); } catch (e) { s.errors[c.id] = String((e && e.message) || e); }
     let undo = () => {};
     if (c.action === "text") {
+      // The page's own text nodes are changed in place, never replaced: frameworks keep references to
+      // them, and one they no longer find breaks their next update (React's "removeChild" errors). The
+      // first one with text gets the new text, the others with text are emptied; elements inside stay.
       const original = new Map();
+      const textNodes = (el) => {
+        const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+        const nodes = [];
+        while (walker.nextNode()) if (!ours(walker.currentNode.parentElement)) nodes.push(walker.currentNode);
+        return nodes;
+      };
+      const set = (node, value) => {
+        if (!original.has(node)) original.set(node, node.nodeValue);
+        if (node.nodeValue !== value) node.nodeValue = value;
+      };
       const stop = watch(c.id, { characterData: true }, () => {
         for (const el of document.querySelectorAll(c.selector)) {
           if (ours(el)) continue;
-          if (!original.has(el)) original.set(el, el.textContent);
-          if (el.textContent !== c.value) el.textContent = c.value;
+          const nodes = textNodes(el);
+          const main = nodes.find((n) => n.nodeValue.trim()) || nodes[0];
+          if (!main) {
+            const added = document.createTextNode(c.value);
+            original.set(added, null);
+            el.append(added);
+            continue;
+          }
+          set(main, c.value);
+          for (const node of nodes) if (node !== main && node.nodeValue.trim()) set(node, "");
         }
       });
-      undo = () => { stop(); for (const [el, text] of original) if (el.isConnected) el.textContent = text; };
+      undo = () => {
+        stop();
+        for (const [node, value] of original) {
+          if (!node.isConnected) continue;
+          if (value === null) node.remove(); else node.nodeValue = value;
+        }
+      };
     } else if (c.action === "attribute") {
       const original = new Map();
       const stop = watch(c.id, { attributes: true, attributeFilter: [c.name] }, () => {

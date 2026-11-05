@@ -2640,6 +2640,21 @@ const visitRoutes = HttpRouter.addAll([
       }),
     ),
   ),
+  // The sites visited since a time (Clear browsing data clears their cookies and cache for a time range).
+  HttpRouter.route(
+    "GET",
+    "/api/visits/origins",
+    handle(
+      Effect.gen(function* () {
+        const workspaceId = yield* optionalWorkspace;
+        const since = new URL((yield* HttpServerRequest.HttpServerRequest).url, "http://localhost").searchParams.get(
+          "since",
+        );
+        if (!since || Number.isNaN(Date.parse(since))) return yield* fail(400, "since must be a time");
+        return json(yield* (yield* Visits).origins(workspaceId, new Date(since).toISOString()));
+      }),
+    ),
+  ),
   // Clears the history since a time (everything without one): the workspace's, or every workspace's.
   HttpRouter.route(
     "POST",

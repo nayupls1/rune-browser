@@ -36,6 +36,12 @@ export async function openFile(path: string, options: { tabId?: string; backgrou
   else window.rune.web.download(isPrivate ? PRIVATE_WORKSPACE : (currentWorkspace()?.id ?? DEFAULT_WORKSPACE), url);
 }
 
+/** Ctrl+O: files picked from the system's dialog open in new tabs, the first one shown (like Chrome). */
+export async function pickAndOpenFiles() {
+  const paths = await window.rune.pickFiles();
+  for (const [i, path] of paths.entries()) await openFile(path, { background: i > 0 });
+}
+
 /** Where the chat can show a chat file (an <img> src: carries the window's token). */
 export const chatFileUrl = (tabId: string, path: string) =>
   `${window.rune.serverUrl}/api/apps/${tabId}/files/raw?path=${encodeURIComponent(path)}&token=${encodeURIComponent(window.rune.token)}`;

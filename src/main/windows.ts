@@ -70,6 +70,41 @@ export interface WindowManagerOptions {
   onCreated: (win: BrowserWindow) => void;
 }
 
+/**
+ * macOS: a window that went into its native fullscreen for a page (a video) comes back out once the page
+ * leaves it. macOS animates in and out and can drop a change asked for while it animates, which left the
+ * window fullscreen and the page waiting to leave (NAT-105). So when an animation ends, and a moment after
+ * the page left, a window still fullscreen for a page that's no longer fullscreen leaves too. The user's
+ * own fullscreen (the green button, Ctrl+Cmd+F) is left alone.
+ */
+function followPageFullScreen(win: BrowserWindow) {
+  /** The fullscreen state after the last animation (isFullScreen() changes while one runs). */
+  let native = win.isFullScreen();
+  let forPage = false;
+  let pageFullScreen = false;
+  const follow = () => {
+    if (win.isDestroyed() || pageFullScreen || !forPage) return;
+    if (win.isFullScreen()) win.setFullScreen(false);
+    else forPage = false;
+  };
+  win.on("enter-html-full-screen", () => {
+    if (!native && !pageFullScreen) forPage = true;
+    pageFullScreen = true;
+  });
+  win.on("leave-html-full-screen", () => {
+    pageFullScreen = false;
+    setTimeout(follow, 1500);
+  });
+  win.on("enter-full-screen", () => {
+    native = true;
+    follow();
+  });
+  win.on("leave-full-screen", () => {
+    native = false;
+    if (!pageFullScreen) forPage = false;
+  });
+}
+
 export function createWindowManager(options: WindowManagerOptions) {
   const file = join(app.getPath("userData"), "windows.json");
   const live = new Map<number, Live>();
@@ -224,6 +259,7 @@ export function createWindowManager(options: WindowManagerOptions) {
       if (entry.private && ![...live.values()].some((w) => w.private)) void clearPrivate();
     });
 
+    if (process.platform === "darwin") followPageFullScreen(win);
     options.onCreated(win);
     const url = new URL(options.rendererUrl);
     url.searchParams.set("window", saved.id);

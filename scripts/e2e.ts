@@ -2081,6 +2081,8 @@ try {
     const site = { type: "site", value: "127.0.0.1" };
     const add = (change: Record<string, unknown>) =>
       apiCall<{ id: string }>("/api/page-changes", { method: "POST", body: change });
+    // The headline's text node, held like a framework (React) holds the nodes it rendered.
+    await inPage(`window.__heldText = document.querySelector("#headline").firstChild, true`);
     const hide = await add({ title: "Hide the buy button", scope: site, action: "hide", selector: ".cta" });
     const text = await add({
       title: "New headline",
@@ -2110,6 +2112,17 @@ try {
 
     await until(`getComputedStyle(document.querySelector(".cta")).display === "none"`, "hidden");
     await until(`document.querySelector("#headline").textContent === "Changed headline"`, "text");
+    // The text changed in the page's own node, so a framework updating or removing it keeps working, and
+    // the change comes back after it.
+    await until(`window.__heldText.parentNode === document.querySelector("#headline")`, "text changed in place");
+    await inPage(`window.__heldText.nodeValue = "Framework update", true`);
+    await until(`window.__heldText.nodeValue === "Changed headline"`, "text after the framework's update");
+    await inPage(`document.querySelector("#headline").removeChild(window.__heldText), true`);
+    await until(`document.querySelector("#headline").textContent === "Changed headline"`, "text after removal");
+    await inPage(
+      `window.__heldText.nodeValue = "Hello from the test site", document.querySelector("#headline").replaceChildren(window.__heldText), true`,
+    );
+    await until(`window.__heldText.nodeValue === "Changed headline"`, "text after the framework rendered again");
     await until(`document.querySelector("#headline + .added")?.textContent === "Inserted note"`, "inserted");
     await until(`document.querySelector(".lead").title === "tip"`, "attribute");
     // Content the page adds later gets the changes too.
@@ -4196,6 +4209,25 @@ try {
         await go("rune settings", "Searched");
         const results = await inPage<string>(`document.querySelector("h1").textContent`);
         if (results !== "Results for rune settings") throw new Error(`searched: ${results}`);
+
+        // Ctrl+Shift+Delete (macOS Cmd+Shift+Backspace) opens Clear browsing data. For a time range, cookies go
+        // for the sites visited in it (Electron can't clear them by time): the test site's, here.
+        step = "clearing data for a time range";
+        const macKeys = process.platform === "darwin";
+        await page!.eval(
+          `window.dispatchEvent(new KeyboardEvent("keydown", { key: "${macKeys ? "Backspace" : "Delete"}", code: "${macKeys ? "Backspace" : "Delete"}", ${macKeys ? "metaKey" : "ctrlKey"}: true, shiftKey: true, bubbles: true })), true`,
+        );
+        await page!.waitFor(`!!document.querySelector('[data-settings-part="browser-clear"] [data-clear-range]')`, {
+          label: "Clear browsing data",
+        });
+        await choose("[data-clear-range]", "hour");
+        await click("[data-clear-history]");
+        await click("[data-clear-data]");
+        await confirm();
+        await click(`nav li[data-app-id="${tabId}"]`);
+        await waitForValue(async () => ((await inPage<string>(`document.cookie`)) === "" ? true : undefined), 10_000);
+        await reloadFeed();
+        await waitForValue(async () => ((await inPage<string>(`document.cookie`)).includes("sid=") ? true : undefined));
 
         // Clearing cookies and site data of this workspace.
         step = "clearing data";

@@ -12,6 +12,7 @@ open page and saves changes that apply on every visit. It gets only the page too
 - **What:** hide elements, restyle them (CSS declarations), replace their text, set an attribute, insert HTML next to or inside them, add a button with a click handler, or a stylesheet or script.
 - **Where:** a site (host; what the agent uses by default, so a change stays when you move around the site), a pattern (`*.example.com/*`, `example.com/docs/*`; `*.` also covers the bare domain), or one page (host and path, ignoring query and hash) when you ask for just that page. A change's scope can be changed from its row (click where it applies).
 - **Lasting:** they're applied on every load and in single-page apps on in-page navigation. A MutationObserver applies them to content the page adds later. CSS goes in through `insertCSS`, so pages' content security policies don't block it, and button handlers are compiled with the injected script rather than `eval`ed.
+- **Framework-safe:** React, Vue, Svelte and Angular keep references to the DOM nodes they render, so changes never replace them: new text goes into the element's own text nodes (the first with text; the others with text are emptied, elements inside stay), and inserted elements and buttons go next to the page's. Changes to the DOM wait until the page has loaded and its scripts are idle (8 seconds at most), so they don't disturb hydration; CSS applies right away. When a framework renders an element again, the change comes back.
 - **Visible:** the paintbrush in the address bar lists every change on the page (and the site's CSS/JS override) with a switch and a remove button, and Settings → Web tools lists all of them. Turning one off undoes it in place; only scripts need a reload, since what they did can't be taken back.
 - **Tools:** the website agent uses `add_page_change`, `update_page_change`, `remove_page_change` and `list_page_changes`, and asks per site or pattern first (`agent.site`). The API is `/api/page-changes`.
 - **History:** changes are part of the site customizations' snapshots (`@changes/<id>.json`). The agent improves an existing change rather than adding another, and has `list_snapshots`, `view_snapshot` and `restore_snapshot` (only the site it's on; the app builder has the same for its app). Agents can't delete snapshots.
@@ -88,9 +89,13 @@ Browser's own settings (`components/BrowserSettings.tsx`, `shared/browser.ts`). 
 settings; cookies and site data stay per workspace. The renderer sends them to the main process whenever they change
 (`main/browser.ts`), which puts them into effect in web tabs:
 
-- **Privacy and security:** clear browsing history (of a time range), cookies and other site data and/or the cache, of
-  this workspace or all of them (extensions keep their data, like in Chrome); the warning before insecure sites; block
-  third-party cookies; send Do Not Track.
+- **Privacy and security:** the warning before insecure sites; block third-party cookies; send Do Not Track.
+- **Clear browsing data** (Ctrl+Shift+Delete, macOS Cmd+Shift+Backspace; rune://settings/clearBrowserData): browsing
+  history, download history (the files stay), cookies and other site data, and the cache, for the last hour, 24
+  hours, 7 days, 4 weeks or all time, of this workspace or all of them. Extensions keep their data, like in Chrome.
+  Electron can't clear cookies or the cache by time, so for a time range they're cleared for the sites visited in it
+  (from history, read before history is cleared; a page's parent domains' cookies too, mail.example.com's
+  example.com ones). All time clears them everywhere.
 - **Site settings:** location, camera, microphone, notifications, MIDI devices, clipboard, screen sharing, your device
   use (idle detection), window management, fonts, file editing, embedded content (storage access) and local network
   access (permissions: sites can ask, or not; see [Site permission prompts](#site-permission-prompts)), JavaScript, images and sound (content: allowed or not), each with a default and per site. A site is a
@@ -172,7 +177,7 @@ Web tabs keep a history of the pages they visited, like other browsers (`db/Visi
 
 - **What's recorded:** websites and local files a web tab goes to, with the page's title, icon and the time. Blank, extension and `data:` pages aren't, a change of only the `#hash` isn't another visit, and a page that moves on before it has a title, within a moment, was a redirect: only where it went is recorded. The server records a visit when a tab reports a new address (`PATCH /api/apps/:id/page`, or opening a tab at an address). Visits stay when their tab is closed, go with their workspace, and are kept for 90 days.
 - **The History page** (Ctrl+H, macOS Cmd+Y; the command bar's "Open History"; Settings → History; macOS: History → Show All History): visits grouped by day, newest first, searchable by title and address, for the current workspace or all of them. A click opens the page in a new tab (Ctrl+click or a middle click: in the background).
-- **Deleting:** a visit's ×, or [clear browsing data](#browser-settings) (the History page's "Clear browsing data" opens it): browsing history of the last hour, 24 hours, 7 days, 4 weeks, or all time, in this workspace or every workspace, along with cookies and the cache if you like. Clearing history is in Activity (`history.clear`), without the pages.
+- **Deleting:** a visit's ×, or [clear browsing data](#browser-settings) (the History page's "Clear browsing data" opens it): browsing history of the last hour, 24 hours, 7 days, 4 weeks, or all time, in this workspace or every workspace, along with download history, cookies and the cache if you like. Clearing history is in Activity (`history.clear`), without the pages.
 - **The address bar** suggests pages from the workspace's history as you type (`GET /api/visits/suggest`): the site you're typing first, then pages whose title matches, then the rest, the often and recently visited ones higher.
 - **Private windows** record no history, the address bar there suggests none, and their History page shows none.
 - **Agents** don't see browsing history, and extensions' `chrome.history` stays empty.
@@ -361,8 +366,9 @@ The rest of Chromium (settings, internal pages, everyday behavior) is in [Chromi
 | Search in the address bar (Ctrl+K)                                                                 | Different: the command bar, which also searches                              |
 | Bookmark manager (Ctrl+Shift+O, macOS Cmd+Option+B)                                                | Same: the Bookmarks page                                                     |
 | New window (Ctrl+N), private window (Ctrl+Shift+N)                                                 | Same (see [Windows](interface.md#windows))                                   |
-| Open file (Ctrl+O)                                                                                 | Not yet                                                                      |
-| Clear browsing data (Ctrl+Shift+Delete), task manager (Shift+Esc), caret browsing (F7)             | Not yet                                                                      |
+| Open file (Ctrl+O)                                                                                 | Same: the files open in new tabs (what can't be shown is downloaded)         |
+| Clear browsing data (Ctrl+Shift+Delete, macOS Cmd+Shift+Backspace)                                 | Same: Settings → Privacy and security → Clear browsing data                  |
+| Task manager (Shift+Esc), caret browsing (F7)                                                      | Not yet                                                                      |
 | Home (Alt+Home), menu (Alt+F, F10), focus toolbar (Alt+Shift+T)                                    | Not applicable: no home page; the ⋯ menu has no shortcut                     |
 
 Rune Browser's own: the command bar (Ctrl+K), the agent (Ctrl+I; Ctrl+J is Chromium's downloads), the sidebar (Ctrl+Shift+B), workspaces 1–9

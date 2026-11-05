@@ -37,6 +37,7 @@ const bridge: RuneBridge = {
     reopen: (windowId) => ipcRenderer.invoke("rune:window-reopen", windowId),
   },
   pickFolder: (title) => ipcRenderer.invoke("rune:pick-folder", title),
+  pickFiles: () => ipcRenderer.invoke("rune:pick-files"),
   versions: {
     electron: process.versions.electron ?? "",
     chrome: process.versions.chrome ?? "",
@@ -71,7 +72,7 @@ const bridge: RuneBridge = {
   downloads: {
     list: () => ipcRenderer.invoke("rune:downloads-list"),
     act: (id, action) => ipcRenderer.invoke("rune:downloads-act", id, action),
-    clear: () => ipcRenderer.invoke("rune:downloads-clear"),
+    clear: (which) => ipcRenderer.invoke("rune:downloads-clear", which),
     onChanged: listen("rune:downloads-changed"),
   },
   web: {

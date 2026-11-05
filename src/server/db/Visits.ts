@@ -125,6 +125,24 @@ export const make = Effect.gen(function* () {
         return rows.length;
       }),
 
+    /**
+     * The sites (scheme, host and port) visited since a time, in a workspace or all: what "Clear browsing
+     * data" clears cookies and the cache of for a time range (Electron can't clear them by time).
+     */
+    origins: (workspaceId: string | null, since: string) =>
+      Effect.gen(function* () {
+        const where = [...(workspaceId ? [sql`workspace_id = ${workspaceId}`] : []), sql`visited_at >= ${since}`];
+        const rows = yield* sql<{ url: string }>`SELECT DISTINCT url FROM visits WHERE ${sql.and(where)}`;
+        const origins = new Set<string>();
+        for (const { url } of rows) {
+          try {
+            const u = new URL(url);
+            if (u.protocol === "http:" || u.protocol === "https:") origins.add(u.origin);
+          } catch {}
+        }
+        return [...origins].sort();
+      }),
+
     /** Removes the visits since a time (all of them without one), in a workspace or all; returns how many. */
     clear: (workspaceId: string | null, since: string | null) =>
       Effect.gen(function* () {

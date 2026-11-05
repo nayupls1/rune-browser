@@ -193,6 +193,7 @@ export const shortcutDefs: ShortcutDef[] = [
 
   // --- Window
   { id: "window.new", label: "New window", category: "Window", keys: ["Mod+N"], page: "reserved" },
+  { id: "file.open", label: "Open file", category: "Window", keys: ["Mod+O"], page: "page" },
   { id: "window.private", label: "New private window", category: "Window", keys: ["Mod+Shift+N"], page: "reserved" },
   {
     id: "window.fullscreen",
@@ -233,6 +234,14 @@ export const shortcutDefs: ShortcutDef[] = [
     category: "Browser",
     keys: ["Mod+J"],
     mac: ["Meta+Shift+J", "Alt+Meta+L"],
+    page: "page",
+  },
+  {
+    id: "open.clear-data",
+    label: "Clear browsing data",
+    category: "Browser",
+    keys: ["Ctrl+Shift+Delete"],
+    mac: ["Meta+Shift+Backspace"],
     page: "page",
   },
   { id: "open.settings", label: "Settings", category: "Browser", keys: ["Mod+,"], page: "page" },

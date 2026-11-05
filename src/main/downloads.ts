@@ -414,12 +414,24 @@ export function setupDownloads(options: {
     if (!d || !senderShows(event)(d) || typeof action !== "string") return "Not allowed";
     return act(d.id, action as DownloadAction);
   });
-  // Like Chromium's "Clear all": what's still running or waiting for an OK stays.
-  ipcMain.handle("rune:downloads-clear", (event) => {
+  // Like Chromium's "Clear all": what's still running or waiting for an OK stays. Clear browsing data
+  // ("Download history") only clears what started in its time range, from its workspaces.
+  ipcMain.handle("rune:downloads-clear", (event, which: unknown) => {
     const shown = senderShows(event);
+    const w = (which ?? {}) as { since?: unknown; workspaceIds?: unknown };
+    const since = typeof w.since === "number" ? w.since : 0;
+    const from = Array.isArray(w.workspaceIds) ? new Set(w.workspaceIds) : null;
     // A kept risky file still getting its name stays too.
     return forget(
-      list.filter((d) => shown(d) && d.state !== "progressing" && !needsDecision(d) && !(d.kept && d.unconfirmedPath)),
+      list.filter(
+        (d) =>
+          shown(d) &&
+          d.startedAt >= since &&
+          (!from || (d.workspaceId !== null && from.has(d.workspaceId))) &&
+          d.state !== "progressing" &&
+          !needsDecision(d) &&
+          !(d.kept && d.unconfirmedPath),
+      ),
     );
   });
 

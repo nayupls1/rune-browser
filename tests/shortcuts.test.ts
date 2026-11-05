@@ -151,6 +151,10 @@ describe("the keymap", () => {
     expect(on(linux, key("O", "KeyO", { ctrl: true, shift: true }))).toBe("open.bookmarks");
     expect(on(mac, key("∫", "KeyB", { alt: true, meta: true }))).toBe("open.bookmarks");
     expect(resolveBindings("linux")["tab.pin"]).toEqual([]);
+    expect(on(linux, key("Delete", "Delete", { ctrl: true, shift: true }))).toBe("open.clear-data");
+    expect(on(mac, key("Backspace", "Backspace", { meta: true, shift: true }))).toBe("open.clear-data");
+    expect(on(windows, key("o", "KeyO", { ctrl: true }))).toBe("file.open");
+    expect(on(mac, key("o", "KeyO", { meta: true }))).toBe("file.open");
     expect(on(linux, key("2", "Digit2", { ctrl: true, alt: true }))).toBe("workspace.select-2");
   });
 

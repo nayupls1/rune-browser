@@ -135,6 +135,14 @@ ipcMain.handle("rune:pick-folder", async (event, title: unknown) => {
   return picked.canceled ? null : (picked.filePaths[0] ?? null);
 });
 
+// Files of the user's to open in tabs (Ctrl+O, like Chromium's "Open file").
+ipcMain.handle("rune:pick-files", async (event) => {
+  const win = windows.of(event.sender);
+  if (!win || !windows.isUi(event.sender)) return [];
+  const picked = await dialog.showOpenDialog(win, { title: "Open file", properties: ["openFile", "multiSelections"] });
+  return picked.canceled ? [] : picked.filePaths;
+});
+
 function registerAppProtocol() {
   const root = join(distDir, "renderer");
   protocol.handle(APP_SCHEME, (req) => {

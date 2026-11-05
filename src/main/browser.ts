@@ -196,18 +196,68 @@ export function setupBrowser(options: BrowserOptions) {
   /** Extensions keep their data: it's theirs, not a site's (like in Chrome). */
   const extensionOrigins = (s: Session) => s.extensions.getAllExtensions().map((e) => `chrome-extension://${e.id}`);
 
+  /**
+   * Clears sites' data (their subdomains' too) in a session: cookies and other site data, the cache, or
+   * both. `visited`: the origins of pages visited, cleared too, with the cookies of the parent domains
+   * those pages got (mail.example.com gets example.com's).
+   */
+  async function clearSites(
+    s: Session,
+    sites: ReadonlySet<string>,
+    what: { cookies: boolean; cache: boolean },
+    visited: readonly string[] = [],
+  ) {
+    const keys = [...sites].filter((key) => /^[a-z0-9.-]+$/.test(key));
+    if (!keys.length || (!what.cookies && !what.cache)) return;
+    const all = new Set(visited);
+    const parents = visited.length > 0;
+    for (const key of keys) for (const host of [key, `www.${key}`]) all.add(`https://${host}`).add(`http://${host}`);
+    for (const c of await s.cookies.get({})) {
+      const domain = (c.domain ?? "").replace(/^\./, "");
+      if (!keys.some((key) => coversHost(key, domain) || (parents && coversHost(domain, key)))) continue;
+      all.add(`https://${domain}`).add(`http://${domain}`);
+      if (!what.cookies) continue;
+      const url = `${c.secure ? "https" : "http"}://${domain}${c.path ?? "/"}`;
+      await s.cookies.remove(url, c.name).catch(() => {});
+    }
+    const dataTypes: NonNullable<Electron.ClearDataOptions["dataTypes"]> = [
+      ...(what.cookies ? SITE_DATA : []),
+      ...(what.cache ? (["cache"] as const) : []),
+    ];
+    await s.clearData({ dataTypes, origins: [...all] });
+  }
+
+  /** Web origins (scheme, host and port), checked: what the renderer says was visited. */
+  const webOrigins = (value: unknown) =>
+    (Array.isArray(value) ? value : [])
+      .slice(0, 10_000)
+      .filter((o): o is string => typeof o === "string" && /^https?:\/\/[a-z0-9.-]+(:\d+)?$/i.test(o))
+      .map((o) => o.toLowerCase());
+
+  /**
+   * Clears cookies and other site data, the cache, or both. With `origins` (a time range: Electron can't clear
+   * by time), only the sites of those origins (the ones visited in that time); otherwise everything.
+   */
   ipcMain.handle("rune:browser-clear-data", async (event, workspaceIds: unknown, what: unknown) => {
     if (!fromWindow(event.sender) || !Array.isArray(workspaceIds)) return;
-    const w = (what ?? {}) as { cookies?: unknown; cache?: unknown };
-    const dataTypes: NonNullable<Electron.ClearDataOptions["dataTypes"]> = [];
-    if (w.cookies === true) dataTypes.push("cookies", ...SITE_DATA);
-    if (w.cache === true) dataTypes.push("cache");
-    if (!dataTypes.length) return;
+    const w = (what ?? {}) as { cookies?: unknown; cache?: unknown; origins?: unknown };
+    const parts = { cookies: w.cookies === true, cache: w.cache === true };
+    if (!parts.cookies && !parts.cache) return;
+    const ranged = Array.isArray(w.origins);
+    const origins = webOrigins(w.origins);
+    const sites = new Set(origins.map((o) => siteOf(hostOf(o))).filter(Boolean));
     for (const id of workspaceIds.filter(validWorkspace)) {
       const s = options.webSession(id);
+      if (ranged) {
+        await clearSites(s, sites, parts, origins);
+        continue;
+      }
+      const dataTypes: NonNullable<Electron.ClearDataOptions["dataTypes"]> = [];
+      if (parts.cookies) dataTypes.push("cookies", ...SITE_DATA);
+      if (parts.cache) dataTypes.push("cache");
       const excludeOrigins = extensionOrigins(s);
       await s.clearData({ dataTypes, ...(excludeOrigins.length ? { excludeOrigins } : {}) });
-      if (w.cache === true) await s.clearCache();
+      if (parts.cache) await s.clearCache();
     }
   });
 
@@ -226,20 +276,8 @@ export function setupBrowser(options: BrowserOptions) {
   /** Clears a site's cookies and other data (its subdomains' too) in the given workspaces. */
   ipcMain.handle("rune:browser-clear-site", async (event, workspaceIds: unknown, site: unknown) => {
     if (!fromWindow(event.sender) || !Array.isArray(workspaceIds) || typeof site !== "string") return;
-    const key = siteOf(site);
-    if (!/^[a-z0-9.-]+$/.test(key)) return;
-    for (const id of workspaceIds.filter(validWorkspace)) {
-      const s = options.webSession(id);
-      const origins = new Set([`https://${key}`, `http://${key}`, `https://www.${key}`, `http://www.${key}`]);
-      for (const c of await s.cookies.get({})) {
-        const domain = (c.domain ?? "").replace(/^\./, "");
-        if (!coversHost(key, domain)) continue;
-        const url = `${c.secure ? "https" : "http"}://${domain}${c.path ?? "/"}`;
-        origins.add(`https://${domain}`).add(`http://${domain}`);
-        await s.cookies.remove(url, c.name).catch(() => {});
-      }
-      await s.clearData({ dataTypes: [...SITE_DATA, "cache"], origins: [...origins] });
-    }
+    for (const id of workspaceIds.filter(validWorkspace))
+      await clearSites(options.webSession(id), new Set([siteOf(site)]), { cookies: true, cache: true });
   });
 
   // --- Import -------------------------------------------------------------------------------------

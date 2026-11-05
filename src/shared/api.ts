@@ -94,6 +94,8 @@ export interface RuneBridge {
   };
   /** Asks for a folder (a system dialog); null if none was picked. */
   pickFolder: (title: string) => Promise<string | null>;
+  /** Files to open (Ctrl+O): their paths, none if cancelled. */
+  pickFiles: () => Promise<string[]>;
   serverUrl: string;
   /** Sent with every request to the Rune Browser server (and the hub). */
   token: string;
@@ -140,8 +142,14 @@ export interface RuneBridge {
   browser: {
     /** The settings changed: they apply to web tabs. */
     setSettings: (settings: BrowserSettings) => void;
-    /** Clears cookies and site data and/or the cache of these workspaces' web tabs (extensions keep theirs). */
-    clearData: (workspaceIds: string[], what: { cookies: boolean; cache: boolean }) => Promise<void>;
+    /**
+     * Clears cookies and site data and/or the cache of these workspaces' web tabs (extensions keep theirs):
+     * all of it, or with `origins` only those sites' (the ones visited in a time range).
+     */
+    clearData: (
+      workspaceIds: string[],
+      what: { cookies: boolean; cache: boolean; origins?: string[] },
+    ) => Promise<void>;
     /** The sites with cookies in a workspace. */
     siteData: (workspaceId: string) => Promise<{ site: string; cookies: number }[]>;
     /** Clears a site's cookies and data (its subdomains' too) in these workspaces. */
@@ -157,8 +165,11 @@ export interface RuneBridge {
     list: () => Promise<DownloadInfo[]>;
     /** Resolves to a problem to show, or null. */
     act: (id: string, action: DownloadAction) => Promise<string | null>;
-    /** Removes what's finished from the list (the files stay). */
-    clear: () => Promise<void>;
+    /**
+     * Removes what's finished from the list (the files stay). Clear browsing data's "Download history" passes
+     * which: started since a time (ms), from these workspaces (null: from anywhere).
+     */
+    clear: (which?: { since: number | null; workspaceIds: string[] | null }) => Promise<void>;
     onChanged: (fn: (change: DownloadsChange) => void) => () => void;
   };
   web: {
