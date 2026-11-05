@@ -124,13 +124,15 @@ export function ClearDataSection() {
   const nothing = () => !history() && !downloads() && !cookies() && !cache();
   const ranged = () => clearRanges.find((r) => r.id === range())!.ms !== null;
   const clear = async () => {
+    // What's checked now: changing it while the dialog is open or while clearing doesn't change this run.
+    const chosen = { history: history(), downloads: downloads(), cookies: cookies(), cache: cache() };
     const all = everywhere() === "all";
     const period = clearRanges.find((r) => r.id === range())!;
     const what = [
-      history() ? "browsing history" : null,
-      downloads() ? "download history" : null,
-      cookies() ? "cookies and other site data" : null,
-      cache() ? "cached images and files" : null,
+      chosen.history ? "browsing history" : null,
+      chosen.downloads ? "download history" : null,
+      chosen.cookies ? "cookies and other site data" : null,
+      chosen.cache ? "cached images and files" : null,
     ]
       .filter(Boolean)
       .join(", ")
@@ -145,13 +147,13 @@ export function ClearDataSection() {
       const since = period.ms === null ? null : Date.now() - period.ms;
       const sinceIso = since === null ? null : new Date(since).toISOString();
       // Cookies and the cache first: for a time range, which sites they're cleared for comes from history.
-      if (cookies() || cache())
+      if (chosen.cookies || chosen.cache)
         for (const id of ids) {
           const origins = sinceIso === null ? undefined : await api.visitedOrigins(id, sinceIso);
-          await window.rune.browser.clearData([id], { cookies: cookies(), cache: cache(), origins });
+          await window.rune.browser.clearData([id], { cookies: chosen.cookies, cache: chosen.cache, origins });
         }
-      if (history()) await api.clearVisits(all ? null : ids[0]!, sinceIso);
-      if (downloads()) await window.rune.downloads.clear({ since, workspaceIds: all ? null : ids });
+      if (chosen.history) await api.clearVisits(all ? null : ids[0]!, sinceIso);
+      if (chosen.downloads) await window.rune.downloads.clear({ since, workspaceIds: all ? null : ids });
       toast({ message: "Browsing data cleared", kind: "success" });
     } catch (err) {
       toast({ title: "Clearing browsing data failed", message: String(err), kind: "error" });

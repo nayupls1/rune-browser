@@ -4211,8 +4211,11 @@ try {
         if (results !== "Results for rune settings") throw new Error(`searched: ${results}`);
 
         // Ctrl+Shift+Delete (macOS Cmd+Shift+Backspace) opens Clear browsing data. For a time range, cookies go
-        // for the sites visited in it (Electron can't clear them by time): the test site's, here.
+        // for the sites visited in it (Electron can't clear them by time): the test site's, here. Checked on the
+        // feed page, whose cookie it is.
         step = "clearing data for a time range";
+        await go(`${site.url.origin}/feed`, "Feed");
+        await waitForValue(async () => ((await inPage<string>(`document.cookie`)).includes("sid=") ? true : undefined));
         const macKeys = process.platform === "darwin";
         await page!.eval(
           `window.dispatchEvent(new KeyboardEvent("keydown", { key: "${macKeys ? "Backspace" : "Delete"}", code: "${macKeys ? "Backspace" : "Delete"}", ${macKeys ? "metaKey" : "ctrlKey"}: true, shiftKey: true, bubbles: true })), true`,
@@ -4224,6 +4227,9 @@ try {
         await click("[data-clear-history]");
         await click("[data-clear-data]");
         await confirm();
+        // Back to the defaults (all time, history too) for the clearing below.
+        await choose("[data-clear-range]", "all");
+        await click("[data-clear-history]");
         await click(`nav li[data-app-id="${tabId}"]`);
         await waitForValue(async () => ((await inPage<string>(`document.cookie`)) === "" ? true : undefined), 10_000);
         await reloadFeed();
