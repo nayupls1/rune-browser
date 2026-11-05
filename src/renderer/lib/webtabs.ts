@@ -34,7 +34,6 @@ import { focusAddress } from "./tabChrome";
 import { toast } from "../components/Toast";
 import { targetScript, waitForScript, type Locator } from "./browse";
 import { readPageScript, type SavedPage } from "./pagestate";
-import { setSidebarCollapsed, toggleSidebar } from "./layout";
 
 export interface PageInfo {
   url: string;

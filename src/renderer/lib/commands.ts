@@ -44,7 +44,7 @@ import {
   isPrivate,
 } from "./store";
 import { newPrivateWindow, newWindow, reopenWindow } from "./windows";
-import { isSidebarCollapsed, toggleSidebar } from "./layout";
+import { isSidebarHidden, toggleSidebar } from "./layout";
 import { removeFromSplit, rotateSplit, splitOf, splitWith, unsplit, visibleTabs } from "./splits";
 import { pageOf } from "./webtabs";
 import { runShortcut } from "./shortcuts";
@@ -546,7 +546,7 @@ function runeCommands(): Command[] {
     },
     {
       id: "sidebar.toggle",
-      title: isSidebarCollapsed() ? "Expand the sidebar" : "Collapse the sidebar",
+      title: isSidebarHidden() ? "Show the sidebar" : "Hide the sidebar",
       keys: "sidebar.toggle",
       icon: "panel-left",
       group: "Rune Browser",

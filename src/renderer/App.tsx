@@ -14,6 +14,7 @@ import { SettingsShell } from "./components/SettingsPage";
 import { paneStyle, SplitChrome, SplitDropZones } from "./components/SplitView";
 import { visibleSplit, visibleTabs } from "./lib/splits";
 import { anyPainting, isPainting } from "./lib/webtabs";
+import { isSidebarHidden } from "./lib/layout";
 import { Sidebar } from "./components/Sidebar";
 import { ToastHost } from "./components/Toast";
 import { Button } from "./components/ui";
@@ -130,7 +131,11 @@ export default function App() {
       <DownloadsPanel />
       <BookmarkEditor />
       <ToastHost />
-      <div {...stylex.attrs(styles.column)}>
+      <div {...stylex.attrs(styles.column, isSidebarHidden() && styles.columnFull)}>
+        {/* The sidebar hidden: the gutter above the page still moves the window (double-click maximizes). */}
+        <Show when={isSidebarHidden()}>
+          <div {...stylex.attrs(styles.dragStrip)} data-titlebar data-drag-strip />
+        </Show>
         <Show when={window.rune.safeMode}>
           <div role="status" {...stylex.attrs(styles.safeMode)} data-safe-mode data-titlebar>
             <Icon name="life-buoy" size={16} />
@@ -261,6 +266,10 @@ const styles = stylex.create({
     paddingBlock: space.sm,
     paddingRight: space.sm,
   },
+  // The sidebar hidden: the page has the window, inset all round.
+  columnFull: { position: "relative", paddingLeft: space.sm },
+  // Below the window's top edge, which resizes it.
+  dragStrip: { position: "absolute", zIndex: 1, top: 3, left: 0, right: 0, height: 5 },
   // Pages scroll vertically; nothing in it should ever scroll the whole area sideways.
   content: {
     position: "relative",

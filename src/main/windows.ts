@@ -379,6 +379,9 @@ export function createWindowManager(options: WindowManagerOptions) {
       win.close();
     } else if (action === "toggle-fullscreen") win.setFullScreen(!win.isFullScreen());
     else if (action === "quit") app.quit();
+    // macOS's traffic lights go with the sidebar while it's hidden (lib/windowChrome.ts).
+    else if ((action === "show-buttons" || action === "hide-buttons") && process.platform === "darwin")
+      win.setWindowButtonVisibility(action === "show-buttons");
     else if (action === "toggle-maximize") {
       if (win.isMaximized()) win.unmaximize();
       else win.maximize();

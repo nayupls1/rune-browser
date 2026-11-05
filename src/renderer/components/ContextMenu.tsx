@@ -22,6 +22,8 @@ export interface MenuItem {
 export interface MenuPosition {
   x: number;
   y: number;
+  /** Opens upwards: `y` is where its bottom goes (a button at the bottom of the window). */
+  above?: boolean;
 }
 
 export function ContextMenu(props: {
@@ -46,7 +48,13 @@ export function ContextMenu(props: {
     const rect = menu.getBoundingClientRect();
     setPos({
       x: Math.max(4, Math.min(props.position.x, window.innerWidth - rect.width - 4)),
-      y: Math.max(4, Math.min(props.position.y, window.innerHeight - rect.height - 4)),
+      y: Math.max(
+        4,
+        Math.min(
+          props.position.above ? props.position.y - rect.height : props.position.y,
+          window.innerHeight - rect.height - 4,
+        ),
+      ),
     });
     buttons()[0]?.focus();
 

@@ -41,7 +41,7 @@ import {
   workspaceTabs,
 } from "./store";
 import { openCommandBar } from "./commands";
-import { isSidebarCollapsed, setSidebarCollapsed, toggleSidebar } from "./layout";
+import { toggleSidebar } from "./layout";
 import { splitOf } from "./splits";
 import { chromeOf, focusAddress } from "./tabChrome";
 import { pageOf, tabOfContents } from "./webtabs";
@@ -96,7 +96,7 @@ const contentsIdOf = (ctx: Context) => {
 /** The tabs in the order the sidebar shows them: pinned tiles, then the list (a split view's tabs together). */
 export function sidebarOrder(): string[] {
   const tabs = workspaceTabs();
-  const isTile = (id: string) => appById(id)?.pinned && !splitOf(id) && !isSidebarCollapsed();
+  const isTile = (id: string) => appById(id)?.pinned && !splitOf(id);
   const order = tabs.filter((t) => isTile(t.id)).map((t) => t.id);
   const seen = new Set<string>();
   for (const tab of tabs) {
@@ -238,7 +238,6 @@ const actions: Record<string, Action> = {
 function focusAddressOf(ctx: Context) {
   // A page in another pane of a split: its tab becomes the one on screen first.
   if (ctx.tabId && ctx.tabId !== selectedId()) void selectApp(ctx.tabId);
-  setSidebarCollapsed(false);
   focusAddress();
 }
 
