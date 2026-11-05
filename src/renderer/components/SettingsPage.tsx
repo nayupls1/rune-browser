@@ -617,7 +617,7 @@ function AppearanceSection() {
             ["sans", "Sans"],
             ["serif", "Serif"],
             ["mono", "Mono"],
-            ["rounded", "Rounded"],
+            ["rounded", "Soft"],
           ]}
           onChange={(font) => setTheme({ font })}
         />
@@ -631,7 +631,7 @@ function ProvidersSection() {
     <Section
       title="Coding agents"
       anchor="providers"
-      description="The coding agents Rune Browser can use. They run on your own logins (Claude Code, Codex, OpenCode); sign in with their CLIs."
+      description="The agents that build your apps, on your own logins. Sign in with their command-line tools."
     >
       <For each={[...providerIds]}>{(id) => <ProviderRow id={id} />}</For>
     </Section>
@@ -875,7 +875,7 @@ export function DefaultBrowserRow() {
     }
   };
   return (
-    <Row label="Default browser" description={description()}>
+    <Row label="Open links from other apps here" description={description()}>
       <span data-default-browser={status()?.state}>
         <Show when={status()?.state === "unsupported"}>
           <Button disabled>Make default</Button>
@@ -991,10 +991,7 @@ function UpdatesSection() {
           </Switch>
         </span>
       </Row>
-      <Row
-        label="Channel"
-        description="Daily also gets builds of the latest changes: new features earlier, and sometimes rough edges."
-      >
+      <Row label="Channel" description="Daily gets new features first, with the odd rough edge.">
         <Segmented
           value={info()?.channel ?? "stable"}
           options={[
@@ -2664,10 +2661,10 @@ const styles = stylex.create({
     outlineColor: colors.accent,
   },
   segmentActive: {
-    backgroundColor: `light-dark(${colors.surface}, color-mix(in oklab, ${colors.surface}, ${colors.text} 14%))`,
+    backgroundColor: `light-dark(${colors.surface}, color-mix(in oklab, ${colors.surface}, ${colors.text} 24%))`,
     color: colors.text,
     fontWeight: 600,
-    boxShadow: "0 1px 2px rgb(0 0 0 / 0.14), 0 0 0 0.5px rgb(0 0 0 / 0.08)",
+    boxShadow: `0 1px 2px rgb(0 0 0 / 0.14), inset 0 0 0 1px light-dark(rgb(0 0 0 / 0.06), rgb(255 255 255 / 0.08))`,
   },
   toggle: {
     position: "relative",
@@ -2916,7 +2913,7 @@ const styles = stylex.create({
   collapsed: { display: "none" },
   resultCount: { margin: 0, color: colors.muted, fontSize: font.sm },
   rowDense: { minHeight: 48, paddingBlock: 8, gap: space.lg },
-  sectionDescription: { margin: 0, maxWidth: "62ch", color: colors.muted, fontSize: 12.5, lineHeight: 1.5 },
+  sectionDescription: { margin: 0, color: colors.muted, fontSize: 12.5, lineHeight: 1.5 },
   navItemQuiet: { color: { default: colors.muted, ":hover": colors.text } },
   navEmpty: { paddingInline: 8, color: colors.muted, fontSize: font.sm },
   toggleSlot: { width: 36, flexShrink: 0 },

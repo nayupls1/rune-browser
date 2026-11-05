@@ -121,7 +121,6 @@ export function BrowsingHistoryPage() {
           </Show>
           {/* Like Chrome's: clearing is one thing, with cookies and the cache, in Privacy and security. */}
           <Button onClick={() => void openSettings("browser-privacy")} data-history-clear>
-            <Icon name="trash" size={14} />
             Clear browsing data
           </Button>
         </div>

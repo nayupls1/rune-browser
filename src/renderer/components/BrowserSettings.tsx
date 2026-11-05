@@ -112,10 +112,7 @@ export function PrivacySection() {
         <Row label="Cached images and files" description="Frees space; some sites load more slowly the next time.">
           <Checkbox checked={cache()} onChange={(e) => setCache(e.currentTarget.checked)} data-clear-cache />
         </Row>
-        <Row
-          label="Time range"
-          description="Applies to browsing history; cookies and cached files are always cleared in full."
-        >
+        <Row label="Time range" description="History only. Cookies and cached files are always cleared in full.">
           <Select
             value={range()}
             onChange={(e) => setRange(e.currentTarget.value as (typeof clearRanges)[number]["id"])}
@@ -124,7 +121,7 @@ export function PrivacySection() {
             <For each={clearRanges}>{(r) => <option value={r.id}>{r.label}</option>}</For>
           </Select>
         </Row>
-        <Row label="Where" description="Each workspace has its own history, cookies and logins.">
+        <Row label="Apply to" description="Each workspace has its own history, cookies and logins.">
           <Segmented
             value={everywhere()}
             options={[
@@ -402,7 +399,7 @@ export function SearchSection() {
   const search = () => browser().search;
   return (
     <Section title="Search engine" anchor="browser-search">
-      <Row label="Search engine used in the address bar" description="When what you type isn't an address.">
+      <Row label="Used in the address bar" description="When what you type isn't an address.">
         <Select
           value={search().engine}
           onChange={(e) => setPart("search", { engine: e.currentTarget.value as BrowserSettings["search"]["engine"] })}
