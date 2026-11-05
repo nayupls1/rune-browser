@@ -244,7 +244,7 @@ const styles = stylex.create({
   page: { display: "flex", flexDirection: "column", gap: space.xl },
   toolbar: { display: "flex", alignItems: "center", gap: space.md },
   search: { flex: 1, minWidth: 0, paddingLeft: 32, fontSize: font.sm },
-  note: { margin: 0, marginTop: -24, color: colors.muted, fontSize: font.sm },
+  note: { margin: 0, color: colors.muted, fontSize: font.sm },
   group: { display: "flex", flexDirection: "column", gap: space.sm },
   groupTitle: {
     margin: 0,

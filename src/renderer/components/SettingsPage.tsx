@@ -4,7 +4,6 @@
 import * as stylex from "@stylexjs/stylex";
 import {
   children,
-  createContext,
   createEffect,
   createResource,
   createSignal,
@@ -14,7 +13,6 @@ import {
   onCleanup,
   Show,
   Switch,
-  useContext,
   type JSX,
 } from "solid-js";
 import {
@@ -302,7 +300,6 @@ export function SettingsShell(props: { view: string }) {
           fallback={
             <div {...stylex.attrs(styles.page)} data-settings-results>
               <header {...stylex.attrs(styles.header)}>
-                <h1 {...stylex.attrs(styles.title)}>Search results</h1>
                 <Show when={found()?.length}>
                   <p {...stylex.attrs(styles.resultCount)} data-settings-result-count>
                     {count() === 1 ? "1 setting" : `${count()} settings`} in{" "}
@@ -485,9 +482,6 @@ const highlightCss = `::highlight(settings-search) { background-color: color-mix
 [data-settings-results] [data-search-hide], [data-settings-results] [data-same-title] > div > h2 { display: none !important; }
 [data-settings-results] [data-search-context] { opacity: 0.6; }`;
 
-/** A page's title: a section with the same title doesn't repeat it. */
-const PageTitle = createContext<string>();
-
 const set = <K extends keyof Settings>(key: K, value: Partial<Settings[K]>) =>
   updateSettings((s) => ({ ...s, [key]: typeof value === "object" ? { ...(s[key] as object), ...value } : value }));
 const setTheme = (value: Partial<GlobalTheme>) => set("theme", value);
@@ -498,13 +492,8 @@ const setAi = (value: Partial<Settings["apps"]["ai"]>) =>
 export function SettingsPage(props: { section: string }) {
   const title = () => sectionById(props.section)?.label ?? "Settings";
   return (
-    <div {...stylex.attrs(styles.page)} data-settings={props.section}>
-      <header {...stylex.attrs(styles.header)}>
-        <h1 {...stylex.attrs(styles.title)}>{title()}</h1>
-      </header>
-      <PageTitle.Provider value={title()}>
-        <CategoryBody section={props.section} />
-      </PageTitle.Provider>
+    <div {...stylex.attrs(styles.page)} data-settings={props.section} aria-label={title()}>
+      <CategoryBody section={props.section} />
     </div>
   );
 }
@@ -665,7 +654,7 @@ function ProvidersSection() {
     <Section
       title="Coding agents"
       anchor="providers"
-      description="The agents that build your apps, on your own logins. Sign in with their command-line tools."
+      description="They run on your own logins; sign in with their command-line tools."
     >
       <For each={[...providerIds]}>{(id) => <ProviderRow id={id} />}</For>
     </Section>
@@ -746,10 +735,7 @@ function WebSection() {
   return (
     <>
       <Section title="Site customizations" anchor="web">
-        <Row
-          label="Site customizations and page changes"
-          description="Apply the changes the agent made to websites (hidden, restyled or added elements, CSS and JavaScript)."
-        >
+        <Row label="Site customizations and page changes" description="Apply what the agent changed on websites.">
           <Toggle checked={settings().web.overrides} onChange={(overrides) => set("web", { overrides })} />
         </Row>
         <SiteRows />
@@ -769,10 +755,7 @@ function WebSection() {
 export function InsecureRows() {
   return (
     <>
-      <Row
-        label="Use secure connections"
-        description="Opens http:// pages over HTTPS when possible and warns before sites that aren't secure. Local addresses never warn."
-      >
+      <Row label="Use secure connections" description="Upgrades to HTTPS and warns before sites that aren't secure.">
         <Toggle checked={settings().web.warnInsecure} onChange={(warnInsecure) => set("web", { warnInsecure })} />
       </Row>
       <Show when={settings().web.insecureAllowed.length}>
@@ -805,14 +788,14 @@ function NetworkSection() {
     <Section title="Network" anchor="network">
       <Row
         label="Record web tabs' traffic"
-        description="Keep each web tab's recent requests (in memory, bounded) for the Network panel and the website agent, which only ever sees them with credentials hidden."
+        description="Recent requests per tab, for the Network panel and the website agent."
       >
         <Toggle checked={settings().web.recordNetwork} onChange={(recordNetwork) => set("web", { recordNetwork })} />
       </Row>
       <NetworkRules />
       <Row
         label="Response overrides"
-        description="What the website agent made sites return in your tabs (other data, errors, failures, slow or no answers) to see every state of a page. Remove one to get the site's real answers again; the address bar shows when a page has any."
+        description="Answers the website agent made sites return. Remove one to get the real ones back."
         wide
       >
         <OverrideRows />
@@ -835,7 +818,7 @@ function AppsSection() {
         </Row>
         <Row
           label="Publish when the agent is done"
-          description="Build the app and switch to the finished version after every agent turn (this hides the agent; opening it goes back to editing)."
+          description="Build and switch to the finished app after every agent turn."
         >
           <Toggle checked={settings().apps.autoPublish} onChange={(autoPublish) => set("apps", { autoPublish })} />
         </Row>
@@ -843,7 +826,7 @@ function AppsSection() {
 
       <Section
         title="AI in apps"
-        description="Apps can use AI (summaries, suggestions, chat) through Rune Browser, on your own subscription: no API keys in your apps. Only an app's server can ask, with a key that's its own; the model gets no tools, so it can't touch your files. Every request shows up in the app's logs."
+        description="On your own subscription, with no API keys and no tools. Requests show in the app's logs."
       >
         <Row label="Let apps use AI">
           <Toggle checked={settings().apps.ai.enabled} onChange={(enabled) => setAi({ enabled })} />
@@ -922,7 +905,7 @@ export function DefaultBrowserRow() {
     <Row label="Rune Browser as your default" description={description()}>
       <span data-default-browser={status()?.state}>
         <Show when={status()?.state === "unsupported"}>
-          <span {...stylex.attrs(styles.pill, styles.pillPlain)}>Not available</span>
+          <span {...stylex.attrs(styles.muted)}>Not available</span>
         </Show>
         <Show when={notDefault()}>
           {(s) => (
@@ -1033,7 +1016,7 @@ function UpdatesSection() {
               <Button onClick={() => void checkForUpdates()}>Check for updates</Button>
             </Match>
             <Match when={state() === "unsupported"}>
-              <span {...stylex.attrs(styles.pill, styles.pillPlain)}>Not available</span>
+              <span {...stylex.attrs(styles.muted)}>Not available</span>
             </Match>
           </Switch>
         </span>
@@ -1117,13 +1100,13 @@ function ProviderRow(props: { id: ProviderId }) {
                   <Icon name="copy" size={14} />
                 </button>
                 <Show when={!config().binaryPath && !settingPath()}>
-                  <button
-                    type="button"
+                  <Button
+                    title="Installed somewhere else? Set where it is"
                     onClick={() => setSettingPath(true)}
-                    {...stylex.attrs(styles.linkButton, styles.pathLink)}
+                    xstyle={styles.setPath}
                   >
-                    <span {...stylex.attrs(styles.pathLinkAction)}>Set path</span>
-                  </button>
+                    Set path
+                  </Button>
                 </Show>
               </span>
             )}
@@ -1175,7 +1158,7 @@ function WorkspaceSection() {
           <Section
             title={`Workspace: ${current().name}`}
             anchor="workspace"
-            description="Workspaces keep projects apart: each has its own tabs, agent defaults and instructions, secrets for its apps, and its own web logins (cookies). Switch between them with the icons at the bottom of the sidebar (or Ctrl+Alt+1…9)."
+            description="Its own tabs, agent defaults, secrets and web logins."
           >
             <Row label="Name">
               <input
@@ -1273,10 +1256,7 @@ function WorkspaceSecrets(props: { workspaceId: string }) {
   const [adding, setAdding] = createSignal(false);
   return (
     <>
-      <Row
-        label="Secrets for its apps"
-        description="Every app in this workspace gets these as environment variables. An app's own secret of the same name wins."
-      >
+      <Row label="Secrets for its apps" description="Environment variables for every app here; an app's own wins.">
         <Show when={!adding()}>
           <button
             type="button"
@@ -1666,10 +1646,7 @@ function ExtensionsSection() {
                 {busy() ? "Working…" : message()}
               </p>
             </Show>
-            <Section
-              title="Add extensions"
-              description="Extensions run in every workspace's web tabs; each workspace keeps its own extension data."
-            >
+            <Section title="Add extensions" description="Each workspace keeps its own extension data.">
               <Show when={extensionList().length}>
                 <Row
                   label="Import from your browser"
@@ -1680,7 +1657,13 @@ function ExtensionsSection() {
                   </Button>
                 </Row>
               </Show>
-              <Row label="Chrome Web Store" description="Paste an extension's link or ID.">
+              <Row label="Chrome Web Store" description="Find extensions to add.">
+                <Button onClick={() => void newWebTab(CHROME_WEB_STORE)} data-open-web-store>
+                  Open store
+                  <Icon name="arrow-up-right" size={14} />
+                </Button>
+              </Row>
+              <Row label="Add by link or ID" description="Paste a store link or an extension's ID.">
                 <form onSubmit={add} {...stylex.attrs(styles.extStore)} data-extension-add>
                   <Input
                     value={input()}
@@ -1918,10 +1901,7 @@ function ExtensionDetails(props: { info: ExtensionInfo; onBack: () => void }) {
             description="It talks to programs installed for it (native messaging)."
           />
         </Show>
-        <Row
-          label="Allow in private windows"
-          description="Private windows run only the extensions you allow there. It can then see what you do in them, and Rune Browser can't stop it from keeping that."
-        >
+        <Row label="Allow in private windows" description="It can see what you do in private windows.">
           <span data-extension-private>
             <Toggle checked={info().allowPrivate} onChange={(on) => void ext.setAllowPrivate(info().id, on)} />
           </span>
@@ -2023,8 +2003,8 @@ function SandboxRows() {
   const sandboxNote = () => {
     const i = info();
     if (!i) return "";
-    if (i.platform !== "linux") return "Apps run directly in their project folder: the sandbox needs Linux.";
-    if (!i.bwrapAvailable) return "Bubblewrap (bwrap) isn't installed or doesn't work here, so apps run unsandboxed.";
+    if (i.platform !== "linux") return "The sandbox needs Linux.";
+    if (!i.bwrapAvailable) return "Bubblewrap isn't available, so apps run unsandboxed.";
     return "";
   };
   const addFolder = async () => {
@@ -2035,10 +2015,7 @@ function SandboxRows() {
 
   return (
     <>
-      <Row
-        label="Sandbox"
-        description={`How app processes are isolated. Bubblewrap gives every app its own view of the system: only its project folder is writable, your files are invisible. ${sandboxNote()}`}
-      >
+      <Row label="Sandbox" description={`How apps are isolated. ${sandboxNote()}`}>
         <Segmented
           value={apps().sandbox}
           options={[
@@ -2049,10 +2026,7 @@ function SandboxRows() {
           onChange={(sandbox) => setApps({ sandbox })}
         />
       </Row>
-      <Row
-        label="Shell"
-        description="What app commands run in: installing, the dev server, builds, the agent's commands and scheduled ones. Bun's shell works the same on every system."
-      >
+      <Row label="Shell" description="What app commands run in. Bun's works the same everywhere.">
         <div {...stylex.attrs(styles.control)} data-shell>
           <Select
             value={shellValue()}
@@ -2093,17 +2067,10 @@ function SandboxRows() {
         </p>
       </Show>
       <Show when={isLinux()}>
-        <Row
-          label="Your toolchains"
-          description="Show the runtimes you installed with version managers (mise, asdf, nvm, Volta, rustup, pyenv, Bun, Deno, Go…) to apps, read-only. System tools like git, curl and compilers are always there; your other files and credentials never are."
-        >
+        <Row label="Your toolchains" description="Runtimes from mise, asdf, nvm, rustup and others, read-only.">
           <Toggle checked={apps().sandboxToolchains} onChange={(sandboxToolchains) => setApps({ sandboxToolchains })} />
         </Row>
-        <Row
-          label="More folders apps can read"
-          description="Read-only, in every app's sandbox. Rune Browser's own data stays hidden even if it's inside one."
-          wide
-        >
+        <Row label="More folders apps can read" description="Read-only in every app's sandbox." wide>
           <div {...stylex.attrs(styles.folderList)} data-sandbox-folders>
             <For each={apps().sandboxReadOnly}>
               {(folder) => (
@@ -2173,11 +2140,9 @@ export function Section(props: {
   together?: boolean;
   children?: JSX.Element;
 }) {
-  const pageTitle = useContext(PageTitle);
   const rows = children(() => props.children);
   // A section of one row named like it ("Default browser") doesn't say it twice.
   const showTitle = () => {
-    if (props.title === pageTitle) return false;
     const r = rows.toArray();
     return !(r.length === 1 && r[0] instanceof HTMLElement && r[0].dataset.searchText?.startsWith(`${props.title} `));
   };
@@ -2378,6 +2343,8 @@ function PresetButton(props: { name: string; theme: GlobalTheme; active: boolean
   );
 }
 
+const CHROME_WEB_STORE = "https://chromewebstore.google.com/";
+
 /** What a preset sets (and the Default preset clears). */
 const presetKeys = ["accent", "background", "surface", "text", "radius", "font"] as const;
 
@@ -2538,7 +2505,7 @@ const styles = stylex.create({
     boxSizing: "border-box",
     maxWidth: 760,
     marginInline: "auto",
-    paddingTop: 36,
+    paddingTop: 32,
     paddingInline: 40,
     paddingBottom: 96,
     display: "flex",
@@ -3057,7 +3024,6 @@ const styles = stylex.create({
     borderColor: { default: "transparent", ":hover": colors.border, ":focus": colors.accent },
     backgroundColor: { default: "transparent", ":focus": colors.surface },
   },
-  pathLink: { marginLeft: space.sm, color: colors.muted, fontSize: font.xs, whiteSpace: "nowrap" },
   rowLeading: {
     flexDirection: "row-reverse",
     justifyContent: "flex-end",
@@ -3065,7 +3031,6 @@ const styles = stylex.create({
     flexWrap: "nowrap",
     gap: space.md,
   },
-  pathLinkAction: { color: colors.accent, textDecoration: { default: "none", ":hover": "underline" } },
   rowFooter: {
     minHeight: 48,
     paddingBlock: 8,
@@ -3079,6 +3044,6 @@ const styles = stylex.create({
   installedTitle: { marginBottom: -12, paddingInline: 1 },
   providerToggle: { display: "flex", paddingTop: 5 },
   presetOtherMode: { opacity: 0.55 },
-  pillPlain: { marginLeft: 0, paddingInline: 8, paddingBlock: 2, fontSize: font.xs },
   dt: { color: colors.muted },
+  setPath: { height: 26, marginLeft: space.sm, paddingInline: space.sm, fontSize: font.xs },
 });

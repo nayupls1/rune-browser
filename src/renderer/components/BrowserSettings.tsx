@@ -156,7 +156,7 @@ export function PrivacySection() {
       <Section title="Cookies and tracking" anchor="browser-cookies">
         <Row
           label="Block third-party cookies"
-          description="Keeps sites from following you through what other sites embed (ads, widgets). Some sign-ins and embedded content may stop working."
+          description="Stops tracking through embedded content. Some sign-ins may break."
         >
           <span data-third-party-cookies>
             <Toggle
@@ -173,10 +173,7 @@ export function PrivacySection() {
             />
           </div>
         </Row>
-        <Row
-          label="Site settings"
-          description="What sites may use and do: location, camera, microphone, notifications, JavaScript, images, sound."
-        >
+        <Row label="Site settings" description="Location, camera, notifications, JavaScript and more.">
           <Button onClick={() => void openSettings("browser-sites")}>
             Open <Icon name="chevron-right" size={14} />
           </Button>
@@ -253,7 +250,7 @@ function SiteSettingsOverview() {
       <Section
         title="Permissions"
         anchor="browser-permissions"
-        description="Sites ask the first time they need one of these. Change your answer here or from the address bar."
+        description="Sites ask the first time; change your answer here or in the address bar."
       >
         <For each={defaultsOf("permission")}>{(key) => <DefaultRow setting={key} />}</For>
       </Section>
@@ -492,8 +489,8 @@ export function StartupSection() {
       .slice(0, 20);
   const options: [BrowserSettings["startup"]["mode"], string, string][] = [
     ["continue", "Continue where you left off", "Your tabs, as you left them."],
-    ["newTab", "Open the New Tab page", "A new tab on top of your tabs (they stay in the sidebar)."],
-    ["pages", "Open a specific page or set of pages", "These pages, each in a tab (one already open is reused)."],
+    ["newTab", "Open the New Tab page", "Your tabs stay in the sidebar."],
+    ["pages", "Open a specific page or set of pages", "Each in its own tab."],
   ];
   return (
     <Section title="On startup" anchor="browser-startup">
@@ -743,12 +740,14 @@ export function LanguagesSection() {
   const dictionaries = () =>
     [...(info()?.spellcheckLanguages ?? [])].sort((a, b) => languageName(a).localeCompare(languageName(b)));
   const spellChosen = () => languages().spellcheckLanguages;
+  // The dictionaries in use, in a line; the whole list (60 or so) only while choosing.
+  const [choosingDictionaries, setChoosingDictionaries] = createSignal(false);
+  const spellSummary = () => {
+    const names = spellChosen().map(languageName);
+    if (!names.length) return "Your preferred languages.";
+    return names.length > 3 ? `${names.slice(0, 3).join(", ")} and ${names.length - 3} more` : names.join(", ");
+  };
   const noPreferred = () => !preferred().length;
-  // The spell check list shows what's chosen and your languages; the other dictionaries behind "Show all".
-  const [allDictionaries, setAllDictionaries] = createSignal(false);
-  const likely = (code: string) =>
-    spellChosen().includes(code) || preferred().some((l) => l === code || l.split("-")[0] === code.split("-")[0]);
-  const shownDictionaries = () => (allDictionaries() ? dictionaries() : dictionaries().filter(likely));
   const toggleDictionary = (code: string, on: boolean) =>
     setPart("languages", {
       spellcheckLanguages: on ? [...spellChosen(), code] : spellChosen().filter((l) => l !== code),
@@ -758,7 +757,7 @@ export function LanguagesSection() {
       <Section
         title="Preferred languages"
         anchor="browser-languages"
-        description={`Sites use the first one they support.${languages().preferred.length ? "" : " Your system's, until you change them."}`}
+        description="Sites use the first one they support."
       >
         <Row
           label="Order of preference"
@@ -825,7 +824,7 @@ export function LanguagesSection() {
         </Row>
       </Section>
       <Section title="Spell check" anchor="browser-spellcheck">
-        <Row label="Check for spelling errors when you type text on web pages">
+        <Row label="Check spelling as you type">
           <Toggle checked={languages().spellcheck} onChange={(spellcheck) => setPart("languages", { spellcheck })} />
         </Row>
         <Show when={languages().spellcheck}>
@@ -835,28 +834,29 @@ export function LanguagesSection() {
               <p {...stylex.attrs(styles.note)}>Spell check uses your system's spell checker and its languages here.</p>
             }
           >
-            <Row
-              label="Use spell check for"
-              description={spellChosen().length ? undefined : "Your preferred languages, while none is chosen here."}
-              wide
-            >
-              <div {...stylex.attrs(styles.checkGrid)}>
-                <For each={shownDictionaries()}>
-                  {(code) => (
-                    <label {...stylex.attrs(styles.checkItem)}>
-                      <Checkbox
-                        checked={spellChosen().includes(code)}
-                        onChange={(e) => toggleDictionary(code, e.currentTarget.checked)}
-                      />
-                      {languageName(code)}
-                    </label>
-                  )}
-                </For>
-              </div>
-              <Show when={shownDictionaries().length < dictionaries().length || allDictionaries()}>
-                <Button variant="ghost" onClick={() => setAllDictionaries(!allDictionaries())} data-all-dictionaries>
-                  {allDictionaries() ? "Show fewer" : `Show all ${dictionaries().length} languages`}
-                </Button>
+            <Row label="Languages" description={spellSummary()} wide={choosingDictionaries()}>
+              <Show
+                when={choosingDictionaries()}
+                fallback={
+                  <Button onClick={() => setChoosingDictionaries(true)} data-choose-dictionaries>
+                    Choose…
+                  </Button>
+                }
+              >
+                <div {...stylex.attrs(styles.checkGrid)}>
+                  <For each={dictionaries()}>
+                    {(code) => (
+                      <label {...stylex.attrs(styles.checkItem)}>
+                        <Checkbox
+                          checked={spellChosen().includes(code)}
+                          onChange={(e) => toggleDictionary(code, e.currentTarget.checked)}
+                        />
+                        {languageName(code)}
+                      </label>
+                    )}
+                  </For>
+                </div>
+                <Button onClick={() => setChoosingDictionaries(false)}>Done</Button>
               </Show>
             </Row>
           </Show>
@@ -899,10 +899,7 @@ export function DownloadsSection() {
 export function PerformanceSection() {
   return (
     <Section title="Performance" anchor="browser-performance">
-      <Row
-        label="Memory saver"
-        description="Idle tabs free their memory and come back where you left them. Tabs playing sound or with a working agent stay loaded."
-      >
+      <Row label="Memory saver" description="Idle tabs free memory and come back as you left them.">
         <Select
           value={String(settings().tabs.unloadAfterMinutes)}
           onChange={(e) =>
@@ -927,9 +924,9 @@ export function AutofillSection() {
     <Section
       title="Autofill and passwords"
       anchor="browser-autofill"
-      description="Rune Browser doesn't keep passwords, payment methods or addresses itself. A password manager extension (Bitwarden, 1Password, Proton Pass…) saves and fills them in, sign-in prompts of sites included, and brings your passwords along from wherever you keep them."
+      description="Rune Browser leaves passwords to a password manager extension."
     >
-      <Row label="Password managers" description="From the Chrome Web Store.">
+      <Row label="Password managers" description="Bitwarden, 1Password, Proton Pass… from the Chrome Web Store.">
         <Button
           onClick={() => void newWebTab("https://chromewebstore.google.com/category/extensions/productivity/tools")}
         >
@@ -971,7 +968,7 @@ export function ImportSection() {
   };
   return (
     <>
-      <Section title="Import bookmarks and settings" anchor="browser-import">
+      <Section title="Import" anchor="browser-import">
         <Row label="Bookmarks" description="From Chrome, Firefox and the browsers based on them, or an HTML file.">
           <Button onClick={openBookmarkImport} data-import-bookmarks>
             Import bookmarks…
@@ -981,9 +978,7 @@ export function ImportSection() {
           when={profiles()?.length}
           fallback={
             <p {...stylex.attrs(styles.note)}>
-              {profiles.loading
-                ? "Looking for browsers…"
-                : "No browser with settings to import was found (Chrome, Chromium, Brave, Edge, Vivaldi and others based on Chromium)."}
+              {profiles.loading ? "Looking for browsers…" : "No other browser's settings found."}
             </p>
           }
         >
@@ -1017,17 +1012,13 @@ export function ImportSection() {
               </Row>
             )}
           </For>
-          <Row label="" description="Site settings and zoom levels are added to yours; the rest replaces them.">
+          <Row label="Import settings" description="Site settings and zoom are merged; the rest is replaced.">
             <Button variant="primary" disabled={!parts().length} onClick={run} data-import-run>
               Import
             </Button>
           </Row>
         </Show>
       </Section>
-      <Section
-        title="What else comes along"
-        description="Extensions come with their settings from Settings → Extensions → Import. Passwords stay with your password manager: browsers encrypt their saved passwords for themselves alone, so they can't be read here; a password manager extension brings yours. Browsing history isn't imported."
-      ></Section>
     </>
   );
 }

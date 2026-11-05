@@ -351,13 +351,6 @@ export function HistoryPage() {
   const appTabs = () => allApps().filter((a) => a.kind === "app" && (!workspace() || a.workspaceId === workspace()));
   return (
     <div {...stylex.attrs(styles.page)} data-history-page>
-      <header {...stylex.attrs(styles.header)}>
-        <h1 {...stylex.attrs(styles.title)}>Snapshots</h1>
-        <p {...stylex.attrs(styles.muted)}>
-          Every change agents and you make is saved: apps with their data, site customizations and settings. Undo a
-          single change, or restore an earlier version.
-        </p>
-      </header>
       <div {...stylex.attrs(styles.filters)}>
         <select
           value={everywhere() ? "all" : "current"}
@@ -434,22 +427,12 @@ const styles = stylex.create({
     boxSizing: "border-box",
     maxWidth: 760,
     marginInline: "auto",
-    paddingTop: 36,
+    paddingTop: 32,
     paddingInline: 40,
     paddingBottom: 96,
     display: "flex",
     flexDirection: "column",
     gap: 20,
-  },
-  header: { display: "flex", flexDirection: "column", gap: space.xs },
-  title: {
-    display: "flex",
-    alignItems: "center",
-    gap: space.sm,
-    margin: 0,
-    fontSize: 24,
-    fontWeight: 650,
-    letterSpacing: "-0.02em",
   },
   muted: { margin: 0, color: colors.muted, fontSize: font.sm, lineHeight: 1.5 },
   filters: { display: "flex", gap: space.sm },

@@ -179,12 +179,6 @@ export function DownloadsPage() {
   onMount(() => showPanel(false));
   return (
     <div {...stylex.attrs(styles.page)} data-downloads-page>
-      <header {...stylex.attrs(styles.header)}>
-        <h1 {...stylex.attrs(styles.title)}>Downloads</h1>
-        <p {...stylex.attrs(styles.muted)}>
-          Everything you downloaded, newest first. Removing a download from the list keeps its file.
-        </p>
-      </header>
       <div {...stylex.attrs(styles.toolbar)}>
         <label {...stylex.attrs(styles.search)}>
           <Icon name="search" size={14} {...stylex.attrs(styles.searchIcon)} />
@@ -356,22 +350,12 @@ const styles = stylex.create({
     boxSizing: "border-box",
     maxWidth: 760,
     marginInline: "auto",
-    paddingTop: 36,
+    paddingTop: 32,
     paddingInline: 40,
     paddingBottom: 96,
     display: "flex",
     flexDirection: "column",
     gap: 20,
-  },
-  header: { display: "flex", flexDirection: "column", gap: space.xs },
-  title: {
-    display: "flex",
-    alignItems: "center",
-    gap: space.sm,
-    margin: 0,
-    fontSize: 24,
-    fontWeight: 650,
-    letterSpacing: "-0.02em",
   },
   muted: { margin: 0, color: colors.muted, fontSize: font.sm, lineHeight: 1.5 },
   toolbar: { display: "flex", alignItems: "center", gap: space.sm },

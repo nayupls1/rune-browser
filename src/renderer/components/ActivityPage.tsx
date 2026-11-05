@@ -88,12 +88,6 @@ export function ActivityPage() {
 
   return (
     <div {...stylex.attrs(styles.page)} data-activity>
-      <header {...stylex.attrs(styles.header)}>
-        <h1 {...stylex.attrs(styles.title)}>Activity</h1>
-        <p {...stylex.attrs(styles.muted)}>
-          What agents, apps and you did: tools used, AI requests, secrets, permissions. Secret values are never logged.
-        </p>
-      </header>
       <div {...stylex.attrs(styles.filters)}>
         <select
           value={everywhere() ? "all" : "current"}
@@ -179,22 +173,12 @@ const styles = stylex.create({
     boxSizing: "border-box",
     maxWidth: 760,
     marginInline: "auto",
-    paddingTop: 36,
+    paddingTop: 32,
     paddingInline: 40,
     paddingBottom: 96,
     display: "flex",
     flexDirection: "column",
     gap: 20,
-  },
-  header: { display: "flex", flexDirection: "column", gap: space.xs },
-  title: {
-    display: "flex",
-    alignItems: "center",
-    gap: space.sm,
-    margin: 0,
-    fontSize: 24,
-    fontWeight: 650,
-    letterSpacing: "-0.02em",
   },
   muted: { margin: 0, color: colors.muted, fontSize: font.sm, lineHeight: 1.5 },
   filters: { display: "flex", gap: space.sm },
