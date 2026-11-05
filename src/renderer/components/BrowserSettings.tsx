@@ -747,94 +747,103 @@ export function LanguagesSection() {
     if (!names.length) return "Your preferred languages.";
     return names.length > 3 ? `${names.slice(0, 3).join(", ")} and ${names.length - 3} more` : names.join(", ");
   };
-  const noPreferred = () => !preferred().length;
+  // The order of languages, in a line; editing it in place.
+  const [editingLanguages, setEditingLanguages] = createSignal(false);
+  const preferredSummary = () => {
+    const names = preferred().map(languageName);
+    const list = names.length > 3 ? `${names.slice(0, 3).join(", ")} and ${names.length - 3} more` : names.join(", ");
+    if (languages().preferred.length) return list;
+    return list ? `${list} (your system's)` : "Your system's languages.";
+  };
   const toggleDictionary = (code: string, on: boolean) =>
     setPart("languages", {
       spellcheckLanguages: on ? [...spellChosen(), code] : spellChosen().filter((l) => l !== code),
     });
   return (
     <>
-      <Section
-        title="Preferred languages"
-        anchor="browser-languages"
-        description="Sites use the first one they support."
-      >
+      <Section title="Languages" anchor="browser-languages">
         <Row
-          label="Order of preference"
-          description={preferred().length ? undefined : "Using your system's languages."}
-          wide={preferred().length > 0}
+          label="Preferred languages"
+          description={editingLanguages() ? "Sites use the first one they support." : preferredSummary()}
+          wide={editingLanguages()}
         >
-          <div {...stylex.attrs(styles.list)} data-languages hidden={!preferred().length}>
-            <For each={preferred()}>
-              {(code, i) => (
-                <div {...stylex.attrs(styles.listRow)} data-language={code}>
-                  <span {...stylex.attrs(styles.listText)}>
-                    {languageName(code)} <span {...stylex.attrs(styles.muted)}>{code}</span>
-                  </span>
-                  <button
-                    type="button"
-                    title="Move up"
-                    disabled={i() === 0}
-                    onClick={() => move(i(), -1)}
-                    {...stylex.attrs(styles.iconButton)}
-                  >
-                    <Icon name="arrow-up" size={14} />
-                  </button>
-                  <button
-                    type="button"
-                    title="Move down"
-                    disabled={i() === preferred().length - 1}
-                    onClick={() => move(i(), 1)}
-                    {...stylex.attrs(styles.iconButton)}
-                  >
-                    <Icon name="arrow-down" size={14} />
-                  </button>
-                  <button
-                    type="button"
-                    title="Remove"
-                    disabled={preferred().length === 1}
-                    onClick={() => setPreferred(preferred().filter((l) => l !== code))}
-                    {...stylex.attrs(styles.iconButton)}
-                  >
-                    <Icon name="x" size={14} />
-                  </button>
-                </div>
-              )}
-            </For>
-          </div>
-          <div {...stylex.attrs(styles.inline, noPreferred() && styles.inlineAlone)}>
-            <Select
-              value=""
-              onChange={(e) => {
-                if (e.currentTarget.value) setPreferred([...preferred(), e.currentTarget.value]);
-                e.currentTarget.value = "";
-              }}
-              xstyle={styles.select}
-              data-add-language
-            >
-              <option value="">Add a language…</option>
-              <For each={addable()}>{(code) => <option value={code}>{languageName(code)}</option>}</For>
-            </Select>
-            <Show when={languages().preferred.length}>
-              <Button variant="ghost" onClick={() => setPreferred([])}>
-                Use the system's
+          <Show
+            when={editingLanguages()}
+            fallback={
+              <Button onClick={() => setEditingLanguages(true)} data-edit-languages>
+                Edit…
               </Button>
-            </Show>
-          </div>
+            }
+          >
+            <div {...stylex.attrs(styles.list)} data-languages>
+              <For each={preferred()}>
+                {(code, i) => (
+                  <div {...stylex.attrs(styles.listRow)} data-language={code}>
+                    <span {...stylex.attrs(styles.listText)}>
+                      {languageName(code)} <span {...stylex.attrs(styles.muted)}>{code}</span>
+                    </span>
+                    <button
+                      type="button"
+                      title="Move up"
+                      disabled={i() === 0}
+                      onClick={() => move(i(), -1)}
+                      {...stylex.attrs(styles.iconButton)}
+                    >
+                      <Icon name="arrow-up" size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      title="Move down"
+                      disabled={i() === preferred().length - 1}
+                      onClick={() => move(i(), 1)}
+                      {...stylex.attrs(styles.iconButton)}
+                    >
+                      <Icon name="arrow-down" size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      title="Remove"
+                      disabled={preferred().length === 1}
+                      onClick={() => setPreferred(preferred().filter((l) => l !== code))}
+                      {...stylex.attrs(styles.iconButton)}
+                    >
+                      <Icon name="x" size={14} />
+                    </button>
+                  </div>
+                )}
+              </For>
+            </div>
+            <div {...stylex.attrs(styles.inline)}>
+              <Select
+                value=""
+                onChange={(e) => {
+                  if (e.currentTarget.value) setPreferred([...preferred(), e.currentTarget.value]);
+                  e.currentTarget.value = "";
+                }}
+                xstyle={styles.select}
+                data-add-language
+              >
+                <option value="">Add a language…</option>
+                <For each={addable()}>{(code) => <option value={code}>{languageName(code)}</option>}</For>
+              </Select>
+              <Show when={languages().preferred.length}>
+                <Button variant="ghost" onClick={() => setPreferred([])}>
+                  Use the system's
+                </Button>
+              </Show>
+            </div>
+            <Button onClick={() => setEditingLanguages(false)}>Done</Button>
+          </Show>
         </Row>
-      </Section>
-      <Section title="Spell check" anchor="browser-spellcheck">
         <Row label="Check spelling as you type">
           <Toggle checked={languages().spellcheck} onChange={(spellcheck) => setPart("languages", { spellcheck })} />
         </Row>
         <Show when={languages().spellcheck}>
           <Show
             when={dictionaries().length}
-            fallback={
-              <p {...stylex.attrs(styles.note)}>Spell check uses your system's spell checker and its languages here.</p>
-            }
+            fallback={<Row label="Spell check languages" description="Your system's spell checker decides." />}
           >
-            <Row label="Languages" description={spellSummary()} wide={choosingDictionaries()}>
+            <Row label="Spell check languages" description={spellSummary()} wide={choosingDictionaries()}>
               <Show
                 when={choosingDictionaries()}
                 fallback={
@@ -922,7 +931,7 @@ export function PerformanceSection() {
 export function AutofillSection() {
   return (
     <Section
-      title="Autofill and passwords"
+      title="Passwords and autofill"
       anchor="browser-autofill"
       description="Rune Browser leaves passwords to a password manager extension."
     >
@@ -930,7 +939,8 @@ export function AutofillSection() {
         <Button
           onClick={() => void newWebTab("https://chromewebstore.google.com/category/extensions/productivity/tools")}
         >
-          Find one
+          Open store
+          <Icon name="arrow-up-right" size={14} />
         </Button>
       </Row>
       <Row label="Already have one in another browser?" description="Import it with its settings, signed in.">
@@ -977,9 +987,10 @@ export function ImportSection() {
         <Show
           when={profiles()?.length}
           fallback={
-            <p {...stylex.attrs(styles.note)}>
-              {profiles.loading ? "Looking for browsers…" : "No other browser's settings found."}
-            </p>
+            <Row
+              label="Browser settings"
+              description={profiles.loading ? "Looking for browsers…" : "No other browser found to import from."}
+            />
           }
         >
           <Row label="From">
@@ -1166,7 +1177,6 @@ const styles = stylex.create({
   listRow: { display: "flex", alignItems: "center", gap: space.sm, minHeight: 32 },
   listText: { flex: 1, minWidth: 0, overflowWrap: "anywhere", fontSize: font.sm },
   inline: { display: "flex", alignItems: "center", gap: space.sm, marginTop: space.sm, width: "100%" },
-  inlineAlone: { marginTop: 0, width: "auto" },
   iconButton: {
     display: "grid",
     placeItems: "center",

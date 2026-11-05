@@ -302,8 +302,8 @@ export function SettingsShell(props: { view: string }) {
               <header {...stylex.attrs(styles.header)}>
                 <Show when={found()?.length}>
                   <p {...stylex.attrs(styles.resultCount)} data-settings-result-count>
-                    {count() === 1 ? "1 setting" : `${count()} settings`} in{" "}
-                    {found()!.length === 1 ? "1 category" : `${found()!.length} categories`}
+                    {count() === 1 ? "1 result" : `${count()} results`} on{" "}
+                    {found()!.length === 1 ? "1 page" : `${found()!.length} pages`}
                   </p>
                 </Show>
               </header>
@@ -705,8 +705,8 @@ function AgentSection() {
           label="Permissions"
           description={
             settings().agent.permissions === "full"
-              ? "Agents don't ask. Everything is still logged in Activity."
-              : "Agents ask before using sites, other tabs, other apps or schedules."
+              ? "Agents don't ask; it's all still in Activity."
+              : "Agents ask before acting outside their tab."
           }
         >
           <div data-permission-mode>
@@ -831,10 +831,7 @@ function AppsSection() {
         <Row label="Let apps use AI">
           <Toggle checked={settings().apps.ai.enabled} onChange={(enabled) => setAi({ enabled })} />
         </Row>
-        <Row
-          label="Model"
-          description="Who answers apps' requests. By default a fast model, to spare your plan's limits."
-        >
+        <Row label="Model" description="A fast one by default, to spare your limits.">
           <div {...stylex.attrs(styles.pickerBox)} data-app-ai-agent>
             <AgentPicker
               choice={{
@@ -1099,19 +1096,19 @@ function ProviderRow(props: { id: ProviderId }) {
                 >
                   <Icon name="copy" size={14} />
                 </button>
-                <Show when={!config().binaryPath && !settingPath()}>
-                  <Button
-                    title="Installed somewhere else? Set where it is"
-                    onClick={() => setSettingPath(true)}
-                    xstyle={styles.setPath}
-                  >
-                    Set path
-                  </Button>
-                </Show>
               </span>
             )}
           </Show>
         </div>
+        <Show when={status()?.state === "missing" && !config().binaryPath && !settingPath()}>
+          <Button
+            title="Installed somewhere else? Set where it is"
+            onClick={() => setSettingPath(true)}
+            xstyle={styles.setPath}
+          >
+            Set path
+          </Button>
+        </Show>
         <Show when={status()?.state !== "missing"}>
           <span {...stylex.attrs(styles.providerToggle)}>
             <Toggle checked={config().enabled} onChange={(enabled) => setConfig({ enabled })} />
@@ -2003,8 +2000,8 @@ function SandboxRows() {
   const sandboxNote = () => {
     const i = info();
     if (!i) return "";
-    if (i.platform !== "linux") return "The sandbox needs Linux.";
-    if (!i.bwrapAvailable) return "Bubblewrap isn't available, so apps run unsandboxed.";
+    if (i.platform !== "linux") return "Not sandboxed: the sandbox needs Linux.";
+    if (!i.bwrapAvailable) return "Not sandboxed: Bubblewrap isn't installed.";
     return "";
   };
   const addFolder = async () => {
@@ -2015,7 +2012,7 @@ function SandboxRows() {
 
   return (
     <>
-      <Row label="Sandbox" description={`How apps are isolated. ${sandboxNote()}`}>
+      <Row label="Sandbox" description={sandboxNote() || "How apps are isolated."} warn={!!sandboxNote()}>
         <Segmented
           value={apps().sandbox}
           options={[
@@ -2026,7 +2023,15 @@ function SandboxRows() {
           onChange={(sandbox) => setApps({ sandbox })}
         />
       </Row>
-      <Row label="Shell" description="What app commands run in. Bun's works the same everywhere.">
+      <Row
+        label="Shell"
+        description={
+          shellValue() === "custom" && info()?.shell.id !== "custom"
+            ? "That program wasn't found; the automatic shell is used."
+            : "What app commands run in."
+        }
+        warn={shellValue() === "custom" && info()?.shell.id !== "custom"}
+      >
         <div {...stylex.attrs(styles.control)} data-shell>
           <Select
             value={shellValue()}
@@ -2056,21 +2061,15 @@ function SandboxRows() {
           </Show>
         </div>
       </Row>
-      <Show when={info()?.shell.id === "bun" || info()?.shell.path}>
-        <p {...stylex.attrs(styles.muted, styles.note)}>
-          Commands run with{" "}
-          <span {...stylex.attrs(styles.mono)}>{info()?.shell.id === "bun" ? "bun exec" : info()?.shell.path}</span>
-          {shellValue() === "custom" && info()?.shell.id !== "custom"
-            ? " (that program wasn't found, so the automatic shell is used)"
-            : ""}
-          .
-        </p>
-      </Show>
       <Show when={isLinux()}>
         <Row label="Your toolchains" description="Runtimes from mise, asdf, nvm, rustup and others, read-only.">
           <Toggle checked={apps().sandboxToolchains} onChange={(sandboxToolchains) => setApps({ sandboxToolchains })} />
         </Row>
-        <Row label="More folders apps can read" description="Read-only in every app's sandbox." wide>
+        <Row
+          label="More folders apps can read"
+          description="Read-only in every app's sandbox."
+          wide={apps().sandboxReadOnly.length > 0}
+        >
           <div {...stylex.attrs(styles.folderList)} data-sandbox-folders>
             <For each={apps().sandboxReadOnly}>
               {(folder) => (
@@ -2088,9 +2087,9 @@ function SandboxRows() {
                 </div>
               )}
             </For>
-            <button type="button" onClick={() => void addFolder()} {...stylex.attrs(styles.linkButton)}>
-              Add a folder…
-            </button>
+            <Button onClick={() => void addFolder()} data-add-folder>
+              Add folder…
+            </Button>
           </div>
         </Row>
         <Show when={sandboxed()}>
@@ -2188,6 +2187,8 @@ export function Row(props: {
   footer?: boolean;
   /** Text lined up with rows that have a leading control. */
   inset?: boolean;
+  /** The description is a warning (apps run unsandboxed). */
+  warn?: boolean;
   children?: JSX.Element;
 }) {
   return (
@@ -2208,7 +2209,7 @@ export function Row(props: {
       <div {...stylex.attrs(styles.rowText, props.wide && styles.rowTextWide)}>
         <span {...stylex.attrs(styles.rowLabel, props.footer && styles.footerLabel)}>{props.label}</span>
         <Show when={props.description}>
-          <span {...stylex.attrs(styles.rowDescription)}>{props.description}</span>
+          <span {...stylex.attrs(styles.rowDescription, props.warn && styles.rowWarning)}>{props.description}</span>
         </Show>
       </div>
       <div {...stylex.attrs(styles.control, props.wide && styles.controlWide, props.leading && styles.controlLeading)}>
@@ -3045,5 +3046,6 @@ const styles = stylex.create({
   providerToggle: { display: "flex", paddingTop: 5 },
   presetOtherMode: { opacity: 0.55 },
   dt: { color: colors.muted },
-  setPath: { height: 26, marginLeft: space.sm, paddingInline: space.sm, fontSize: font.xs },
+  setPath: { height: 28, marginTop: 1, paddingInline: space.sm, fontSize: font.xs },
+  rowWarning: { color: colors.warning, fontWeight: 500 },
 });

@@ -64,9 +64,6 @@ export function ShortcutSettings() {
 
   return (
     <div {...stylex.attrs(styles.page)} data-shortcut-settings>
-      <p {...stylex.attrs(styles.note)} data-search-hide>
-        Some keys go to the page you're on first. Opening, closing and switching tabs always work.
-      </p>
       <div {...stylex.attrs(styles.toolbar)} data-search-hide>
         <div {...stylex.attrs(styles.searchBox)}>
           <Icon name="search" size={14} {...stylex.attrs(styles.searchIcon)} />
@@ -105,6 +102,9 @@ export function ShortcutSettings() {
           );
         }}
       </For>
+      <p {...stylex.attrs(styles.note)} data-search-hide>
+        Some keys go to the page you're on first. Opening, closing and switching tabs always work.
+      </p>
     </div>
   );
 }
