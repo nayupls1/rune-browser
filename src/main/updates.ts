@@ -46,8 +46,8 @@ function unsupportedReason(): string | null {
 
 const REPO = "nayupls1/rune-browser";
 const RELEASES_TIMEOUT_MS = 30_000;
-/** Releases looked at for one that's published (the newest is, unless one is being made or failed). */
-const CANDIDATES = 5;
+/** Releases newer than the latest stable one looked at for one that's published (the newest is, unless one is being made or failed). */
+const CANDIDATES = 8;
 
 class NotFound extends Error {}
 
@@ -91,7 +91,11 @@ async function releaseFor(channel: UpdateChannel): Promise<string | null> {
           .catch(() => [] as string[])
       : Promise.resolve([] as string[]),
   ]);
-  for (const tag of releasesNewestFirst([...latest, ...feed], channel).slice(0, CANDIDATES)) {
+  let probed = 0;
+  for (const tag of releasesNewestFirst([...latest, ...feed], channel)) {
+    // GitHub's latest release is published: nothing older needs looking at.
+    if (tag === latest[0]) return tag;
+    if (probed++ === CANDIDATES) break;
     try {
       await fetchText(`${RELEASES_URL}/download/${encodeURIComponent(tag)}/${feedFile()}`, "*/*");
       return tag;
@@ -99,7 +103,7 @@ async function releaseFor(channel: UpdateChannel): Promise<string | null> {
       if (!(err instanceof NotFound)) throw err;
     }
   }
-  return null;
+  return latest[0] ?? null;
 }
 
 /** The first line of electron-updater's errors (the rest is response headers); none published yet isn't one. */
@@ -125,12 +129,15 @@ export function setupUpdates(windows: AppWindows) {
     windows.broadcast("rune:updates-changed", info());
   };
 
-  const check = async () => {
+  const check = async (): Promise<UpdateInfo> => {
     if (reason || status.state === "checking" || status.state === "downloading" || status.state === "ready")
       return info();
+    const checking = channel;
     try {
       set({ state: "checking" });
-      const tag = await releaseFor(channel);
+      const tag = await releaseFor(checking);
+      // The channel changed meanwhile: what this check found is for the other one.
+      if (channel !== checking) return recheck();
       if (!tag) {
         set({ state: "idle" });
         return info();
@@ -146,7 +153,12 @@ export function setupUpdates(windows: AppWindows) {
     } catch (err) {
       set(errorStatus(err));
     }
-    return info();
+    return channel !== checking ? recheck() : info();
+  };
+  /** Checks again for the channel chosen while a check ran (unless that one found an update already). */
+  const recheck = (): Promise<UpdateInfo> => {
+    if (status.state === "checking") set({ state: "idle" });
+    return check();
   };
 
   if (!reason) {

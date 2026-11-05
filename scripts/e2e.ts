@@ -1666,6 +1666,20 @@ try {
     for (const id of ["new-tab", "bookmarks", "history", "downloads", "extensions", "settings"])
       if (!items.includes(id)) throw new Error(`the menu has no ${id}: ${items.join(", ")}`);
     await shot("more-menu.png");
+    // Pressed again (pointerdown, then click, like a real click), ⋯ closes its menu.
+    await page!.eval(`(() => {
+      const b = document.querySelector('${chromeFor(tab)} [data-more-menu]');
+      b.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+      b.click();
+      return true;
+    })()`);
+    await Bun.sleep(150);
+    if (await page!.eval<boolean>(`!!document.querySelector("[data-context-menu]")`))
+      throw new Error("⋯ didn't close its menu");
+    await click(`${chromeFor(tab)} [data-more-menu]`);
+    await page!.waitFor(`!!document.querySelector('[data-context-menu] [data-menu-item="bookmarks"]')`, {
+      label: "the ⋯ menu again",
+    });
     await click('[data-context-menu] [data-menu-item="bookmarks"]');
     await page!.waitFor(`!!document.querySelector("[data-bookmarks-menu]")`, { label: "the bookmarks menu" });
     await page!.eval(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })), true`);

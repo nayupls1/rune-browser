@@ -159,7 +159,6 @@ function MoreMenu() {
   const [at, setAt] = createSignal<MenuPosition>();
   const [bookmarksAt, setBookmarksAt] = createSignal<MenuPosition>();
   let button!: HTMLButtonElement;
-  let wasOpen = false;
   const tabId = () => (isTab(selectedId()) ? selectedId() : null);
   const hint = (id: string) => shortcutLabel(id);
   /** What the browser does to the tab's page (its keyboard shortcuts' actions), where it has one. */
@@ -239,12 +238,8 @@ function MoreMenu() {
         title="More: bookmarks, history, downloads, the tab's tools, settings"
         aria-haspopup="menu"
         aria-expanded={!!at()}
-        // The open menu closes itself on this press: the click then mustn't open it again.
-        onPointerDown={() => (wasOpen = !!at())}
         onClick={() => {
-          const open = wasOpen || !!at();
-          wasOpen = false;
-          if (open) return setAt();
+          if (at()) return setAt();
           const r = button.getBoundingClientRect();
           setAt({ x: r.left, y: r.bottom + 4 });
         }}
@@ -254,7 +249,7 @@ function MoreMenu() {
         <Icon name="ellipsis" size={16} />
       </button>
       <Show when={at()} keyed>
-        {(position) => <ContextMenu items={items()} position={position} onClose={() => setAt()} />}
+        {(position) => <ContextMenu items={items()} position={position} anchor={button} onClose={() => setAt()} />}
       </Show>
       <Show when={bookmarksAt()} keyed>
         {(position) => <BookmarksMenu position={position} onClose={() => setBookmarksAt()} />}
@@ -631,6 +626,8 @@ export function AddressBar() {
                   type="button"
                   role="option"
                   aria-selected={isActive(i())}
+                  // The arrow keys move through them; Tab goes on past the address.
+                  tabIndex={-1}
                   onMouseDown={(e) => e.preventDefault()}
                   onMouseEnter={() => setActive(i())}
                   onClick={() => run(s)}

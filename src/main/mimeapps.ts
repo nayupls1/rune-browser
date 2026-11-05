@@ -95,31 +95,39 @@ export function defaultFor(files: readonly (string | null)[], type: string, inst
 export function withDefault(text: string, desktop: string, types: readonly string[]): string {
   const lines = text.split(/\r?\n/);
   if (lines.at(-1) === "") lines.pop();
+  const isHeader = (line: string) => /^\s*\[.+\]\s*$/.test(line);
+  /** The lines in the section (every group of that name: GLib reads them as one, later lines winning) that are the type's. */
+  const linesOf = (section: string, type: string) => {
+    const at: number[] = [];
+    let inside = false;
+    lines.forEach((line, i) => {
+      if (isHeader(line)) inside = line.trim() === `[${section}]`;
+      else if (inside && line.split("=")[0]!.trim() === type) at.push(i);
+    });
+    return at;
+  };
   const put = (section: string) => {
-    let start = lines.findIndex((l) => l.trim() === `[${section}]`);
-    if (start === -1) {
+    if (!lines.some((l) => l.trim() === `[${section}]`)) {
       if (lines.length && lines.at(-1)!.trim() !== "") lines.push("");
       lines.push(`[${section}]`);
-      start = lines.length - 1;
     }
-    let end = lines.findIndex((l, i) => i > start && /^\s*\[.+\]\s*$/.test(l));
-    if (end === -1) end = lines.length;
-    // After the section's last entry, before the blank lines that end it.
-    while (end - 1 > start && lines[end - 1]!.trim() === "") end--;
     for (const type of types) {
       // Every line for the type (a file can list one twice): the first becomes the one, the rest go.
-      const at: number[] = [];
-      for (let i = start + 1; i < end; i++) if (lines[i]!.split("=")[0]!.trim() === type) at.push(i);
+      const at = linesOf(section, type);
       const listed = at.flatMap((i) => listedFor(`[x]\n${lines[i]}`, "x", type) ?? []);
       const others = [...new Set(listed)].filter((d) => d !== desktop);
       const line = `${type}=${[desktop, ...others].join(";")};`;
-      if (!at.length) {
-        lines.splice(end++, 0, line);
+      if (at.length) {
+        lines[at[0]!] = line;
+        for (const i of at.slice(1).reverse()) lines.splice(i, 1);
         continue;
       }
-      lines[at[0]!] = line;
-      for (const i of at.slice(1).reverse()) lines.splice(i, 1);
-      end -= at.length - 1;
+      // At the end of the section's first group, before the blank lines that end it.
+      const start = lines.findIndex((l) => l.trim() === `[${section}]`);
+      let end = lines.findIndex((l, i) => i > start && isHeader(l));
+      if (end === -1) end = lines.length;
+      while (end - 1 > start && lines[end - 1]!.trim() === "") end--;
+      lines.splice(end, 0, line);
     }
   };
   put("Default Applications");

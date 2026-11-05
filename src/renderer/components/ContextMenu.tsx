@@ -24,7 +24,13 @@ export interface MenuPosition {
   y: number;
 }
 
-export function ContextMenu(props: { items: (MenuItem | "separator")[]; position: MenuPosition; onClose: () => void }) {
+export function ContextMenu(props: {
+  items: (MenuItem | "separator")[];
+  position: MenuPosition;
+  onClose: () => void;
+  /** The button that opens it: a press there is left to it (it toggles the menu). */
+  anchor?: Element;
+}) {
   let menu!: HTMLDivElement;
   const [pos, setPos] = createSignal(props.position);
 
@@ -45,7 +51,7 @@ export function ContextMenu(props: { items: (MenuItem | "separator")[]; position
     buttons()[0]?.focus();
 
     const onPointer = (e: PointerEvent) => {
-      if (!menu.contains(e.target as Node)) props.onClose();
+      if (!menu.contains(e.target as Node) && !props.anchor?.contains(e.target as Node)) props.onClose();
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") props.onClose();
