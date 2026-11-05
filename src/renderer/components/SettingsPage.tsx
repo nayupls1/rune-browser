@@ -296,8 +296,11 @@ export function SettingsShell(props: { view: string }) {
           when={!searching()}
           fallback={
             <div {...stylex.attrs(styles.page)} data-settings-results>
-              <header {...stylex.attrs(styles.header, noMatches() && styles.headerHidden)}>
+              <header {...stylex.attrs(styles.header)}>
                 <h1 {...stylex.attrs(styles.title)}>Search results</h1>
+                <Show when={noMatches()}>
+                  <p {...stylex.attrs(styles.resultCount)}>0 settings</p>
+                </Show>
                 <Show when={found()?.length}>
                   <p {...stylex.attrs(styles.resultCount)} data-settings-result-count>
                     {count() === 1 ? "1 setting" : `${count()} settings`} in{" "}
@@ -750,7 +753,7 @@ export function InsecureRows() {
   return (
     <>
       <Row
-        label="Warn before insecure sites"
+        label="Use secure connections"
         description="Opens http:// pages over HTTPS when possible and warns before sites that aren't secure. Local addresses never warn."
       >
         <Toggle checked={settings().web.warnInsecure} onChange={(warnInsecure) => set("web", { warnInsecure })} />
@@ -899,7 +902,7 @@ export function DefaultBrowserRow() {
     }
   };
   return (
-    <Row label="Default browser" description={description()}>
+    <Row label="Rune Browser as your default" description={description()}>
       <span data-default-browser={status()?.state}>
         <Show when={status()?.state === "unsupported"}>
           <span {...stylex.attrs(styles.muted)}>Not available</span>
@@ -1012,6 +1015,9 @@ function UpdatesSection() {
             <Match when={canCheck()}>
               <Button onClick={() => void checkForUpdates()}>Check for updates</Button>
             </Match>
+            <Match when={state() === "unsupported"}>
+              <span {...stylex.attrs(styles.muted)}>Not available</span>
+            </Match>
           </Switch>
         </span>
       </Row>
@@ -1109,7 +1115,7 @@ function ProviderRow(props: { id: ProviderId }) {
         >
           <Icon name="refresh-cw" size={15} />
         </button>
-        <Show when={status()?.state !== "missing"} fallback={<span {...stylex.attrs(styles.toggleSlot)} />}>
+        <Show when={status()?.state !== "missing"}>
           <span {...stylex.attrs(styles.providerToggle)}>
             <Toggle checked={config().enabled} onChange={(enabled) => setConfig({ enabled })} />
           </span>
@@ -2717,7 +2723,7 @@ const styles = stylex.create({
     padding: 3,
     gap: 2,
     borderRadius: `calc(${radius.sm} + 3px)`,
-    backgroundColor: `light-dark(color-mix(in oklab, ${colors.bg}, ${colors.text} 10%), color-mix(in oklab, ${colors.bg}, #000000 35%))`,
+    backgroundColor: `light-dark(color-mix(in oklab, ${colors.bg}, ${colors.text} 10%), color-mix(in oklab, ${colors.surface}, ${colors.text} 7%))`,
     boxShadow: `inset 0 0 0 1px light-dark(color-mix(in oklab, ${colors.border}, transparent 40%), color-mix(in oklab, ${colors.border}, transparent 30%))`,
   },
   segment: {
@@ -2738,7 +2744,7 @@ const styles = stylex.create({
     outlineColor: colors.accent,
   },
   segmentActive: {
-    backgroundColor: `light-dark(${colors.surface}, color-mix(in oklab, ${colors.surface}, ${colors.text} 24%))`,
+    backgroundColor: `light-dark(${colors.surface}, color-mix(in oklab, ${colors.surface}, ${colors.text} 26%))`,
     color: colors.text,
     fontWeight: 600,
     boxShadow: `0 1px 2px rgb(0 0 0 / 0.16), inset 0 0 0 1px light-dark(${colors.border}, rgb(255 255 255 / 0.08))`,
@@ -2862,12 +2868,11 @@ const styles = stylex.create({
     padding: 0,
     borderWidth: 0,
     backgroundColor: "transparent",
-    color: { default: colors.text, ":hover": colors.accent },
+    color: colors.accent,
     cursor: "pointer",
     fontFamily: font.sans,
     fontSize: font.sm,
-    textDecoration: "underline",
-    textDecorationColor: `color-mix(in oklab, ${colors.text}, transparent 70%)`,
+    textDecoration: { default: "none", ":hover": "underline" },
     textUnderlineOffset: 3,
   },
   about: {
@@ -3014,7 +3019,6 @@ const styles = stylex.create({
   rowDense: { minHeight: 48, paddingBlock: 8, gap: space.lg },
   sectionDescription: { margin: 0, color: colors.muted, fontSize: 12.5, lineHeight: 1.5, textWrap: "pretty" },
   navEmpty: { paddingInline: 8, color: colors.muted, fontSize: 11.5, fontWeight: 600, letterSpacing: "0.01em" },
-  toggleSlot: { width: 36, flexShrink: 0 },
   pathInput: {
     flex: 1,
     minWidth: 0,
@@ -3050,5 +3054,4 @@ const styles = stylex.create({
   rowInset: { paddingLeft: 44 },
   installedTitle: { marginBottom: -12, paddingInline: 1 },
   providerToggle: { display: "flex", paddingTop: 5 },
-  headerHidden: { display: "none" },
 });

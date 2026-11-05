@@ -753,7 +753,7 @@ export function LanguagesSection() {
         anchor="browser-languages"
         description={`Websites show their content in the first of these they have.${languages().preferred.length ? "" : " These are your system's languages until you change them."}`}
       >
-        <Row label="Order of preference" wide>
+        <Row label="Order of preference" description="Sites use the first one they support." wide>
           <div {...stylex.attrs(styles.list)} data-languages>
             <For each={preferred()}>
               {(code, i) => (
