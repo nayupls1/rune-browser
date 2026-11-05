@@ -91,7 +91,7 @@ export function ShortcutSettings() {
                   <h3 {...stylex.attrs(styles.groupTitle)}>{category}</h3>
                   <div {...stylex.attrs(styles.columns)} aria-hidden="true" data-no-highlight>
                     <span {...stylex.attrs(styles.column)}>Keys</span>
-                    <span {...stylex.attrs(styles.column)}>Alternative</span>
+                    <span {...stylex.attrs(styles.column, styles.columnWide)}>Alternative</span>
                   </div>
                 </div>
                 <div {...stylex.attrs(styles.rows)} data-setting-rows>
@@ -293,10 +293,9 @@ const styles = stylex.create({
     display: "flex",
     alignItems: "center",
     justifyContent: "flex-start",
-    flexWrap: "wrap",
     gap: 6,
     flexShrink: 0,
-    width: 400,
+    width: 440,
   },
   chip: {
     display: "inline-flex",
@@ -327,16 +326,12 @@ const styles = stylex.create({
     lineHeight: 1,
   },
   chipRemove: {
-    opacity: {
-      default: 0,
-      [stylex.when.ancestor(":hover")]: 1,
-      [stylex.when.ancestor(":focus-within")]: 1,
-    },
     display: "grid",
     placeItems: "center",
-    width: 18,
+    width: { default: 0, [stylex.when.ancestor(":hover")]: 18, [stylex.when.ancestor(":focus-within")]: 18 },
     height: 18,
     padding: 0,
+    overflow: "hidden",
     borderStyle: "none",
     borderRadius: radius.sm,
     backgroundColor: { default: "transparent", ":hover": colors.surfaceHover },
@@ -376,11 +371,12 @@ const styles = stylex.create({
   },
   searchBox: { position: "relative", display: "flex", alignItems: "center", flex: 1, minWidth: 0 },
   searchIcon: { position: "absolute", left: 11, color: colors.muted, pointerEvents: "none" },
-  slot: { display: "flex", width: 168 },
+  slot: { display: "flex", flexShrink: 0, width: 160 },
   caps: { display: "inline-flex", alignItems: "center", gap: 3 },
   groupHead: { display: "flex", flexDirection: "column", gap: 6 },
-  columns: { display: "flex", alignSelf: "flex-end", gap: 6, width: 400, paddingRight: 17, boxSizing: "content-box" },
-  column: { width: 168, color: colors.muted, fontSize: font.xs, fontWeight: 500 },
-  rest: { display: "flex", alignItems: "center", flexWrap: "wrap", gap: 6, width: 226 },
+  columns: { display: "flex", alignSelf: "flex-end", gap: 6, width: 440, paddingRight: 17, boxSizing: "content-box" },
+  column: { width: 160, flexShrink: 0, color: colors.muted, fontSize: font.xs, fontWeight: 500 },
+  rest: { display: "flex", alignItems: "center", flexWrap: "wrap", columnGap: 12, rowGap: 6, width: 274 },
   notSet: { color: colors.muted, fontSize: font.sm },
+  columnWide: { width: 274 },
 });

@@ -1099,12 +1099,17 @@ function ProviderRow(props: { id: ProviderId }) {
             onClick={() => setSettingPath(true)}
             xstyle={styles.setPath}
           >
-            Set path
+            Set path…
           </Button>
         </Show>
         <Show when={status()?.state !== "missing"}>
           <span {...stylex.attrs(styles.providerToggle)}>
-            <Toggle checked={config().enabled} onChange={(enabled) => setConfig({ enabled })} />
+            <span {...stylex.attrs(styles.muted, styles.toggleLabel)}>{config().enabled ? "On" : "Off"}</span>
+            <Toggle
+              title={`Use ${status()?.label ?? props.id}`}
+              checked={config().enabled}
+              onChange={(enabled) => setConfig({ enabled })}
+            />
           </span>
         </Show>
         <button
@@ -1536,6 +1541,7 @@ function NetworkRules() {
  */
 function ExtensionsSection() {
   const ext = window.rune.extensions;
+  const otherBrowsers = browsersToImportFrom();
   const [input, setInput] = createSignal("");
   const [query, setQuery] = createSignal("");
   const [developer, setDeveloper] = createSignal(localStorage.getItem("rune.extensions-developer") === "1");
@@ -1596,14 +1602,32 @@ function ExtensionsSection() {
                 <EmptyState
                   icon="blocks"
                   title="No extensions yet"
-                  hint="Bring over the ones you use in Chrome, Brave or Edge, or add one from the Chrome Web Store."
+                  hint={
+                    otherBrowsers() === false
+                      ? "Add some from the Chrome Web Store."
+                      : "Bring over the ones you use in Chrome, Brave or Edge, or add some from the Chrome Web Store."
+                  }
                   data-extensions-empty
                   data-search-hide
                 >
-                  <Button variant="primary" onClick={openExtensionImport} data-extensions-import>
-                    <Icon name="download" size={14} />
-                    Import from your browser
-                  </Button>
+                  <Show
+                    when={otherBrowsers() !== false}
+                    fallback={
+                      <Button variant="primary" onClick={() => void newWebTab(CHROME_WEB_STORE)}>
+                        Open Chrome Web Store
+                        <Icon name="arrow-up-right" size={14} />
+                      </Button>
+                    }
+                  >
+                    <Button variant="primary" onClick={openExtensionImport} data-extensions-import>
+                      <Icon name="download" size={14} />
+                      Import from your browser…
+                    </Button>
+                    <Button variant="ghost" onClick={() => void newWebTab(CHROME_WEB_STORE)}>
+                      Open store
+                      <Icon name="arrow-up-right" size={14} />
+                    </Button>
+                  </Show>
                 </EmptyState>
               }
             >
@@ -1639,7 +1663,7 @@ function ExtensionsSection() {
                   description="Chrome, Brave, Edge or Vivaldi, with their settings."
                 >
                   <Button onClick={openExtensionImport} data-extensions-import>
-                    Import…
+                    Import from your browser…
                   </Button>
                 </Row>
               </Show>
@@ -1990,7 +2014,7 @@ function SandboxRows() {
     const i = info();
     if (!i) return "";
     if (i.platform !== "linux") return "Not sandboxed: the sandbox needs Linux.";
-    if (!i.bwrapAvailable) return "Not sandboxed: Bubblewrap isn't installed.";
+    if (!i.bwrapAvailable) return "Not sandboxed: install bubblewrap (bwrap) to isolate apps.";
     return "";
   };
   const addFolder = async () => {
@@ -2290,8 +2314,6 @@ function TextArea(props: { value: string; placeholder?: string; name?: string; o
 
 /** A tiny preview of a preset: background, surface card, accent dot. */
 function PresetButton(props: { name: string; theme: GlobalTheme; active: boolean; onClick: () => void }) {
-  // A light preset in dark mode (or the reverse) is toned down, not a glaring block.
-  const otherMode = () => resolveMode(props.theme, systemDark()) !== resolveMode(settings().theme, systemDark());
   const vars = () => {
     const mode = resolveMode(props.theme, systemDark());
     const v = themeVars(props.theme, mode);
@@ -2311,10 +2333,7 @@ function PresetButton(props: { name: string; theme: GlobalTheme; active: boolean
       {...stylex.attrs(styles.preset, props.active && styles.presetActive)}
       data-preset={props.name}
     >
-      <span
-        {...stylex.attrs(styles.presetPreview, otherMode() && styles.presetOtherMode)}
-        style={{ "background-color": vars().bg }}
-      >
+      <span {...stylex.attrs(styles.presetPreview)} style={{ "background-color": vars().bg }}>
         <span {...stylex.attrs(styles.presetCard)} style={{ "background-color": vars().surface }}>
           <span {...stylex.attrs(styles.presetDot)} style={{ "background-color": vars().accent }} />
           <span {...stylex.attrs(styles.presetLine)} style={{ "background-color": vars().text }} />
@@ -2325,7 +2344,13 @@ function PresetButton(props: { name: string; theme: GlobalTheme; active: boolean
   );
 }
 
-const CHROME_WEB_STORE = "https://chromewebstore.google.com/";
+export const CHROME_WEB_STORE = "https://chromewebstore.google.com/";
+
+/** Whether another browser with extensions to import is on this computer (undefined while looking). */
+export const browsersToImportFrom = () => {
+  const [profiles] = createResource(() => window.rune.extensions.detectBrowsers().catch(() => []));
+  return () => (profiles.loading ? undefined : (profiles()?.length ?? 0) > 0);
+};
 
 /** What a preset sets (and the Default preset clears). */
 const presetKeys = ["accent", "background", "surface", "text", "radius", "font"] as const;
@@ -2468,7 +2493,7 @@ const styles = stylex.create({
     backgroundColor: colors.bg,
     color: colors.text,
   },
-  providerPath: { display: "flex", alignItems: "center", gap: space.sm, paddingLeft: 48, fontSize: font.xs },
+  providerPath: { display: "flex", alignItems: "center", gap: space.sm, paddingLeft: 44, fontSize: font.xs },
   pill: {
     display: "inline-flex",
     alignItems: "center",
@@ -3023,9 +3048,9 @@ const styles = stylex.create({
   footerLabel: { color: colors.muted, fontSize: font.sm, fontWeight: 400 },
   rowInset: { paddingLeft: 44 },
   installedTitle: { marginBottom: -12, paddingInline: 1 },
-  providerToggle: { display: "flex", paddingTop: 5 },
-  presetOtherMode: { opacity: 0.55 },
+  providerToggle: { display: "flex", alignItems: "center", gap: space.sm, paddingTop: 5 },
   dt: { color: colors.muted },
   setPath: { marginTop: -1 },
   rowWarning: { color: colors.warning, fontWeight: 500 },
+  toggleLabel: { fontSize: font.xs },
 });

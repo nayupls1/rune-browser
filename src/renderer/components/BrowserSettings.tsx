@@ -44,7 +44,16 @@ import { confirmDialog } from "./ConfirmDialog";
 import { openExtensionImport } from "./ExtensionImport";
 import { openBookmarkImport } from "./BookmarksPage";
 import { Icon } from "./Icon";
-import { DefaultBrowserRow, InsecureRows, Row, Section, Segmented, Toggle, unloadChoices } from "./SettingsPage";
+import {
+  browsersToImportFrom,
+  DefaultBrowserRow,
+  InsecureRows,
+  Row,
+  Section,
+  Segmented,
+  Toggle,
+  unloadChoices,
+} from "./SettingsPage";
 import { toast } from "./Toast";
 import { Button, Checkbox, Input, Select } from "./ui";
 
@@ -105,7 +114,7 @@ export function PrivacySection() {
       <Section title="Security" anchor="browser-security">
         <InsecureRows />
       </Section>
-      <Section title="Cookies and tracking" anchor="browser-cookies">
+      <Section title="Cookies and site settings" anchor="browser-cookies">
         <Row
           label="Block third-party cookies"
           description="Stops tracking through embedded content. Some sign-ins may break."
@@ -905,7 +914,7 @@ export function DownloadsSection() {
     <Section title="Downloads" anchor="browser-downloads">
       <Row label="Location" description={downloads().folder || info()?.downloadsFolder || "Your Downloads folder"}>
         <Button onClick={() => void change()} data-downloads-change>
-          Change
+          Change…
         </Button>
         <Show when={downloads().folder}>
           <Button variant="ghost" onClick={() => setPart("downloads", { folder: "" })}>
@@ -946,6 +955,7 @@ export function PerformanceSection() {
 // --- Autofill and passwords ---------------------------------------------------------------------
 
 export function AutofillSection() {
+  const otherBrowsers = browsersToImportFrom();
   return (
     <Section title="Password managers" anchor="browser-autofill">
       <Row label="Chrome Web Store" description="Bitwarden, 1Password, Proton Pass and others.">
@@ -956,8 +966,13 @@ export function AutofillSection() {
           <Icon name="arrow-up-right" size={14} />
         </Button>
       </Row>
-      <Row label="Import from another browser" description="With its settings, still signed in.">
-        <Button onClick={openExtensionImport}>Import from your browser</Button>
+      <Row
+        label="Import from another browser"
+        description={otherBrowsers() === false ? "No other browser found." : "With its settings, still signed in."}
+      >
+        <Button onClick={openExtensionImport} disabled={otherBrowsers() === false}>
+          Import from your browser…
+        </Button>
       </Row>
     </Section>
   );
@@ -1001,8 +1016,8 @@ export function ImportSection() {
           when={profiles()?.length}
           fallback={
             <Row
-              label="Browser settings"
-              description={profiles.loading ? "Looking for browsers…" : "No other browser found to import from."}
+              label="Settings from another browser"
+              description={profiles.loading ? "Looking for browsers…" : "No other browser found."}
             />
           }
         >
