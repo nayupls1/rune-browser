@@ -3514,6 +3514,7 @@ try {
         command?: string;
         tabUrl?: string;
         fromWorker?: number;
+        workerUserAgent?: string;
       }>(
         `[data-web-tab="${optionsTab}"]`,
         `Promise.all([chrome.storage.local.get(null), chrome.storage.sync.get(null)]).then(([l, s]) => ({ ...l, ...s }))`,
@@ -3526,6 +3527,11 @@ try {
     if (stored.command !== "bump" || stored.tabUrl !== `${site.url.origin}/`)
       throw new Error(`command: ${JSON.stringify(stored)}`);
     if (stored.fromWorker !== 1) throw new Error("storage.sync didn't keep the value");
+    // Service workers don't get the session's user agent, only the app's: it's plain Chrome too.
+    if (typeof stored.workerUserAgent !== "string" || !/Chrome\//.test(stored.workerUserAgent))
+      throw new Error(`the worker's user agent: ${JSON.stringify(stored.workerUserAgent)}`);
+    if (/Electron|RuneBrowser/i.test(stored.workerUserAgent))
+      throw new Error(`the worker's user agent names Electron: ${stored.workerUserAgent}`);
     if (siteSeen.length !== before) throw new Error("a blocked request reached the site");
 
     // chrome.bookmarks is Rune Browser's bookmarks, and the worker hears about changes.

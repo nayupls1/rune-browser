@@ -87,6 +87,8 @@ export function writeLevelDb(dir: string, entries: Record<string, unknown>) {
 
 const files = (): Record<string, string> => ({
   "background.js": `
+// What the worker tells sites (password managers pick their code path by it).
+chrome.storage.local.set({ workerUserAgent: navigator.userAgent });
 chrome.runtime.onInstalled.addListener((details) => {
   chrome.storage.local.set({ installed: details });
   chrome.contextMenus.create({ id: "say", title: "Say %s", contexts: ["selection"] });

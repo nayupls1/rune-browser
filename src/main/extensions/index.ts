@@ -47,6 +47,7 @@ import {
 import { PRIVATE_WORKSPACE, type NetworkRule } from "../../shared/api";
 import type { AppWindows } from "../windows";
 import type { BookmarkChange } from "../../shared/bookmarks";
+import { signInUserAgent } from "../userAgent";
 import { createApis } from "./apis";
 import { builtinExtensionDir } from "./builtin";
 import { detectBrowsers, importExtensions, platform, storageFolders } from "./browsers";
@@ -206,13 +207,9 @@ export function setupExtensions(options: ExtensionsOptions) {
     openPopup: (s, id, url) => openPopup(s, id, url),
     actionsChanged,
     commandsOf,
-    // Electron's own user agent, without Rune Browser's name.
+    // Google's sign-in gets Electron's user agent (see signInRule).
     rules: (s) => {
-      const rules = networkRulesToDnr(
-        networkRules,
-        options.workspaceOf(s) ?? "",
-        app.userAgentFallback.replace(/ RuneBrowser\/\S+/gi, ""),
-      );
+      const rules = networkRulesToDnr(networkRules, options.workspaceOf(s) ?? "", signInUserAgent);
       return [...rules, ...(options.moreRules?.(rules.length + 1) ?? [])];
     },
     whenLoaded: (s, id) => loading.get(stateKey(s, id)) ?? Promise.resolve(),

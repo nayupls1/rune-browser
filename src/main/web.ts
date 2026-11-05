@@ -40,6 +40,7 @@ import { setupNetwork } from "./network";
 import { setupOverrides } from "./overrides";
 import { setupShortcuts } from "./shortcuts";
 import { setupSitePermissions } from "./sitePermissions";
+import { chromeUserAgent } from "./userAgent";
 import { buildContextMenu } from "./contextMenu";
 import type { Observation } from "../shared/endpoints";
 import { insecureAction, type InsecurePolicy } from "../shared/insecure";
@@ -530,8 +531,8 @@ export function setupWebTabs(
   };
 }
 
-/** What web tabs tell sites: a plain Chrome user agent (see webSession). */
-export const webUserAgent = () => app.userAgentFallback.replace(/ (RuneBrowser|Electron)\/\S+/gi, "");
+/** What web tabs tell sites: a plain Chrome user agent (see userAgent.ts). */
+export const webUserAgent = () => chromeUserAgent;
 
 /** Keeps the Rune Browser window on Rune Browser: links open as web tabs instead. */
 export function guardWindow(win: BrowserWindow, rendererOrigin: string, onInput?: (input: Input) => boolean) {
