@@ -137,7 +137,7 @@ export const CodexDriver: ProviderDriver = {
           state: "missing",
           version: null,
           binary: null,
-          message: "Install Codex: npm install -g @openai/codex",
+          message: "Install Codex: `npm install -g @openai/codex`",
           models: [],
           defaultModel: null,
         };

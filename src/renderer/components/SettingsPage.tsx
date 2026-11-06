@@ -1068,9 +1068,9 @@ function ProviderRow(props: { id: ProviderId }) {
     ]
       .filter(Boolean)
       .join(" · ");
-  /** The command that installs a missing CLI ("Install Codex: npm install -g @openai/codex"). */
+  /** The command that installs a missing CLI ("Install Codex: `npm install -g @openai/codex`"). */
   const install = () =>
-    status()?.state === "missing" ? /^Install [^:]+: (.+)$/.exec(status()?.message ?? "")?.[1] : undefined;
+    status()?.state === "missing" ? /^Install [^:]+: `?([^`]+)`?$/.exec(status()?.message ?? "")?.[1] : undefined;
 
   return (
     <div {...stylex.attrs(styles.provider)} data-provider-row={props.id}>

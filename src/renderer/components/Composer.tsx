@@ -1,5 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
-import { createSignal, For, Show, type JSX } from "solid-js";
+import { createEffect, createSignal, For, on, Show, type JSX } from "solid-js";
 import { addAttachments, attachmentsOf, attachmentUrl, removeAttachment, uploadingCount } from "../lib/attachments";
 import { addShare, refusal, removeShare, sharesOf, type ShareRef } from "../lib/sharing";
 import { appById, apps, setAgentChoice, states } from "../lib/store";
@@ -8,10 +8,14 @@ import { AgentPicker } from "./AgentPicker";
 import { Icon } from "./Icon";
 import { TabIcon } from "./TabIcon";
 import { toast } from "./Toast";
-import { Button } from "./ui";
+import { PopoverMenu, type PopoverItem } from "./PopoverMenu";
 
 /** Unsent text per tab. */
 const drafts = new Map<string, string>();
+
+const [filled, setFilled] = createSignal<{ appId: string; text: string }>();
+/** Puts text in a tab's composer (a suggestion), ready to send or edit. */
+export const fillComposer = (appId: string, text: string) => setFilled({ appId, text });
 
 export function Composer(props: {
   appId: string;
@@ -21,8 +25,12 @@ export function Composer(props: {
   large?: boolean;
   /** Shown above the text field (e.g. picked elements). */
   top?: JSX.Element;
-  /** Extra buttons next to the agent picker. */
+  /** Extra buttons after the + menu (the element picker). */
   tools?: JSX.Element;
+  /** More items for the + menu, after "Attach files". */
+  menuItems?: PopoverItem[];
+  /** Under the card: what the agent may do and the code it has. */
+  below?: JSX.Element;
   onSend: (prompt: string) => void;
   onStop: () => void;
 }) {
@@ -34,6 +42,17 @@ export function Composer(props: {
     else drafts.delete(props.appId);
   };
   let textarea!: HTMLTextAreaElement;
+  createEffect(
+    on(filled, (fill) => {
+      if (!fill || fill.appId !== props.appId) return;
+      setValue(fill.text);
+      queueMicrotask(() => {
+        textarea.focus();
+        textarea.setSelectionRange(fill.text.length, fill.text.length);
+        resize();
+      });
+    }),
+  );
 
   // @name shares another tab of the workspace with the message (lib/sharing.ts).
   const [mention, setMention] = createSignal<{ start: number; query: string } | null>(null);
@@ -89,6 +108,9 @@ export function Composer(props: {
     if (error) toast({ message: error, kind: "error" });
   };
   const busyUploading = () => uploadingCount(props.appId) > 0;
+  const [plusOpen, setPlusOpen] = createSignal(false);
+  let plusButton!: HTMLButtonElement;
+  const canSend = () => (!!value().trim() || attachmentsOf(props.appId).length > 0) && !busyUploading();
   const hasFiles = () => attachmentsOf(props.appId).length > 0 || busyUploading();
 
   const send = () => {
@@ -100,231 +122,296 @@ export function Composer(props: {
   };
 
   return (
-    <div
-      {...stylex.attrs(styles.root, props.large && styles.large, dropping() && styles.dropping)}
-      onDragOver={(e) => {
-        if (!e.dataTransfer?.types.includes("Files")) return;
-        e.preventDefault();
-        setDropping(true);
-      }}
-      onDragLeave={(e) => !e.currentTarget.contains(e.relatedTarget as Node) && setDropping(false)}
-      onDrop={(e) => {
-        if (!e.dataTransfer?.files.length) return;
-        e.preventDefault();
-        setDropping(false);
-        void attach([...e.dataTransfer.files]);
-      }}
-      data-composer
-    >
-      {props.top}
-      <Show when={hasFiles()}>
-        <div {...stylex.attrs(styles.files)} data-attachments>
-          <For each={attachmentsOf(props.appId)}>
-            {(file) => (
-              <span
-                {...stylex.attrs(styles.file)}
-                title={`${file.name} · ${Math.max(1, Math.round(file.size / 1024))} kB`}
-                data-attachment={file.id}
-              >
-                <Show
-                  when={file.mime.startsWith("image/")}
-                  fallback={
-                    <span {...stylex.attrs(styles.fileIcon)}>
-                      <Icon name="file-text" size={16} />
-                      <span {...stylex.attrs(styles.fileName)}>{file.name}</span>
-                    </span>
-                  }
-                >
-                  <img src={attachmentUrl(props.appId, file.id)} alt={file.name} {...stylex.attrs(styles.thumb)} />
-                </Show>
-                <button
-                  type="button"
-                  title="Remove"
-                  aria-label={`Remove ${file.name}`}
-                  onClick={() => removeAttachment(props.appId, file.id)}
-                  {...stylex.attrs(styles.fileRemove)}
-                >
-                  <Icon name="x" size={11} />
-                </button>
-              </span>
-            )}
-          </For>
-          <Show when={busyUploading()}>
-            <span {...stylex.attrs(styles.file, styles.fileIcon)}>
-              <Icon name="loader-circle" size={16} />
-            </span>
-          </Show>
-        </div>
-      </Show>
-      <Show when={sharesOf(props.appId).length}>
-        <div {...stylex.attrs(styles.shares)}>
-          <For each={sharesOf(props.appId)}>
-            {(ref) => (
-              <span
-                {...stylex.attrs(styles.share)}
-                title={
-                  ref.messageId !== undefined
-                    ? "A reply of that tab's agent, sent with your message"
-                    : "Shared with your message: what the tab shows or can do"
-                }
-                data-share-chip={ref.tabId}
-              >
-                <Icon name={ref.messageId !== undefined ? "reply" : "at-sign"} size={12} />
-                <span {...stylex.attrs(styles.shareLabel)}>{shareLabel(ref)}</span>
-                <button
-                  type="button"
-                  title="Don't share"
-                  onClick={() => removeShare(props.appId, ref)}
-                  {...stylex.attrs(styles.shareRemove)}
-                >
-                  <Icon name="x" size={12} />
-                </button>
-              </span>
-            )}
-          </For>
-        </div>
-      </Show>
-      <Show when={mention() && candidates().length}>
-        <div role="listbox" {...stylex.attrs(styles.mentions)} data-mentions>
-          <div {...stylex.attrs(styles.mentionsTitle)}>Share a tab with your message</div>
-          <For each={candidates()}>
-            {(tab, i) => {
-              const why = () => refusal(props.appId, tab.id);
-              const isActive = () => i() === active();
-              const isOff = () => why() !== null;
-              return (
-                <button
-                  type="button"
-                  role="option"
-                  aria-selected={isActive()}
-                  aria-disabled={isOff()}
-                  title={why() ?? undefined}
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => choose(tab.id)}
-                  {...stylex.attrs(styles.mention, isActive() && styles.mentionActive, isOff() && styles.mentionOff)}
-                  data-mention={tab.id}
-                >
-                  <TabIcon tab={tab} size={14} />
-                  <span {...stylex.attrs(styles.shareLabel)}>{tab.name}</span>
-                  <span {...stylex.attrs(styles.mentionKind)}>
-                    {why() ? "can't be shared here" : tab.kind === "web" ? "web page" : "app"}
-                  </span>
-                </button>
-              );
-            }}
-          </For>
-        </div>
-      </Show>
-      <textarea
-        ref={(el) => {
-          textarea = el;
-          if (props.autofocus) queueMicrotask(() => el.focus());
-        }}
-        rows={props.large ? 3 : 1}
-        value={value()}
-        placeholder={props.placeholder ?? "Ask for a change…"}
-        onInput={(e) => {
-          setValue(e.currentTarget.value);
-          resize();
-          findMention();
-        }}
-        onBlur={() => setMention(null)}
-        onPaste={(e) => {
-          const files = [...(e.clipboardData?.files ?? [])];
-          if (!files.length) return;
+    <div {...stylex.attrs(styles.wrap)}>
+      <div
+        {...stylex.attrs(styles.root, props.large && styles.large, dropping() && styles.dropping)}
+        onClick={(e) => e.target === e.currentTarget && textarea.focus()}
+        onDragOver={(e) => {
+          if (!e.dataTransfer?.types.includes("Files")) return;
           e.preventDefault();
-          void attach(files);
+          setDropping(true);
         }}
-        onKeyDown={(e) => {
-          const list = candidates();
-          if (mention() && list.length) {
-            if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-              e.preventDefault();
-              setActive((i) => (i + (e.key === "ArrowDown" ? 1 : list.length - 1)) % list.length);
-              return;
-            }
-            if ((e.key === "Enter" || e.key === "Tab") && !e.isComposing) {
-              e.preventDefault();
-              choose(list[active()]!.id);
-              return;
-            }
-            if (e.key === "Escape") {
-              e.preventDefault();
-              setMention(null);
-              return;
-            }
-          }
-          if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
-            e.preventDefault();
-            send();
-          }
+        onDragLeave={(e) => !e.currentTarget.contains(e.relatedTarget as Node) && setDropping(false)}
+        onDrop={(e) => {
+          if (!e.dataTransfer?.files.length) return;
+          e.preventDefault();
+          setDropping(false);
+          void attach([...e.dataTransfer.files]);
         }}
-        {...stylex.attrs(styles.input, props.large && styles.inputLarge)}
-      />
-      <div {...stylex.attrs(styles.actions)}>
-        <div {...stylex.attrs(styles.options)}>
-          <button
-            type="button"
-            title="Attach images or files (or paste a screenshot)"
-            onClick={() => fileInput.click()}
-            {...stylex.attrs(styles.attachButton)}
-            data-attach-files
-          >
-            <Icon name="paperclip" size={15} />
-          </button>
-          <input
-            ref={fileInput}
-            type="file"
-            multiple
-            hidden
-            onChange={(e) => {
-              void attach([...(e.currentTarget.files ?? [])]);
-              e.currentTarget.value = "";
-            }}
-          />
-          {props.tools}
-          <Show when={states[props.appId]}>
-            {(state) => (
-              <AgentPicker choice={state().agent} onChange={(choice) => setAgentChoice(props.appId, choice)} />
-            )}
+        data-composer
+      >
+        <div {...stylex.attrs(styles.attached)} data-composer-attached>
+          {props.top}
+          <Show when={hasFiles()}>
+            <div {...stylex.attrs(styles.files)} data-attachments>
+              <For each={attachmentsOf(props.appId)}>
+                {(file) => (
+                  <span
+                    {...stylex.attrs(styles.file)}
+                    title={`${file.name} · ${Math.max(1, Math.round(file.size / 1024))} kB`}
+                    data-attachment={file.id}
+                  >
+                    <Show
+                      when={file.mime.startsWith("image/")}
+                      fallback={
+                        <span {...stylex.attrs(styles.fileIcon)}>
+                          <Icon name="file-text" size={16} />
+                          <span {...stylex.attrs(styles.fileName)}>{file.name}</span>
+                        </span>
+                      }
+                    >
+                      <img src={attachmentUrl(props.appId, file.id)} alt={file.name} {...stylex.attrs(styles.thumb)} />
+                    </Show>
+                    <button
+                      type="button"
+                      title="Remove"
+                      aria-label={`Remove ${file.name}`}
+                      onClick={() => removeAttachment(props.appId, file.id)}
+                      {...stylex.attrs(styles.fileRemove)}
+                    >
+                      <Icon name="x" size={11} />
+                    </button>
+                  </span>
+                )}
+              </For>
+              <Show when={busyUploading()}>
+                <span {...stylex.attrs(styles.file, styles.fileIcon)}>
+                  <Icon name="loader-circle" size={16} />
+                </span>
+              </Show>
+            </div>
+          </Show>
+          <Show when={sharesOf(props.appId).length}>
+            <div {...stylex.attrs(styles.shares)}>
+              <For each={sharesOf(props.appId)}>
+                {(ref) => (
+                  <span
+                    {...stylex.attrs(styles.share)}
+                    title={
+                      ref.messageId !== undefined
+                        ? "A reply of that tab's agent, sent with your message"
+                        : "Shared with your message: what the tab shows or can do"
+                    }
+                    data-share-chip={ref.tabId}
+                  >
+                    <Icon name={ref.messageId !== undefined ? "reply" : "at-sign"} size={12} />
+                    <span {...stylex.attrs(styles.shareLabel)}>{shareLabel(ref)}</span>
+                    <button
+                      type="button"
+                      title="Don't share"
+                      onClick={() => removeShare(props.appId, ref)}
+                      {...stylex.attrs(styles.shareRemove)}
+                    >
+                      <Icon name="x" size={12} />
+                    </button>
+                  </span>
+                )}
+              </For>
+            </div>
           </Show>
         </div>
-        <Show
-          when={props.running}
-          fallback={
-            <Button
-              variant="primary"
-              disabled={(!value().trim() && !attachmentsOf(props.appId).length) || busyUploading()}
-              onClick={send}
+        <Show when={mention() && candidates().length}>
+          <div role="listbox" {...stylex.attrs(styles.mentions)} data-mentions>
+            <div {...stylex.attrs(styles.mentionsTitle)}>Share a tab with your message</div>
+            <For each={candidates()}>
+              {(tab, i) => {
+                const why = () => refusal(props.appId, tab.id);
+                const isActive = () => i() === active();
+                const isOff = () => why() !== null;
+                return (
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={isActive()}
+                    aria-disabled={isOff()}
+                    title={why() ?? undefined}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => choose(tab.id)}
+                    {...stylex.attrs(styles.mention, isActive() && styles.mentionActive, isOff() && styles.mentionOff)}
+                    data-mention={tab.id}
+                  >
+                    <TabIcon tab={tab} size={14} />
+                    <span {...stylex.attrs(styles.shareLabel)}>{tab.name}</span>
+                    <span {...stylex.attrs(styles.mentionKind)}>
+                      {why() ? "can't be shared here" : tab.kind === "web" ? "web page" : "app"}
+                    </span>
+                  </button>
+                );
+              }}
+            </For>
+          </div>
+        </Show>
+        <textarea
+          ref={(el) => {
+            textarea = el;
+            if (props.autofocus) queueMicrotask(() => el.focus());
+          }}
+          rows={props.large ? 3 : 1}
+          aria-label={props.placeholder ?? "Message the agent"}
+          value={value()}
+          placeholder={props.placeholder ?? "Ask for a change…"}
+          onInput={(e) => {
+            setValue(e.currentTarget.value);
+            resize();
+            findMention();
+          }}
+          onBlur={() => setMention(null)}
+          onPaste={(e) => {
+            const files = [...(e.clipboardData?.files ?? [])];
+            if (!files.length) return;
+            e.preventDefault();
+            void attach(files);
+          }}
+          onKeyDown={(e) => {
+            const list = candidates();
+            if (mention() && list.length) {
+              if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                e.preventDefault();
+                setActive((i) => (i + (e.key === "ArrowDown" ? 1 : list.length - 1)) % list.length);
+                return;
+              }
+              if ((e.key === "Enter" || e.key === "Tab") && !e.isComposing) {
+                e.preventDefault();
+                choose(list[active()]!.id);
+                return;
+              }
+              if (e.key === "Escape") {
+                e.preventDefault();
+                setMention(null);
+                return;
+              }
+            }
+            if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+              e.preventDefault();
+              send();
+            }
+          }}
+          {...stylex.attrs(styles.input, props.large && styles.inputLarge)}
+        />
+        <div {...stylex.attrs(styles.actions)}>
+          <div {...stylex.attrs(styles.options)}>
+            <button
+              ref={plusButton}
+              type="button"
+              title="Attach files, add a folder of code…"
+              aria-label="Add to the message"
+              aria-haspopup="menu"
+              aria-expanded={plusOpen()}
+              onClick={() => setPlusOpen((o) => !o)}
+              {...stylex.attrs(styles.iconButton, plusOpen() && styles.iconButtonOn)}
+              data-composer-plus
             >
-              Send
-            </Button>
-          }
-        >
-          <Button onClick={props.onStop}>Stop</Button>
+              <Icon name="plus" size={17} />
+            </button>
+            <input
+              ref={fileInput}
+              type="file"
+              multiple
+              hidden
+              onChange={(e) => {
+                void attach([...(e.currentTarget.files ?? [])]);
+                e.currentTarget.value = "";
+              }}
+            />
+            {props.tools}
+          </div>
+          <div {...stylex.attrs(styles.right)}>
+            <Show when={states[props.appId]}>
+              {(state) => (
+                <AgentPicker choice={state().agent} onChange={(choice) => setAgentChoice(props.appId, choice)} />
+              )}
+            </Show>
+            <Show
+              when={props.running}
+              fallback={
+                <button
+                  type="button"
+                  title="Send (Enter)"
+                  aria-label="Send"
+                  disabled={!canSend()}
+                  onClick={send}
+                  {...stylex.attrs(styles.send)}
+                  data-send
+                >
+                  <Icon name="arrow-up" size={16} stroke-width={2.4} />
+                </button>
+              }
+            >
+              <button
+                type="button"
+                title="Stop the agent"
+                aria-label="Stop"
+                onClick={props.onStop}
+                {...stylex.attrs(styles.send, styles.stop)}
+                data-stop
+              >
+                <span {...stylex.attrs(styles.stopSquare)} />
+              </button>
+            </Show>
+          </div>
+        </div>
+        <Show when={plusOpen()}>
+          <PopoverMenu
+            anchor={plusButton}
+            name="composer-menu"
+            width={240}
+            onClose={() => setPlusOpen(false)}
+            items={[
+              {
+                label: "Attach files or images",
+                description: "Or paste a screenshot, or drop files here",
+                icon: "paperclip",
+                id: "attach",
+                onSelect: () => fileInput.click(),
+              },
+              ...(props.menuItems ?? []),
+            ]}
+          />
         </Show>
       </div>
+      {props.below}
     </div>
   );
 }
 
 const styles = stylex.create({
+  wrap: { display: "flex", flexDirection: "column", gap: 6, minWidth: 0 },
   root: {
     position: "relative",
     display: "flex",
     flexDirection: "column",
-    gap: space.xs,
-    padding: space.sm,
-    borderRadius: radius.lg,
+    gap: 2,
+    paddingTop: 6,
+    paddingBottom: 6,
+    paddingInline: 6,
+    borderRadius: 16,
     borderWidth: 1,
     borderStyle: "solid",
-    borderColor: colors.border,
+    borderColor: {
+      default: colors.border,
+      ":focus-within": `color-mix(in oklab, ${colors.border}, ${colors.text} 14%)`,
+    },
     backgroundColor: colors.surface,
-    boxShadow: "0 1px 2px rgb(0 0 0 / 0.04)",
+    boxShadow: {
+      default: "0 1px 2px rgb(0 0 0 / 0.04), 0 4px 16px -8px rgb(0 0 0 / 0.08)",
+      ":focus-within": "0 1px 2px rgb(0 0 0 / 0.05), 0 6px 20px -8px rgb(0 0 0 / 0.14)",
+    },
+    cursor: "text",
+    transition: "border-color 150ms, box-shadow 150ms",
   },
   large: { padding: space.md },
   dropping: { borderColor: colors.accent, boxShadow: `0 0 0 3px ${colors.accentSoft}` },
-  files: { display: "flex", flexWrap: "wrap", gap: 6, paddingInline: 4, paddingTop: 2 },
+  // Picked elements, files and shared tabs: one wrapping row above the text (empty, it takes no room).
+  attached: {
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 6,
+    paddingInline: 6,
+    paddingTop: { default: 2, ":empty": 0 },
+    paddingBottom: { default: 4, ":empty": 0 },
+  },
+  files: { display: "contents" },
   file: {
     position: "relative",
     display: "grid",
@@ -360,11 +447,11 @@ const styles = stylex.create({
     padding: 0,
     borderWidth: 0,
     borderRadius: radius.full,
-    backgroundColor: "rgb(0 0 0 / 0.55)",
-    color: "#ffffff",
+    backgroundColor: `color-mix(in oklab, transparent, ${colors.text} 70%)`,
+    color: colors.bg,
     cursor: "pointer",
   },
-  attachButton: {
+  iconButton: {
     display: "grid",
     placeItems: "center",
     flexShrink: 0,
@@ -372,29 +459,59 @@ const styles = stylex.create({
     height: 28,
     padding: 0,
     borderStyle: "none",
-    borderRadius: radius.sm,
+    borderRadius: radius.full,
     backgroundColor: { default: "transparent", ":hover": colors.surfaceHover },
     color: { default: colors.muted, ":hover": colors.text },
     cursor: "pointer",
+    transition: "background-color 120ms, color 120ms, transform 150ms",
   },
+  iconButtonOn: { backgroundColor: colors.surfaceHover, color: colors.text, transform: "rotate(45deg)" },
+  send: {
+    display: "grid",
+    placeItems: "center",
+    flexShrink: 0,
+    width: 28,
+    height: 28,
+    marginLeft: 2,
+    padding: 0,
+    borderWidth: 0,
+    borderRadius: radius.full,
+    backgroundColor: {
+      default: colors.accent,
+      ":disabled": `color-mix(in oklab, ${colors.surface}, ${colors.text} 10%)`,
+    },
+    color: { default: colors.accentText, ":disabled": colors.muted },
+    cursor: { default: "pointer", ":disabled": "default" },
+    filter: { default: null, ":hover": "brightness(1.08)" },
+    transition: "background-color 150ms, color 150ms",
+  },
+  stop: {
+    backgroundColor: { default: colors.text, ":disabled": colors.text },
+    color: colors.bg,
+  },
+  stopSquare: { width: 9, height: 9, borderRadius: 2, backgroundColor: "currentColor" },
+  right: { display: "flex", alignItems: "center", gap: 0, minWidth: 0, flexShrink: 1 },
   input: {
     width: "100%",
     minHeight: 32,
     maxHeight: 240,
-    paddingBlock: 6,
-    paddingInline: space.sm,
+    paddingTop: 4,
+    paddingBottom: 6,
+    paddingInline: 8,
     borderStyle: "none",
     outline: "none",
     resize: "none",
     backgroundColor: "transparent",
+    color: colors.text,
     fontSize: font.md,
-    lineHeight: 1.45,
+    lineHeight: 1.5,
+    cursor: "text",
     // One line in a narrow panel (e.g. in a split view), instead of a wrapped placeholder with a scrollbar.
     "::placeholder": { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
   },
   inputLarge: { fontSize: font.lg, minHeight: 72 },
-  actions: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: space.sm },
-  shares: { display: "flex", flexWrap: "wrap", gap: 4, paddingInline: 4, paddingTop: 2 },
+  actions: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: space.xs, minWidth: 0 },
+  shares: { display: "contents" },
   share: {
     display: "inline-flex",
     alignItems: "center",
@@ -424,8 +541,8 @@ const styles = stylex.create({
   },
   mentions: {
     position: "absolute",
-    left: space.sm,
-    right: space.sm,
+    left: 0,
+    right: 0,
     bottom: "calc(100% + 6px)",
     zIndex: 20,
     display: "flex",
@@ -444,7 +561,7 @@ const styles = stylex.create({
     alignItems: "center",
     gap: space.sm,
     height: 30,
-    paddingInline: space.sm,
+    paddingInline: 10,
     borderWidth: 0,
     borderRadius: radius.sm,
     backgroundColor: { default: "transparent", ":hover": colors.surfaceHover },
@@ -457,5 +574,5 @@ const styles = stylex.create({
   mentionOff: { opacity: 0.5 },
   mentionKind: { marginLeft: "auto", flexShrink: 0, color: colors.muted, fontSize: font.xs },
   // Clipped rather than running under Send in a narrow panel.
-  options: { display: "flex", alignItems: "center", gap: 2, minWidth: 0, overflow: "hidden" },
+  options: { display: "flex", alignItems: "center", gap: 2, flexShrink: 0 },
 });

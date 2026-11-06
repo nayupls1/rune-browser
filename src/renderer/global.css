@@ -155,6 +155,31 @@ body:has([data-address-open]) [data-tab-strip-spacer] {
   line-height: 1.55;
   overflow-wrap: normal;
 }
+.rune-markdown table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 0 0 0.75em;
+  border-collapse: collapse;
+  font-size: 0.93em;
+  line-height: 1.45;
+  overflow-wrap: normal;
+}
+.rune-markdown th,
+.rune-markdown td {
+  padding: 0.4em 0.9em 0.4em 0;
+  border-bottom: 1px solid rgb(127 127 127 / 0.2);
+  text-align: left;
+  vertical-align: top;
+}
+.rune-markdown th {
+  font-weight: 600;
+  white-space: nowrap;
+  border-bottom-color: rgb(127 127 127 / 0.35);
+}
+.rune-markdown tr:last-child td {
+  border-bottom: none;
+}
 .rune-markdown pre code {
   white-space: pre;
 }
@@ -194,4 +219,51 @@ body:has([data-address-open]) [data-tab-strip-spacer] {
   border: none;
   border-top: 1px solid rgb(127 127 127 / 0.25);
   margin: 1em 0;
+}
+
+/* The agent sidebar's scrolling parts: a slim scrollbar without arrow buttons, like the rest of the chat. */
+[data-chat-scroller]::-webkit-scrollbar,
+.rune-markdown pre::-webkit-scrollbar,
+.rune-markdown table::-webkit-scrollbar,
+[data-agent-popover] ::-webkit-scrollbar,
+[data-chat-history] ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+[data-chat-scroller]::-webkit-scrollbar-button,
+.rune-markdown pre::-webkit-scrollbar-button,
+.rune-markdown table::-webkit-scrollbar-button,
+[data-agent-popover] ::-webkit-scrollbar-button,
+[data-chat-history] ::-webkit-scrollbar-button {
+  display: none;
+}
+[data-chat-scroller]::-webkit-scrollbar-track,
+.rune-markdown pre::-webkit-scrollbar-track,
+.rune-markdown table::-webkit-scrollbar-track,
+[data-agent-popover] ::-webkit-scrollbar-track,
+[data-chat-history] ::-webkit-scrollbar-track {
+  background: transparent;
+}
+[data-chat-scroller]::-webkit-scrollbar-thumb,
+.rune-markdown pre::-webkit-scrollbar-thumb,
+.rune-markdown table::-webkit-scrollbar-thumb,
+[data-agent-popover] ::-webkit-scrollbar-thumb,
+[data-chat-history] ::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+  background-color: color-mix(in oklab, transparent, currentColor 22%);
+}
+[data-chat-scroller]::-webkit-scrollbar-thumb:hover,
+.rune-markdown pre::-webkit-scrollbar-thumb:hover,
+.rune-markdown table::-webkit-scrollbar-thumb:hover,
+[data-agent-popover] ::-webkit-scrollbar-thumb:hover,
+[data-chat-history] ::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in oklab, transparent, currentColor 38%);
+}
+
+/* Keyboard focus on the agent sidebar's buttons: one soft ring instead of the browser's (menu items show it with their fill). */
+[data-agent-panel] button:focus-visible {
+  outline: 2px solid color-mix(in oklab, currentColor 35%, transparent);
+  outline-offset: 1px;
 }

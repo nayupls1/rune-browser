@@ -3,7 +3,7 @@
 // provider's models on the right, with search; effort is a small menu next to
 // it, offering only what the model supports.
 import * as stylex from "@stylexjs/stylex";
-import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import {
   effortLabels,
@@ -15,7 +15,7 @@ import {
 } from "../../shared/api";
 import { providerById, providers, refreshProviders } from "../lib/store";
 import { colors, font, radius, space } from "../theme.stylex";
-import { ContextMenu, type MenuPosition } from "./ContextMenu";
+import { focusComposer, PopoverMenu } from "./PopoverMenu";
 import { Icon } from "./Icon";
 import { ProviderIcon } from "./ProviderIcon";
 
@@ -37,18 +37,45 @@ export function choiceModel(choice: AgentChoice): ProviderModel | undefined {
   return provider?.models.find((m) => m.id === id);
 }
 
+/** Effort as signal bars: one per level the model has (up to five), filled up to the chosen one (none for Auto). */
+export function EffortBars(props: { level: string | null; levels: readonly string[] }) {
+  const count = () => Math.min(5, Math.max(3, props.levels.length));
+  const filled = () => {
+    const i = props.level ? props.levels.indexOf(props.level) : -1;
+    if (i < 0) return 0;
+    return Math.max(1, Math.round(((i + 1) / props.levels.length) * count()));
+  };
+  return (
+    <span {...stylex.attrs(styles.bars)} aria-hidden="true">
+      <For each={Array.from({ length: count() }, (_, i) => i)}>
+        {(i) => {
+          const on = () => i < filled();
+          return (
+            <span
+              {...stylex.attrs(styles.bar, on() && styles.barOn)}
+              style={{ height: `${Math.round(3 + (i * 7) / (count() - 1))}px` }}
+            />
+          );
+        }}
+      </For>
+    </span>
+  );
+}
+
 export function AgentPicker(props: {
   choice: AgentChoice;
   onChange: (choice: AgentChoice) => void;
   compact?: boolean;
 }) {
   const [open, setOpen] = createSignal(false);
-  const [effortMenu, setEffortMenu] = createSignal<MenuPosition>();
+  const [effortOpen, setEffortOpen] = createSignal(false);
   let trigger!: HTMLButtonElement;
+  let effortTrigger!: HTMLButtonElement;
 
   const model = () => choiceModel(props.choice);
-  const modelLabel = () => model()?.name ?? props.choice.model ?? "Default model";
+  const modelLabel = () => model()?.name.replace(/^Claude /, "") ?? props.choice.model ?? "Default model";
   const efforts = () => model()?.efforts ?? [];
+  const effortLabel = () => (props.choice.effort ? (effortLabels[props.choice.effort] ?? props.choice.effort) : "Auto");
 
   const pick = (provider: ProviderId, modelId: string) => {
     const next = providerById(provider)?.models.find((m) => m.id === modelId);
@@ -56,6 +83,7 @@ export function AgentPicker(props: {
     const effort = props.choice.effort && next?.efforts.includes(props.choice.effort) ? props.choice.effort : null;
     props.onChange({ provider, model: modelId, effort });
     setOpen(false);
+    focusComposer(trigger);
   };
 
   return (
@@ -63,7 +91,9 @@ export function AgentPicker(props: {
       <button
         ref={trigger}
         type="button"
-        title={`${providerById(props.choice.provider)?.label ?? props.choice.provider} · ${modelLabel()}`}
+        title={`Model: ${providerById(props.choice.provider)?.label ?? props.choice.provider} · ${model()?.name ?? modelLabel()}`}
+        aria-haspopup="dialog"
+        aria-expanded={open()}
         onClick={() => setOpen((o) => !o)}
         {...stylex.attrs(styles.trigger, open() && styles.triggerOpen)}
         data-agent-picker
@@ -72,44 +102,51 @@ export function AgentPicker(props: {
         <Show when={!props.compact}>
           <span {...stylex.attrs(styles.triggerLabel)}>{modelLabel()}</span>
         </Show>
-        <Icon name="chevron-down" size={12} />
+        <Icon name="chevron-down" size={12} {...stylex.attrs(styles.chevron)} />
       </button>
       <Show when={efforts().length}>
         <button
+          ref={effortTrigger}
           type="button"
-          title="Reasoning effort"
-          onClick={(e) => {
-            const r = e.currentTarget.getBoundingClientRect();
-            setEffortMenu({ x: r.left, y: r.top - 8 - 36 * (efforts().length + 1) });
-          }}
-          {...stylex.attrs(styles.trigger)}
+          title={`Reasoning effort: ${effortLabel()}`}
+          aria-haspopup="menu"
+          aria-expanded={effortOpen()}
+          onClick={() => setEffortOpen((o) => !o)}
+          {...stylex.attrs(styles.trigger, effortOpen() && styles.triggerOpen)}
           data-effort-picker
         >
-          <span {...stylex.attrs(styles.triggerLabel)}>
-            {props.choice.effort ? (effortLabels[props.choice.effort] ?? props.choice.effort) : "Auto"}
-          </span>
-          <Icon name="chevron-down" size={12} />
+          <Show when={props.choice.effort}>
+            <EffortBars level={props.choice.effort} levels={efforts()} />
+          </Show>
+          <span {...stylex.attrs(styles.triggerLabel)}>{effortLabel()}</span>
+          <Icon name="chevron-down" size={12} {...stylex.attrs(styles.chevron)} />
         </button>
       </Show>
-      <Show when={effortMenu()}>
-        {(position) => (
-          <ContextMenu
-            position={position()}
-            onClose={() => setEffortMenu()}
-            items={[
-              {
-                label: "Auto",
-                icon: props.choice.effort ? undefined : "check",
-                onSelect: () => props.onChange({ ...props.choice, effort: null }),
-              },
-              ...efforts().map((level) => ({
-                label: effortLabels[level] ?? level,
-                icon: props.choice.effort === level ? "check" : undefined,
-                onSelect: () => props.onChange({ ...props.choice, effort: level }),
-              })),
-            ]}
-          />
-        )}
+      <Show when={effortOpen()}>
+        <PopoverMenu
+          anchor={effortTrigger}
+          title="Reasoning effort"
+          name="effort-menu"
+          width={210}
+          onClose={() => setEffortOpen(false)}
+          items={[
+            {
+              label: "Auto",
+              description: "The model decides",
+              icon: "sparkles",
+              checked: !props.choice.effort,
+              id: "auto",
+              onSelect: () => props.onChange({ ...props.choice, effort: null }),
+            },
+            ...efforts().map((level) => ({
+              label: effortLabels[level] ?? level,
+              icon: <EffortBars level={level} levels={efforts()} />,
+              checked: props.choice.effort === level,
+              id: level,
+              onSelect: () => props.onChange({ ...props.choice, effort: level }),
+            })),
+          ]}
+        />
       </Show>
       <Show when={open()}>
         <Popover anchor={trigger} choice={props.choice} onPick={pick} onClose={() => setOpen(false)} />
@@ -126,9 +163,22 @@ function Popover(props: {
 }) {
   const [browsing, setBrowsing] = createSignal<ProviderId>(props.choice.provider);
   const [query, setQuery] = createSignal("");
-  const [highlight, setHighlight] = createSignal(0);
+  /** Where a provider's list starts: on the chosen model (or its default). */
+  const chosenIndex = (id: ProviderId) => {
+    const p = providerById(id);
+    const wanted = id === props.choice.provider ? (props.choice.model ?? p?.defaultModel) : p?.defaultModel;
+    return Math.max(
+      0,
+      (p?.models ?? []).findIndex((m) => m.id === wanted),
+    );
+  };
+  const [highlight, setHighlight] = createSignal(chosenIndex(props.choice.provider));
+  const close = () => {
+    props.onClose();
+    props.anchor.focus({ preventScroll: true });
+  };
   let root!: HTMLDivElement;
-  let search!: HTMLInputElement;
+  let search: HTMLInputElement | undefined;
 
   const status = () => providerById(browsing());
   const models = createMemo(() => {
@@ -139,19 +189,38 @@ function Popover(props: {
   const selectedId = () =>
     props.choice.provider === browsing() ? (props.choice.model ?? status()?.defaultModel) : undefined;
 
-  // Above the composer when there's room, else below the trigger.
-  const rect = props.anchor.getBoundingClientRect();
-  const height = 340;
-  const top = rect.top > height + 16 ? rect.top - height - 8 : rect.bottom + 8;
-  const left = Math.max(8, Math.min(rect.left, window.innerWidth - 400));
-
+  // Over the composer card it's in (the agent sidebar), at the card's width; elsewhere under or over the trigger.
+  const [place, setPlace] = createSignal<{ top?: number; bottom?: number; left: number; width: number }>({
+    top: -9999,
+    left: -9999,
+    width: 380,
+  });
   onMount(() => {
-    search.focus();
+    const rect = props.anchor.getBoundingClientRect();
+    const card = props.anchor.closest("[data-composer]")?.getBoundingClientRect();
+    const width = card ? Math.min(420, card.width) : 380;
+    const left = card ? card.right - width : Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
+    // Above: held by its bottom edge, so it stays put when another provider's list is shorter.
+    if (rect.top > 340 + 16) setPlace({ bottom: window.innerHeight - (card?.top ?? rect.top) + 6, left, width });
+    else setPlace({ top: rect.bottom + 6, left, width });
+    (search ?? root.querySelector<HTMLButtonElement>("button"))?.focus();
     const onPointer = (e: PointerEvent) => {
       if (!root.contains(e.target as Node) && !props.anchor.contains(e.target as Node)) props.onClose();
     };
+    const onAway = () => props.onClose();
     document.addEventListener("pointerdown", onPointer, true);
-    onCleanup(() => document.removeEventListener("pointerdown", onPointer, true));
+    window.addEventListener("blur", onAway);
+    window.addEventListener("resize", onAway);
+    onCleanup(() => {
+      document.removeEventListener("pointerdown", onPointer, true);
+      window.removeEventListener("blur", onAway);
+      window.removeEventListener("resize", onAway);
+    });
+  });
+  // The highlighted model stays in view while the arrow keys move it.
+  createEffect(() => {
+    const i = highlight();
+    root?.querySelectorAll<HTMLElement>("[data-model]")[i]?.scrollIntoView({ block: "nearest" });
   });
 
   const onKey = (e: KeyboardEvent) => {
@@ -159,7 +228,7 @@ function Popover(props: {
     if (e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();
-      props.onClose();
+      close();
     } else if (e.key === "ArrowDown") {
       e.preventDefault();
       setHighlight((i) => Math.min(i + 1, list.length - 1));
@@ -186,7 +255,12 @@ function Popover(props: {
         aria-label="Choose a model"
         onKeyDown={onKey}
         {...stylex.attrs(styles.popover)}
-        style={{ top: `${top}px`, left: `${left}px`, height: `${height}px` }}
+        style={{
+          top: place().top === undefined ? undefined : `${place().top}px`,
+          bottom: place().bottom === undefined ? undefined : `${place().bottom}px`,
+          left: `${Math.max(8, place().left)}px`,
+          width: `${place().width}px`,
+        }}
         data-agent-popover
       >
         <div {...stylex.attrs(styles.rail)}>
@@ -201,57 +275,71 @@ function Popover(props: {
                   title={`${p()?.label ?? id}${off() ? ` · ${stateText[p()?.state ?? "missing"]}` : ""}`}
                   onClick={() => {
                     setBrowsing(id);
-                    setHighlight(0);
-                    search.focus();
+                    setHighlight(chosenIndex(id));
+                    setQuery("");
+                    queueMicrotask(() => search?.focus());
                   }}
                   {...stylex.attrs(
                     styles.railButton,
                     active() && styles.railButtonActive,
                     off() && styles.railButtonOff,
                   )}
+                  aria-pressed={active()}
                   data-provider={id}
                 >
                   <ProviderIcon provider={id} size={18} />
-                  <Show when={active()}>
-                    <span {...stylex.attrs(styles.railIndicator)} />
-                  </Show>
                 </button>
               );
             }}
           </For>
         </div>
         <div {...stylex.attrs(styles.panel)}>
-          <div {...stylex.attrs(styles.searchRow)}>
-            <Icon name="search" size={14} {...stylex.attrs(styles.searchIcon)} />
-            <input
-              ref={search}
-              value={query()}
-              placeholder={`Search ${status()?.label ?? ""} models`}
-              onInput={(e) => {
-                setQuery(e.currentTarget.value);
-                setHighlight(0);
-              }}
-              {...stylex.attrs(styles.search)}
-            />
-          </div>
           <Show
             when={usable(status())}
             fallback={
-              <div {...stylex.attrs(styles.notice)}>
-                <strong>
-                  {status()?.label ?? browsing()}: {stateText[status()?.state ?? "missing"]}
-                </strong>
-                <span>{status()?.message ?? ""}</span>
+              <div {...stylex.attrs(styles.notice)} data-provider-notice>
+                <span {...stylex.attrs(styles.noticeTitle)}>
+                  <ProviderIcon provider={browsing()} size={16} />
+                  {status()?.label ?? browsing()}
+                  <span {...stylex.attrs(styles.noticeState)}>{stateText[status()?.state ?? "missing"]}</span>
+                </span>
+                <Show when={status()?.message}>
+                  {(message) => (
+                    <p {...stylex.attrs(styles.noticeText)}>
+                      <For each={message().split(/`([^`]+)`/)}>
+                        {(part, i) => (
+                          <Show when={i() % 2} fallback={part}>
+                            <code {...stylex.attrs(styles.noticeCode)}>{part}</code>
+                          </Show>
+                        )}
+                      </For>
+                    </p>
+                  )}
+                </Show>
                 <button
                   type="button"
                   onClick={() => void refreshProviders(browsing())}
                   {...stylex.attrs(styles.noticeButton)}
                 >
+                  <Icon name="refresh-cw" size={12} />
                   Check again
                 </button>
               </div>
             }
           >
+            <div {...stylex.attrs(styles.searchRow)}>
+              <Icon name="search" size={14} {...stylex.attrs(styles.searchIcon)} />
+              <input
+                ref={search}
+                value={query()}
+                placeholder={`Search ${status()?.label ?? ""} models`}
+                onInput={(e) => {
+                  setQuery(e.currentTarget.value);
+                  setHighlight(0);
+                }}
+                {...stylex.attrs(styles.search)}
+              />
+            </div>
             <div {...stylex.attrs(styles.list)}>
               <For
                 each={models()}
@@ -307,24 +395,34 @@ const styles = stylex.create({
     display: "inline-flex",
     alignItems: "center",
     gap: 5,
+    flexShrink: 1,
+    minWidth: 0,
     height: 28,
-    maxWidth: 190,
+    maxWidth: 170,
     paddingInline: 7,
     borderWidth: 0,
     borderRadius: radius.sm,
     backgroundColor: { default: "transparent", ":hover": colors.surfaceHover },
     color: { default: colors.muted, ":hover": colors.text },
-    fontSize: font.xs,
+    fontFamily: "inherit",
+    fontSize: 12.5,
+    fontWeight: 500,
     cursor: "pointer",
+    whiteSpace: "nowrap",
+    transition: "background-color 120ms, color 120ms",
   },
   triggerOpen: { backgroundColor: colors.surfaceHover, color: colors.text },
-  triggerLabel: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  triggerLabel: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 },
+  chevron: { flexShrink: 0, opacity: 0.7 },
+  bars: { display: "inline-flex", alignItems: "flex-end", gap: 1.5, height: 10, flexShrink: 0 },
+  bar: { width: 2.5, borderRadius: 1, backgroundColor: "currentColor", opacity: 0.28 },
+  barOn: { opacity: 1 },
   popover: {
     position: "fixed",
     // Over the floating sidebar (components/Sidebar.tsx), like every menu.
     zIndex: 1000,
     display: "flex",
-    width: 380,
+    maxHeight: 340,
     overflow: "hidden",
     borderRadius: radius.md,
     borderWidth: 1,
@@ -364,17 +462,6 @@ const styles = stylex.create({
   },
   railButtonActive: { backgroundColor: colors.surfaceHover },
   railButtonOff: { opacity: 0.45 },
-  railIndicator: {
-    position: "absolute",
-    right: -4,
-    top: "50%",
-    width: 3,
-    height: 20,
-    marginTop: -10,
-    borderTopLeftRadius: 3,
-    borderBottomLeftRadius: 3,
-    backgroundColor: colors.accent,
-  },
   panel: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column" },
   searchRow: {
     display: "flex",
@@ -453,8 +540,33 @@ const styles = stylex.create({
     color: colors.muted,
     lineHeight: 1.45,
   },
+  noticeTitle: { display: "flex", alignItems: "center", gap: 8, color: colors.text, fontWeight: 600 },
+  noticeState: {
+    paddingInline: 6,
+    borderRadius: radius.full,
+    backgroundColor: colors.surfaceHover,
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: 500,
+    lineHeight: "18px",
+  },
+  noticeText: { margin: 0, fontSize: font.sm },
+  noticeCode: {
+    paddingBlock: 1,
+    paddingInline: 5,
+    borderRadius: 4,
+    backgroundColor: colors.surfaceHover,
+    color: colors.text,
+    fontFamily: font.mono,
+    fontSize: 12,
+    userSelect: "all",
+  },
   noticeButton: {
-    paddingBlock: 4,
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    height: 28,
+    marginTop: 2,
     paddingInline: space.md,
     borderRadius: radius.full,
     borderWidth: 1,
@@ -462,7 +574,9 @@ const styles = stylex.create({
     borderColor: colors.border,
     backgroundColor: { default: "transparent", ":hover": colors.surfaceHover },
     color: colors.text,
+    fontFamily: "inherit",
     fontSize: font.xs,
+    fontWeight: 500,
     cursor: "pointer",
   },
 });

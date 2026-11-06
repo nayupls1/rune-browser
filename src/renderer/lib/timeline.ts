@@ -16,7 +16,7 @@ export type Row =
    * A finished turn: "Worked for 42s" in place of its steps (tool calls,
    * replies on the way), which open from it. The final reply comes after it.
    */
-  | { type: "turn-end"; id: number; ms: number; stopped: boolean; steps: Row[] };
+  | { type: "turn-end"; id: number; ms: number; stopped: boolean; failed: boolean; steps: Row[] };
 
 /** Messages that come with your next message (they open a turn, before the `user` message itself). */
 const opensTurn = (m: ChatMessage) => m.role === "user" || m.role === "context" || m.role === "attachments";
@@ -75,12 +75,15 @@ export function buildRows(messages: readonly ChatMessage[], running: boolean, sh
     if (from === -1) from = body.findLastIndex((r) => r.type === "work") + 1;
     const steps = body.slice(0, from);
     const last = turn.body.at(-1)!;
+    const stopped = turn.body.some((m) => m.role === "error" && m.content === STOPPED);
     rows.push(
       {
         type: "turn-end",
         id: user.id,
         ms: Date.parse(last.createdAt) - Date.parse(user.createdAt),
-        stopped: turn.body.some((m) => m.role === "error" && m.content === STOPPED),
+        stopped,
+        // It ended in an error (not the user stopping it).
+        failed: !stopped && last.role === "error",
         steps: steps.filter((r) => !staysInView(r)),
       },
       ...steps.filter(staysInView),
@@ -142,10 +145,12 @@ export function summarize(entries: readonly WorkEntry[]): string {
   }
   // What changed things comes first.
   const order = (kind: ToolKind) => (first.includes(kind) ? first.indexOf(kind) : first.length);
-  const parts = [...counts]
+  const sorted = [...counts]
     .sort(([a], [b]) => order(a) - order(b))
-    .map(([kind, n]) => kindPhrases[kind](typeof n === "number" ? n : n.size));
-  const shown = parts.length > 3 ? [...parts.slice(0, 2), `${parts.length - 2} more`] : parts;
+    .map(([kind, n]) => [kind, typeof n === "number" ? n : n.size] as const);
+  const parts = sorted.map(([kind, n]) => kindPhrases[kind](n));
+  const rest = sorted.slice(2).reduce((sum, [, n]) => sum + n, 0);
+  const shown = parts.length > 3 ? [...parts.slice(0, 2), plural(rest, "more step", "more steps")] : parts;
   const text = shown.length > 1 ? `${shown.slice(0, -1).join(", ")} and ${shown.at(-1)}` : shown[0]!;
   return text.charAt(0).toUpperCase() + text.slice(1);
 }

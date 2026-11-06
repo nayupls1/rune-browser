@@ -19,6 +19,28 @@ function inline(text: string): string {
   return out.replace(/\u0000(\d+)\u0000/g, (_, i: string) => `<code>${codes[Number(i)]}</code>`);
 }
 
+const isRow = (line: string) => /^\s*\|.*\|\s*$/.test(line);
+/** A table row's cells (`| a | b |` → ["a", "b"]); a pipe in `code` or written as \| stays in its cell. */
+function cells(line: string) {
+  const out: string[] = [];
+  let cell = "";
+  let code = false;
+  const text = line
+    .trim()
+    .replace(/^\|/, "")
+    .replace(/(?<!\\)\|$/, "");
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]!;
+    if (c === "\\" && text[i + 1] === "|") ((cell += "|"), i++);
+    else if (c === "|" && !code) (out.push(cell), (cell = ""));
+    else {
+      if (c === "`") code = !code;
+      cell += c;
+    }
+  }
+  return [...out, cell].map((c) => c.trim());
+}
+
 export function markdownToHtml(source: string): string {
   const lines = source.replace(/\r\n?/g, "\n").split("\n");
   const html: string[] = [];
@@ -70,6 +92,28 @@ export function markdownToHtml(source: string): string {
       continue;
     }
 
+    // A table: a row of cells, then a line of dashes under it.
+    if (isRow(line) && /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(lines[i + 1] ?? "")) {
+      const align = cells(lines[i + 1]!).map((c) =>
+        c.startsWith(":") && c.endsWith(":") ? "center" : c.endsWith(":") ? "right" : "",
+      );
+      const cell = (tag: string, text: string, n: number) =>
+        `<${tag}${align[n] ? ` style="text-align:${align[n]}"` : ""}>${inline(text)}</${tag}>`;
+      const head = cells(line)
+        .map((c, n) => cell("th", c, n))
+        .join("");
+      i += 2;
+      const body: string[] = [];
+      while (i < lines.length && isRow(lines[i]!))
+        body.push(
+          `<tr>${cells(lines[i++]!)
+            .map((c, n) => cell("td", c, n))
+            .join("")}</tr>`,
+        );
+      html.push(`<table><thead><tr>${head}</tr></thead><tbody>${body.join("")}</tbody></table>`);
+      continue;
+    }
+
     if (line.startsWith(">")) {
       const quote: string[] = [];
       while (i < lines.length && lines[i]!.startsWith(">")) quote.push(lines[i++]!.replace(/^>\s?/, ""));
@@ -83,7 +127,13 @@ export function markdownToHtml(source: string): string {
     }
 
     const para: string[] = [];
-    while (i < lines.length && lines[i]!.trim() && !/^(#{1,4}\s|```|>|\s*([-*+]|\d+[.)])\s)/.test(lines[i]!))
+    while (
+      i < lines.length &&
+      lines[i]!.trim() &&
+      !/^(#{1,4}\s|```|>|\s*([-*+]|\d+[.)])\s)/.test(lines[i]!) &&
+      // A table starts here.
+      !(isRow(lines[i]!) && /^\s*\|?\s*:?-{2,}/.test(lines[i + 1] ?? ""))
+    )
       para.push(lines[i++]!);
     html.push(`<p>${para.map(inline).join("<br>")}</p>`);
   }

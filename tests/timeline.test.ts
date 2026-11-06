@@ -55,6 +55,8 @@ describe("timeline rows", () => {
     expect(stopped.some((r) => r.type === "message" && r.message.role === "error")).toBe(false);
     const failed = buildRows([...messages, msg("error", "Overloaded", 3)], false, true);
     expect(types(failed)).toEqual(["message", "turn-end", "message"]);
+    expect(failed[1]).toMatchObject({ type: "turn-end", failed: true, stopped: false });
+    expect(stopped.at(-1)).toMatchObject({ failed: false });
     expect(failed.at(-1)).toMatchObject({ type: "message", message: { content: "Overloaded" } });
   });
 
@@ -129,7 +131,7 @@ describe("timeline rows", () => {
       id: i,
       activity: { kind: kind as never, title: `${i}` },
     }));
-    expect(summarize(many)).toBe("Read 1 file, used the web once and 2 more");
+    expect(summarize(many)).toBe("Read 1 file, used the web once and 2 more steps");
   });
 
   test("elapsed times", () => {

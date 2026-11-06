@@ -22,3 +22,19 @@ test("never lets markup or script links through", () => {
 test("keeps code spans literal", () => {
   expect(markdownToHtml("`**not bold**`")).toBe("<p><code>**not bold**</code></p>");
 });
+
+test("renders tables, with their alignment", () => {
+  const html = markdownToHtml(
+    "| Article | Time |\n| --- | ---: |\n| The **small** web | 8 min |\n| <b> | 6 |\n\nAfter.",
+  );
+  expect(html).toContain('<table><thead><tr><th>Article</th><th style="text-align:right">Time</th></tr></thead>');
+  expect(html).toContain("<td>The <strong>small</strong> web</td>");
+  expect(html).toContain("<td>&lt;b&gt;</td>");
+  expect(html).toContain("<p>After.</p>");
+  // Pipes in code or escaped stay in their cell; a table right under a paragraph line still is one.
+  const tricky = markdownToHtml("Results:\n| Expr | Means |\n| --- | --- |\n| `a | b` | either \\| or |");
+  expect(tricky).toContain("<p>Results:</p>");
+  expect(tricky).toContain("<td><code>a | b</code></td><td>either | or</td>");
+  // A lone row of pipes isn't a table.
+  expect(markdownToHtml("| just text |")).toBe("<p>| just text |</p>");
+});

@@ -412,7 +412,8 @@ async function chooseAgent(root: string, provider: string, model: string, effort
   if (effort) {
     await click(`${root} [data-effort-picker]`);
     await page!.waitFor(`!!document.querySelector("[data-context-menu]")`);
-    await click("[data-context-menu] button", effort);
+    await page!.waitFor(`!!document.querySelector("[data-effort-menu]")`);
+    await click(`[data-effort-menu] [data-menu-item="${effort}"]`);
   }
 }
 
@@ -436,7 +437,7 @@ async function agentDone(panel: string) {
     timeoutMs: 15_000,
   });
   await page!.waitFor(
-    `[...document.querySelectorAll(${JSON.stringify(`${panel} button`)})].some((b) => b.textContent === "Send") && !document.querySelector(${JSON.stringify(panel)}).innerText.includes("Working…")`,
+    `!!document.querySelector(${JSON.stringify(`${panel} [data-send]`)}) && !document.querySelector(${JSON.stringify(panel)}).innerText.includes("Working…")`,
     { timeoutMs: 300_000, label: "agent to finish" },
   );
   return page!.eval<string>(`document.querySelector(${JSON.stringify(panel)}).innerText`);
@@ -587,7 +588,7 @@ try {
       : await page!.waitFor<number>(countModels, { label: "models" });
     await shot("agent-picker.png");
     await page!.eval(
-      `document.querySelector("[data-agent-popover] input").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })), true`,
+      `document.querySelector("[data-agent-popover]").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })), true`,
     );
     await page!.waitFor(`!document.querySelector("[data-agent-popover]")`, { label: "Escape to close" });
     await shot("new-app.png");
@@ -1362,12 +1363,25 @@ try {
     if (!(await page!.eval<boolean>(`!!document.querySelector('${panel}')`)))
       await click(`[data-tab-chrome="${appId}"] [data-agent-show]`);
     await page!.waitFor(`!!document.querySelector('${panel} [data-chat-history-button]')`, { label: "chat buttons" });
-    const disabled = await page!.eval<boolean>(`document.querySelector('${panel} [data-new-chat]').disabled`);
-    if (!disabled) throw new Error("New chat is offered for an empty chat");
+    if (await page!.eval<boolean>(`!!document.querySelector('${panel} [data-new-chat]')`))
+      throw new Error("New chat is offered for an empty chat");
+    // A suggestion in the empty chat goes into the composer, ready to edit or send.
+    await page!.waitFor(`!!document.querySelector('${panel} [data-chat-empty] [data-suggestion]')`, {
+      label: "suggestions",
+    });
+    const suggestion = await page!.eval<string>(
+      `document.querySelector('${panel} [data-suggestion]').textContent.trim()`,
+    );
+    await click(`${panel} [data-suggestion]`);
+    await page!.waitFor(`document.querySelector('${panel} textarea').value === ${JSON.stringify(suggestion)}`, {
+      label: "suggestion in the composer",
+    });
+    await type(`${panel} textarea`, "");
     await click(`${panel} [data-chat-history-button]`);
     await page!.waitFor(`document.querySelector("[data-chat-history]")?.innerText.includes("No earlier chats")`, {
       label: "history popover",
     });
+    await shot("chat-history-empty.png");
     await page!.eval(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })), true`);
     await page!.waitFor(`!document.querySelector("[data-chat-history]")`, { label: "closed" });
     const chats = await apiCall<unknown[]>(`/api/apps/${appId}/chats`);
@@ -4174,9 +4188,20 @@ try {
       const panel = `[data-agent-for="${appId}"]`;
       if (!(await page!.eval<boolean>(`!!document.querySelector('${panel}')`)))
         await click(`[data-tab-chrome="${appId}"] [data-agent-show]`);
-      await page!.waitFor(`!!document.querySelector('${panel} [data-full-access]')`, { label: "full access badge" });
-      await click(`${panel} [data-full-access]`);
-      await page!.waitFor(`!document.querySelector("[data-full-access]")`, { label: "badge gone" });
+      // Under the composer, the permissions say so; switched back from their menu.
+      await page!.waitFor(`!!document.querySelector('${panel} [data-access-picker][data-full-access]')`, {
+        label: "full access shown",
+      });
+      await click(`${panel} [data-access-picker]`);
+      await page!.waitFor(
+        `!!document.querySelector('[data-access-menu] [data-menu-item="full"][aria-checked="true"]')`,
+        {
+          label: "permissions menu",
+        },
+      );
+      await shot("access-menu.png");
+      await click('[data-access-menu] [data-menu-item="ask"]');
+      await page!.waitFor(`!document.querySelector("[data-full-access]")`, { label: "back to asking" });
       await waitForValue(async () =>
         (await apiCall<{ agent: { permissions: string } }>("/api/settings")).agent.permissions === "ask"
           ? true
@@ -4760,30 +4785,29 @@ try {
       `window.dispatchEvent(new KeyboardEvent("keydown", { key: "i", ${mod}: true, bubbles: true })), true`,
     );
     const panel = `[data-agent-for="${tab.id}"]`;
-    await page!.waitFor(`!!document.querySelector('${panel} [data-add-source]')`, { label: "add source button" });
+    await page!.waitFor(`!!document.querySelector('${panel} [data-composer-plus]')`, { label: "+ button" });
     const source = await apiCall<{ id: string }>(`/api/apps/${tab.id}/sources`, { method: "POST", body: { folder } });
     await page!.waitFor(
-      `document.querySelector('${panel} [data-source-chip="${source.id}"]')?.innerText.includes("shop-frontend")`,
-      { label: "folder chip" },
+      `document.querySelector('${panel} [data-composer-below] [data-source-chip="${source.id}"]')?.innerText.includes("shop-frontend")`,
+      { label: "folder chip under the composer" },
     );
-    // A repository is added from the button's menu; a link that isn't one says so.
-    await click(`${panel} [data-add-source]`);
-    await page!.waitFor(`!!document.querySelector("[data-context-menu]")`, { label: "menu" });
-    await click("[data-context-menu] button", "Add a Git repository");
-    await page!.waitFor(`!!document.querySelector('${panel} [data-source-url]')`, { label: "repository form" });
-    await type(`${panel} [data-source-url]`, "not a repository");
-    await shot("sources.png");
-    await page!.eval(`document.querySelector('${panel} [data-source-form]').requestSubmit(), true`);
-    await page!.waitFor(`!!document.querySelector("[data-toast]")?.innerText.includes("isn't a link")`, {
-      label: "error toast",
+    // The + menu adds folders (and attaches files); there's no repository form.
+    await click(`${panel} [data-composer-plus]`);
+    await page!.waitFor(`!!document.querySelector('[data-composer-menu] [data-menu-item="add-folder"]')`, {
+      label: "+ menu",
     });
+    await shot("sources.png");
+    const items = await page!.eval<string>(`document.querySelector("[data-composer-menu]").innerText`);
+    if (/git|repositor/i.test(items)) throw new Error(`the + menu still offers a repository: ${items}`);
+    await page!.eval(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })), true`);
+    await page!.waitFor(`!document.querySelector("[data-composer-menu]")`, { label: "menu closed" });
     await click(`${panel} [data-source-chip="${source.id}"] [data-source-remove]`);
     await page!.waitFor(`!document.querySelector('${panel} [data-source-chip]')`, { label: "chip removed" });
     if ((await apiCall<unknown[]>(`/api/apps/${tab.id}/sources`)).length) throw new Error("the source wasn't removed");
     if (!existsSync(join(folder, "src", "cart.ts"))) throw new Error("removing it touched the folder");
     await apiCall(`/api/apps/${tab.id}`, { method: "DELETE" });
     rmSync(dirname(folder), { recursive: true, force: true });
-    return "folder chip, repository form with its error, removed (folder untouched)";
+    return "folder chip under the composer, the + menu adds folders only, removed (folder untouched)";
   });
 
   await check(
