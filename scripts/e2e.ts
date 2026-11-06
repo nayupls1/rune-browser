@@ -1220,7 +1220,9 @@ try {
     async () => {
       const count = await page!.eval<number>(`document.querySelectorAll("nav li[data-app-id]").length`);
       // The pages stay where they are in the DOM: a webview that moves reloads.
-      await page!.eval(`document.querySelectorAll("[data-tab-layer]").forEach((l) => (l.__kept = true)), true`);
+      await page!.eval(
+        `document.querySelectorAll("[data-tab-layer]").forEach((l) => (l.__kept = l.parentElement)), true`,
+      );
       await page!.eval(
         `(() => { const li = document.querySelector("nav li[data-app-id]"); const r = li.getBoundingClientRect(); li.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: r.left + 20, clientY: r.top + 10 })); })(), true`,
       );
@@ -1236,7 +1238,11 @@ try {
       );
       const tabs = await page!.eval<number>(`document.querySelectorAll("[data-tab-strip] [data-app-id]").length`);
       if (tabs !== count) throw new Error(`${tabs} tabs in the bar, ${count} in the sidebar`);
-      if (!(await page!.eval<boolean>(`[...document.querySelectorAll("[data-tab-layer]")].every((l) => l.__kept)`)))
+      if (
+        !(await page!.eval<boolean>(
+          `[...document.querySelectorAll("[data-tab-layer]")].every((l) => l.__kept && l.__kept === l.parentElement)`,
+        ))
+      )
         throw new Error("switching the layout re-created the pages");
       const saved = await waitForValue(async () => {
         const s = await apiCall<{ tabs: { layout: string } }>("/api/settings");
@@ -1285,8 +1291,9 @@ try {
       });
       // Back to vertical tabs from the bar's own menu.
       await page!.eval(`(() => {
-        const r = document.querySelector("[data-tab-strip]").getBoundingClientRect();
-        document.querySelector("[data-tab-strip]").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: r.right - 60, clientY: r.top + 20 }));
+        const list = document.querySelector("[data-tab-list]");
+        const r = list.getBoundingClientRect();
+        list.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: r.right - 1, clientY: r.top + r.height / 2 }));
       })(), true`);
       await page!.waitFor(`!!document.querySelector('[data-context-menu] [data-menu-item="tab-layout"]')`, {
         label: "the layout in the bar's menu",
@@ -1298,7 +1305,11 @@ try {
           label: "the sidebar back",
         },
       );
-      if (!(await page!.eval<boolean>(`[...document.querySelectorAll("[data-tab-layer]")].every((l) => l.__kept)`)))
+      if (
+        !(await page!.eval<boolean>(
+          `[...document.querySelectorAll("[data-tab-layer]")].every((l) => l.__kept && l.__kept === l.parentElement)`,
+        ))
+      )
         throw new Error("switching back re-created the pages");
       await waitForValue(async () => {
         const s = await apiCall<{ tabs: { layout: string } }>("/api/settings");

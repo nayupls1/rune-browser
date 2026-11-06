@@ -180,13 +180,11 @@ function TabStrip() {
       >
         <Icon name="plus" size={16} />
       </button>
-      <span {...stylex.attrs(styles.spacer)} />
+      <span {...stylex.attrs(styles.spacer)} data-tab-strip-spacer />
       <Show when={menu()}>
         {(position) => <ContextMenu items={menuItems()} position={position()} onClose={() => setMenu()} />}
       </Show>
-      <Show when={newMenu()}>
-        {(position) => <NewTabMenu position={position()} anchor={newButton} onClose={() => setNewMenu()} />}
-      </Show>
+      <Show when={newMenu()}>{(position) => <NewTabMenu position={position()} onClose={() => setNewMenu()} />}</Show>
       <HoverCard scroller={() => scroller} />
     </div>
   );

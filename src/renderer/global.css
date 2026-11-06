@@ -53,9 +53,13 @@
   -webkit-app-region: no-drag;
 }
 
-/* Tabs in the horizontal tab bar (it drags the window) are dragged themselves, and clicked. */
-[data-titlebar] :is([data-app-id], [data-split-group]) {
+/* With horizontal tabs, the tabs (dragged themselves, and clicked) and the room around them (its own menu,
+   drops) aren't part of the window's drag region; the free room after them is (data-tab-strip-spacer). */
+[data-titlebar] :is([data-tab-strip], [data-app-id], [data-split-group]) {
   -webkit-app-region: no-drag;
+}
+[data-titlebar] [data-tab-strip-spacer] {
+  -webkit-app-region: drag;
 }
 
 /* The address bar while it's open floats over everything, the top bars too: none of them

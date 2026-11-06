@@ -26,6 +26,8 @@ export const tabLayout = (): TabLayout =>
 export const isHorizontal = () => tabLayout() === "horizontal";
 
 export function setTabLayout(layout: TabLayout) {
+  // A hidden sidebar shown for now (its menu picked this) mustn't come back stuck open later.
+  setSidebarPeek(false);
   updateSettings((s) => ({ ...s, tabs: { ...s.tabs, layout } }));
 }
 

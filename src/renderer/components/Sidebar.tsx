@@ -216,13 +216,18 @@ function VerticalSidebar() {
   // there never reaches the page: only 3px of the edge strip would be left, easily flicked past. Leaving
   // the page through the window's left edge (into that border) brings the sidebar in as well, and it stays
   // while the pointer is there.
+  // (Only for a moment: the pointer may have gone on to another screen on the left.)
   let atBorder = false;
+  let borderTimer: ReturnType<typeof setTimeout> | undefined;
+  onCleanup(() => clearTimeout(borderTimer));
   createEffect(() => {
     if (!isOverlay()) return;
     const out = (e: MouseEvent) => {
       if (e.relatedTarget !== null || e.clientX < 0 || e.clientX >= EDGE_WIDTH) return;
       if (e.clientY < 0 || e.clientY >= window.innerHeight) return;
       atBorder = true;
+      clearTimeout(borderTimer);
+      borderTimer = setTimeout(() => (atBorder = false), 1500);
       peek();
     };
     const over = () => (atBorder = false);
@@ -1308,7 +1313,8 @@ const styles = stylex.create({
   },
   // A tab in the horizontal tab bar: as wide as there's room for, up to Chrome's width; past the
   // narrowest, the bar scrolls (components/TabStrip.tsx).
-  itemH: { flex: "0 1 220px", minWidth: 72, height: 30, gap: 6, paddingInline: 8 },
+  // (A width, not a flex basis: the bar's own width comes from its tabs' widths.)
+  itemH: { flex: "0 1 auto", width: 220, minWidth: 72, height: 30, gap: 6, paddingInline: 8, overflow: "hidden" },
   // A pinned tab there: an icon, the tabs' height.
   tileH: { flex: "none", minWidth: 0, width: 38, height: 30, borderRadius: 8 },
   audio: {
