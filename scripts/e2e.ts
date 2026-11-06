@@ -1647,14 +1647,34 @@ try {
     await page!.waitFor(`document.querySelector('${address}')?.value === "${displayHost(site.url.origin)}"`, {
       label: "the address without its scheme",
     });
-    // The site's settings are behind its icon, at the start; the empty star only shows on hover.
+    // The site's settings are behind its icon, at the start; the empty star only shows on hover, and takes no
+    // room until then (the address isn't cut short for it).
     const bar = `${chromeFor(tab)} [data-address-bar]`;
-    const layout = await page!.eval<{ identityFirst: boolean; starShown: boolean }>(`(() => {
+    const starState = `(() => {
       const row = document.querySelector('${bar}').firstElementChild;
       const star = row.querySelector("[data-bookmark-star]");
-      return { identityFirst: row.firstElementChild.matches("[data-site-info-button]"), starShown: !!star && getComputedStyle(star).opacity !== "0" };
-    })()`);
-    if (!layout.identityFirst || layout.starShown) throw new Error(`address layout: ${JSON.stringify(layout)}`);
+      const field = row.querySelector("[data-address]").parentElement.getBoundingClientRect();
+      return { identityFirst: row.firstElementChild.matches("[data-site-info-button]"), starShown: !!star && getComputedStyle(star).opacity !== "0", starWidth: star ? Math.round(star.getBoundingClientRect().width) : -1, field: Math.round(field.width) };
+    })()`;
+    type StarState = { identityFirst: boolean; starShown: boolean; starWidth: number; field: number };
+    const layout = await page!.eval<StarState>(starState);
+    if (!layout.identityFirst || layout.starShown || layout.starWidth !== 0)
+      throw new Error(`address layout: ${JSON.stringify(layout)}`);
+    const barRect = await page!.eval<{ x: number; y: number }>(
+      `(() => { const r = document.querySelector('${bar}').getBoundingClientRect(); return { x: Math.round(r.left + 40), y: Math.round(r.top + r.height / 2) }; })()`,
+    );
+    await page!.send("Input.dispatchMouseEvent", { type: "mouseMoved", ...barRect });
+    const hovered = await page!.waitFor<StarState>(
+      `(() => { const s = ${starState}; return s.starShown && s.starWidth === 24 ? s : undefined; })()`,
+      { label: "the star shown on hover" },
+    );
+    // It comes in over the end of the address (its room and the gap before it).
+    if (layout.field - hovered.field !== 31)
+      throw new Error(`the address with the star shown: ${JSON.stringify({ layout, hovered })}`);
+    await page!.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: barRect.x + 600, y: 400 });
+    await page!.waitFor(`(() => { const s = ${starState}; return !s.starShown && s.starWidth === 0; })()`, {
+      label: "the star hidden again",
+    });
 
     await page!.eval(`document.querySelector('${address}').focus(), true`);
     const floating = await page!.waitFor<{ width: number; left: number; value: string }>(
@@ -3505,9 +3525,42 @@ try {
       `document.querySelector("[data-extensions-list] [data-extension-item]")?.dataset.extensionItem`,
     );
     if (first !== id) throw new Error(`the pinned extension isn't first in the menu: ${first}`);
+    // It drops down under the address bar, from its left edge (the button is at its far end).
+    const under = (popover: string) =>
+      page!.eval<{ left: number; top: number; barLeft: number; barBottom: number }>(`(() => {
+        const bar = document.querySelector('${chromeFor(tab)} [data-address-bar]').getBoundingClientRect();
+        const r = document.querySelector('${popover}').getBoundingClientRect();
+        return { left: Math.round(r.left), top: Math.round(r.top), barLeft: Math.round(bar.left), barBottom: Math.round(bar.bottom) };
+      })()`);
+    const menuAt = await under("[data-extensions-list]");
+    if (menuAt.left !== menuAt.barLeft || menuAt.top !== menuAt.barBottom + 6)
+      throw new Error(`the menu isn't under the address bar: ${JSON.stringify(menuAt)}`);
     await shot("extensions-menu.png");
     await page!.eval(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })), true`);
     await page!.waitFor(`!document.querySelector("[data-extensions-list]")`, { label: "menu closed" });
+
+    // Real clicks: the button closes its menu again, and so does a click in the page.
+    const realClick = async (point: { x: number; y: number }) => {
+      for (const type of ["mousePressed", "mouseReleased"])
+        await page!.send("Input.dispatchMouseEvent", { type, ...point, button: "left", clickCount: 1 });
+    };
+    const centerOf = (selector: string) =>
+      page!.eval<{ x: number; y: number }>(
+        `(() => { const r = document.querySelector('${selector}').getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()`,
+      );
+    const puzzle = await centerOf(`${chromeFor(tab)} [data-extensions-menu]`);
+    const inThePage = await centerOf(`${tab} webview`);
+    await realClick(puzzle);
+    await page!.waitFor(`!!document.querySelector("[data-extensions-list]")`, { label: "menu opened by a click" });
+    await realClick(puzzle);
+    await page!.waitFor(`!document.querySelector("[data-extensions-list]")`, { label: "menu closed by the button" });
+    await Bun.sleep(200);
+    if (await page!.eval<boolean>(`!!document.querySelector("[data-extensions-list]")`))
+      throw new Error("the button's second click opened the menu again");
+    await realClick(puzzle);
+    await page!.waitFor(`!!document.querySelector("[data-extensions-list]")`, { label: "menu opened again" });
+    await realClick(inThePage);
+    await page!.waitFor(`!document.querySelector("[data-extensions-list]")`, { label: "menu closed by the page" });
 
     // Its declarativeNetRequest rules block (and Rune Browser's own rules, checked above, still work alongside).
     // The extension's rules load in the background: on a slow machine the first fetch can come before them.
@@ -3531,9 +3584,30 @@ try {
     }, 15_000);
     if (popupUrl !== `${site.url.origin}/`) throw new Error(`popup's active tab: ${popupUrl}`);
     await Bun.sleep(300);
+    const popupAt = await under(`[data-extension-popup="${id}"]`);
+    if (popupAt.left !== popupAt.barLeft || popupAt.top !== popupAt.barBottom + 6)
+      throw new Error(`the popup isn't under the address bar: ${JSON.stringify(popupAt)}`);
     await shot("extensions-popup.png");
     await page!.eval(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })), true`);
     await page!.waitFor(`!document.querySelector("[data-extension-popup]")`, { label: "popup closed" });
+    // The button closes a popup that's open (without opening the menu), and so does a click in the page.
+    const openPopup = async () => {
+      await realClick(puzzle);
+      await page!.waitFor(`!!document.querySelector('[data-extension-item="${id}"]')`, { label: "menu" });
+      await click(`[data-extension-item="${id}"]`);
+      await page!.waitFor(`!!document.querySelector('[data-extension-popup="${id}"] webview')`, { label: "popup" });
+      // Its page has the focus.
+      await page!.waitFor(`!!document.activeElement?.closest("[data-extension-popup]")`, { label: "popup focused" });
+    };
+    await openPopup();
+    await realClick(puzzle);
+    await page!.waitFor(`!document.querySelector("[data-extension-popup]")`, { label: "popup closed by the button" });
+    await Bun.sleep(200);
+    if (await page!.eval<boolean>(`!!document.querySelector("[data-extensions-list]")`))
+      throw new Error("closing the popup with the button opened the menu");
+    await openPopup();
+    await realClick(inThePage);
+    await page!.waitFor(`!document.querySelector("[data-extension-popup]")`, { label: "popup closed by the page" });
 
     // The shortcut changed in Chrome (Alt+Shift+U) reaches the extension, with the tab.
     for (const type of ["rawKeyDown", "keyUp"]) {
