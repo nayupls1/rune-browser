@@ -70,7 +70,14 @@ export function setupOverrides(options: OverridesOptions) {
       answering: new Map(),
       timers: new Set(),
       onMessage: (_event, method, params) => {
-        if (method === "Fetch.requestPaused") void paused(tab, params).catch(() => {});
+        // Answered on a later turn, never inside the event. Electron delivers it
+        // synchronously from Chromium's InterceptionJob::NotifyClient, and
+        // sendCommand dispatches synchronously too: a fulfillRequest or
+        // failRequest sent from here deletes the job while NotifyClient is still
+        // on the stack, and for a request with a body (a POST's JSON) Chromium
+        // then touches the freed job and crashes the browser
+        // (~RequestBodyCollector reading 0xCDCDCDCD...).
+        if (method === "Fetch.requestPaused") setImmediate(() => void paused(tab, params).catch(() => {}));
       },
     };
     tabs.set(contents.id, tab);
@@ -135,9 +142,12 @@ export function setupOverrides(options: OverridesOptions) {
     void Promise.all(
       waiting.map((requestId) => cdp.send(contents, "Fetch.continueRequest", { requestId }).catch(() => {})),
     )
-      .then(() => cdp.send(contents, "Fetch.disable"))
+      // Overrides that came back meanwhile started intercepting again on the same connection: keep it.
+      .then(() => (tab.intercepting ? undefined : cdp.send(contents, "Fetch.disable")))
       .catch(() => {})
-      .finally(() => cdp.release(contents, "overrides"));
+      .finally(() => {
+        if (!tab.intercepting) cdp.release(contents, "overrides");
+      });
   }
 
   const later = (tab: Tab, ms: number, fn: () => Promise<unknown>) => {

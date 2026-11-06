@@ -2736,6 +2736,13 @@ try {
       );
       if (!logged.some((e) => e.override === "Empty feed"))
         throw new Error(`the Network log doesn't say it was overridden: ${JSON.stringify(logged.slice(-2))}`);
+      // A request with a body that sends no cookies: Chromium pauses it from inside a call that
+      // crashed the browser when it was answered right away (see main/overrides.ts).
+      const postJson = `fetch("/api/feed", { method: "POST", credentials: "omit", headers: { "content-type": "application/json" }, body: JSON.stringify({ q: 1 }) })`;
+      for (let i = 0; i < 5; i++) {
+        const posted = await inPage<string>(`${postJson}.then((r) => r.text())`);
+        if (posted !== JSON.stringify({ items: [] })) throw new Error(`a POST got ${posted}`);
+      }
       await click("[data-overrides]");
       await page!.waitFor(
         `!!document.querySelector('[data-response-overrides] [data-response-override="${empty.id}"]')`,
@@ -2769,6 +2776,8 @@ try {
       const offline = await add({ title: "Offline", kind: "fail", failure: "InternetDisconnected" });
       await reload();
       await shows("Failed to load");
+      const postFailed = await inPage<string>(`${postJson}.then(() => "answered", () => "failed")`);
+      if (postFailed !== "failed") throw new Error(`a failing POST was ${postFailed}`);
       await remove(offline);
 
       // Never answering, until the override goes: then the request goes on to the site.
