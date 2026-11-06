@@ -120,9 +120,34 @@ export function registerPage(tabId: string, handle: PageHandle) {
   pages.set(tabId, handle);
   pagesChanged();
   return () => {
-    if (pages.get(tabId) === handle) pages.delete(tabId);
+    if (pages.get(tabId) === handle) {
+      pages.delete(tabId);
+      setAudio(tabId, undefined!);
+    }
     pagesChanged();
   };
+}
+
+// --- Sound: whether a tab's page plays sound, and whether it's muted (the audio indicator) ---------
+
+const [audio, setAudio] = createStore<Record<string, { audible?: boolean; muted?: boolean }>>({});
+
+/** The tab's page plays sound (it may be muted). */
+export const isAudible = (tabId: string) => !!audio[tabId]?.audible;
+export const isMuted = (tabId: string) => !!audio[tabId]?.muted;
+
+window.rune.web.onAudio(({ contentsId, audible }) => {
+  const tabId = tabOfContents(contentsId);
+  if (tabId) setAudio(tabId, { audible });
+});
+
+/** Mutes the tab's page, or turns its sound back on. */
+export function toggleMuted(tabId: string) {
+  const view = pageOf(tabId)?.view();
+  if (!view) return;
+  const muted = !view.isAudioMuted();
+  view.setAudioMuted(muted);
+  setAudio(tabId, { muted });
 }
 
 const registered = (tabId: string, ms: number) =>

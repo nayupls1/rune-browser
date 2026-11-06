@@ -175,7 +175,8 @@ export function OverrideRows() {
 const styles = stylex.create({
   popover: {
     position: "fixed",
-    zIndex: 50,
+    // Over the floating sidebar it opens from (components/Sidebar.tsx), like every menu.
+    zIndex: 1000,
     display: "flex",
     flexDirection: "column",
     width: 380,

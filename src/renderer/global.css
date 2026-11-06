@@ -53,6 +53,11 @@
   -webkit-app-region: no-drag;
 }
 
+/* Tabs in the horizontal tab bar (it drags the window) are dragged themselves, and clicked. */
+[data-titlebar] :is([data-app-id], [data-split-group]) {
+  -webkit-app-region: no-drag;
+}
+
 /* The address bar while it's open floats over everything, the top bars too: none of them
    drags the window then (Electron adds drag regions in document order, so later ones would
    win over the backdrop), and a click on them closes it. */

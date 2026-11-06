@@ -249,6 +249,8 @@ export interface RuneBridge {
     setInsecurePolicy: (policy: { enabled: boolean; allowed: readonly string[] }) => void;
     /** A web tab's page went (or was redirected) to an insecure page, and was held back. */
     onInsecure: (fn: (event: { contentsId: number; url: string }) => void) => () => void;
+    /** A page started or stopped making sound (the tab's audio indicator). */
+    onAudio: (fn: (event: { contentsId: number; audible: boolean }) => void) => () => void;
     /** Why a tab's page at `url` has no valid certificate (null: it's not that). */
     certificateProblem: (webContentsId: number, url: string) => Promise<CertificateProblem | null>;
     /** The user goes on to a site whose certificate isn't valid (until Rune Browser quits); false if it can't. */

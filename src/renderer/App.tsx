@@ -14,7 +14,8 @@ import { SettingsShell } from "./components/SettingsPage";
 import { paneStyle, SplitChrome, SplitDropZones } from "./components/SplitView";
 import { visibleSplit, visibleTabs } from "./lib/splits";
 import { anyPainting, isPainting } from "./lib/webtabs";
-import { isSidebarHidden } from "./lib/layout";
+import { isHorizontal, isSidebarHidden } from "./lib/layout";
+import { TopArea } from "./components/TabStrip";
 import { Sidebar } from "./components/Sidebar";
 import { ToastHost } from "./components/Toast";
 import { Button } from "./components/ui";
@@ -119,7 +120,18 @@ export default function App() {
   };
 
   return (
-    <div {...stylex.attrs(styles.root)} onDragOver={onDragOver} onDrop={onDrop} data-app-root>
+    <div
+      {...stylex.attrs(styles.root, isHorizontal() && styles.rootHorizontal)}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+      data-app-root
+      data-tab-layout={isHorizontal() ? "horizontal" : "vertical"}
+    >
+      {/* Horizontal tabs: one bar along the top, over the page and the agent sidebar.
+          Placed over the room kept for it, so switching layouts moves no page in the DOM (webviews would reload). */}
+      <Show when={isHorizontal()}>
+        <TopArea />
+      </Show>
       <Sidebar />
       <ConfirmHost />
       <AuthHost />
@@ -131,7 +143,13 @@ export default function App() {
       <DownloadsPanel />
       <BookmarkEditor />
       <ToastHost />
-      <div {...stylex.attrs(styles.column, isSidebarHidden() && styles.columnFull)}>
+      <div
+        {...stylex.attrs(
+          styles.column,
+          isSidebarHidden() && styles.columnFull,
+          isHorizontal() && styles.columnHorizontal,
+        )}
+      >
         {/* The sidebar hidden: the gutter above the page still moves the window (double-click maximizes). */}
         <Show when={isSidebarHidden()}>
           <div {...stylex.attrs(styles.dragStrip)} data-titlebar data-drag-strip />
@@ -266,8 +284,12 @@ const styles = stylex.create({
     paddingBlock: space.sm,
     paddingRight: space.sm,
   },
+  // Horizontal tabs: the room for the bar along the top (components/TabStrip.tsx).
+  rootHorizontal: { position: "relative", paddingTop: 46 }, // TOP_AREA_HEIGHT
   // The sidebar hidden: the page has the window, inset all round.
   columnFull: { position: "relative", paddingLeft: space.sm },
+  // Under the bar, inset from the window's edges.
+  columnHorizontal: { paddingLeft: space.sm, paddingTop: 0 },
   // Below the window's top edge, which resizes it.
   dragStrip: { position: "absolute", zIndex: 1, top: 3, left: 0, right: 0, height: 5 },
   // Pages scroll vertically; nothing in it should ever scroll the whole area sideways.

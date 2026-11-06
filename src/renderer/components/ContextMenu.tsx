@@ -26,6 +26,12 @@ export interface MenuPosition {
   above?: boolean;
 }
 
+/** A menu for a button: under it, or above it when it's in the lower half of the window (the sidebar's footer). */
+export function menuAt(button: Element, gap = 4): MenuPosition {
+  const r = button.getBoundingClientRect();
+  return r.top > window.innerHeight / 2 ? { x: r.left, y: r.top - gap, above: true } : { x: r.left, y: r.bottom + gap };
+}
+
 export function ContextMenu(props: {
   items: (MenuItem | "separator")[];
   position: MenuPosition;

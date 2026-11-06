@@ -35,7 +35,7 @@ import { Icon } from "./Icon";
 import { TabIcon } from "./TabIcon";
 import { WindowControls } from "./WindowControls";
 import { BookmarksMenu } from "./Bookmarks";
-import { ContextMenu, type MenuItem, type MenuPosition } from "./ContextMenu";
+import { ContextMenu, menuAt, type MenuItem, type MenuPosition } from "./ContextMenu";
 import { allBookmarks, samePage, type BookmarkNode } from "../../shared/bookmarks";
 import { bookmarkTree } from "../lib/bookmarks";
 import { runShortcut, shortcutLabel, withKeys } from "../lib/shortcuts";
@@ -72,7 +72,6 @@ const BOOKMARK_SUGGESTIONS = 4;
  * at the end of the address.
  */
 export function NavRow() {
-  const chrome = () => chromeOf(selectedId());
   return (
     <div {...stylex.attrs(styles.nav)} data-titlebar data-nav-row>
       <WindowControls />
@@ -98,6 +97,16 @@ export function NavRow() {
       >
         <Icon name={isSidebarHidden() ? "panel-left-open" : "panel-left"} size={15} />
       </button>
+      <NavButtons />
+    </div>
+  );
+}
+
+/** Back, forward and reload (stop while it loads) for the tab on screen. */
+export function NavButtons() {
+  const chrome = () => chromeOf(selectedId());
+  return (
+    <>
       <button
         type="button"
         title="Back (Alt+←)"
@@ -137,7 +146,7 @@ export function NavRow() {
           <Icon name="x" size={16} />
         </button>
       </Show>
-    </div>
+    </>
   );
 }
 
@@ -215,8 +224,7 @@ export function MoreMenu() {
         icon: "bookmark",
         // Its own menu, where this one was.
         onSelect: () => {
-          const r = button.getBoundingClientRect();
-          setBookmarksAt({ x: r.left, y: r.top - 6, above: true });
+          setBookmarksAt(menuAt(button, 6));
         },
       },
       {
@@ -256,8 +264,7 @@ export function MoreMenu() {
         aria-expanded={!!at()}
         onClick={() => {
           if (at()) return setAt();
-          const r = button.getBoundingClientRect();
-          setAt({ x: r.left, y: r.top - 6, above: true });
+          setAt(menuAt(button, 6));
         }}
         {...stylex.attrs(styles.navButton, styles.footerButton, !!at() && styles.navButtonOn)}
         data-more-menu
@@ -280,7 +287,7 @@ export function MoreMenu() {
  * it: open tabs (all workspaces), bookmarks, pages from the workspace's history, the URL,
  * a search; before anything's typed, the pages visited most often and lately.
  */
-export function AddressBar() {
+export function AddressBar(props: { inline?: boolean }) {
   const chrome = () => chromeOf(selectedId());
   const [text, setText] = createSignal("");
   const [editing, setEditing] = createSignal(false);
@@ -584,11 +591,13 @@ export function AddressBar() {
   const setActive = (i: number) => setPicked(list()[i]?.key);
   const isActive = (i: number) => i === active();
   const floating = () => editing();
+  // In the bar with horizontal tabs, while it isn't popped out.
+  const compact = () => !!props.inline && !floating();
   createEffect(() => setAddressOpen(editing()));
   const hasList = () => editing() && list().length > 0;
 
   return (
-    <div {...stylex.attrs(styles.addressSlot)} data-address-slot>
+    <div {...stylex.attrs(styles.addressSlot, props.inline && styles.addressSlotInline)} data-address-slot>
       <Show when={floating()}>
         {/* Its place in the sidebar, faint while it's popped out. */}
         <div {...stylex.attrs(styles.ghost)} aria-hidden="true">
@@ -606,7 +615,7 @@ export function AddressBar() {
         />
       </Show>
       <form
-        {...stylex.attrs(styles.address, floating() && styles.addressFloating)}
+        {...stylex.attrs(styles.address, compact() && styles.addressCompact, floating() && styles.addressFloating)}
         onSubmit={(e) => {
           e.preventDefault();
           const chosen = list()[active()];
@@ -628,7 +637,13 @@ export function AddressBar() {
         data-address-open={floating() ? "" : undefined}
         data-address-icon={chrome()?.icon()}
       >
-        <div {...stylex.attrs(styles.addressRow, floating() && styles.addressRowFloating)}>
+        <div
+          {...stylex.attrs(
+            styles.addressRow,
+            compact() && styles.addressCompact,
+            floating() && styles.addressRowFloating,
+          )}
+        >
           {/* While the page loads, a spinner in place of its icon (the address bar is the toolbar). */}
           <Switch
             fallback={
@@ -864,6 +879,8 @@ const styles = stylex.create({
   spacer: { flex: 1 },
   // Keeps the address's place in the sidebar while it floats.
   addressSlot: { position: "relative", flexShrink: 0, height: 36, marginBottom: 4 },
+  // In the bar with horizontal tabs: compact, so the tabs have the room (it pops out to type).
+  addressSlotInline: { flex: "0 1 300px", minWidth: 150, height: 32, marginBottom: 0 },
   address: {
     position: "relative",
     display: "flex",
@@ -919,6 +936,7 @@ const styles = stylex.create({
     paddingLeft: 11,
     paddingRight: 4,
   },
+  addressCompact: { height: 32 },
   addressRowFloating: { height: 56, gap: 12, paddingLeft: 20, paddingRight: 16 },
   backdrop: {
     position: "fixed",

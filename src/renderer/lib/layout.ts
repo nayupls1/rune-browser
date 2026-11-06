@@ -1,7 +1,44 @@
-// The tab sidebar's width and whether it's hidden (like Zen's compact mode: the page
-// gets the whole window, and the sidebar slides in over it from the left edge), and
-// the agent sidebar's width. Remembered across restarts.
-import { createSignal } from "solid-js";
+// Where the tabs are (a horizontal tab bar at the top, or the vertical sidebar), the tab
+// sidebar's width and whether it's hidden (like Zen's compact mode: the page gets the whole
+// window, and the sidebar slides in over it from the left edge), and the agent sidebar's
+// width. Remembered across restarts.
+import { createEffect, createRoot, createSignal } from "solid-js";
+import type { Settings } from "../../shared/settings";
+import { settings, settingsLoaded, updateSettings } from "./settings";
+
+export type TabLayout = Settings["tabs"]["layout"];
+
+const LAYOUT_KEY = "rune.tabLayout";
+const readCachedLayout = (): TabLayout | null => {
+  try {
+    const value = localStorage.getItem(LAYOUT_KEY);
+    return value === "horizontal" || value === "vertical" ? value : null;
+  } catch {
+    return null;
+  }
+};
+// The layout last used, until the settings are loaded: no flash of the other one at startup.
+const cachedLayout = readCachedLayout();
+
+/** Where the tabs are: Settings → Appearance, or the tab bar's menu. */
+export const tabLayout = (): TabLayout =>
+  settingsLoaded() ? settings().tabs.layout : (cachedLayout ?? settings().tabs.layout);
+export const isHorizontal = () => tabLayout() === "horizontal";
+
+export function setTabLayout(layout: TabLayout) {
+  updateSettings((s) => ({ ...s, tabs: { ...s.tabs, layout } }));
+}
+
+createRoot(() =>
+  createEffect(() => {
+    if (!settingsLoaded()) return;
+    try {
+      localStorage.setItem(LAYOUT_KEY, tabLayout());
+    } catch {
+      // Only a convenience for the next start.
+    }
+  }),
+);
 
 export const SIDEBAR_MIN = 180;
 export const SIDEBAR_MAX = 480;
@@ -25,7 +62,8 @@ const [hidden, setHiddenSignal] = createSignal(saved.hidden === true);
 const save = () => localStorage.setItem(KEY, JSON.stringify({ width: width(), hidden: hidden() }));
 
 export const sidebarWidth = width;
-export const isSidebarHidden = hidden;
+/** The vertical sidebar is hidden (with horizontal tabs there's no sidebar to hide). */
+export const isSidebarHidden = () => !isHorizontal() && hidden();
 /** A hidden sidebar shown over the page for now (the pointer at the window's left edge). */
 export const [sidebarPeek, setSidebarPeek] = createSignal(false);
 
@@ -41,7 +79,9 @@ export function setSidebarHidden(value: boolean) {
   save();
 }
 
-export const toggleSidebar = () => setSidebarHidden(!hidden());
+export const toggleSidebar = () => {
+  if (!isHorizontal()) setSidebarHidden(!hidden());
+};
 
 /** The tab being dragged from the sidebar, if any (drop targets light up for it). */
 export const [draggedTab, setDraggedTab] = createSignal<string | null>(null);
