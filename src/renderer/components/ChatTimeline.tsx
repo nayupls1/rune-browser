@@ -123,7 +123,15 @@ function RowView(props: { appId: string; row: Row; live: boolean }) {
         {(work) => <WorkGroup appId={props.appId} entries={work().entries} live={props.live} />}
       </Match>
       <Match when={props.row.type === "turn-end" && (props.row as Extract<Row, { type: "turn-end" }>)}>
-        {(end) => <TurnEnd appId={props.appId} ms={end().ms} stopped={end().stopped} steps={end().steps} />}
+        {(end) => (
+          <TurnEnd
+            appId={props.appId}
+            ms={end().ms}
+            stopped={end().stopped}
+            failed={end().failed}
+            steps={end().steps}
+          />
+        )}
       </Match>
       <Match when={props.row.type === "message" && (props.row as Extract<Row, { type: "message" }>)}>
         {(m) => <Message appId={props.appId} message={m().message} />}
@@ -156,15 +164,18 @@ function Working(props: { since: string }) {
     <div {...stylex.attrs(styles.working)} role="status" data-agent-working>
       <span {...stylex.attrs(styles.workingPulse)} aria-hidden="true" />
       <span {...stylex.attrs(styles.workingLabel)}>Working…</span>
-      <span {...stylex.attrs(styles.workingTime)}>{formatElapsed(now() - Date.parse(props.since))}</span>
+      <span {...stylex.attrs(styles.workingTime)} aria-hidden="true">
+        {formatElapsed(now() - Date.parse(props.since))}
+      </span>
     </div>
   );
 }
 
 /** Where a turn ended: "Worked for 42s" (or "Stopped after 12s"), opening to its steps. */
-function TurnEnd(props: { appId: string; ms: number; stopped: boolean; steps: Row[] }) {
+function TurnEnd(props: { appId: string; ms: number; stopped: boolean; failed: boolean; steps: Row[] }) {
   const [open, setOpen] = createSignal(false);
   const stopped = () => props.stopped;
+  const failed = () => props.failed;
   const hasSteps = () => props.steps.length > 0;
   const shown = () => open() && hasSteps();
   return (
@@ -175,12 +186,21 @@ function TurnEnd(props: { appId: string; ms: number; stopped: boolean; steps: Ro
         aria-expanded={hasSteps() ? open() : undefined}
         title={hasSteps() ? (open() ? "Hide the steps" : "Show the steps") : undefined}
         onClick={() => setOpen(!open())}
-        {...stylex.attrs(styles.divider, hasSteps() && styles.dividerButton, stopped() && styles.dividerStopped)}
+        {...stylex.attrs(
+          styles.divider,
+          hasSteps() && styles.dividerButton,
+          stopped() && styles.dividerStopped,
+          failed() && styles.dividerFailed,
+        )}
         data-turn-end
       >
         <span {...stylex.attrs(styles.dividerLabel)}>
-          <Icon name={props.stopped ? "square" : "check"} size={12} />
-          {props.stopped ? `Stopped after ${formatElapsed(props.ms)}` : `Worked for ${formatElapsed(props.ms)}`}
+          <Icon name={props.stopped ? "square" : props.failed ? "circle-alert" : "check"} size={12} />
+          {props.stopped
+            ? `Stopped after ${formatElapsed(props.ms)}`
+            : props.failed
+              ? `Failed after ${formatElapsed(props.ms)}`
+              : `Worked for ${formatElapsed(props.ms)}`}
           <Show when={hasSteps()}>
             <span {...stylex.attrs(styles.chevron, shown() && styles.chevronOpen)}>
               <Icon name="chevron-right" size={12} />
@@ -211,10 +231,7 @@ function WorkGroup(props: { appId: string; entries: WorkEntry[]; live: boolean }
   };
   const single = () => props.entries.length === 1;
   return (
-    <Show
-      when={!single()}
-      fallback={<WorkRow appId={props.appId} activity={props.entries[0]!.activity} active={props.live} />}
-    >
+    <Show when={!single()} fallback={<WorkRow appId={props.appId} activity={props.entries[0]!.activity} />}>
       <section {...stylex.attrs(styles.group)} aria-label="Tool calls" data-tool-group>
         <button
           type="button"
@@ -226,7 +243,7 @@ function WorkGroup(props: { appId: string; entries: WorkEntry[]; live: boolean }
           <span {...stylex.attrs(styles.rowIcon)}>
             <Icon name={icon()} size={14} />
           </span>
-          <span {...stylex.attrs(styles.rowTitle)}>{summarize(props.entries)}</span>
+          <span {...stylex.attrs(styles.rowTitle, styles.rowTitleWrap)}>{summarize(props.entries)}</span>
           <Show when={failed()}>
             <span {...stylex.attrs(styles.failedBadge)}>{failed()} failed</span>
           </Show>
@@ -236,15 +253,7 @@ function WorkGroup(props: { appId: string; entries: WorkEntry[]; live: boolean }
         </button>
         <Show when={expanded()}>
           <div {...stylex.attrs(styles.groupEntries)}>
-            <For each={props.entries}>
-              {(entry, i) => (
-                <WorkRow
-                  appId={props.appId}
-                  activity={entry.activity}
-                  active={props.live && i() === props.entries.length - 1}
-                />
-              )}
-            </For>
+            <For each={props.entries}>{(entry) => <WorkRow appId={props.appId} activity={entry.activity} />}</For>
           </div>
         </Show>
       </section>
@@ -253,11 +262,11 @@ function WorkGroup(props: { appId: string; entries: WorkEntry[]; live: boolean }
 }
 
 /** One tool call: its icon and line; opens to its detail (the whole command, the arguments). Files it saved show under it. */
-function WorkRow(props: { appId: string; activity: ToolActivity; active?: boolean }) {
+function WorkRow(props: { appId: string; activity: ToolActivity }) {
   const [open, setOpen] = createSignal(false);
   const failed = () => !!props.activity.failed;
-  const active = () => !!props.active && !failed();
-  const hasDetail = () => !!props.activity.detail;
+  // A failed call always opens (to its error, or its whole line when there's no more to it).
+  const hasDetail = () => !!props.activity.detail || failed();
   return (
     <div {...stylex.attrs(styles.entry)} data-tool-call={props.activity.kind}>
       <button
@@ -268,11 +277,8 @@ function WorkRow(props: { appId: string; activity: ToolActivity; active?: boolea
         onClick={() => setOpen(!open())}
         {...stylex.attrs(stylex.defaultMarker(), styles.row, hasDetail() && styles.rowButton)}
       >
-        <span {...stylex.attrs(styles.rowIcon, failed() && styles.rowIconFailed, active() && styles.rowIconActive)}>
-          <Icon
-            name={failed() ? "circle-alert" : active() ? "loader-circle" : kindIcons[props.activity.kind]}
-            size={14}
-          />
+        <span {...stylex.attrs(styles.rowIcon, failed() && styles.rowIconFailed)}>
+          <Icon name={failed() ? "circle-alert" : kindIcons[props.activity.kind]} size={14} />
         </span>
         <span {...stylex.attrs(styles.rowTitle)}>
           <InlineCode text={props.activity.title} />
@@ -286,8 +292,12 @@ function WorkRow(props: { appId: string; activity: ToolActivity; active?: boolea
           </span>
         </Show>
       </button>
-      <Show when={open() && props.activity.detail}>
-        {(detail) => <pre {...stylex.attrs(styles.detail)}>{detail()}</pre>}
+      <Show when={open() && (props.activity.detail ?? (failed() ? props.activity.title.replace(/`/g, "") : ""))}>
+        {(detail) => (
+          <pre {...stylex.attrs(styles.detail, failed() && styles.detailFailed)} data-tool-detail>
+            {detail()}
+          </pre>
+        )}
       </Show>
       <Show when={props.activity.files?.length}>
         <div {...stylex.attrs(styles.toolFiles)}>
@@ -356,7 +366,7 @@ function CopyButton(props: { text: () => string; label: string }) {
   );
 }
 
-/** Your message: a bubble on the right; long ones are folded. */
+/** Your message: a card on the right; long ones are folded. Copy shows beside it on hover. */
 function UserMessage(props: { message: ChatMessage }) {
   const [unfolded, setUnfolded] = createSignal(false);
   const [long, setLong] = createSignal(false);
@@ -368,7 +378,7 @@ function UserMessage(props: { message: ChatMessage }) {
   const folded = () => long() && !unfolded();
   return (
     <div {...stylex.attrs(stylex.defaultMarker(), styles.userRow)} data-user-message>
-      <div {...stylex.attrs(styles.user)}>
+      <div {...stylex.attrs(styles.user)} title={fullTimeOf(props.message.createdAt)}>
         <p ref={body} {...stylex.attrs(styles.userText, folded() && styles.userFolded)}>
           {props.message.content}
         </p>
@@ -377,12 +387,9 @@ function UserMessage(props: { message: ChatMessage }) {
             {unfolded() ? "Show less" : "Show more"}
           </button>
         </Show>
-      </div>
-      <div {...stylex.attrs(styles.actions, styles.actionsUser)}>
-        <span {...stylex.attrs(styles.time)} title={fullTimeOf(props.message.createdAt)}>
-          {timeOf(props.message.createdAt)}
-        </span>
-        <CopyButton text={() => props.message.content} label="Copy message" />
+        <div {...stylex.attrs(styles.actions, styles.actionsUser)}>
+          <CopyButton text={() => props.message.content} label="Copy message" />
+        </div>
       </div>
     </div>
   );
@@ -590,7 +597,6 @@ const breathe = stylex.keyframes({
   "100%": { opacity: 0.35, transform: "scale(0.8)" },
 });
 const shimmer = stylex.keyframes({ from: { backgroundPosition: "100% 0" }, to: { backgroundPosition: "-50% 0" } });
-const spin = stylex.keyframes({ from: { transform: "rotate(0deg)" }, to: { transform: "rotate(360deg)" } });
 
 const styles = stylex.create({
   inlineCode: {
@@ -618,8 +624,8 @@ const styles = stylex.create({
     width: "100%",
     minWidth: 0,
     minHeight: 26,
-    paddingBlock: 2,
-    paddingInline: 2,
+    paddingBlock: 3,
+    paddingInline: 0,
     borderWidth: 0,
     borderRadius: radius.sm,
     backgroundColor: "transparent",
@@ -644,20 +650,19 @@ const styles = stylex.create({
     opacity: 0.85,
   },
   rowIconFailed: { color: colors.danger, opacity: 1 },
-  rowIconActive: {
-    color: colors.accent,
-    opacity: 1,
-    animationName: spin,
-    animationDuration: "0.9s",
-    animationIterationCount: "infinite",
-    animationTimingFunction: "linear",
-  },
   rowTitle: {
     flex: 1,
     minWidth: 0,
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
+  },
+  // A run's summary takes two lines before it's cut.
+  rowTitleWrap: {
+    whiteSpace: "normal",
+    display: "-webkit-box",
+    WebkitLineClamp: "2",
+    WebkitBoxOrient: "vertical",
   },
   chevron: {
     display: "grid",
@@ -666,7 +671,7 @@ const styles = stylex.create({
     color: colors.muted,
     transition: "transform 150ms, opacity 150ms",
   },
-  chevronHover: { opacity: { default: 0, [stylex.when.ancestor(":hover")]: 1 } },
+  chevronHover: { opacity: { default: 0.4, [stylex.when.ancestor(":hover")]: 1 } },
   chevronOpen: { transform: "rotate(90deg)", opacity: 1 },
   failedBadge: {
     flexShrink: 0,
@@ -687,7 +692,7 @@ const styles = stylex.create({
     paddingBlock: space.sm,
     paddingInline: space.md,
     borderRadius: radius.sm,
-    backgroundColor: "rgb(127 127 127 / 0.08)",
+    backgroundColor: `color-mix(in oklab, transparent, ${colors.text} 5%)`,
     color: colors.text,
     fontFamily: font.mono,
     fontSize: 12,
@@ -696,6 +701,7 @@ const styles = stylex.create({
     overflowWrap: "anywhere",
     userSelect: "text",
   },
+  detailFailed: { color: colors.danger, backgroundColor: `color-mix(in oklab, transparent, ${colors.danger} 7%)` },
   // The end of a turn.
   divider: {
     display: "flex",
@@ -712,7 +718,8 @@ const styles = stylex.create({
     fontSize: 12,
     cursor: "default",
   },
-  dividerStopped: { color: colors.warning },
+  dividerStopped: { color: { default: colors.warning, ":hover": colors.warning } },
+  dividerFailed: { color: { default: colors.danger, ":hover": colors.danger } },
   dividerButton: {
     cursor: "pointer",
     color: { default: colors.muted, ":hover": colors.text },
@@ -755,8 +762,16 @@ const styles = stylex.create({
   },
   workingTime: { color: colors.muted, fontSize: 12, fontVariantNumeric: "tabular-nums" },
   // Messages.
-  userRow: { display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2, minWidth: 0 },
+  userRow: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "flex-end",
+    minWidth: 0,
+    // A new turn: a little more room above it than between the rows of a turn.
+    marginTop: { default: 10, ":first-child": 0 },
+  },
   user: {
+    position: "relative",
     display: "flex",
     flexDirection: "column",
     alignItems: "flex-start",
@@ -795,7 +810,7 @@ const styles = stylex.create({
     fontWeight: 500,
     cursor: "pointer",
   },
-  assistantRow: { display: "flex", flexDirection: "column", gap: 2, minWidth: 0, width: "100%" },
+  assistantRow: { position: "relative", display: "flex", flexDirection: "column", minWidth: 0, width: "100%" },
   markdown: {
     minWidth: 0,
     maxWidth: "100%",
@@ -804,16 +819,21 @@ const styles = stylex.create({
     overflowWrap: "anywhere",
     userSelect: "text",
   },
+  // Shown on hover, outside the flow: they take no room between messages.
   actions: {
+    position: "absolute",
+    top: "100%",
+    left: -4,
+    zIndex: 1,
     display: "flex",
     alignItems: "center",
     gap: 2,
-    minHeight: 24,
+    height: 24,
     opacity: { default: 0, [stylex.when.ancestor(":hover")]: 1, [stylex.when.ancestor(":focus-within")]: 1 },
     transition: "opacity 150ms",
   },
-  actionsStart: { marginLeft: -4 },
-  actionsUser: { marginBottom: -10 },
+  actionsStart: {},
+  actionsUser: { top: "auto", left: "auto", right: "100%", bottom: 0, paddingRight: 2 },
   action: {
     display: "inline-flex",
     alignItems: "center",

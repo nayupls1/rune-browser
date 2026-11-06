@@ -75,21 +75,23 @@ export function Chat(props: { appId: string }) {
             {tab()?.name ?? ""}
           </span>
         </span>
-        <button
-          type="button"
-          title="New chat (this one is kept in the chat history)"
-          aria-label="New chat"
-          disabled={state().running || !state().messages.length}
-          onClick={() =>
-            void newChat(props.appId).catch((err) =>
-              toast({ message: err instanceof Error ? err.message : String(err), kind: "error" }),
-            )
-          }
-          {...stylex.attrs(styles.headerButton)}
-          data-new-chat
-        >
-          <Icon name="square-pen" size={15} />
-        </button>
+        <Show when={state().messages.length}>
+          <button
+            type="button"
+            title="New chat (this one is kept in the chat history)"
+            aria-label="New chat"
+            disabled={state().running}
+            onClick={() =>
+              void newChat(props.appId).catch((err) =>
+                toast({ message: err instanceof Error ? err.message : String(err), kind: "error" }),
+              )
+            }
+            {...stylex.attrs(styles.headerButton)}
+            data-new-chat
+          >
+            <Icon name="square-pen" size={15} />
+          </button>
+        </Show>
         <button
           ref={historyButton}
           type="button"
@@ -311,7 +313,7 @@ function AccessPicker() {
           items={[
             {
               label: "Ask first",
-              description: "Agents ask before they act on sites, use your logins, or touch other tabs and apps.",
+              description: "They ask before acting for you",
               icon: "shield-check",
               checked: !fullAccess(),
               id: "ask",
@@ -319,7 +321,7 @@ function AccessPicker() {
             },
             {
               label: "Full access",
-              description: "Agents act without asking. A web page could talk them into something you didn't ask for.",
+              description: "They act without asking. Use with care",
               icon: "shield-off",
               danger: true,
               checked: fullAccess(),
@@ -344,14 +346,14 @@ function dayGroup(iso: string, now = new Date()) {
   return "Older";
 }
 
-/** "12 min", "3 h", "Tue", "Oct 25": how long ago, short. */
-function ago(iso: string, now = Date.now()) {
-  const minutes = Math.round((now - Date.parse(iso)) / 60_000);
-  if (minutes < 1) return "now";
-  if (minutes < 60) return `${minutes} min`;
-  if (minutes < 60 * 24) return `${Math.round(minutes / 60)} h`;
+/** When, short, for its day group: "12 min" or "3:40 PM" today and yesterday, "Tue" this week, else "Oct 25". */
+function when(iso: string, group: string, now = Date.now()) {
   const date = new Date(iso);
-  if (minutes < 60 * 24 * 7) return date.toLocaleDateString(undefined, { weekday: "short" });
+  const minutes = Math.round((now - date.getTime()) / 60_000);
+  if (group === "Today" && minutes < 60) return minutes < 1 ? "now" : `${minutes} min`;
+  if (group === "Today" || group === "Yesterday")
+    return date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  if (group === "Previous 7 days") return date.toLocaleDateString(undefined, { weekday: "short" });
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
@@ -361,7 +363,7 @@ function ChatHistory(props: { appId: string; anchor: HTMLElement; onClose: () =>
   const [query, setQuery] = createSignal("");
   const running = () => !!states[props.appId]?.running;
   let root!: HTMLDivElement;
-  const width = 300;
+  const width = 320;
   const r = props.anchor.getBoundingClientRect();
   const left = Math.max(8, Math.min(r.right - width, window.innerWidth - width - 8));
   const top = r.bottom + 6;
@@ -369,9 +371,18 @@ function ChatHistory(props: { appId: string; anchor: HTMLElement; onClose: () =>
     const away = (e: PointerEvent) =>
       !root.contains(e.target as Node) && !props.anchor.contains(e.target as Node) && props.onClose();
     const key = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      e.stopPropagation();
-      props.onClose();
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        props.onClose();
+        props.anchor.focus({ preventScroll: true });
+      } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        // The arrow keys go through the chats (from the search field too).
+        e.preventDefault();
+        const rows = [...root.querySelectorAll<HTMLButtonElement>("[data-open-chat]:not(:disabled)")];
+        const i = rows.indexOf(document.activeElement as HTMLButtonElement);
+        const next = e.key === "ArrowDown" ? (i + 1) % rows.length : i <= 0 ? rows.length - 1 : i - 1;
+        rows[next]?.focus();
+      }
     };
     document.addEventListener("pointerdown", away, true);
     document.addEventListener("keydown", key, true);
@@ -402,6 +413,11 @@ function ChatHistory(props: { appId: string; anchor: HTMLElement; onClose: () =>
     return out;
   };
   const searchable = () => (chats()?.length ?? 0) > 5;
+  // Without a search field, the first chat takes the focus once they're there.
+  createEffect(() => {
+    if (chats() && !searchable())
+      queueMicrotask(() => root.querySelector<HTMLButtonElement>("[data-open-chat]:not(:disabled)")?.focus());
+  });
   return (
     <Portal>
       <div
@@ -465,7 +481,7 @@ function ChatHistory(props: { appId: string; anchor: HTMLElement; onClose: () =>
                         data-open-chat
                       >
                         <span {...stylex.attrs(styles.historyName)}>{chat.title}</span>
-                        <span {...stylex.attrs(styles.historyMeta)}>{ago(chat.updatedAt)}</span>
+                        <span {...stylex.attrs(styles.historyMeta)}>{when(chat.updatedAt, group.label)}</span>
                       </button>
                       <button
                         type="button"
@@ -581,7 +597,7 @@ const styles = stylex.create({
   },
   headerButton: iconButton,
   headerButtonOn: { backgroundColor: colors.surfaceHover, color: colors.text },
-  chips: { display: "flex", flexWrap: "wrap", gap: 4, paddingInline: 2, paddingTop: 2, paddingBottom: 4 },
+  chips: { display: "contents" },
   history: {
     position: "fixed",
     zIndex: 1000,
@@ -659,7 +675,11 @@ const styles = stylex.create({
     display: "flex",
     alignItems: "center",
     borderRadius: radius.sm,
-    backgroundColor: { default: "transparent", ":hover": colors.surfaceHover },
+    backgroundColor: {
+      default: "transparent",
+      ":hover": colors.surfaceHover,
+      ":focus-within": colors.surfaceHover,
+    },
   },
   historyOpen: {
     display: "flex",
@@ -692,7 +712,7 @@ const styles = stylex.create({
     color: colors.muted,
     fontSize: 11.5,
     fontVariantNumeric: "tabular-nums",
-    opacity: { default: 1, [stylex.when.ancestor(":hover")]: 0 },
+    opacity: { default: 1, [stylex.when.ancestor(":hover")]: 0, [stylex.when.ancestor(":focus-within")]: 0 },
   },
   historyDelete: {
     ...iconButton,
@@ -702,7 +722,12 @@ const styles = stylex.create({
     height: 26,
     color: { default: colors.muted, ":hover": colors.danger },
     backgroundColor: { default: "transparent", ":hover": colors.border },
-    opacity: { default: 0, [stylex.when.ancestor(":hover")]: 1, ":focus-visible": 1 },
+    opacity: {
+      default: 0,
+      [stylex.when.ancestor(":hover")]: 1,
+      [stylex.when.ancestor(":focus-within")]: 1,
+      ":focus-visible": 1,
+    },
   },
   pick: { ...iconButton, borderRadius: radius.full },
   pickOn: {
@@ -746,8 +771,8 @@ const styles = stylex.create({
     overflowY: "auto",
     overflowX: "hidden",
     scrollbarGutter: "stable",
-    scrollbarWidth: "thin",
-    scrollbarColor: `color-mix(in oklab, transparent, ${colors.text} 22%) transparent`,
+    // Fades out over its last 16px, into the composer.
+    maskImage: "linear-gradient(to bottom, black calc(100% - 16px), transparent)",
   },
   messages: {
     display: "flex",
@@ -767,9 +792,9 @@ const styles = stylex.create({
     display: "flex",
     alignItems: "center",
     flexWrap: "wrap",
-    gap: 2,
-    minHeight: 24,
-    paddingInline: 4,
+    gap: 4,
+    minHeight: 28,
+    paddingInline: 7,
   },
   access: {
     display: "inline-flex",

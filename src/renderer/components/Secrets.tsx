@@ -68,7 +68,7 @@ export function SecretForm(props: {
         <input
           type="password"
           value={value()}
-          placeholder={fixedName() ? `Value for ${props.name}` : "Value"}
+          placeholder={fixedName() ? "Paste the value" : "Value"}
           spellcheck={false}
           autocomplete="new-password"
           onInput={(e) => setValue(e.currentTarget.value)}
@@ -332,9 +332,7 @@ const styles = stylex.create({
     minWidth: 0,
     color: colors.muted,
     fontSize: font.xs,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
+    lineHeight: 1.45,
   },
   iconButton: {
     display: "grid",

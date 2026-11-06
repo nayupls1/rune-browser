@@ -140,74 +140,76 @@ export function Composer(props: {
         }}
         data-composer
       >
-        {props.top}
-        <Show when={hasFiles()}>
-          <div {...stylex.attrs(styles.files)} data-attachments>
-            <For each={attachmentsOf(props.appId)}>
-              {(file) => (
-                <span
-                  {...stylex.attrs(styles.file)}
-                  title={`${file.name} · ${Math.max(1, Math.round(file.size / 1024))} kB`}
-                  data-attachment={file.id}
-                >
-                  <Show
-                    when={file.mime.startsWith("image/")}
-                    fallback={
-                      <span {...stylex.attrs(styles.fileIcon)}>
-                        <Icon name="file-text" size={16} />
-                        <span {...stylex.attrs(styles.fileName)}>{file.name}</span>
-                      </span>
+        <div {...stylex.attrs(styles.attached)} data-composer-attached>
+          {props.top}
+          <Show when={hasFiles()}>
+            <div {...stylex.attrs(styles.files)} data-attachments>
+              <For each={attachmentsOf(props.appId)}>
+                {(file) => (
+                  <span
+                    {...stylex.attrs(styles.file)}
+                    title={`${file.name} · ${Math.max(1, Math.round(file.size / 1024))} kB`}
+                    data-attachment={file.id}
+                  >
+                    <Show
+                      when={file.mime.startsWith("image/")}
+                      fallback={
+                        <span {...stylex.attrs(styles.fileIcon)}>
+                          <Icon name="file-text" size={16} />
+                          <span {...stylex.attrs(styles.fileName)}>{file.name}</span>
+                        </span>
+                      }
+                    >
+                      <img src={attachmentUrl(props.appId, file.id)} alt={file.name} {...stylex.attrs(styles.thumb)} />
+                    </Show>
+                    <button
+                      type="button"
+                      title="Remove"
+                      aria-label={`Remove ${file.name}`}
+                      onClick={() => removeAttachment(props.appId, file.id)}
+                      {...stylex.attrs(styles.fileRemove)}
+                    >
+                      <Icon name="x" size={11} />
+                    </button>
+                  </span>
+                )}
+              </For>
+              <Show when={busyUploading()}>
+                <span {...stylex.attrs(styles.file, styles.fileIcon)}>
+                  <Icon name="loader-circle" size={16} />
+                </span>
+              </Show>
+            </div>
+          </Show>
+          <Show when={sharesOf(props.appId).length}>
+            <div {...stylex.attrs(styles.shares)}>
+              <For each={sharesOf(props.appId)}>
+                {(ref) => (
+                  <span
+                    {...stylex.attrs(styles.share)}
+                    title={
+                      ref.messageId !== undefined
+                        ? "A reply of that tab's agent, sent with your message"
+                        : "Shared with your message: what the tab shows or can do"
                     }
+                    data-share-chip={ref.tabId}
                   >
-                    <img src={attachmentUrl(props.appId, file.id)} alt={file.name} {...stylex.attrs(styles.thumb)} />
-                  </Show>
-                  <button
-                    type="button"
-                    title="Remove"
-                    aria-label={`Remove ${file.name}`}
-                    onClick={() => removeAttachment(props.appId, file.id)}
-                    {...stylex.attrs(styles.fileRemove)}
-                  >
-                    <Icon name="x" size={11} />
-                  </button>
-                </span>
-              )}
-            </For>
-            <Show when={busyUploading()}>
-              <span {...stylex.attrs(styles.file, styles.fileIcon)}>
-                <Icon name="loader-circle" size={16} />
-              </span>
-            </Show>
-          </div>
-        </Show>
-        <Show when={sharesOf(props.appId).length}>
-          <div {...stylex.attrs(styles.shares)}>
-            <For each={sharesOf(props.appId)}>
-              {(ref) => (
-                <span
-                  {...stylex.attrs(styles.share)}
-                  title={
-                    ref.messageId !== undefined
-                      ? "A reply of that tab's agent, sent with your message"
-                      : "Shared with your message: what the tab shows or can do"
-                  }
-                  data-share-chip={ref.tabId}
-                >
-                  <Icon name={ref.messageId !== undefined ? "reply" : "at-sign"} size={12} />
-                  <span {...stylex.attrs(styles.shareLabel)}>{shareLabel(ref)}</span>
-                  <button
-                    type="button"
-                    title="Don't share"
-                    onClick={() => removeShare(props.appId, ref)}
-                    {...stylex.attrs(styles.shareRemove)}
-                  >
-                    <Icon name="x" size={12} />
-                  </button>
-                </span>
-              )}
-            </For>
-          </div>
-        </Show>
+                    <Icon name={ref.messageId !== undefined ? "reply" : "at-sign"} size={12} />
+                    <span {...stylex.attrs(styles.shareLabel)}>{shareLabel(ref)}</span>
+                    <button
+                      type="button"
+                      title="Don't share"
+                      onClick={() => removeShare(props.appId, ref)}
+                      {...stylex.attrs(styles.shareRemove)}
+                    >
+                      <Icon name="x" size={12} />
+                    </button>
+                  </span>
+                )}
+              </For>
+            </div>
+          </Show>
+        </div>
         <Show when={mention() && candidates().length}>
           <div role="listbox" {...stylex.attrs(styles.mentions)} data-mentions>
             <div {...stylex.attrs(styles.mentionsTitle)}>Share a tab with your message</div>
@@ -245,6 +247,7 @@ export function Composer(props: {
             if (props.autofocus) queueMicrotask(() => el.focus());
           }}
           rows={props.large ? 3 : 1}
+          aria-label={props.placeholder ?? "Message the agent"}
           value={value()}
           placeholder={props.placeholder ?? "Ask for a change…"}
           onInput={(e) => {
@@ -398,7 +401,17 @@ const styles = stylex.create({
   },
   large: { padding: space.md },
   dropping: { borderColor: colors.accent, boxShadow: `0 0 0 3px ${colors.accentSoft}` },
-  files: { display: "flex", flexWrap: "wrap", gap: 6, paddingInline: 4, paddingTop: 2 },
+  // Picked elements, files and shared tabs: one wrapping row above the text (empty, it takes no room).
+  attached: {
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 6,
+    paddingInline: 6,
+    paddingTop: { default: 2, ":empty": 0 },
+    paddingBottom: { default: 4, ":empty": 0 },
+  },
+  files: { display: "contents" },
   file: {
     position: "relative",
     display: "grid",
@@ -434,8 +447,8 @@ const styles = stylex.create({
     padding: 0,
     borderWidth: 0,
     borderRadius: radius.full,
-    backgroundColor: "rgb(0 0 0 / 0.55)",
-    color: "#ffffff",
+    backgroundColor: `color-mix(in oklab, transparent, ${colors.text} 70%)`,
+    color: colors.bg,
     cursor: "pointer",
   },
   iconButton: {
@@ -498,7 +511,7 @@ const styles = stylex.create({
   },
   inputLarge: { fontSize: font.lg, minHeight: 72 },
   actions: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: space.xs, minWidth: 0 },
-  shares: { display: "flex", flexWrap: "wrap", gap: 4, paddingInline: 4, paddingTop: 2 },
+  shares: { display: "contents" },
   share: {
     display: "inline-flex",
     alignItems: "center",
@@ -528,8 +541,8 @@ const styles = stylex.create({
   },
   mentions: {
     position: "absolute",
-    left: space.sm,
-    right: space.sm,
+    left: 0,
+    right: 0,
     bottom: "calc(100% + 6px)",
     zIndex: 20,
     display: "flex",

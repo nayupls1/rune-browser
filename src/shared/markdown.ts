@@ -20,13 +20,26 @@ function inline(text: string): string {
 }
 
 const isRow = (line: string) => /^\s*\|.*\|\s*$/.test(line);
-/** A table row's cells (`| a | b |` → ["a", "b"]). */
-const cells = (line: string) =>
-  line
+/** A table row's cells (`| a | b |` → ["a", "b"]); a pipe in `code` or written as \| stays in its cell. */
+function cells(line: string) {
+  const out: string[] = [];
+  let cell = "";
+  let code = false;
+  const text = line
     .trim()
-    .replace(/^\||\|$/g, "")
-    .split("|")
-    .map((c) => c.trim());
+    .replace(/^\|/, "")
+    .replace(/(?<!\\)\|$/, "");
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]!;
+    if (c === "\\" && text[i + 1] === "|") ((cell += "|"), i++);
+    else if (c === "|" && !code) (out.push(cell), (cell = ""));
+    else {
+      if (c === "`") code = !code;
+      cell += c;
+    }
+  }
+  return [...out, cell].map((c) => c.trim());
+}
 
 export function markdownToHtml(source: string): string {
   const lines = source.replace(/\r\n?/g, "\n").split("\n");
@@ -114,7 +127,13 @@ export function markdownToHtml(source: string): string {
     }
 
     const para: string[] = [];
-    while (i < lines.length && lines[i]!.trim() && !/^(#{1,4}\s|```|>|\s*([-*+]|\d+[.)])\s)/.test(lines[i]!))
+    while (
+      i < lines.length &&
+      lines[i]!.trim() &&
+      !/^(#{1,4}\s|```|>|\s*([-*+]|\d+[.)])\s)/.test(lines[i]!) &&
+      // A table starts here.
+      !(isRow(lines[i]!) && /^\s*\|?\s*:?-{2,}/.test(lines[i + 1] ?? ""))
+    )
       para.push(lines[i++]!);
     html.push(`<p>${para.map(inline).join("<br>")}</p>`);
   }

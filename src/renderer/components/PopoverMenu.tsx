@@ -45,8 +45,12 @@ export function PopoverMenu(props: {
     const a = props.anchor.getBoundingClientRect();
     const m = menu.getBoundingClientRect();
     const above = a.top > window.innerHeight / 2;
+    // From the button's left edge, kept inside the agent sidebar it's in (else the window).
+    const box = props.anchor.closest("[data-agent-sidebar]")?.getBoundingClientRect();
+    const min = (box?.left ?? 0) + 6;
+    const max = (box?.right ?? window.innerWidth) - m.width - 6;
     setPos({
-      left: Math.max(6, Math.min(a.left, window.innerWidth - m.width - 6)),
+      left: Math.max(6, Math.max(min, Math.min(a.left, max))),
       top: Math.max(6, Math.min(above ? a.top - m.height - 6 : a.bottom + 6, window.innerHeight - m.height - 6)),
     });
     (buttons().find((b) => b.getAttribute("aria-checked") === "true") ?? buttons()[0])?.focus({ preventScroll: true });
@@ -59,7 +63,8 @@ export function PopoverMenu(props: {
         e.stopPropagation();
         props.onClose();
         props.anchor.focus({ preventScroll: true });
-      } else if (e.key === "ArrowDown") (e.preventDefault(), focusBy(1));
+      } else if (e.key === "Tab") props.onClose();
+      else if (e.key === "ArrowDown") (e.preventDefault(), focusBy(1));
       else if (e.key === "ArrowUp") (e.preventDefault(), focusBy(-1));
     };
     const close = () => props.onClose();
@@ -80,6 +85,7 @@ export function PopoverMenu(props: {
       <div
         ref={menu}
         role="menu"
+        aria-label={props.title}
         {...stylex.attrs(styles.menu)}
         style={{ left: `${pos().left}px`, top: `${pos().top}px`, width: props.width ? `${props.width}px` : undefined }}
         {...(props.name ? { [`data-${props.name}`]: "" } : {})}
@@ -100,6 +106,7 @@ export function PopoverMenu(props: {
                 disabled={item.disabled}
                 onClick={() => {
                   props.onClose();
+                  props.anchor.focus({ preventScroll: true });
                   item.onSelect();
                 }}
                 {...stylex.attrs(styles.item, item.danger && styles.danger)}
