@@ -245,9 +245,11 @@ describe("manifests", () => {
     expect(covers("https://example.org/*", "https://*.example.org/*")).toBe(false);
     expect(covers("https://example.org/*", "*://example.org/*")).toBe(false);
     expect(covers("*://example.org/*", "https://example.org/*")).toBe(true);
-    // Paths are globs.
-    expect(covers("https://a.example/docs/*", "https://a.example/docs/x/*")).toBe(true);
-    expect(covers("https://a.example/docs/*", "https://a.example/*")).toBe(false);
+    // Paths don't count, like in Chrome's host permissions (MV2's common "https://*/").
+    expect(covers("https://*/", "https://example.com/*")).toBe(true);
+    expect(covers("https://example.com/", "https://example.com/*")).toBe(true);
+    expect(covers("*://*/", "https://www.google.com/*")).toBe(true);
+    expect(covers("https://a.example/docs/*", "https://a.example/*")).toBe(true);
     expect(covers("https://a.example/*", "not a pattern")).toBe(false);
   });
 

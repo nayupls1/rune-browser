@@ -86,7 +86,7 @@ export interface SchedulerShape {
   /**
    * A workspace is being deleted, with these tabs: their schedules and the
    * prompts that would open a tab in it go, before the tabs do (so none is
-   * rewritten to open a tab there, or runs, while they're being removed).
+   * rewritten to open a tab there while they're being removed).
    */
   readonly forgetWorkspace: (workspaceId: string, appIds: readonly string[]) => Effect.Effect<void>;
   /** Runs scheduled prompts (the agents sit above the scheduler, so they register it: Agent.make). Interrupted on timeout. */
@@ -255,13 +255,14 @@ export const make = Effect.gen(function* () {
       const opened = (tabId: string) =>
         Effect.gen(function* () {
           const current = yield* rowOf(row.id);
-          // Gone already: the schedule, or the tab (deleted before it was recorded here).
-          if (!current || !(yield* apps.get(tabId))) return;
+          if (!current) return;
           const now = JSON.parse(current.spec) as ScheduleSpec;
           if (now.task.type !== "prompt") return;
           const { newTab: _, ...rest } = now.task;
+          // Not if the tab is gone already (deleted before it was recorded here), checked in the same statement.
           yield* sql`UPDATE schedules SET spec = ${JSON.stringify({ ...now, task: { ...rest, appId: tabId } })},
-            updated_at = ${new Date().toISOString()} WHERE id = ${row.id}`;
+            updated_at = ${new Date().toISOString()}
+            WHERE id = ${row.id} AND EXISTS (SELECT 1 FROM apps WHERE id = ${tabId})`;
           yield* changed;
         }).pipe(Effect.orDie);
       return promptRunner({ scheduleName: spec.name, task, opened });
@@ -317,6 +318,9 @@ export const make = Effect.gen(function* () {
       running.add(row.id);
       const run = yield* insertRun(row, spec, trigger);
       yield* hub.publish({ type: "schedule-run", topic: topics.schedules, run, notify: false });
+      // The schedule as it is when the run starts: its tab may have changed while it waited for a slot (a deleted
+      // web tab's prompt opens a new one), and so may its other fields.
+      let now = spec;
       const finish = (outcome: Outcome) =>
         Effect.gen(function* () {
           running.delete(row.id);
@@ -324,15 +328,17 @@ export const make = Effect.gen(function* () {
             UPDATE schedule_runs SET status = ${outcome.status}, message = ${outcome.message.slice(0, 2000)}, output = ${outcome.output},
               finished_at = ${new Date().toISOString()}
             WHERE id = ${run.id} RETURNING *`;
-          const finished = toRun(done!);
-          const notify = spec.notify === "always" || (spec.notify === "failure" && finished.status !== "ok");
+          // Deleted with its schedule meanwhile.
+          if (!done) return;
+          const finished = toRun(done);
+          const notify = now.notify === "always" || (now.notify === "failure" && finished.status !== "ok");
           yield* hub.publish({ type: "schedule-run", topic: topics.schedules, run: finished, notify });
           yield* audit.record({
             actor: "rune",
             actorLabel: "Scheduler",
-            tabId: taskTab(spec.task) ?? undefined,
+            tabId: taskTab(now.task) ?? undefined,
             action: "schedule.run",
-            target: spec.name,
+            target: now.name,
             outcome: finished.status === "ok" ? "ok" : "error",
             detail: `${trigger}: ${finished.message.slice(0, 200)}`,
           });
@@ -340,30 +346,36 @@ export const make = Effect.gen(function* () {
           yield* sql`DELETE FROM schedule_runs WHERE schedule_id = ${row.id} AND id NOT IN
             (SELECT id FROM schedule_runs WHERE schedule_id = ${row.id} ORDER BY id DESC LIMIT ${KEEP_RUNS})`;
         }).pipe(Effect.orDie);
-      // Started in the background: the caller (the clock, an event, "Run now") doesn't wait.
+      // Started in the background: the caller (the clock, an event, "Run now") doesn't wait. Its time limit starts
+      // when it gets a slot.
       yield* Effect.forkDetach(
         slots
           .withPermits(1)(
-            // What it does now: its tab may have changed while it waited for a slot (a deleted web tab's prompt opens a new one).
             rowOf(row.id).pipe(
               Effect.orDie,
-              Effect.flatMap((current) =>
-                current
-                  ? perform(current, JSON.parse(current.spec) as ScheduleSpec)
-                  : Effect.succeed<Outcome>({ status: "skipped", message: "The schedule was deleted", output: null }),
-              ),
+              Effect.flatMap((current) => {
+                if (!current)
+                  return Effect.succeed<Outcome>({
+                    status: "skipped",
+                    message: "The schedule was deleted",
+                    output: null,
+                  });
+                now = JSON.parse(current.spec) as ScheduleSpec;
+                return perform(current, now).pipe(
+                  Effect.timeoutOrElse({
+                    duration: now.timeoutSec * 1000,
+                    orElse: () =>
+                      Effect.succeed<Outcome>({
+                        status: "timeout",
+                        message: `Stopped after ${now.timeoutSec} s`,
+                        output: null,
+                      }),
+                  }),
+                );
+              }),
             ),
           )
           .pipe(
-            Effect.timeoutOrElse({
-              duration: spec.timeoutSec * 1000,
-              orElse: () =>
-                Effect.succeed<Outcome>({
-                  status: "timeout",
-                  message: `Stopped after ${spec.timeoutSec} s`,
-                  output: null,
-                }),
-            }),
             Effect.catchCause((cause) =>
               Effect.succeed<Outcome>({
                 status: "error",

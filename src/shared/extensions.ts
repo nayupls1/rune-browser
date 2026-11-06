@@ -451,17 +451,21 @@ export function matchesAny(patterns: readonly string[], url: string) {
 
 const ALL_URLS_SCHEMES = ["http", "https", "ws", "wss", "ftp", "file", "data", "chrome-extension"];
 
-/** A match pattern's parts (null: not a valid pattern), with `<all_urls>` as every scheme, host and path. */
+/** A match pattern's schemes and host (null: not a valid pattern), with `<all_urls>` as every scheme and host. */
 function patternParts(pattern: string) {
-  if (pattern === "<all_urls>") return { schemes: ALL_URLS_SCHEMES, host: "*", path: "/*" };
+  if (pattern === "<all_urls>") return { schemes: ALL_URLS_SCHEMES, host: "*" };
   const m = /^(\*|https?|wss?|ftp|file|urn|chrome-extension):\/\/([^/]*)(\/.*)?$/i.exec(pattern);
   if (!m || !matchPattern(pattern)) return null;
-  const [, scheme, host, path = "/*"] = m as unknown as [string, string, string, string?];
+  const [, scheme, host] = m as unknown as [string, string, string];
   const s = scheme.toLowerCase();
-  return { schemes: s === "*" ? ["http", "https", "ws", "wss"] : [s], host: host.toLowerCase(), path };
+  return { schemes: s === "*" ? ["http", "https", "ws", "wss"] : [s], host: host.toLowerCase() };
 }
 
-/** Whether every URL `inner` matches, `outer` matches too (by their schemes, hosts and paths). */
+/**
+ * Whether every site `inner` matches, `outer` matches too, by scheme and host.
+ * Paths don't count: Chrome reads host permissions as path "/*", so
+ * `https://*\/` covers `https://example.com/*`.
+ */
 function patternCovers(outer: string, inner: string) {
   const o = patternParts(outer);
   const i = patternParts(inner);
@@ -476,9 +480,7 @@ function patternCovers(outer: string, inner: string) {
       if (host !== base && !host.endsWith(`.${base}`)) return false;
     } else if (i.host.startsWith("*.") || port(i.host) !== port(o.host)) return false;
   }
-  // Paths: the inner glob, with its wildcards as nothing and as something, must fit the outer one.
-  const re = new RegExp(`^${o.path.split("*").map(escapeRegExp).join(".*")}$`);
-  return re.test(i.path.replaceAll("*", "")) && re.test(i.path.replaceAll("*", "/x?y"));
+  return true;
 }
 
 /** Whether the patterns cover this one (like chrome.permissions.contains checks origins). */
