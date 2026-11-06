@@ -1434,7 +1434,16 @@ const styles = stylex.create({
     minWidth: 0,
   },
   // In the toolbar under horizontal tabs: as wide as its icons, in one row.
-  workspaceBarInline: { flex: "none", flexWrap: "nowrap" },
+  // In the bar with horizontal tabs: on a narrow window its icons give way after the address does (hence the tiny
+  // shrink factor) and before the agent and ⋯ buttons do.
+  workspaceBarInline: {
+    flexGrow: 0,
+    flexShrink: 0.001,
+    flexBasis: "auto",
+    minWidth: 0,
+    flexWrap: "nowrap",
+    overflow: "hidden",
+  },
   workspaceIcon: {
     position: "relative",
     display: "grid",

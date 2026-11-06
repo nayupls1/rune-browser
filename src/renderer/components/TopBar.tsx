@@ -879,8 +879,9 @@ const styles = stylex.create({
   spacer: { flex: 1 },
   // Keeps the address's place in the sidebar while it floats.
   addressSlot: { position: "relative", flexShrink: 0, height: 36, marginBottom: 4 },
-  // In the bar with horizontal tabs: compact, so the tabs have the room (it pops out to type).
-  addressSlotInline: { flex: "0 1 300px", minWidth: 150, height: 32, marginBottom: 0 },
+  // In the bar with horizontal tabs: compact, so the tabs have the room (it pops out to type). Longhands: the
+  // slot's flexShrink would win over a shorthand, and the bar has to fit narrow windows.
+  addressSlotInline: { flexGrow: 0, flexShrink: 1, flexBasis: 300, minWidth: 80, height: 32, marginBottom: 0 },
   address: {
     position: "relative",
     display: "flex",

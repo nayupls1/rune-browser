@@ -33,8 +33,11 @@ export interface ExtensionInfo {
   permissions: ExtensionPermission[];
   /** The sites it always has (host permissions, content scripts). */
   siteAccess: string[];
-  /** Sites it asks for when it needs them, and whether it has them (see `optionalSiteAccess`); `asked`: in its manifest, not a narrower one it was given. */
-  optionalSiteAccess: { pattern: string; allowed: boolean; asked: boolean }[];
+  /**
+   * Sites it asks for when it needs them, and whether it has them (see `optionalSiteAccess`). `asked`: in its
+   * manifest, not a narrower one it was given; `coveredBy`: a broader site it was given that includes it.
+   */
+  optionalSiteAccess: { pattern: string; allowed: boolean; asked: boolean; coveredBy: string | null }[];
   /** Its commands that have a key on this platform (`_execute_action` opens its popup). */
   shortcuts: { name: string; description: string; shortcut: string }[];
   /** Can start programs on this computer (native messaging hosts installed for it). */
@@ -391,13 +394,17 @@ export const optionalHostPermissionsOf = (m: Manifest) => [
 export function optionalSiteAccess(m: Manifest, grantedOrigins: readonly string[]) {
   const required = hostPermissionsOf(m);
   const asked = optionalHostPermissionsOf(m);
+  /** A broader site it was given that covers this one (switching this one off wouldn't change anything). */
+  const broader = (pattern: string) => grantedOrigins.find((o) => o !== pattern && coversPattern([o], pattern)) ?? null;
   return [...new Set([...asked, ...grantedOrigins])]
     .filter((pattern) => !coversPattern(required, pattern))
+    .filter((pattern) => asked.includes(pattern) || !broader(pattern))
     .sort()
     .map((pattern) => ({
       pattern,
       allowed: coversPattern(grantedOrigins, pattern),
       asked: asked.includes(pattern),
+      coveredBy: broader(pattern),
     }));
 }
 
@@ -442,19 +449,41 @@ export function matchesAny(patterns: readonly string[], url: string) {
   return patterns.some((p) => matchPattern(p)?.(url) ?? false);
 }
 
-/** A pattern like "https://*.example.com/*" as a URL it covers, to check it against other patterns. */
-function sampleUrl(pattern: string) {
-  if (pattern === "<all_urls>") return "https://example.com/";
-  return pattern
-    .replace(/^\*:/, "https:")
-    .replace("://*.", "://")
-    .replace("://*/", "://example.com/")
-    .replace(/\*/g, "");
+const ALL_URLS_SCHEMES = ["http", "https", "ws", "wss", "ftp", "file", "data", "chrome-extension"];
+
+/** A match pattern's parts (null: not a valid pattern), with `<all_urls>` as every scheme, host and path. */
+function patternParts(pattern: string) {
+  if (pattern === "<all_urls>") return { schemes: ALL_URLS_SCHEMES, host: "*", path: "/*" };
+  const m = /^(\*|https?|wss?|ftp|file|urn|chrome-extension):\/\/([^/]*)(\/.*)?$/i.exec(pattern);
+  if (!m || !matchPattern(pattern)) return null;
+  const [, scheme, host, path = "/*"] = m as unknown as [string, string, string, string?];
+  const s = scheme.toLowerCase();
+  return { schemes: s === "*" ? ["http", "https", "ws", "wss"] : [s], host: host.toLowerCase(), path };
+}
+
+/** Whether every URL `inner` matches, `outer` matches too (by their schemes, hosts and paths). */
+function patternCovers(outer: string, inner: string) {
+  const o = patternParts(outer);
+  const i = patternParts(inner);
+  if (!o || !i) return false;
+  if (!i.schemes.every((s) => o.schemes.includes(s))) return false;
+  const port = (h: string) => h.replace(/:\d+$/, "");
+  if (o.host !== "*") {
+    if (i.host === "*") return false;
+    if (o.host.startsWith("*.")) {
+      const base = o.host.slice(2);
+      const host = port(i.host.startsWith("*.") ? i.host.slice(2) : i.host);
+      if (host !== base && !host.endsWith(`.${base}`)) return false;
+    } else if (i.host.startsWith("*.") || port(i.host) !== port(o.host)) return false;
+  }
+  // Paths: the inner glob, with its wildcards as nothing and as something, must fit the outer one.
+  const re = new RegExp(`^${o.path.split("*").map(escapeRegExp).join(".*")}$`);
+  return re.test(i.path.replaceAll("*", "")) && re.test(i.path.replaceAll("*", "/x?y"));
 }
 
 /** Whether the patterns cover this one (like chrome.permissions.contains checks origins). */
 export const coversPattern = (patterns: readonly string[], pattern: string) =>
-  patterns.includes(pattern) || matchesAny(patterns, sampleUrl(pattern));
+  patterns.includes(pattern) || patterns.some((p) => patternCovers(p, pattern));
 
 // --- Keyboard shortcuts ------------------------------------------------------------------
 

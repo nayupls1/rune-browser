@@ -211,20 +211,44 @@ describe("manifests", () => {
       optional_permissions: ["https://mail.example/*", "tabs"],
     };
     expect(optionalSiteAccess(m, [])).toEqual([
-      { pattern: "https://*.example.org/*", allowed: false, asked: true },
-      { pattern: "https://mail.example/*", allowed: false, asked: true },
+      { pattern: "https://*.example.org/*", allowed: false, asked: true, coveredBy: null },
+      { pattern: "https://mail.example/*", allowed: false, asked: true, coveredBy: null },
     ]);
-    // chrome.permissions.request may have given a narrower site than the manifest's.
+    // chrome.permissions.request may have given a narrower site than the manifest's: it doesn't give the wider one.
     expect(optionalSiteAccess(m, ["https://docs.example.org/*", "https://mail.example/*"])).toEqual([
-      { pattern: "https://*.example.org/*", allowed: false, asked: true },
-      { pattern: "https://docs.example.org/*", allowed: true, asked: false },
-      { pattern: "https://mail.example/*", allowed: true, asked: true },
+      { pattern: "https://*.example.org/*", allowed: false, asked: true, coveredBy: null },
+      { pattern: "https://docs.example.org/*", allowed: true, asked: false, coveredBy: null },
+      { pattern: "https://mail.example/*", allowed: true, asked: true, coveredBy: null },
+    ]);
+    expect(optionalSiteAccess(m, ["https://example.org/*"])[0]).toMatchObject({ allowed: false });
+    // A broader site it was given covers the narrower ones: those aren't listed apart, and can't be switched off alone.
+    const all = { ...m, optional_host_permissions: ["<all_urls>", "https://*.example.org/*"] };
+    expect(optionalSiteAccess(all, ["<all_urls>", "https://docs.example.org/*"])).toEqual([
+      { pattern: "<all_urls>", allowed: true, asked: true, coveredBy: null },
+      { pattern: "https://*.example.org/*", allowed: true, asked: true, coveredBy: "<all_urls>" },
+      { pattern: "https://mail.example/*", allowed: true, asked: true, coveredBy: "<all_urls>" },
     ]);
     // What its required sites cover isn't optional: it always has it.
     expect(optionalSiteAccess({ ...m, host_permissions: ["<all_urls>"] }, []).map((s) => s.pattern)).toEqual([]);
-    expect(coversPattern(["<all_urls>"], "https://mail.example/*")).toBe(true);
-    expect(coversPattern(["https://*.example.org/*"], "https://docs.example.org/*")).toBe(true);
-    expect(coversPattern(["https://docs.example.org/*"], "https://*.example.org/*")).toBe(false);
+  });
+
+  test("one site pattern covering another", () => {
+    const covers = (outer: string, inner: string) => coversPattern([outer], inner);
+    expect(covers("<all_urls>", "https://mail.example/*")).toBe(true);
+    expect(covers("<all_urls>", "*://*/*")).toBe(true);
+    expect(covers("*://*/*", "<all_urls>")).toBe(false);
+    expect(covers("https://*.example.org/*", "https://docs.example.org/*")).toBe(true);
+    expect(covers("https://*.example.org/*", "https://example.org/*")).toBe(true);
+    expect(covers("https://*.example.org/*", "https://*.docs.example.org/*")).toBe(true);
+    expect(covers("https://docs.example.org/*", "https://*.example.org/*")).toBe(false);
+    // One sample URL isn't enough: these each match https://example.org/ but cover less.
+    expect(covers("https://example.org/*", "https://*.example.org/*")).toBe(false);
+    expect(covers("https://example.org/*", "*://example.org/*")).toBe(false);
+    expect(covers("*://example.org/*", "https://example.org/*")).toBe(true);
+    // Paths are globs.
+    expect(covers("https://a.example/docs/*", "https://a.example/docs/x/*")).toBe(true);
+    expect(covers("https://a.example/docs/*", "https://a.example/*")).toBe(false);
+    expect(covers("https://a.example/*", "not a pattern")).toBe(false);
   });
 
   test("the ID of an extension without a key, like Chromium derives it", () => {

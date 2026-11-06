@@ -45,7 +45,9 @@ function Resizer(props: { tabId: string }) {
     if (e.button !== 0) return;
     e.preventDefault();
     const startX = e.clientX;
-    const startWidth = agentWidth();
+    // From the width it's drawn at: a narrow window caps it below the stored one (lib/layout.ts: agentMaxWidth).
+    const drawn = (e.currentTarget as HTMLElement).parentElement?.getBoundingClientRect().width;
+    const startWidth = Math.round(Math.min(agentWidth(), drawn ?? Infinity));
     let raw = startWidth;
     setDragging(true);
     const move = (ev: PointerEvent) => {
@@ -57,7 +59,7 @@ function Resizer(props: { tabId: string }) {
       window.removeEventListener("pointerup", stop);
       setDragging(false);
       stop = () => {};
-      if (raw < AGENT_MIN - 80) {
+      if (raw < Math.min(AGENT_MIN, startWidth) - 80) {
         setAgentWidth(startWidth);
         setAgentCollapsed(props.tabId, true);
       } else setAgentWidth(raw);

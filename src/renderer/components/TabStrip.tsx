@@ -293,7 +293,9 @@ const styles = stylex.create({
     alignItems: "center",
     gap: 4,
     flex: 1,
-    minWidth: 0,
+    // On a narrow window: room for New tab, and nothing past its end (the drag room over the workspaces).
+    minWidth: 34,
+    overflowX: "clip",
     height: "100%",
     paddingLeft: 4,
   },

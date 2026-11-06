@@ -3684,6 +3684,9 @@ try {
     });
     await click(`${optionalSite} [role="switch"]`);
     await page!.waitFor(`${siteAllowed}.then((a) => a === false)`, { label: "optional site taken back" });
+    await page!.waitFor(`!!document.querySelector('${optionalSite} [role="switch"][aria-checked="false"]')`, {
+      label: "its switch off",
+    });
     await click(`[data-extension-details-page="${id}"] button`, "All extensions");
     await page!.waitFor(`!!document.querySelector('[data-extension="${id}"]')`, { label: "back to the list" });
 

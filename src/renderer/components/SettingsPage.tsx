@@ -1937,6 +1937,8 @@ function ExtensionDetails(props: { info: ExtensionInfo; onBack: () => void }) {
                     >
                       <Toggle
                         checked={site.allowed}
+                        disabled={!!site.coveredBy}
+                        title={site.coveredBy ? `Given with ${site.coveredBy}` : undefined}
                         onChange={(on) => void ext.setSiteAccess(info().id, site.pattern, on)}
                       />
                     </Show>
