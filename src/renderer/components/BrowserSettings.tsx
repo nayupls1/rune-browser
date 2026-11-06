@@ -73,42 +73,6 @@ const systemInfo = () => createResource(() => window.rune.browser.info())[0];
 // --- Privacy and security -----------------------------------------------------------------------
 
 export function PrivacySection() {
-  const [history, setHistory] = createSignal(true);
-  const [range, setRange] = createSignal<(typeof clearRanges)[number]["id"]>("all");
-  const [cookies, setCookies] = createSignal(true);
-  const [cache, setCache] = createSignal(true);
-  const [everywhere, setEverywhere] = createSignal<"this" | "all">("this");
-  const [clearing, setClearing] = createSignal(false);
-  const nothing = () => !history() && !cookies() && !cache();
-  const clear = async () => {
-    const all = everywhere() === "all";
-    const period = clearRanges.find((r) => r.id === range())!;
-    const what = [
-      history() ? `browsing history (${period.label.toLowerCase()})` : null,
-      cookies() ? "cookies and other site data" : null,
-      cache() ? "cached images and files" : null,
-    ]
-      .filter(Boolean)
-      .join(", ")
-      .replace(/, ([^,]*)$/, " and $1");
-    const where = all ? "every workspace" : `the workspace ${currentWorkspace()?.name ?? ""}`.trim();
-    if (!(await confirmDialog(`Clear ${what} of ${where}?`, { confirmLabel: "Clear data", danger: true }))) return;
-    setClearing(true);
-    try {
-      const ids = all ? workspaces.map((w) => w.id) : [currentWorkspace()!.id];
-      if (history())
-        await api.clearVisits(
-          all ? null : ids[0]!,
-          period.ms === null ? null : new Date(Date.now() - period.ms).toISOString(),
-        );
-      if (cookies() || cache()) await window.rune.browser.clearData(ids, { cookies: cookies(), cache: cache() });
-      toast({ message: "Browsing data cleared", kind: "success" });
-    } catch (err) {
-      toast({ title: "Clearing browsing data failed", message: String(err), kind: "error" });
-    } finally {
-      setClearing(false);
-    }
-  };
   return (
     <>
       <Section title="Security" anchor="browser-security">
@@ -140,55 +104,123 @@ export function PrivacySection() {
           </Button>
         </Row>
       </Section>
-      <Section title="Clear browsing data" anchor="browser-clear" together>
-        <Row
-          label="Browsing history"
-          description="The pages you visited: History and the address bar's suggestions."
-          leading
-        >
-          <Checkbox checked={history()} onChange={(e) => setHistory(e.currentTarget.checked)} data-clear-history />
-        </Row>
-        <Row
-          label="Cookies and other site data"
-          description="Signs you out of most sites. Extensions keep their data."
-          leading
-        >
-          <Checkbox checked={cookies()} onChange={(e) => setCookies(e.currentTarget.checked)} data-clear-cookies />
-        </Row>
-        <Row
-          label="Cached images and files"
-          description="Frees space; some sites load more slowly the next time."
-          leading
-        >
-          <Checkbox checked={cache()} onChange={(e) => setCache(e.currentTarget.checked)} data-clear-cache />
-        </Row>
-        <Row inset label="Time range" description="History only; cookies and cache clear in full.">
-          <Select
-            value={range()}
-            onChange={(e) => setRange(e.currentTarget.value as (typeof clearRanges)[number]["id"])}
-            xstyle={styles.select}
-            data-clear-range
-          >
-            <For each={clearRanges}>{(r) => <option value={r.id}>{r.label}</option>}</For>
-          </Select>
-        </Row>
-        <Row inset label="Apply to" description="Each workspace has its own history and logins.">
-          <Segmented
-            value={everywhere()}
-            options={[
-              ["this", "This workspace"],
-              ["all", "All workspaces"],
-            ]}
-            onChange={setEverywhere}
-          />
-        </Row>
-        <Row label="Clears the checked items. This can't be undone." always footer inset>
-          <Button variant="danger" disabled={clearing() || nothing()} onClick={() => void clear()} data-clear-data>
-            {clearing() ? "Clearing…" : "Clear now"}
-          </Button>
-        </Row>
-      </Section>
     </>
+  );
+}
+
+/**
+ * Clear browsing data (Ctrl+Shift+Delete), like Chrome's: history, downloads, cookies and the cache, for a
+ * time range. Electron can't clear cookies or the cache by time, so for a range it clears those of the
+ * sites visited in it (from history, read before history is cleared).
+ */
+export function ClearDataSection() {
+  const [history, setHistory] = createSignal(true);
+  const [downloads, setDownloads] = createSignal(false);
+  const [range, setRange] = createSignal<(typeof clearRanges)[number]["id"]>("all");
+  const [cookies, setCookies] = createSignal(true);
+  const [cache, setCache] = createSignal(true);
+  const [everywhere, setEverywhere] = createSignal<"this" | "all">("this");
+  const [clearing, setClearing] = createSignal(false);
+  const nothing = () => !history() && !downloads() && !cookies() && !cache();
+  const ranged = () => clearRanges.find((r) => r.id === range())!.ms !== null;
+  const clear = async () => {
+    // What's checked now: changing it while the dialog is open or while clearing doesn't change this run.
+    const chosen = { history: history(), downloads: downloads(), cookies: cookies(), cache: cache() };
+    const all = everywhere() === "all";
+    const period = clearRanges.find((r) => r.id === range())!;
+    const what = [
+      chosen.history ? "browsing history" : null,
+      chosen.downloads ? "download history" : null,
+      chosen.cookies ? "cookies and other site data" : null,
+      chosen.cache ? "cached images and files" : null,
+    ]
+      .filter(Boolean)
+      .join(", ")
+      .replace(/, ([^,]*)$/, " and $1");
+    const where = all ? "every workspace" : `the workspace ${currentWorkspace()?.name ?? ""}`.trim();
+    const when = period.ms === null ? "" : ` (${period.label.toLowerCase()})`;
+    if (!(await confirmDialog(`Clear ${what} of ${where}${when}?`, { confirmLabel: "Clear data", danger: true })))
+      return;
+    setClearing(true);
+    try {
+      const ids = all ? workspaces.map((w) => w.id) : [currentWorkspace()!.id];
+      const since = period.ms === null ? null : Date.now() - period.ms;
+      const sinceIso = since === null ? null : new Date(since).toISOString();
+      // Cookies and the cache first: for a time range, which sites they're cleared for comes from history.
+      if (chosen.cookies || chosen.cache)
+        for (const id of ids) {
+          const origins = sinceIso === null ? undefined : await api.visitedOrigins(id, sinceIso);
+          await window.rune.browser.clearData([id], { cookies: chosen.cookies, cache: chosen.cache, origins });
+        }
+      if (chosen.history) await api.clearVisits(all ? null : ids[0]!, sinceIso);
+      if (chosen.downloads) await window.rune.downloads.clear({ since, workspaceIds: all ? null : ids });
+      toast({ message: "Browsing data cleared", kind: "success" });
+    } catch (err) {
+      toast({ title: "Clearing browsing data failed", message: String(err), kind: "error" });
+    } finally {
+      setClearing(false);
+    }
+  };
+  return (
+    <Section title="Clear browsing data" anchor="browser-clear" together>
+      <Row inset label="Time range" description="How far back to clear.">
+        <Select
+          value={range()}
+          onChange={(e) => setRange(e.currentTarget.value as (typeof clearRanges)[number]["id"])}
+          xstyle={styles.select}
+          data-clear-range
+        >
+          <For each={clearRanges}>{(r) => <option value={r.id}>{r.label}</option>}</For>
+        </Select>
+      </Row>
+      <Row
+        label="Browsing history"
+        description="The pages you visited: History and the address bar's suggestions."
+        leading
+      >
+        <Checkbox checked={history()} onChange={(e) => setHistory(e.currentTarget.checked)} data-clear-history />
+      </Row>
+      <Row label="Download history" description="The list on the Downloads page. The files stay." leading>
+        <Checkbox checked={downloads()} onChange={(e) => setDownloads(e.currentTarget.checked)} data-clear-downloads />
+      </Row>
+      <Row
+        label="Cookies and other site data"
+        description={
+          ranged()
+            ? "Of the sites you visited in that time. Signs you out of them."
+            : "Signs you out of most sites. Extensions keep their data."
+        }
+        leading
+      >
+        <Checkbox checked={cookies()} onChange={(e) => setCookies(e.currentTarget.checked)} data-clear-cookies />
+      </Row>
+      <Row
+        label="Cached images and files"
+        description={
+          ranged()
+            ? "Of the sites you visited in that time."
+            : "Frees space; some sites load more slowly the next time."
+        }
+        leading
+      >
+        <Checkbox checked={cache()} onChange={(e) => setCache(e.currentTarget.checked)} data-clear-cache />
+      </Row>
+      <Row inset label="Apply to" description="Each workspace has its own history and logins.">
+        <Segmented
+          value={everywhere()}
+          options={[
+            ["this", "This workspace"],
+            ["all", "All workspaces"],
+          ]}
+          onChange={setEverywhere}
+        />
+      </Row>
+      <Row label="Clears the checked items. This can't be undone." always footer inset>
+        <Button variant="danger" disabled={clearing() || nothing()} onClick={() => void clear()} data-clear-data>
+          {clearing() ? "Clearing…" : "Clear now"}
+        </Button>
+      </Row>
+    </Section>
   );
 }
 
@@ -1096,6 +1128,9 @@ export function BrowserSection(props: { section: string }) {
     <Switch>
       <Match when={props.section === "browser-privacy"}>
         <PrivacySection />
+      </Match>
+      <Match when={props.section === "browser-clear"}>
+        <ClearDataSection />
       </Match>
       <Match when={props.section === "browser-sites"}>
         <SiteSettingsSection />

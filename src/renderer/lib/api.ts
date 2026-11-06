@@ -193,6 +193,12 @@ export const api = {
       `/api/visits/delete${workspaceId ? `?workspace=${encodeURIComponent(workspaceId)}` : ""}`,
       { ids },
     ),
+  /** The sites (origins) visited since a time (ISO), in a workspace or all. */
+  visitedOrigins: (workspaceId: string | null, since: string) => {
+    const params = new URLSearchParams({ since });
+    if (workspaceId) params.set("workspace", workspaceId);
+    return request<string[]>(`/api/visits/origins?${params}`);
+  },
   /** Deletes the history since a time (ISO), or all of it (null). */
   clearVisits: (workspaceId: string | null, since: string | null) =>
     post<{ removed: number }>(

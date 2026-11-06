@@ -238,7 +238,7 @@ const chromiumSettings: Record<string, string> = {
   privacy: "browser-privacy",
   security: "browser-privacy",
   cookies: "browser-privacy",
-  clearBrowserData: "browser-privacy",
+  clearBrowserData: "browser-clear",
   content: "browser-sites",
   performance: "browser-performance",
   search: "browser-search",

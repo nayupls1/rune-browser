@@ -50,12 +50,14 @@ describe("internal pages", () => {
       "browser-search",
       "browser-startup",
       "browser-sites",
+      "browser-clear",
       "about",
       "network",
     ];
     expect(settingsCategoryOf("search", known)).toBe("browser-search");
     expect(settingsCategoryOf("onStartup", known)).toBe("browser-startup");
     expect(settingsCategoryOf("content/camera", known)).toBe("browser-sites");
+    expect(settingsCategoryOf("clearBrowserData", known)).toBe("browser-clear");
     expect(settingsCategoryOf("network", known)).toBe("network");
     expect(settingsCategoryOf("", known)).toBe("");
     expect(settingsCategoryOf("nonsense", known)).toBe("");
