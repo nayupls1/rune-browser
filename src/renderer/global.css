@@ -61,8 +61,9 @@
 [data-titlebar] [data-tab-strip-spacer] {
   -webkit-app-region: drag;
 }
-/* A menu opened over it (portaled, so later in the document) is clicked, not dragged. */
-[data-context-menu] {
+/* A menu or picker opened over it (portaled, so later in the document) is clicked, not dragged. */
+[data-context-menu],
+[data-icon-picker] {
   -webkit-app-region: no-drag;
 }
 
