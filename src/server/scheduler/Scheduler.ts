@@ -16,7 +16,7 @@ import { SqlClient } from "effect/sql";
 import type { AppSummary, Schedule, ScheduleRun, ScheduleSpec, ScheduleTask, ToolResult } from "../../shared/api";
 import { nextCron, parseCron } from "../../shared/cron";
 import { topics } from "../../shared/hub";
-import { scheduleProblem, taskTab, taskWithoutTab } from "../../shared/schedule";
+import { scheduleProblem, specWithoutTab, taskTab } from "../../shared/schedule";
 import { Apps } from "../db/Apps";
 import { Workspaces } from "../db/Workspaces";
 import { Hub } from "../Hub";
@@ -75,16 +75,20 @@ export interface SchedulerShape {
   /** Something happened: runs the schedules waiting for it. */
   readonly emit: (event: string) => Effect.Effect<void>;
   /**
-   * A tab was deleted (`tab`: what it was, read before it went). Its prompts
-   * open a new tab like it on their next run; its tools and commands go
-   * (shared/schedule.ts: taskWithoutTab).
+   * A tab was deleted (`tab`: what it was, read before it went). A web tab's
+   * prompts open a new tab at its address on their next run; its other
+   * schedules go (shared/schedule.ts: specWithoutTab).
    */
   readonly forgetApp: (
     appId: string,
     tab: Pick<AppSummary, "kind" | "workspaceId" | "url" | "private"> | null,
   ) => Effect.Effect<void>;
-  /** A workspace was deleted (after its tabs): the prompts that would open a tab in it go. */
-  readonly forgetWorkspace: (workspaceId: string) => Effect.Effect<void>;
+  /**
+   * A workspace is being deleted, with these tabs: their schedules and the
+   * prompts that would open a tab in it go, before the tabs do (so none is
+   * rewritten to open a tab there, or runs, while they're being removed).
+   */
+  readonly forgetWorkspace: (workspaceId: string, appIds: readonly string[]) => Effect.Effect<void>;
   /** Runs scheduled prompts (the agents sit above the scheduler, so they register it: Agent.make). Interrupted on timeout. */
   readonly setPromptRunner: (runner: (run: PromptRun) => Effect.Effect<Outcome>) => void;
 }
@@ -251,11 +255,13 @@ export const make = Effect.gen(function* () {
       const opened = (tabId: string) =>
         Effect.gen(function* () {
           const current = yield* rowOf(row.id);
-          if (!current) return;
+          // Gone already: the schedule, or the tab (deleted before it was recorded here).
+          if (!current || !(yield* apps.get(tabId))) return;
           const now = JSON.parse(current.spec) as ScheduleSpec;
           if (now.task.type !== "prompt") return;
           const { newTab: _, ...rest } = now.task;
-          yield* sql`UPDATE schedules SET spec = ${JSON.stringify({ ...now, task: { ...rest, appId: tabId } })} WHERE id = ${row.id}`;
+          yield* sql`UPDATE schedules SET spec = ${JSON.stringify({ ...now, task: { ...rest, appId: tabId } })},
+            updated_at = ${new Date().toISOString()} WHERE id = ${row.id}`;
           yield* changed;
         }).pipe(Effect.orDie);
       return promptRunner({ scheduleName: spec.name, task, opened });
@@ -517,26 +523,29 @@ export const make = Effect.gen(function* () {
         for (const row of rows) {
           const spec = JSON.parse(row.spec) as ScheduleSpec;
           if (spec.task.appId !== appId) continue;
-          const task = taskWithoutTab(spec.task, tab);
-          if (!task) {
+          const next = specWithoutTab(spec, appId, tab);
+          if (!next) {
             gone.push(row.id);
             continue;
           }
-          yield* sql`UPDATE schedules SET spec = ${JSON.stringify({ ...spec, task })}, updated_at = ${new Date().toISOString()}
+          yield* sql`UPDATE schedules SET spec = ${JSON.stringify(next)}, updated_at = ${new Date().toISOString()}
             WHERE id = ${row.id}`;
           kept = true;
         }
         yield* dropSchedules(gone);
         if (kept && !gone.length) yield* changed;
       }).pipe(Effect.orDie),
-    forgetWorkspace: (workspaceId) =>
+    forgetWorkspace: (workspaceId, appIds) =>
       Effect.gen(function* () {
         const rows = yield* sql<ScheduleRow>`SELECT * FROM schedules`;
         yield* dropSchedules(
           rows
             .filter((r) => {
               const task = (JSON.parse(r.spec) as ScheduleSpec).task;
-              return task.type === "prompt" && task.newTab?.workspaceId === workspaceId;
+              return (
+                (!!task.appId && appIds.includes(task.appId)) ||
+                (task.type === "prompt" && task.newTab?.workspaceId === workspaceId)
+              );
             })
             .map((r) => r.id),
         );

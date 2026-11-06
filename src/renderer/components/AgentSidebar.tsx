@@ -6,7 +6,7 @@
 // dragging its left edge like the tab sidebar.
 import * as stylex from "@stylexjs/stylex";
 import { createSignal, onCleanup, Show } from "solid-js";
-import { AGENT_DEFAULT, AGENT_MIN, agentWidth, setAgentWidth } from "../lib/layout";
+import { AGENT_DEFAULT, AGENT_MIN, agentMaxWidth, agentWidth, setAgentWidth } from "../lib/layout";
 import { appById, isAgentCollapsed, isTab, selectedId, setAgentCollapsed, states } from "../lib/store";
 import { colors } from "../theme.stylex";
 import { Chat } from "./Chat";
@@ -23,7 +23,7 @@ export function AgentSidebar() {
       {(tabId) => (
         <div
           {...stylex.attrs(styles.root)}
-          style={{ width: `${agentWidth()}px` }}
+          style={{ width: `${agentWidth()}px`, "max-width": agentMaxWidth() }}
           data-agent-sidebar
           data-agent-for={tabId}
         >
@@ -100,8 +100,7 @@ const styles = stylex.create({
     position: "relative",
     display: "flex",
     flexShrink: 0,
-    // Never more than most of the window.
-    maxWidth: "70vw",
+    // Its max-width (lib/layout.ts: agentMaxWidth) keeps it inside the window.
     minHeight: 0,
     // Part of the frame around the page, like the tab sidebar.
     backgroundColor: colors.sidebar,

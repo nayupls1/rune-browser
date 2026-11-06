@@ -23,6 +23,7 @@ import {
   BUILTIN_EXTENSION_ID,
   hostPermissionsOf,
   iconPath,
+  coversPattern,
   matchesAny,
   matchPattern,
   optionsPageOf,
@@ -96,16 +97,6 @@ export interface ApiEnv {
 type DistributiveOmit<T, K extends keyof any> = T extends unknown ? Omit<T, K> : never;
 
 const err = (message: string) => new Error(message);
-
-/** A pattern like "https://*.example.com/*" as a URL it covers, to check it against other patterns. */
-function sampleUrl(pattern: string) {
-  if (pattern === "<all_urls>") return "https://example.com/";
-  return pattern
-    .replace(/^\*:/, "https:")
-    .replace("://*.", "://")
-    .replace("://*/", "://example.com/")
-    .replace(/\*/g, "");
-}
 
 // --- storage.sync: one file per extension, shared by every workspace -------------------------
 
@@ -213,8 +204,7 @@ export function createApis(env: ApiEnv) {
     return typeof path === "string" && path ? `chrome-extension://${id}/${path.replace(/^\/+/, "")}` : null;
   }
 
-  const covers = (origins: string[], pattern: string) =>
-    origins.includes(pattern) || matchesAny(origins, sampleUrl(pattern));
+  const covers = coversPattern;
 
   function contains(s: Session, id: string, p: { permissions?: string[]; origins?: string[] }) {
     const all = allPermissions(s, id);

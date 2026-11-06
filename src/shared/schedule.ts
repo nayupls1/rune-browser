@@ -11,22 +11,33 @@ export const MAX_PROMPT = 20_000;
 /** The tab a schedule's task runs in (null: a prompt that opens one on its first run). */
 export const taskTab = (task: ScheduleTask): string | null => task.appId ?? null;
 
+/** An event of that app ("app.started:<id>", "app.crashed:<id>", "app:<id>:<name>"). */
+export const isAppEvent = (trigger: ScheduleTrigger, appId: string) =>
+  trigger.type === "event" &&
+  (trigger.event === `app.started:${appId}` ||
+    trigger.event === `app.crashed:${appId}` ||
+    trigger.event.startsWith(`app:${appId}:`));
+
 /**
- * A schedule's task once its tab is deleted (null: the schedule goes too).
- * Tools and commands need their app. A prompt doesn't need its tab: it opens
- * a new one like it on its next run (a web tab at the same address), and the
- * schedule keeps that one. Private tabs leave nothing behind, and a web tab
- * that wasn't on a website has no address to open.
+ * A schedule once the tab its task runs in is deleted (null: the schedule goes
+ * too). A prompt in a web tab doesn't need that tab: closing a web tab deletes
+ * it, so the prompt opens a new tab at the same address on its next run and
+ * keeps that one. Everything else goes: tools and commands need their app, an
+ * app is only deleted on purpose ("and all its data"), private tabs leave
+ * nothing behind, a web tab that wasn't on a website has no address to open,
+ * and the tab's own events won't happen again.
  */
-export function taskWithoutTab(
-  task: ScheduleTask,
+export function specWithoutTab(
+  spec: ScheduleSpec,
+  appId: string,
   tab: Pick<AppSummary, "kind" | "workspaceId" | "url" | "private"> | null,
-): ScheduleTask | null {
-  if (task.type !== "prompt" || !tab || tab.private) return null;
-  const { appId: _, newTab: __, ...rest } = task;
-  if (tab.kind === "app") return { ...rest, newTab: { kind: "app", workspaceId: tab.workspaceId } };
+): ScheduleSpec | null {
+  const task = spec.task;
+  if (task.type !== "prompt" || !tab || tab.kind !== "web" || tab.private || isAppEvent(spec.trigger, appId))
+    return null;
   if (!tab.url || !/^https?:\/\/\S+$/i.test(tab.url)) return null;
-  return { ...rest, newTab: { kind: "web", workspaceId: tab.workspaceId, url: tab.url } };
+  const { appId: _, newTab: __, ...rest } = task;
+  return { ...spec, task: { ...rest, newTab: { kind: "web", workspaceId: tab.workspaceId, url: tab.url } } };
 }
 
 const EVENT = /^(rune\.started|app\.(started|crashed):[\w-]+|app:[\w-]+:[\w.-]{1,64})$/;

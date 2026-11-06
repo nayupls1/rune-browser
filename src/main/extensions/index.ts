@@ -31,6 +31,8 @@ import {
   isExtensionId,
   localize,
   networkRulesToDnr,
+  coversPattern,
+  hostPermissionsOf,
   optionalHostPermissionsOf,
   optionalPermissionsOf,
   permissionsOf,
@@ -852,7 +854,12 @@ export function setupExtensions(options: ExtensionsOptions) {
     listChanged();
   }
 
-  /** Gives or takes back one of the optional sites it asks for (what chrome.permissions.request and .remove do). */
+  /**
+   * Gives or takes back one of the optional sites it asks for, with the checks
+   * chrome.permissions.request and .remove make: only what its optional sites
+   * cover, never what its required ones do. Taking a site back takes the
+   * narrower ones it was given there too.
+   */
   function setSiteAccess(id: string, pattern: string, allowed: boolean) {
     const entry = registry.get(id);
     if (!entry) return;
@@ -862,17 +869,27 @@ export function setupExtensions(options: ExtensionsOptions) {
     } catch {
       return;
     }
+    if (coversPattern(hostPermissionsOf(manifest), pattern)) return;
     const granted = entry.granted ?? { permissions: [], origins: [] };
-    if (allowed ? !optionalHostPermissionsOf(manifest).includes(pattern) : !granted.origins.includes(pattern)) return;
-    const origins = allowed
-      ? [...new Set([...granted.origins, pattern])]
-      : granted.origins.filter((o) => o !== pattern);
-    if (origins.length === granted.origins.length && origins.every((o, i) => o === granted.origins[i])) return;
+    let origins: string[];
+    let changed: string[];
+    if (allowed) {
+      if (!coversPattern(optionalHostPermissionsOf(manifest), pattern) || coversPattern(granted.origins, pattern))
+        return;
+      origins = [...granted.origins, pattern];
+      changed = [pattern];
+    } else {
+      changed = granted.origins.filter((o) => o === pattern || coversPattern([pattern], o));
+      origins = granted.origins.filter((o) => !changed.includes(o));
+      // Nothing of its own to take back, or a broader site it was given still covers it.
+      if (!changed.length || coversPattern(origins, pattern)) return;
+    }
     registry.update(id, { granted: { ...granted, origins } });
     for (const s of sessions())
-      void dispatch(contexts, state(s, id), s, id, allowed ? "permissions.onAdded" : "permissions.onRemoved", [
-        { permissions: [], origins: [pattern] },
-      ]);
+      if (loaded(s, id))
+        void dispatch(contexts, state(s, id), s, id, allowed ? "permissions.onAdded" : "permissions.onRemoved", [
+          { permissions: [], origins: changed },
+        ]);
     listChanged();
   }
 

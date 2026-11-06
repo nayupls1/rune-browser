@@ -14,9 +14,9 @@
     margin: 0;
   }
 
-  /* The window never scrolls: each region scrolls on its own. Without this,
-     anything that pokes past the window's edge for a moment (the sidebars on a
-     narrow window, a menu or tooltip near the edge) brings up a scrollbar that
+  /* The window never scrolls: each region scrolls on its own. The sidebars
+     are sized to fit (lib/layout.ts: agentMaxWidth); this is the backstop, so
+     nothing that pokes past the window's edge can bring up a scrollbar that
      shifts the layout. #root clips instead of hiding, so scrollIntoView and
      focus can't scroll it either. */
   html,

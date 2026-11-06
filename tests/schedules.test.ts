@@ -6,7 +6,7 @@ import { join } from "node:path";
 import type { AppSummary, AuditEntry, Schedule, ScheduleRun, ScheduleSpec, WorkspaceInfo } from "../src/shared/api";
 import type { Settings } from "../src/shared/settings";
 import { describeCron, nextCron, parseCron, shortestGapMinutes, type Cron } from "../src/shared/cron";
-import { scheduleProblem, taskWithoutTab } from "../src/shared/schedule";
+import { scheduleProblem, specWithoutTab } from "../src/shared/schedule";
 import { startServer } from "./lib/server";
 
 const cron = (text: string) => parseCron(text) as Cron;
@@ -80,26 +80,29 @@ describe("checks", () => {
     ).toContain("http(s)");
   });
 
-  test("a deleted tab's prompts open a new tab like it; its tools and commands go", () => {
-    const prompt = { type: "prompt", prompt: "Summarize", appId: "a" } as const;
+  test("a deleted web tab's prompts open a new tab at its address; everything else goes", () => {
+    const daily = { ...spec, task: { type: "prompt", prompt: "Summarize", appId: "a" } } satisfies ScheduleSpec;
     const web = { kind: "web", workspaceId: "w", url: "https://news.example/today", private: false } as const;
-    expect(taskWithoutTab(prompt, web)).toEqual({
-      type: "prompt",
-      prompt: "Summarize",
-      newTab: { kind: "web", workspaceId: "w", url: "https://news.example/today" },
+    expect(specWithoutTab(daily, "a", web)).toEqual({
+      ...daily,
+      task: {
+        type: "prompt",
+        prompt: "Summarize",
+        newTab: { kind: "web", workspaceId: "w", url: "https://news.example/today" },
+      },
     });
-    expect(taskWithoutTab(prompt, { kind: "app", workspaceId: "w", url: null, private: false })).toEqual({
-      type: "prompt",
-      prompt: "Summarize",
-      newTab: { kind: "app", workspaceId: "w" },
-    });
-    // Nothing to open again: a private tab, a web tab that wasn't on a website, a tab that's unknown.
-    expect(taskWithoutTab(prompt, { ...web, private: true })).toBeNull();
-    expect(taskWithoutTab(prompt, { ...web, url: "file:///home/me/notes.html" })).toBeNull();
-    expect(taskWithoutTab(prompt, { ...web, url: null })).toBeNull();
-    expect(taskWithoutTab(prompt, null)).toBeNull();
-    expect(taskWithoutTab({ type: "command", appId: "a", command: "true" }, web)).toBeNull();
-    expect(taskWithoutTab({ type: "tool", appId: "a", tool: "digest" }, web)).toBeNull();
+    // Deleting an app is on purpose (with all its data); private tabs leave nothing; no website, no address.
+    expect(specWithoutTab(daily, "a", { kind: "app", workspaceId: "w", url: null, private: false })).toBeNull();
+    expect(specWithoutTab(daily, "a", { ...web, private: true })).toBeNull();
+    expect(specWithoutTab(daily, "a", { ...web, url: "file:///home/me/notes.html" })).toBeNull();
+    expect(specWithoutTab(daily, "a", { ...web, url: null })).toBeNull();
+    expect(specWithoutTab(daily, "a", null)).toBeNull();
+    // The tab's own events won't happen again; others' still do.
+    for (const event of ["app.started:a", "app.crashed:a", "app:a:done"])
+      expect(specWithoutTab({ ...daily, trigger: { type: "event", event } }, "a", web)).toBeNull();
+    expect(specWithoutTab({ ...daily, trigger: { type: "event", event: "app:ab:done" } }, "a", web)).not.toBeNull();
+    expect(specWithoutTab({ ...spec, task: { type: "command", appId: "a", command: "true" } }, "a", web)).toBeNull();
+    expect(specWithoutTab({ ...spec, task: { type: "tool", appId: "a", tool: "digest" } }, "a", web)).toBeNull();
   });
 });
 
@@ -330,33 +333,35 @@ describe("scheduled prompts", () => {
     expect((await server.api<AppSummary[]>("/api/apps")).length).toBe(before + 1);
   });
 
-  test("deleting its tab (closing a web tab does) keeps the schedule: it opens a new tab like it", async () => {
-    const space = await server.api<WorkspaceInfo>("/api/workspaces", { method: "POST", json: { name: "Briefing" } });
+  const prompt = (task: ScheduleSpec["task"], name: string) =>
+    server.api<Schedule>("/api/schedules", {
+      method: "POST",
+      json: { name, trigger: { type: "cron", cron: "0 8 * * *" }, task, notify: "never", timeoutSec: 60 },
+    });
+  const runNow = async (id: string) => {
+    const run = await server.api<ScheduleRun>(`/api/schedules/${id}/run`, { method: "POST" });
+    for (let i = 0; i < 100; i++) {
+      const runs = await server.api<ScheduleRun[]>(`/api/schedules/runs?schedule=${id}`);
+      const done = runs.find((r) => r.id === run.id && r.status !== "running");
+      if (done) return done;
+      await Bun.sleep(100);
+    }
+    throw new Error(`the run of ${id} didn't finish`);
+  };
+  const scheduleOf = async (id: string) => (await server.api<Schedule[]>("/api/schedules")).find((s) => s.id === id);
+
+  test("closing its web tab keeps the schedule: it opens a new tab at that address", async () => {
+    const space = await server.api<WorkspaceInfo>("/api/workspaces", { method: "POST", json: { name: "News" } });
     const tab = await server.api<AppSummary>("/api/apps", {
       method: "POST",
       json: { kind: "web", url: "https://example.com/news", workspaceId: space.id },
     });
-    const prompt = (task: ScheduleSpec["task"], name: string) =>
-      server.api<Schedule>("/api/schedules", {
-        method: "POST",
-        json: { name, trigger: { type: "cron", cron: "0 8 * * *" }, task, notify: "never", timeoutSec: 60 },
-      });
     const news = await prompt({ type: "prompt", prompt: "Summarize the news", appId: tab.id }, "News");
-    const elsewhere = await prompt(
-      { type: "prompt", prompt: "Hi", newTab: { kind: "app", workspaceId: space.id } },
-      "Elsewhere",
-    );
-    const run = await server.api<ScheduleRun>(`/api/schedules/${news.id}/run`, { method: "POST" });
-    for (let i = 0; i < 100; i++) {
-      const done = (await server.api<ScheduleRun[]>(`/api/schedules/runs?schedule=${news.id}`)).some(
-        (r) => r.id === run.id && r.status !== "running",
-      );
-      if (done) break;
-      await Bun.sleep(100);
-    }
+    await runNow(news.id);
 
+    // Closing a web tab deletes it.
     await server.api(`/api/apps/${tab.id}`, { method: "DELETE" });
-    const kept = (await server.api<Schedule[]>("/api/schedules")).find((s) => s.id === news.id);
+    const kept = await scheduleOf(news.id);
     expect(kept?.task).toEqual({
       type: "prompt",
       prompt: "Summarize the news",
@@ -366,11 +371,43 @@ describe("scheduled prompts", () => {
     // Its past runs stay with it.
     expect((await server.api<ScheduleRun[]>(`/api/schedules/runs?schedule=${news.id}`)).length).toBe(1);
 
-    // A deleted workspace takes the prompts that would open a tab in it.
+    // The next run opens the new tab, and the schedule keeps it.
+    await runNow(news.id);
+    const opened = (await server.api<AppSummary[]>("/api/apps")).filter(
+      (t) => t.workspaceId === space.id && t.url === "https://example.com/news",
+    );
+    expect(opened.length).toBe(1);
+    expect((await scheduleOf(news.id))?.task).toEqual({
+      type: "prompt",
+      prompt: "Summarize the news",
+      appId: opened[0]!.id,
+    });
+    await server.api(`/api/workspaces/${space.id}`, { method: "DELETE" });
+  });
+
+  test("deleting an app, or a workspace, takes their schedules", async () => {
+    const space = await server.api<WorkspaceInfo>("/api/workspaces", { method: "POST", json: { name: "Scratch" } });
+    const app = await server.api<AppSummary>("/api/apps", { method: "POST", json: { workspaceId: space.id } });
+    const web = await server.api<AppSummary>("/api/apps", {
+      method: "POST",
+      json: { kind: "web", url: "https://example.com/", workspaceId: space.id },
+    });
+    const inApp = await prompt({ type: "prompt", prompt: "Refresh", appId: app.id }, "In the app");
+    await server.api(`/api/apps/${app.id}`, { method: "DELETE" });
+    expect(await scheduleOf(inApp.id)).toBeUndefined();
+
+    // A workspace goes with its tabs' schedules (none of them reopens a tab there) and the ones that would open one.
+    const inWeb = await prompt({ type: "prompt", prompt: "Check", appId: web.id }, "In the web tab");
+    const opens = await prompt(
+      { type: "prompt", prompt: "Hi", newTab: { kind: "app", workspaceId: space.id } },
+      "Opens a tab",
+    );
+    const before = (await server.api<AppSummary[]>("/api/apps")).length;
     await server.api(`/api/workspaces/${space.id}`, { method: "DELETE" });
     const left = (await server.api<Schedule[]>("/api/schedules")).map((s) => s.id);
-    expect(left).not.toContain(news.id);
-    expect(left).not.toContain(elsewhere.id);
+    expect(left).not.toContain(inWeb.id);
+    expect(left).not.toContain(opens.id);
+    expect((await server.api<AppSummary[]>("/api/apps")).length).toBe(before - 1);
   });
 
   test("a prompt for a tab that doesn't exist is refused", async () => {

@@ -12,6 +12,7 @@ import { parseCrx, readZip, extractZip } from "../src/main/extensions/crx";
 import type { NetworkRule } from "../src/shared/api";
 import {
   compareVersions,
+  coversPattern,
   extensionIdFromHash,
   extensionIdOf,
   iconPath,
@@ -205,20 +206,25 @@ describe("manifests", () => {
       name: "x",
       version: "1",
       host_permissions: ["https://always.example/*"],
-      optional_host_permissions: ["<all_urls>", "https://always.example/*"],
+      optional_host_permissions: ["https://*.example.org/*", "https://always.example/*"],
       // MV2-style optional patterns count too; API permissions don't.
       optional_permissions: ["https://mail.example/*", "tabs"],
     };
     expect(optionalSiteAccess(m, [])).toEqual([
-      { pattern: "<all_urls>", allowed: false },
-      { pattern: "https://mail.example/*", allowed: false },
+      { pattern: "https://*.example.org/*", allowed: false, asked: true },
+      { pattern: "https://mail.example/*", allowed: false, asked: true },
     ]);
-    // chrome.permissions.request may have granted a narrower pattern than the manifest's.
-    expect(optionalSiteAccess(m, ["https://docs.example/*", "https://mail.example/*"])).toEqual([
-      { pattern: "<all_urls>", allowed: false },
-      { pattern: "https://docs.example/*", allowed: true },
-      { pattern: "https://mail.example/*", allowed: true },
+    // chrome.permissions.request may have given a narrower site than the manifest's.
+    expect(optionalSiteAccess(m, ["https://docs.example.org/*", "https://mail.example/*"])).toEqual([
+      { pattern: "https://*.example.org/*", allowed: false, asked: true },
+      { pattern: "https://docs.example.org/*", allowed: true, asked: false },
+      { pattern: "https://mail.example/*", allowed: true, asked: true },
     ]);
+    // What its required sites cover isn't optional: it always has it.
+    expect(optionalSiteAccess({ ...m, host_permissions: ["<all_urls>"] }, []).map((s) => s.pattern)).toEqual([]);
+    expect(coversPattern(["<all_urls>"], "https://mail.example/*")).toBe(true);
+    expect(coversPattern(["https://*.example.org/*"], "https://docs.example.org/*")).toBe(true);
+    expect(coversPattern(["https://docs.example.org/*"], "https://*.example.org/*")).toBe(false);
   });
 
   test("the ID of an extension without a key, like Chromium derives it", () => {

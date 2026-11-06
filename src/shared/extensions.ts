@@ -33,8 +33,8 @@ export interface ExtensionInfo {
   permissions: ExtensionPermission[];
   /** The sites it always has (host permissions, content scripts). */
   siteAccess: string[];
-  /** Sites it asks for when it needs them, and whether it has them (see `optionalSiteAccess`). */
-  optionalSiteAccess: { pattern: string; allowed: boolean }[];
+  /** Sites it asks for when it needs them, and whether it has them (see `optionalSiteAccess`); `asked`: in its manifest, not a narrower one it was given. */
+  optionalSiteAccess: { pattern: string; allowed: boolean; asked: boolean }[];
   /** Its commands that have a key on this platform (`_execute_action` opens its popup). */
   shortcuts: { name: string; description: string; shortcut: string }[];
   /** Can start programs on this computer (native messaging hosts installed for it). */
@@ -383,16 +383,22 @@ export const optionalHostPermissionsOf = (m: Manifest) => [
 ];
 
 /**
- * Its optional site access, for its details: the sites it may ask for, and the
- * ones it was given (chrome.permissions.request can grant a narrower pattern
- * than the manifest's). Required site access isn't here: it always has that.
+ * Its optional site access, for its details: the sites it may ask for, and
+ * narrower ones it was given (chrome.permissions.request takes any pattern the
+ * manifest's optional ones cover). Sites its required access already covers
+ * aren't here: it always has those.
  */
 export function optionalSiteAccess(m: Manifest, grantedOrigins: readonly string[]) {
   const required = hostPermissionsOf(m);
-  return [...new Set([...optionalHostPermissionsOf(m), ...grantedOrigins])]
-    .filter((pattern) => !required.includes(pattern))
+  const asked = optionalHostPermissionsOf(m);
+  return [...new Set([...asked, ...grantedOrigins])]
+    .filter((pattern) => !coversPattern(required, pattern))
     .sort()
-    .map((pattern) => ({ pattern, allowed: grantedOrigins.includes(pattern) }));
+    .map((pattern) => ({
+      pattern,
+      allowed: coversPattern(grantedOrigins, pattern),
+      asked: asked.includes(pattern),
+    }));
 }
 
 // --- Match patterns ----------------------------------------------------------------
@@ -435,6 +441,20 @@ const escapeRegExp = (s: string) => s.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
 export function matchesAny(patterns: readonly string[], url: string) {
   return patterns.some((p) => matchPattern(p)?.(url) ?? false);
 }
+
+/** A pattern like "https://*.example.com/*" as a URL it covers, to check it against other patterns. */
+function sampleUrl(pattern: string) {
+  if (pattern === "<all_urls>") return "https://example.com/";
+  return pattern
+    .replace(/^\*:/, "https:")
+    .replace("://*.", "://")
+    .replace("://*/", "://example.com/")
+    .replace(/\*/g, "");
+}
+
+/** Whether the patterns cover this one (like chrome.permissions.contains checks origins). */
+export const coversPattern = (patterns: readonly string[], pattern: string) =>
+  patterns.includes(pattern) || matchesAny(patterns, sampleUrl(pattern));
 
 // --- Keyboard shortcuts ------------------------------------------------------------------
 

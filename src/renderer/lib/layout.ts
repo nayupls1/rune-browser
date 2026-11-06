@@ -117,6 +117,20 @@ const [agentWidth, setAgentWidthSignal] = createSignal(
 
 export { agentWidth };
 
+/** The page keeps at least this much of the window next to the sidebars. */
+export const PAGE_MIN = 160;
+
+/**
+ * How wide the agent sidebar may be: most of the window, and never so wide
+ * that it and the tab sidebar (when that's beside the page, not over it)
+ * leave less than PAGE_MIN for the page. Narrow windows shrink it below
+ * AGENT_MIN rather than push it past the window's edge.
+ */
+export const agentMaxWidth = () => {
+  const beside = !isHorizontal() && !isSidebarHidden() ? sidebarWidth() : 0;
+  return `min(70vw, calc(100vw - ${beside + PAGE_MIN}px))`;
+};
+
 /** While dragging, `persist` is false so only the end of the drag is written. */
 export function setAgentWidth(value: number, persist = true) {
   setAgentWidthSignal(clampAgent(value));

@@ -1919,13 +1919,27 @@ function ExtensionDetails(props: { info: ExtensionInfo; onBack: () => void }) {
                     <div {...stylex.attrs(styles.extPermissionText)}>
                       <span {...stylex.attrs(styles.extPermissionName)}>
                         <span {...stylex.attrs(styles.mono)}>{site.pattern}</span>
-                        <span {...stylex.attrs(styles.extChip)}>Optional</span>
+                        <span {...stylex.attrs(styles.extChip)}>{site.asked ? "Optional" : "Given when it asked"}</span>
                       </span>
                     </div>
-                    <Toggle
-                      checked={site.allowed}
-                      onChange={(on) => void ext.setSiteAccess(info().id, site.pattern, on)}
-                    />
+                    {/* A narrower site it was given goes from the list when taken back: removed, not switched. */}
+                    <Show
+                      when={site.asked}
+                      fallback={
+                        <button
+                          type="button"
+                          onClick={() => void ext.setSiteAccess(info().id, site.pattern, false)}
+                          {...stylex.attrs(styles.linkButton)}
+                        >
+                          Remove
+                        </button>
+                      }
+                    >
+                      <Toggle
+                        checked={site.allowed}
+                        onChange={(on) => void ext.setSiteAccess(info().id, site.pattern, on)}
+                      />
+                    </Show>
                   </div>
                 )}
               </For>
