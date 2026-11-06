@@ -154,6 +154,33 @@ body:has([data-address-open]) [data-tab-strip-spacer] {
   font-size: 12.5px;
   line-height: 1.55;
   overflow-wrap: normal;
+  scrollbar-width: thin;
+  scrollbar-color: rgb(127 127 127 / 0.35) transparent;
+}
+.rune-markdown table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 0 0 0.75em;
+  border-collapse: collapse;
+  font-size: 0.93em;
+  line-height: 1.45;
+  overflow-wrap: normal;
+  scrollbar-width: thin;
+}
+.rune-markdown th,
+.rune-markdown td {
+  padding: 0.4em 0.9em 0.4em 0;
+  border-bottom: 1px solid rgb(127 127 127 / 0.2);
+  text-align: left;
+  vertical-align: top;
+}
+.rune-markdown th {
+  font-weight: 600;
+  border-bottom-color: rgb(127 127 127 / 0.35);
+}
+.rune-markdown tr:last-child td {
+  border-bottom: none;
 }
 .rune-markdown pre code {
   white-space: pre;

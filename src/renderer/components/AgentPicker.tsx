@@ -15,7 +15,7 @@ import {
 } from "../../shared/api";
 import { providerById, providers, refreshProviders } from "../lib/store";
 import { colors, font, radius, space } from "../theme.stylex";
-import { ContextMenu, type MenuPosition } from "./ContextMenu";
+import { PopoverMenu } from "./PopoverMenu";
 import { Icon } from "./Icon";
 import { ProviderIcon } from "./ProviderIcon";
 
@@ -37,18 +37,39 @@ export function choiceModel(choice: AgentChoice): ProviderModel | undefined {
   return provider?.models.find((m) => m.id === id);
 }
 
+/** Effort as signal bars: how many of four are filled for a level among the model's levels (none for Auto). */
+export function EffortBars(props: { level: string | null; levels: readonly string[] }) {
+  const filled = () => {
+    const i = props.level ? props.levels.indexOf(props.level) : -1;
+    if (i < 0) return 0;
+    return props.levels.length <= 1 ? 4 : Math.max(1, Math.round(((i + 1) / props.levels.length) * 4));
+  };
+  return (
+    <span {...stylex.attrs(styles.bars)} aria-hidden="true">
+      <For each={[0, 1, 2, 3]}>
+        {(i) => {
+          const on = () => i < filled();
+          return <span {...stylex.attrs(styles.bar, on() && styles.barOn)} style={{ height: `${4 + i * 2}px` }} />;
+        }}
+      </For>
+    </span>
+  );
+}
+
 export function AgentPicker(props: {
   choice: AgentChoice;
   onChange: (choice: AgentChoice) => void;
   compact?: boolean;
 }) {
   const [open, setOpen] = createSignal(false);
-  const [effortMenu, setEffortMenu] = createSignal<MenuPosition>();
+  const [effortOpen, setEffortOpen] = createSignal(false);
   let trigger!: HTMLButtonElement;
+  let effortTrigger!: HTMLButtonElement;
 
   const model = () => choiceModel(props.choice);
-  const modelLabel = () => model()?.name ?? props.choice.model ?? "Default model";
+  const modelLabel = () => model()?.name.replace(/^Claude /, "") ?? props.choice.model ?? "Default model";
   const efforts = () => model()?.efforts ?? [];
+  const effortLabel = () => (props.choice.effort ? (effortLabels[props.choice.effort] ?? props.choice.effort) : "Auto");
 
   const pick = (provider: ProviderId, modelId: string) => {
     const next = providerById(provider)?.models.find((m) => m.id === modelId);
@@ -63,7 +84,9 @@ export function AgentPicker(props: {
       <button
         ref={trigger}
         type="button"
-        title={`${providerById(props.choice.provider)?.label ?? props.choice.provider} · ${modelLabel()}`}
+        title={`Model: ${providerById(props.choice.provider)?.label ?? props.choice.provider} · ${model()?.name ?? modelLabel()}`}
+        aria-haspopup="dialog"
+        aria-expanded={open()}
         onClick={() => setOpen((o) => !o)}
         {...stylex.attrs(styles.trigger, open() && styles.triggerOpen)}
         data-agent-picker
@@ -72,44 +95,49 @@ export function AgentPicker(props: {
         <Show when={!props.compact}>
           <span {...stylex.attrs(styles.triggerLabel)}>{modelLabel()}</span>
         </Show>
-        <Icon name="chevron-down" size={12} />
+        <Icon name="chevron-down" size={12} {...stylex.attrs(styles.chevron)} />
       </button>
       <Show when={efforts().length}>
         <button
+          ref={effortTrigger}
           type="button"
-          title="Reasoning effort"
-          onClick={(e) => {
-            const r = e.currentTarget.getBoundingClientRect();
-            setEffortMenu({ x: r.left, y: r.top - 8 - 36 * (efforts().length + 1) });
-          }}
-          {...stylex.attrs(styles.trigger)}
+          title={`Reasoning effort: ${effortLabel()}`}
+          aria-haspopup="menu"
+          aria-expanded={effortOpen()}
+          onClick={() => setEffortOpen((o) => !o)}
+          {...stylex.attrs(styles.trigger, effortOpen() && styles.triggerOpen)}
           data-effort-picker
         >
-          <span {...stylex.attrs(styles.triggerLabel)}>
-            {props.choice.effort ? (effortLabels[props.choice.effort] ?? props.choice.effort) : "Auto"}
-          </span>
-          <Icon name="chevron-down" size={12} />
+          <EffortBars level={props.choice.effort} levels={efforts()} />
+          <span {...stylex.attrs(styles.triggerLabel)}>{effortLabel()}</span>
+          <Icon name="chevron-down" size={12} {...stylex.attrs(styles.chevron)} />
         </button>
       </Show>
-      <Show when={effortMenu()}>
-        {(position) => (
-          <ContextMenu
-            position={position()}
-            onClose={() => setEffortMenu()}
-            items={[
-              {
-                label: "Auto",
-                icon: props.choice.effort ? undefined : "check",
-                onSelect: () => props.onChange({ ...props.choice, effort: null }),
-              },
-              ...efforts().map((level) => ({
-                label: effortLabels[level] ?? level,
-                icon: props.choice.effort === level ? "check" : undefined,
-                onSelect: () => props.onChange({ ...props.choice, effort: level }),
-              })),
-            ]}
-          />
-        )}
+      <Show when={effortOpen()}>
+        <PopoverMenu
+          anchor={effortTrigger}
+          title="Reasoning effort"
+          name="effort-menu"
+          width={210}
+          onClose={() => setEffortOpen(false)}
+          items={[
+            {
+              label: "Auto",
+              description: "The model decides",
+              icon: <EffortBars level={null} levels={efforts()} />,
+              checked: !props.choice.effort,
+              id: "auto",
+              onSelect: () => props.onChange({ ...props.choice, effort: null }),
+            },
+            ...efforts().map((level) => ({
+              label: effortLabels[level] ?? level,
+              icon: <EffortBars level={level} levels={efforts()} />,
+              checked: props.choice.effort === level,
+              id: level,
+              onSelect: () => props.onChange({ ...props.choice, effort: level }),
+            })),
+          ]}
+        />
       </Show>
       <Show when={open()}>
         <Popover anchor={trigger} choice={props.choice} onPick={pick} onClose={() => setOpen(false)} />
@@ -307,18 +335,28 @@ const styles = stylex.create({
     display: "inline-flex",
     alignItems: "center",
     gap: 5,
+    flexShrink: 1,
+    minWidth: 0,
     height: 28,
-    maxWidth: 190,
+    maxWidth: 170,
     paddingInline: 7,
     borderWidth: 0,
     borderRadius: radius.sm,
     backgroundColor: { default: "transparent", ":hover": colors.surfaceHover },
     color: { default: colors.muted, ":hover": colors.text },
-    fontSize: font.xs,
+    fontFamily: "inherit",
+    fontSize: 12.5,
+    fontWeight: 500,
     cursor: "pointer",
+    whiteSpace: "nowrap",
+    transition: "background-color 120ms, color 120ms",
   },
   triggerOpen: { backgroundColor: colors.surfaceHover, color: colors.text },
-  triggerLabel: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  triggerLabel: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 },
+  chevron: { flexShrink: 0, opacity: 0.7 },
+  bars: { display: "inline-flex", alignItems: "flex-end", gap: 1.5, height: 10, flexShrink: 0 },
+  bar: { width: 2.5, borderRadius: 1, backgroundColor: "currentColor", opacity: 0.28 },
+  barOn: { opacity: 1 },
   popover: {
     position: "fixed",
     // Over the floating sidebar (components/Sidebar.tsx), like every menu.
@@ -399,7 +437,7 @@ const styles = stylex.create({
     color: colors.text,
     fontSize: font.sm,
   },
-  list: { flex: 1, overflowY: "auto", padding: 4 },
+  list: { flex: 1, overflowY: "auto", padding: 4, scrollbarWidth: "thin" },
   group: {
     paddingTop: space.sm,
     paddingBottom: 2,

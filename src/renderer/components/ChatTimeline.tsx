@@ -60,7 +60,7 @@ const kindIcons: Record<ToolKind, string> = {
   app: "app-window",
   customize: "paintbrush",
   schedule: "calendar-clock",
-  snapshot: "history",
+  snapshot: "rotate-ccw-clock",
   secret: "key-round",
   source: "folder-git-2",
   tab: "layers",
@@ -154,11 +154,7 @@ function Working(props: { since: string }) {
   const now = useNow(() => true);
   return (
     <div {...stylex.attrs(styles.working)} role="status" data-agent-working>
-      <span {...stylex.attrs(styles.workingDots)} aria-hidden="true">
-        <span {...stylex.attrs(styles.dot)} />
-        <span {...stylex.attrs(styles.dot, styles.dot2)} />
-        <span {...stylex.attrs(styles.dot, styles.dot3)} />
-      </span>
+      <span {...stylex.attrs(styles.workingPulse)} aria-hidden="true" />
       <span {...stylex.attrs(styles.workingLabel)}>Working…</span>
       <span {...stylex.attrs(styles.workingTime)}>{formatElapsed(now() - Date.parse(props.since))}</span>
     </div>
@@ -182,7 +178,6 @@ function TurnEnd(props: { appId: string; ms: number; stopped: boolean; steps: Ro
         {...stylex.attrs(styles.divider, hasSteps() && styles.dividerButton, stopped() && styles.dividerStopped)}
         data-turn-end
       >
-        <span {...stylex.attrs(styles.dividerLine)} />
         <span {...stylex.attrs(styles.dividerLabel)}>
           <Icon name={props.stopped ? "square" : "check"} size={12} />
           {props.stopped ? `Stopped after ${formatElapsed(props.ms)}` : `Worked for ${formatElapsed(props.ms)}`}
@@ -216,7 +211,10 @@ function WorkGroup(props: { appId: string; entries: WorkEntry[]; live: boolean }
   };
   const single = () => props.entries.length === 1;
   return (
-    <Show when={!single()} fallback={<WorkRow appId={props.appId} activity={props.entries[0]!.activity} />}>
+    <Show
+      when={!single()}
+      fallback={<WorkRow appId={props.appId} activity={props.entries[0]!.activity} active={props.live} />}
+    >
       <section {...stylex.attrs(styles.group)} aria-label="Tool calls" data-tool-group>
         <button
           type="button"
@@ -238,7 +236,15 @@ function WorkGroup(props: { appId: string; entries: WorkEntry[]; live: boolean }
         </button>
         <Show when={expanded()}>
           <div {...stylex.attrs(styles.groupEntries)}>
-            <For each={props.entries}>{(entry) => <WorkRow appId={props.appId} activity={entry.activity} />}</For>
+            <For each={props.entries}>
+              {(entry, i) => (
+                <WorkRow
+                  appId={props.appId}
+                  activity={entry.activity}
+                  active={props.live && i() === props.entries.length - 1}
+                />
+              )}
+            </For>
           </div>
         </Show>
       </section>
@@ -247,9 +253,10 @@ function WorkGroup(props: { appId: string; entries: WorkEntry[]; live: boolean }
 }
 
 /** One tool call: its icon and line; opens to its detail (the whole command, the arguments). Files it saved show under it. */
-function WorkRow(props: { appId: string; activity: ToolActivity }) {
+function WorkRow(props: { appId: string; activity: ToolActivity; active?: boolean }) {
   const [open, setOpen] = createSignal(false);
   const failed = () => !!props.activity.failed;
+  const active = () => !!props.active && !failed();
   const hasDetail = () => !!props.activity.detail;
   return (
     <div {...stylex.attrs(styles.entry)} data-tool-call={props.activity.kind}>
@@ -261,14 +268,17 @@ function WorkRow(props: { appId: string; activity: ToolActivity }) {
         onClick={() => setOpen(!open())}
         {...stylex.attrs(stylex.defaultMarker(), styles.row, hasDetail() && styles.rowButton)}
       >
-        <span {...stylex.attrs(styles.rowIcon, failed() && styles.rowIconFailed)}>
-          <Icon name={failed() ? "circle-alert" : kindIcons[props.activity.kind]} size={14} />
+        <span {...stylex.attrs(styles.rowIcon, failed() && styles.rowIconFailed, active() && styles.rowIconActive)}>
+          <Icon
+            name={failed() ? "circle-alert" : active() ? "loader-circle" : kindIcons[props.activity.kind]}
+            size={14}
+          />
         </span>
         <span {...stylex.attrs(styles.rowTitle)}>
           <InlineCode text={props.activity.title} />
         </span>
         <Show when={failed()}>
-          <span {...stylex.attrs(styles.failedBadge)}>failed</span>
+          <span {...stylex.attrs(styles.failedBadge)}>Failed</span>
         </Show>
         <Show when={hasDetail()}>
           <span {...stylex.attrs(styles.chevron, styles.chevronHover, open() && styles.chevronOpen)}>
@@ -574,12 +584,13 @@ export function Chip(props: { label: string; title?: string; onRemove?: () => vo
 
 // --- Styles -------------------------------------------------------------------------------
 
-const bounce = stylex.keyframes({
-  "0%": { opacity: 0.25, transform: "translateY(0)" },
-  "40%": { opacity: 1, transform: "translateY(-2px)" },
-  "80%": { opacity: 0.25, transform: "translateY(0)" },
-  "100%": { opacity: 0.25, transform: "translateY(0)" },
+const breathe = stylex.keyframes({
+  "0%": { opacity: 0.35, transform: "scale(0.8)" },
+  "50%": { opacity: 1, transform: "scale(1)" },
+  "100%": { opacity: 0.35, transform: "scale(0.8)" },
 });
+const shimmer = stylex.keyframes({ from: { backgroundPosition: "100% 0" }, to: { backgroundPosition: "-50% 0" } });
+const spin = stylex.keyframes({ from: { transform: "rotate(0deg)" }, to: { transform: "rotate(360deg)" } });
 
 const styles = stylex.create({
   inlineCode: {
@@ -633,6 +644,14 @@ const styles = stylex.create({
     opacity: 0.85,
   },
   rowIconFailed: { color: colors.danger, opacity: 1 },
+  rowIconActive: {
+    color: colors.accent,
+    opacity: 1,
+    animationName: spin,
+    animationDuration: "0.9s",
+    animationIterationCount: "infinite",
+    animationTimingFunction: "linear",
+  },
   rowTitle: {
     flex: 1,
     minWidth: 0,
@@ -651,16 +670,13 @@ const styles = stylex.create({
   chevronOpen: { transform: "rotate(90deg)", opacity: 1 },
   failedBadge: {
     flexShrink: 0,
-    paddingBlock: 1,
     paddingInline: 6,
     borderRadius: radius.full,
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: `color-mix(in oklab, transparent, ${colors.danger} 30%)`,
-    backgroundColor: `color-mix(in oklab, transparent, ${colors.danger} 8%)`,
+    backgroundColor: `color-mix(in oklab, transparent, ${colors.danger} 10%)`,
     color: colors.danger,
     fontSize: 11,
     fontWeight: 500,
+    lineHeight: "18px",
   },
   detail: {
     margin: 0,
@@ -693,7 +709,7 @@ const styles = stylex.create({
     backgroundColor: "transparent",
     color: colors.muted,
     fontFamily: "inherit",
-    fontSize: 11.5,
+    fontSize: 12,
     cursor: "default",
   },
   dividerStopped: { color: colors.warning },
@@ -715,21 +731,29 @@ const styles = stylex.create({
     color: colors.muted,
     fontSize: font.sm,
   },
-  workingDots: { display: "inline-flex", alignItems: "center", gap: 3, width: 18, justifyContent: "center" },
-  dot: {
-    width: 4,
-    height: 4,
+  workingPulse: {
+    width: 7,
+    height: 7,
+    marginInline: 5.5,
     borderRadius: radius.full,
     backgroundColor: colors.accent,
-    animationName: bounce,
-    animationDuration: "1.2s",
+    animationName: breathe,
+    animationDuration: "1.6s",
     animationIterationCount: "infinite",
     animationTimingFunction: "ease-in-out",
   },
-  dot2: { animationDelay: "0.15s" },
-  dot3: { animationDelay: "0.3s" },
-  workingLabel: { color: colors.text },
-  workingTime: { fontVariantNumeric: "tabular-nums" },
+  workingLabel: {
+    backgroundImage: `linear-gradient(90deg, ${colors.muted} 0%, ${colors.muted} 35%, ${colors.text} 50%, ${colors.muted} 65%, ${colors.muted} 100%)`,
+    backgroundSize: "250% 100%",
+    backgroundClip: "text",
+    color: "transparent",
+    fontWeight: 500,
+    animationName: shimmer,
+    animationDuration: "2.2s",
+    animationIterationCount: "infinite",
+    animationTimingFunction: "linear",
+  },
+  workingTime: { color: colors.muted, fontSize: 12, fontVariantNumeric: "tabular-nums" },
   // Messages.
   userRow: { display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2, minWidth: 0 },
   user: {
@@ -738,11 +762,13 @@ const styles = stylex.create({
     alignItems: "flex-start",
     maxWidth: "88%",
     minWidth: 0,
-    paddingBlock: 9,
-    paddingInline: 13,
-    borderRadius: 18,
-    borderTopRightRadius: 6,
-    backgroundColor: colors.accentSoft,
+    paddingBlock: 8,
+    paddingInline: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
     color: colors.text,
   },
   userText: {
@@ -774,7 +800,7 @@ const styles = stylex.create({
     minWidth: 0,
     maxWidth: "100%",
     fontSize: font.md,
-    lineHeight: 1.6,
+    lineHeight: 1.62,
     overflowWrap: "anywhere",
     userSelect: "text",
   },
