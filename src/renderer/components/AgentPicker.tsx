@@ -321,7 +321,8 @@ const styles = stylex.create({
   triggerLabel: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   popover: {
     position: "fixed",
-    zIndex: 100,
+    // Over the floating sidebar (components/Sidebar.tsx), like every menu.
+    zIndex: 1000,
     display: "flex",
     width: 380,
     overflow: "hidden",

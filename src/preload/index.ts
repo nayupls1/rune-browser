@@ -108,6 +108,7 @@ const bridge: RuneBridge = {
     onAuthPrompt: listen("rune:auth-prompt"),
     setInsecurePolicy: (policy) => ipcRenderer.send("rune:insecure-policy", policy),
     onInsecure: listen("rune:insecure"),
+    onAudio: listen("rune:audio"),
     authReply: (requestId, value) => ipcRenderer.send("rune:auth-reply", requestId, value),
     permissions: {
       pending: () => ipcRenderer.invoke("rune:site-permissions-pending"),

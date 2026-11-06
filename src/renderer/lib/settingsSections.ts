@@ -110,7 +110,7 @@ export const settingsSections: SettingsSection[] = [
     label: "Appearance",
     icon: "palette",
     group: "browser",
-    keywords: "theme colors dark light mode accent corners font",
+    keywords: "theme colors dark light mode accent corners font tabs horizontal vertical tab bar sidebar layout",
   },
   {
     id: "browser-appearance",

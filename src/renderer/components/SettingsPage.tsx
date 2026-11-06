@@ -32,6 +32,7 @@ import { autoUpdate, extensionList } from "../lib/extensions";
 import { securityVersion } from "../lib/security";
 import { watchTopic } from "../lib/realtime";
 import { settings, updateSettings } from "../lib/settings";
+import { setTabLayout, tabLayout } from "../lib/layout";
 import { disallowInsecure } from "../lib/insecure";
 import { checkForUpdates, installUpdate, setUpdateChannel, updateInfo } from "../lib/updates";
 import {
@@ -594,6 +595,18 @@ function AppearanceSection() {
               ["dark", "Dark"],
             ]}
             onChange={(mode) => setTheme({ mode })}
+          />
+        </Row>
+      </Section>
+      <Section title="Tabs">
+        <Row label="Tab layout" description="A tab bar along the top, like Chrome's, or a sidebar on the left.">
+          <Segmented
+            value={tabLayout()}
+            options={[
+              ["horizontal", "Horizontal"],
+              ["vertical", "Vertical"],
+            ]}
+            onChange={setTabLayout}
           />
         </Row>
       </Section>

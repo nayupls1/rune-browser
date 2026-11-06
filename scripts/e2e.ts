@@ -51,6 +51,15 @@ mkdirSync(outDir, { recursive: true });
 // watchers there (Bun's --hot in app previews) don't match with the changes they're told about.
 const tempDir = realpathSync.native(tmpdir());
 const profile = mkdtempSync(join(tempDir, "rune-e2e-"));
+// The checks drive the vertical sidebar; horizontal tabs (what a new profile starts with) have checks of their own.
+{
+  mkdirSync(join(profile, "data"), { recursive: true });
+  const { Database } = await import("bun:sqlite");
+  const db = new Database(join(profile, "data", "rune.sqlite"));
+  db.run("CREATE TABLE settings (id INTEGER PRIMARY KEY CHECK (id = 1), value TEXT NOT NULL)");
+  db.run(`INSERT INTO settings (id, value) VALUES (1, '{"tabs":{"layout":"vertical"}}')`);
+  db.close();
+}
 // A browser to import extensions from (instead of the real ones on this computer).
 const browserDir = mkdtempSync(join(tempDir, "rune-e2e-browser-"));
 const fixture = writeFixtureBrowser(browserDir);
@@ -1128,6 +1137,185 @@ try {
         `document.querySelector("[data-sidebar-resizer]").dispatchEvent(new MouseEvent("dblclick", { bubbles: true })), true`,
       );
       return `hidden, peeked at ${Math.round(peekRight)}px, ${Math.round(before)} → ${Math.round(after)}px`;
+    },
+  );
+
+  await check("sidebar floating: its menus open over it, and the left edge always brings it back", async () => {
+    const state = () => page!.eval<string>(`document.querySelector("nav").dataset.sidebar`);
+    /** What's on top at the middle of the menu: the menu itself, not the sidebar. */
+    const menuOnTop = () =>
+      page!.eval<boolean>(`(() => {
+        const menu = document.querySelector("[data-context-menu]");
+        if (!menu) return false;
+        const r = menu.getBoundingClientRect();
+        return !!document.elementFromPoint(r.left + Math.min(r.width / 2, 60), r.top + r.height / 2)?.closest("[data-context-menu]");
+      })()`);
+    const escape = async () => {
+      await page!.eval(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })), true`);
+      await page!.waitFor(`!document.querySelector("[data-context-menu]")`, { label: "menu closed" });
+    };
+    await click("[data-sidebar-toggle]");
+    await page!.waitFor(`document.querySelector("nav").dataset.sidebar === "hidden"`, { label: "hidden" });
+    await page!.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 2, y: 300 });
+    await page!.waitFor(`document.querySelector("nav").dataset.sidebar === "peek"`, { label: "peeking" });
+    await page!.waitFor(`document.querySelector("nav").getBoundingClientRect().left >= 0`, { label: "on screen" });
+    // The ⋯ menu, a tab's menu and the New tab menu, each over the floating sidebar.
+    const opened: string[] = [];
+    for (const [name, open] of [
+      ["⋯", `document.querySelector("nav [data-more-menu]").click()`],
+      [
+        "tab",
+        `(() => { const r = document.querySelector("nav li[data-app-id]").getBoundingClientRect(); document.querySelector("nav li[data-app-id]").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: r.left + 20, clientY: r.top + 10 })); })()`,
+      ],
+      ["new tab", `document.querySelector("nav [data-new-tab]").click()`],
+    ] as const) {
+      await page!.eval(`${open}, true`);
+      await page!.waitFor(`!!document.querySelector("[data-context-menu]")`, { label: `${name} menu` });
+      if (!(await menuOnTop())) {
+        await shot("sidebar-menu-under.png");
+        throw new Error(`the ${name} menu opened under the floating sidebar`);
+      }
+      if ((await state()) !== "peek") throw new Error(`the sidebar went away with its ${name} menu open`);
+      if (name === "⋯") await shot("sidebar-floating-menu.png");
+      await escape();
+      opened.push(name);
+    }
+    await page!.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 900, y: 300 });
+    await page!.waitFor(`document.querySelector("nav").dataset.sidebar === "hidden"`, { label: "away again" });
+    // Back at the edge without entering it (it was there while the sidebar went): moving in it brings it in.
+    await page!.eval(
+      `document.querySelector("[data-sidebar-edge]").dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 4, clientY: 300 })), true`,
+    );
+    await page!.waitFor(`document.querySelector("nav").dataset.sidebar === "peek"`, {
+      label: "peek on moving in the edge",
+    });
+    await page!.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 900, y: 300 });
+    await page!.waitFor(`document.querySelector("nav").dataset.sidebar === "hidden"`, { label: "away once more" });
+    // Leaving the page through the window's left edge (into the resize border Linux and Windows keep there).
+    await page!.eval(
+      `document.querySelector("[data-content]").dispatchEvent(new MouseEvent("mouseout", { bubbles: true, clientX: 2, clientY: 300, relatedTarget: null })), true`,
+    );
+    await page!.waitFor(`document.querySelector("nav").dataset.sidebar === "peek"`, {
+      label: "peek on leaving through the left edge",
+    });
+    // Coming back into the page lets it go.
+    await page!.eval(
+      `document.querySelector("[data-content]").dispatchEvent(new MouseEvent("mouseover", { bubbles: true, clientX: 900, clientY: 300 })), true`,
+    );
+    await page!.waitFor(`document.querySelector("nav").dataset.sidebar === "hidden"`, {
+      label: "away after coming back",
+    });
+    // The keyboard always brings it back.
+    await page!.eval(
+      `window.dispatchEvent(new KeyboardEvent("keydown", { key: "B", ${mod}: true, shiftKey: true, bubbles: true })), true`,
+    );
+    await page!.waitFor(`document.querySelector("nav").dataset.sidebar === "shown"`, {
+      label: "shown by the shortcut",
+    });
+    return `menus over it: ${opened.join(", ")}`;
+  });
+
+  await check(
+    "horizontal tabs: switched to from a tab's menu without a reload, new tab, hover card, back from the bar's menu",
+    async () => {
+      const count = await page!.eval<number>(`document.querySelectorAll("nav li[data-app-id]").length`);
+      // The pages stay where they are in the DOM: a webview that moves reloads.
+      await page!.eval(
+        `document.querySelectorAll("[data-tab-layer]").forEach((l) => (l.__kept = l.parentElement)), true`,
+      );
+      await page!.eval(
+        `(() => { const li = document.querySelector("nav li[data-app-id]"); const r = li.getBoundingClientRect(); li.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: r.left + 20, clientY: r.top + 10 })); })(), true`,
+      );
+      await page!.waitFor(`!!document.querySelector('[data-context-menu] [data-menu-item="tab-layout"]')`, {
+        label: "the layout in the tab's menu",
+      });
+      await click('[data-context-menu] [data-menu-item="tab-layout"]');
+      await page!.waitFor(
+        `!!document.querySelector("[data-tab-strip]") && !document.querySelector("nav[data-sidebar]")`,
+        {
+          label: "the tab bar instead of the sidebar",
+        },
+      );
+      const tabs = await page!.eval<number>(`document.querySelectorAll("[data-tab-strip] [data-app-id]").length`);
+      if (tabs !== count) throw new Error(`${tabs} tabs in the bar, ${count} in the sidebar`);
+      if (
+        !(await page!.eval<boolean>(
+          `[...document.querySelectorAll("[data-tab-layer]")].every((l) => l.__kept && l.__kept === l.parentElement)`,
+        ))
+      )
+        throw new Error("switching the layout re-created the pages");
+      const saved = await waitForValue(async () => {
+        const s = await apiCall<{ tabs: { layout: string } }>("/api/settings");
+        return s.tabs.layout === "horizontal" ? s : undefined;
+      });
+      // One bar: the navigation, the address and the tabs right after it, on one line; the page under it.
+      const layout = await page!.eval<{ bar: number; content: number; oneLine: boolean; tabsAfter: boolean }>(`(() => {
+        const bar = document.querySelector("[data-horizontal-tabs]").getBoundingClientRect();
+        const address = document.querySelector("[data-horizontal-tabs] [data-address-bar]").getBoundingClientRect();
+        const tab = document.querySelector("[data-tab-strip] [data-app-id]").getBoundingClientRect();
+        return {
+          bar: bar.bottom,
+          content: document.querySelector("[data-content]").getBoundingClientRect().top,
+          oneLine: Math.abs((address.top + address.bottom) / 2 - (tab.top + tab.bottom) / 2) < 4 && bar.height < 60,
+          tabsAfter: tab.left >= address.right,
+        };
+      })()`);
+      if (!layout.oneLine || !layout.tabsAfter || layout.content < layout.bar)
+        throw new Error(`bar and page: ${JSON.stringify(layout)}`);
+      await shot("horizontal-tabs.png");
+      // New tab: a web tab, at once, on screen.
+      await click("[data-tab-strip] [data-new-tab]");
+      await page!.waitFor(`document.querySelectorAll("[data-tab-strip] [data-app-id]").length === ${count + 1}`, {
+        label: "the new tab in the bar",
+      });
+      const added = await page!.waitFor<string>(
+        `document.querySelector('[data-tab-strip] [data-app-id][aria-current="page"]')?.dataset.appId`,
+        { label: "the new tab on screen" },
+      );
+      await page!.eval(
+        `document.querySelector("[data-address]").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })), true`,
+      );
+      // The pointer resting on a tab shows its card.
+      const r = await page!.eval<{ x: number; y: number }>(`(() => {
+        const r = document.querySelector('[data-tab-strip] [data-app-id]').getBoundingClientRect();
+        return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+      })()`);
+      await page!.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: r.x, y: r.y });
+      await page!.waitFor(`!!document.querySelector("[data-tab-card]")`, { label: "hover card" });
+      await shot("horizontal-tabs-card.png");
+      await page!.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: r.x, y: 500 });
+      await page!.waitFor(`!document.querySelector("[data-tab-card]")`, { label: "hover card gone" });
+      await click(`[data-tab-strip] [data-app-id="${added}"] [data-close-tab]`);
+      await page!.waitFor(`document.querySelectorAll("[data-tab-strip] [data-app-id]").length === ${count}`, {
+        label: "the new tab closed",
+      });
+      // Back to vertical tabs from the bar's own menu.
+      await page!.eval(`(() => {
+        const list = document.querySelector("[data-tab-list]");
+        const r = list.getBoundingClientRect();
+        list.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: r.right - 1, clientY: r.top + r.height / 2 }));
+      })(), true`);
+      await page!.waitFor(`!!document.querySelector('[data-context-menu] [data-menu-item="tab-layout"]')`, {
+        label: "the layout in the bar's menu",
+      });
+      await click('[data-context-menu] [data-menu-item="tab-layout"]');
+      await page!.waitFor(
+        `!!document.querySelector("nav[data-sidebar]") && !document.querySelector("[data-tab-strip]")`,
+        {
+          label: "the sidebar back",
+        },
+      );
+      if (
+        !(await page!.eval<boolean>(
+          `[...document.querySelectorAll("[data-tab-layer]")].every((l) => l.__kept && l.__kept === l.parentElement)`,
+        ))
+      )
+        throw new Error("switching back re-created the pages");
+      await waitForValue(async () => {
+        const s = await apiCall<{ tabs: { layout: string } }>("/api/settings");
+        return s.tabs.layout === "vertical" ? s : undefined;
+      });
+      return `${count} tabs in the bar (${saved.tabs.layout}), and back`;
     },
   );
 

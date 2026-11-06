@@ -44,7 +44,7 @@ import {
   isPrivate,
 } from "./store";
 import { newPrivateWindow, newWindow, reopenWindow } from "./windows";
-import { isSidebarHidden, toggleSidebar } from "./layout";
+import { isHorizontal, isSidebarHidden, setTabLayout, toggleSidebar } from "./layout";
 import { removeFromSplit, rotateSplit, splitOf, splitWith, unsplit, visibleTabs } from "./splits";
 import { pageOf } from "./webtabs";
 import { runShortcut } from "./shortcuts";
@@ -544,14 +544,27 @@ function runeCommands(): Command[] {
       input: "Name",
       run: (name) => name?.trim() && createWorkspace(name.trim()),
     },
+    // With horizontal tabs there's no sidebar to hide.
+    ...(isHorizontal()
+      ? []
+      : [
+          {
+            id: "sidebar.toggle",
+            title: isSidebarHidden() ? "Show the sidebar" : "Hide the sidebar",
+            keys: "sidebar.toggle",
+            icon: "panel-left",
+            group: "Rune Browser",
+            keywords: "toggle hide show tabs",
+            run: toggleSidebar,
+          } satisfies Command,
+        ]),
     {
-      id: "sidebar.toggle",
-      title: isSidebarHidden() ? "Show the sidebar" : "Hide the sidebar",
-      keys: "sidebar.toggle",
-      icon: "panel-left",
+      id: "tabs.layout",
+      title: isHorizontal() ? "Use vertical tabs" : "Use horizontal tabs",
+      icon: isHorizontal() ? "panel-left" : "panel-top",
       group: "Rune Browser",
-      keywords: "toggle hide show tabs",
-      run: toggleSidebar,
+      keywords: "tab bar sidebar layout horizontal vertical top side",
+      run: () => setTabLayout(isHorizontal() ? "vertical" : "horizontal"),
     },
     // Every category of Settings, by name ("Settings: Apps").
     ...settingsSections

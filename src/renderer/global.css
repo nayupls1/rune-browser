@@ -53,12 +53,27 @@
   -webkit-app-region: no-drag;
 }
 
+/* With horizontal tabs, the tabs (dragged themselves, and clicked) and the room around them (its own menu,
+   drops) aren't part of the window's drag region; the free room after them is (data-tab-strip-spacer). */
+[data-titlebar] :is([data-tab-strip], [data-app-id], [data-split-group]) {
+  -webkit-app-region: no-drag;
+}
+[data-titlebar] [data-tab-strip-spacer] {
+  -webkit-app-region: drag;
+}
+/* A menu or picker opened over it (portaled, so later in the document) is clicked, not dragged. */
+[data-context-menu],
+[data-icon-picker] {
+  -webkit-app-region: no-drag;
+}
+
 /* The address bar while it's open floats over everything, the top bars too: none of them
    drags the window then (Electron adds drag regions in document order, so later ones would
    win over the backdrop), and a click on them closes it. */
 [data-address-backdrop],
 [data-address-bar],
-body:has([data-address-open]) [data-titlebar] {
+body:has([data-address-open]) [data-titlebar],
+body:has([data-address-open]) [data-tab-strip-spacer] {
   -webkit-app-region: no-drag;
 }
 

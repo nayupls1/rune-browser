@@ -69,7 +69,9 @@ export function startWindowChrome() {
       const target = e.target as HTMLElement | null;
       if (
         !target?.closest("[data-titlebar]") ||
-        target.closest("button, input, select, textarea, a, [role=button], [role=switch], [role=tab], webview")
+        target.closest(
+          "button, input, select, textarea, a, [role=button], [role=switch], [role=tab], webview, [data-app-id], [data-split-group]",
+        )
       )
         return;
       bridge.toggleMaximize();

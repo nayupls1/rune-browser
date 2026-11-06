@@ -35,7 +35,9 @@ import {
 import {
   draggedSplit,
   draggedTab,
+  isHorizontal,
   isSidebarHidden,
+  setTabLayout,
   setDraggedSplit,
   setDraggedTab,
   setSidebarHidden,
@@ -48,6 +50,7 @@ import {
   sidebarWidth,
 } from "../lib/layout";
 import { canUnload, unloadTab } from "../lib/unload";
+import { isAudible, isMuted, toggleMuted } from "../lib/webtabs";
 import { dropTarget, hasDroppable, openDropped, setDropTarget } from "../lib/drops";
 import { fullAccess } from "../lib/access";
 import {
@@ -84,7 +87,7 @@ import {
  * What the list shows, in the tabs' order: tab ids, and "split:<id>" for a
  * split view, which takes the place of its first tab and lists its tabs in it.
  */
-const entries = () => {
+export const entries = () => {
   const seen = new Set<string>();
   const list: string[] = [];
   for (const tab of workspaceTabs()) {
@@ -101,22 +104,47 @@ const entries = () => {
 
 /** Pinned tabs show as tiles above the list (not in a split view). */
 const isTile = (tab: AppSummary) => tab.pinned && !splitOf(tab.id);
-const tiles = () => workspaceTabs().filter(isTile);
+export const tiles = () => workspaceTabs().filter(isTile);
 
 /** Text fields take dropped text themselves. */
-const isField = (target: EventTarget | null) =>
+export const isField = (target: EventTarget | null) =>
   target instanceof HTMLElement && !!target.closest("input, textarea, [contenteditable]");
 
 const privateWindow = () => isPrivate;
+
+/** The strip at the window's left edge that brings a hidden sidebar in. */
+const EDGE_WIDTH = 8;
+
+/** Menus and popovers (portaled); one next to the sidebar is one of its own. */
+const POPOVERS = [
+  "[data-context-menu]",
+  "[data-extensions-list]",
+  "[data-extension-popup]",
+  "[data-downloads-panel]",
+  "[data-site-info]",
+  "[data-page-changes]",
+  "[data-response-overrides]",
+  "[data-bookmarks-menu]",
+  "[data-bookmark-editor]",
+  "[data-icon-picker]",
+].join(", ");
 
 /** A hidden sidebar is shown over the page while the pointer is in it, or a menu of it is open. */
 const isOverlay = () => isSidebarHidden();
 const isAway = () => isSidebarHidden() && !sidebarPeek();
 
-export function Sidebar() {
-  const [newMenu, setNewMenu] = createSignal<MenuPosition>();
+/** Switches between horizontal tabs and the vertical sidebar (in a tab's menu, and the tab bar's). */
+export const layoutMenuItem = (): MenuItem =>
+  isHorizontal()
+    ? { id: "tab-layout", label: "Use vertical tabs", icon: "panel-left", onSelect: () => setTabLayout("vertical") }
+    : { id: "tab-layout", label: "Use horizontal tabs", icon: "panel-top", onSelect: () => setTabLayout("horizontal") };
+
+/** The New tab menu: a web tab or an app, a window, and the closed apps to open again. */
+export function NewTabMenu(props: { position: MenuPosition; onClose: () => void; anchor?: Element }) {
   const [library, setLibrary] = createSignal<AppSummary[]>([]);
-  const newItems = (): (MenuItem | "separator")[] => [
+  // Closed apps (the library), fresh each time the menu opens.
+  if (!isPrivate) void api.library().then(setLibrary, () => setLibrary([]));
+  const items = (): (MenuItem | "separator")[] => [
     { label: "New web tab", icon: "globe", onSelect: () => newWebTab() },
     // Apps are built by agents, which private windows don't have.
     ...(isPrivate ? [] : [{ label: "New app", icon: "sparkles", onSelect: () => newApp() }]),
@@ -140,8 +168,23 @@ export function Sidebar() {
         ]
       : []),
   ];
-  // Closed apps (the library), fresh each time the menu opens.
-  createEffect(on(newMenu, (open) => open && void api.library().then(setLibrary, () => setLibrary([]))));
+  return <ContextMenu items={items()} position={props.position} anchor={props.anchor} onClose={props.onClose} />;
+}
+
+/** The tabs: the vertical sidebar, or (horizontal tabs) nothing here: they're in the tab bar (components/TabStrip.tsx). */
+export function Sidebar() {
+  // macOS's traffic lights go with a hidden sidebar.
+  if (window.rune.window.platform === "darwin")
+    createEffect(on(isAway, (away) => window.rune.window.setButtonsVisible(!away)));
+  return (
+    <Show when={!isHorizontal()}>
+      <VerticalSidebar />
+    </Show>
+  );
+}
+
+function VerticalSidebar() {
+  const [newMenu, setNewMenu] = createSignal<MenuPosition>();
   let nav!: HTMLElement;
   // Hidden: it slides back out once the pointer has left it, unless a menu or the address is still open.
   let leaveTimer: ReturnType<typeof setTimeout> | undefined;
@@ -152,7 +195,7 @@ export function Sidebar() {
     !!edge?.matches(":hover") ||
     !!document.querySelector("[data-address-open]") ||
     // A menu of the sidebar's (they're portaled: one next to it, not one of the page's).
-    [...document.querySelectorAll("[data-context-menu], [data-extensions-list], [data-downloads-panel]")].some(
+    [...document.querySelectorAll(POPOVERS)].some(
       (menu) => menu.getBoundingClientRect().left < nav.getBoundingClientRect().right + 16,
     ) ||
     (nav.contains(document.activeElement) && document.activeElement instanceof HTMLInputElement);
@@ -160,13 +203,42 @@ export function Sidebar() {
     clearTimeout(leaveTimer);
     leaveTimer = setTimeout(() => {
       if (!sidebarPeek()) return;
-      if (busy()) return leaveSoon();
+      if (busy() || atBorder) return leaveSoon();
       setSidebarPeek(false);
     }, 260);
   };
-  // macOS's traffic lights go with it.
-  if (window.rune.window.platform === "darwin")
-    createEffect(on(isAway, (away) => window.rune.window.setButtonsVisible(!away)));
+  const peek = () => {
+    setSidebarPeek(true);
+    // From here the pointer may go straight back to the page, without entering the sidebar.
+    leaveSoon();
+  };
+  // Linux and Windows resize a window that isn't maximized from the 5px inside its edges, and the pointer
+  // there never reaches the page: only 3px of the edge strip would be left, easily flicked past. Leaving
+  // the page through the window's left edge (into that border) brings the sidebar in as well, and it stays
+  // while the pointer is there.
+  // (Only for a moment: the pointer may have gone on to another screen on the left.)
+  let atBorder = false;
+  let borderTimer: ReturnType<typeof setTimeout> | undefined;
+  onCleanup(() => clearTimeout(borderTimer));
+  createEffect(() => {
+    if (!isOverlay()) return;
+    const out = (e: MouseEvent) => {
+      if (e.relatedTarget !== null || e.clientX < 0 || e.clientX >= EDGE_WIDTH) return;
+      if (e.clientY < 0 || e.clientY >= window.innerHeight) return;
+      atBorder = true;
+      clearTimeout(borderTimer);
+      borderTimer = setTimeout(() => (atBorder = false), 1500);
+      peek();
+    };
+    const over = () => (atBorder = false);
+    document.addEventListener("mouseout", out);
+    document.addEventListener("mouseover", over, true);
+    onCleanup(() => {
+      atBorder = false;
+      document.removeEventListener("mouseout", out);
+      document.removeEventListener("mouseover", over, true);
+    });
+  });
   return (
     <>
       <Show when={isOverlay()}>
@@ -174,11 +246,10 @@ export function Sidebar() {
         <div
           {...stylex.attrs(styles.edge)}
           ref={edge}
-          onMouseEnter={() => {
-            setSidebarPeek(true);
-            // From here the pointer may go straight back to the page, without entering the sidebar.
-            leaveSoon();
-          }}
+          // Any movement in it, not only entering it: the pointer may already be there when the sidebar
+          // goes (a menu closed, the pointer left the window and came back at the edge).
+          onPointerEnter={peek}
+          onPointerMove={() => !sidebarPeek() && peek()}
           data-sidebar-edge
         />
       </Show>
@@ -264,9 +335,7 @@ export function Sidebar() {
           <Icon name="plus" size={15} />
           New tab
         </Button>
-        <Show when={newMenu()}>
-          {(position) => <ContextMenu items={newItems()} position={position()} onClose={() => setNewMenu()} />}
-        </Show>
+        <Show when={newMenu()}>{(position) => <NewTabMenu position={position()} onClose={() => setNewMenu()} />}</Show>
         {/* A private window has no workspaces: its tabs all share one session that keeps nothing. */}
         <Show when={!isPrivate}>
           <WorkspaceName />
@@ -355,7 +424,7 @@ function Resizer() {
 }
 
 /** Where a workspace's name is typed: right after "+" made it, or "Rename" in its menu. */
-function WorkspaceName() {
+export function WorkspaceName() {
   const [naming, setNaming] = createSignal(false);
   createEffect(on(namingRequest, (n) => n && setNaming(true), { defer: true }));
   const commit = (value: string) => {
@@ -399,7 +468,7 @@ const WORKSPACE_DRAG_TYPE = "application/x-rune-workspace";
  * The workspaces as icons at the bottom of the sidebar: click one to switch,
  * drag to reorder, drop a tab on one to move it there, right-click for its menu.
  */
-function WorkspaceBar() {
+export function WorkspaceBar(props: { inline?: boolean }) {
   const [dragged, setDragged] = createSignal<string | null>(null);
   const [over, setOver] = createSignal<string | null>(null);
   const reorderTo = (id: string, target: string) => {
@@ -412,7 +481,7 @@ function WorkspaceBar() {
   };
   return (
     <div
-      {...stylex.attrs(styles.workspaceBar)}
+      {...stylex.attrs(styles.workspaceBar, props.inline && styles.workspaceBarInline)}
       role="tablist"
       aria-label="Workspaces"
       data-workspace-bar
@@ -558,7 +627,7 @@ export function WorkspaceBadge(props: { workspace: WorkspaceInfo; bare?: boolean
 }
 
 /** Settings (and the pages in it: Downloads, History, Snapshots, Schedules, Mods, Activity), at the bottom right of the sidebar. */
-function SettingsLink() {
+export function SettingsLink() {
   const selected = () => isSettingsView(selectedId());
   return (
     <button
@@ -576,7 +645,7 @@ function SettingsLink() {
 }
 
 /** A split view: its tabs in one block, with a handle to drag them all and a menu. */
-function SplitGroup(props: { splitId: string }) {
+export function SplitGroup(props: { splitId: string; horizontal?: boolean }) {
   const [menu, setMenu] = createSignal<MenuPosition>();
   const split = () => workspaces.flatMap((w) => w.splits).find((x) => x.id === props.splitId);
   const isRow = () => split()?.direction === "row";
@@ -596,9 +665,12 @@ function SplitGroup(props: { splitId: string }) {
   return (
     <Show when={split()}>
       {(s) => (
-        <li {...stylex.attrs(styles.group, isDragged() && styles.dragging)} data-split-group={props.splitId}>
+        <li
+          {...stylex.attrs(styles.group, props.horizontal && styles.groupH, isDragged() && styles.dragging)}
+          data-split-group={props.splitId}
+        >
           <div
-            {...stylex.attrs(stylex.defaultMarker(), styles.groupHeader)}
+            {...stylex.attrs(stylex.defaultMarker(), styles.groupHeader, props.horizontal && styles.groupHeaderH)}
             title="Drag to move the split view"
             draggable
             onDragStart={(e) => {
@@ -621,7 +693,9 @@ function SplitGroup(props: { splitId: string }) {
             }}
           >
             <Icon name={isRow() ? "columns-2" : "rows-2"} size={13} />
-            <span {...stylex.attrs(styles.groupLabel)}>Split view</span>
+            <Show when={!props.horizontal}>
+              <span {...stylex.attrs(styles.groupLabel)}>Split view</span>
+            </Show>
             <button
               type="button"
               title="Split view options"
@@ -637,8 +711,10 @@ function SplitGroup(props: { splitId: string }) {
               <Icon name="ellipsis" size={14} />
             </button>
           </div>
-          <ul {...stylex.attrs(styles.list)}>
-            <For each={s().tabs}>{(id) => <Show when={appById(id)}>{(app) => <Item app={app()} />}</Show>}</For>
+          <ul {...stylex.attrs(styles.list, props.horizontal && styles.listH)}>
+            <For each={s().tabs}>
+              {(id) => <Show when={appById(id)}>{(app) => <Item app={app()} horizontal={props.horizontal} />}</Show>}
+            </For>
           </ul>
           <Show when={menu()}>
             {(position) => <ContextMenu items={items()} position={position()} onClose={() => setMenu()} />}
@@ -650,13 +726,13 @@ function SplitGroup(props: { splitId: string }) {
 }
 
 /** A tab being dragged in from another window (this window's own drags are in draggedTab). */
-function tabFromElsewhere(dt: DataTransfer | null) {
+export function tabFromElsewhere(dt: DataTransfer | null) {
   if (draggedTab() || draggedSplit() || !dt?.types.includes(TAB_DRAG_TYPE)) return null;
   const id = dt.getData(TAB_DRAG_TYPE);
   return id && !id.startsWith("split:") ? id : null;
 }
 /** While dragging over, the data itself can't be read: only that it's a tab. */
-const isForeignTabDrag = (dt: DataTransfer | null) =>
+export const isForeignTabDrag = (dt: DataTransfer | null) =>
   !draggedTab() && !draggedSplit() && !!dt?.types.includes(TAB_DRAG_TYPE);
 
 /** Where a dragged tab would land: before or after which tab. */
@@ -680,13 +756,24 @@ function dropOn(at: { id: string; side: "before" | "after" }, tabId: string | nu
   void moveTab(tabId, at.id, at.side);
 }
 
-function Item(props: { app: AppSummary; tile?: boolean }) {
+/** A tab: a row in the sidebar, a tab in the horizontal tab bar, or a pinned tile in either. */
+export function Item(props: { app: AppSummary; tile?: boolean; horizontal?: boolean }) {
   const [editing, setEditing] = createSignal(false);
   const [menu, setMenu] = createSignal<MenuPosition>();
   const [iconPicker, setIconPicker] = createSignal<MenuPosition>();
-  const dropBefore = () =>
-    draggedTab() !== props.app.id && dropAt()?.id === props.app.id && dropAt()?.side === "before";
-  const dropAfter = () => draggedTab() !== props.app.id && dropAt()?.id === props.app.id && dropAt()?.side === "after";
+  const dropSide = () => (draggedTab() !== props.app.id && dropAt()?.id === props.app.id ? dropAt()!.side : null);
+  // The line where a dragged tab would land: above or below it in the sidebar, left or right of it in the tab bar.
+  const dropBefore = () => !props.horizontal && dropSide() === "before";
+  const dropAfter = () => !props.horizontal && dropSide() === "after";
+  const dropLeft = () => !!props.horizontal && dropSide() === "before";
+  const dropRight = () => !!props.horizontal && dropSide() === "after";
+  const sideOf = (e: DragEvent): "before" | "after" => {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const before = props.horizontal ? e.clientX < r.left + r.width / 2 : e.clientY < r.top + r.height / 2;
+    return before ? "before" : "after";
+  };
+  const tileH = () => !!props.tile && !!props.horizontal;
+  const audible = () => isAudible(props.app.id);
   const split = () => splitOf(props.app.id);
   // On screen next to the selected tab, in a split view.
   const beside = () => selectedId() !== props.app.id && visibleTabs().includes(props.app.id);
@@ -755,14 +842,14 @@ function Item(props: { app: AppSummary; tile?: boolean }) {
         },
     { label: "Unload", icon: "moon", disabled: !canUnload(props.app.id), onSelect: () => void unloadTab(props.app.id) },
     {
-      label: "Move up",
-      icon: "arrow-up",
+      label: props.horizontal ? "Move left" : "Move up",
+      icon: props.horizontal ? "arrow-left" : "arrow-up",
       disabled: !neighbour(-1),
       onSelect: () => void moveTab(props.app.id, neighbour(-1)!.id, "before"),
     },
     {
-      label: "Move down",
-      icon: "arrow-down",
+      label: props.horizontal ? "Move right" : "Move down",
+      icon: props.horizontal ? "arrow-right" : "arrow-down",
       disabled: !neighbour(1),
       onSelect: () => void moveTab(props.app.id, neighbour(1)!.id, "after"),
     },
@@ -799,6 +886,16 @@ function Item(props: { app: AppSummary; tile?: boolean }) {
               ),
           },
         ]),
+    ...(audible() || isMuted(props.app.id)
+      ? [
+          {
+            label: isMuted(props.app.id) ? "Unmute site" : "Mute site",
+            icon: isMuted(props.app.id) ? "volume-2" : "volume-x",
+            onSelect: () => toggleMuted(props.app.id),
+          },
+        ]
+      : []),
+    layoutMenuItem(),
     "separator",
     {
       label: props.app.kind === "app" ? "Close (the app is kept)" : "Close tab",
@@ -832,16 +929,29 @@ function Item(props: { app: AppSummary; tile?: boolean }) {
       {...stylex.attrs(
         stylex.defaultMarker(),
         styles.item,
+        props.horizontal && styles.itemH,
         props.tile && styles.tile,
+        tileH() && styles.tileH,
         highlighted() && styles.selected,
         tileOn() && styles.tileOn,
         beside() && styles.beside,
         isDragged() && styles.dragging,
         dropBefore() && styles.dropBefore,
         dropAfter() && styles.dropAfter,
+        dropLeft() && styles.dropLeft,
+        dropRight() && styles.dropRight,
         dropInto() && styles.dropInto,
       )}
-      title={props.tile ? props.app.name : asleep() ? "Not loaded: opens where you left it" : undefined}
+      // Horizontal tabs show a card with its name and address instead (components/TabStrip.tsx).
+      title={
+        props.horizontal
+          ? undefined
+          : props.tile
+            ? props.app.name
+            : asleep()
+              ? "Not loaded: opens where you left it"
+              : undefined
+      }
       aria-label={props.tile ? props.app.name : undefined}
       onClick={() => selectApp(props.app.id)}
       onAuxClick={(e) => {
@@ -877,8 +987,7 @@ function Item(props: { app: AppSummary; tile?: boolean }) {
           e.preventDefault();
           e.stopPropagation();
           e.dataTransfer!.dropEffect = "move";
-          const r = e.currentTarget.getBoundingClientRect();
-          setDropAt({ id: props.app.id, side: e.clientY < r.top + r.height / 2 ? "before" : "after" });
+          setDropAt({ id: props.app.id, side: sideOf(e) });
           return;
         }
         if (!draggedTab() && !draggedSplit()) {
@@ -892,8 +1001,7 @@ function Item(props: { app: AppSummary; tile?: boolean }) {
         }
         e.preventDefault();
         e.dataTransfer!.dropEffect = "move";
-        const r = e.currentTarget.getBoundingClientRect();
-        setDropAt({ id: props.app.id, side: e.clientY < r.top + r.height / 2 ? "before" : "after" });
+        setDropAt({ id: props.app.id, side: sideOf(e) });
       }}
       onDragLeave={(e) => {
         if (dropAt()?.id === props.app.id && !e.currentTarget.contains(e.relatedTarget as Node | null)) setDropAt(null);
@@ -947,6 +1055,22 @@ function Item(props: { app: AppSummary; tile?: boolean }) {
         />
       </Show>
 
+      {/* Playing sound (or muted): a click mutes it or turns its sound back on, like Chrome's. */}
+      <Show when={audible() || isMuted(props.app.id)}>
+        <button
+          type="button"
+          title={isMuted(props.app.id) ? "Unmute site" : "Mute site"}
+          aria-label={isMuted(props.app.id) ? `Unmute ${props.app.name}` : `Mute ${props.app.name}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleMuted(props.app.id);
+          }}
+          {...stylex.attrs(styles.audio, props.tile && styles.audioTile)}
+          data-tab-audio={isMuted(props.app.id) ? "muted" : "playing"}
+        >
+          <Icon name={isMuted(props.app.id) ? "volume-x" : "volume-2"} size={13} />
+        </button>
+      </Show>
       <Show when={running()}>
         <span
           {...stylex.attrs(styles.dot, fullAccess() && styles.dotFull)}
@@ -1006,7 +1130,8 @@ const styles = stylex.create({
   // Hidden: it floats over the page from the left, as a card, while it's shown.
   rootOverlay: {
     position: "fixed",
-    zIndex: 1400,
+    // Over the page, under every menu, popover and dialog (1000 and up): the ones it opens included.
+    zIndex: 900,
     // Flush with the window's edge, like Zen's: it slides in from there, rounded only where it meets the page.
     top: 0,
     bottom: 0,
@@ -1021,7 +1146,7 @@ const styles = stylex.create({
   // Moved by `left`, not a transform: the address pops out of it with position: fixed (Ctrl+L while it's hidden).
   rootAway: { left: "calc(-1 * var(--sidebar-width) - 32px)", boxShadow: "none" },
   // The strip at the window's left edge that brings a hidden sidebar in (over web pages too).
-  edge: { position: "fixed", zIndex: 1399, top: 0, bottom: 0, left: 0, width: 8 },
+  edge: { position: "fixed", zIndex: 899, top: 0, bottom: 0, left: 0, width: EDGE_WIDTH },
   footerEnd: { display: "flex", justifyContent: "flex-end", flexShrink: 0, minWidth: 32 },
   rootPrivate: { backgroundImage: "linear-gradient(rgb(76 29 149 / 0.12), rgb(76 29 149 / 0.12))" },
   naming: { display: "flex", alignItems: "center", gap: space.sm, flexShrink: 0 },
@@ -1077,6 +1202,10 @@ const styles = stylex.create({
     userSelect: "none",
   },
   groupLabel: { flex: 1, fontWeight: 600, letterSpacing: "0.02em" },
+  // Horizontal tabs: its tabs in a row, after a handle with its icon and menu.
+  groupH: { flexDirection: "row", alignItems: "center", flex: "0 1 auto", minWidth: 0, padding: 2 },
+  groupHeaderH: { alignSelf: "stretch", gap: 2, height: "auto", paddingInline: 4 },
+  listH: { flexDirection: "row", minWidth: 0, flex: "0 1 auto" },
   groupMore: { width: 18, height: 18 },
   dragging: { opacity: 0.45 },
   // In the split view on screen, next to the selected tab.
@@ -1084,6 +1213,8 @@ const styles = stylex.create({
   // A line where the dragged tab would land (the list has a 2px gap).
   dropBefore: { boxShadow: `0 -2px 0 0 ${colors.accent}` },
   dropAfter: { boxShadow: `0 2px 0 0 ${colors.accent}` },
+  dropLeft: { boxShadow: `-2px 0 0 0 ${colors.accent}` },
+  dropRight: { boxShadow: `2px 0 0 0 ${colors.accent}` },
   // A file or link dragged in opens in this tab.
   dropInto: {
     backgroundColor: { default: colors.accentSoft, ":hover": colors.accentSoft },
@@ -1148,6 +1279,7 @@ const styles = stylex.create({
   },
   // Pinned tabs: tiles in the address pill's tint, the one on screen lifted like a selected tab.
   tile: {
+    position: "relative",
     justifyContent: "center",
     height: 42,
     paddingInline: 0,
@@ -1178,6 +1310,37 @@ const styles = stylex.create({
     cursor: "pointer",
     userSelect: "none",
     backgroundColor: { default: "transparent", ":hover": colors.surfaceHover },
+  },
+  // A tab in the horizontal tab bar: as wide as there's room for, up to Chrome's width; past the
+  // narrowest, the bar scrolls (components/TabStrip.tsx).
+  // (A width, not a flex basis: the bar's own width comes from its tabs' widths.)
+  itemH: { flex: "0 1 auto", width: 220, minWidth: 72, height: 30, gap: 6, paddingInline: 8, overflow: "hidden" },
+  // A pinned tab there: an icon, the tabs' height.
+  // (Its audio badge sits over its corner.)
+  tileH: { flex: "none", minWidth: 0, width: 38, height: 30, borderRadius: 8, overflow: "visible" },
+  audio: {
+    display: "grid",
+    placeItems: "center",
+    flexShrink: 0,
+    width: 22,
+    height: 22,
+    padding: 0,
+    borderStyle: "none",
+    borderRadius: radius.sm,
+    backgroundColor: { default: "transparent", ":hover": colors.surfaceHover },
+    color: { default: colors.muted, ":hover": colors.text },
+    cursor: "pointer",
+  },
+  // On a pinned tile: a badge in its corner.
+  audioTile: {
+    position: "absolute",
+    top: -4,
+    right: -4,
+    width: 16,
+    height: 16,
+    borderRadius: radius.full,
+    backgroundColor: { default: colors.surface, ":hover": colors.surface },
+    boxShadow: `0 0 0 1px ${colors.border}`,
   },
   selected: {
     backgroundColor: { default: colors.surface, ":hover": colors.surface },
@@ -1270,6 +1433,8 @@ const styles = stylex.create({
     flex: 1,
     minWidth: 0,
   },
+  // In the toolbar under horizontal tabs: as wide as its icons, in one row.
+  workspaceBarInline: { flex: "none", flexWrap: "nowrap" },
   workspaceIcon: {
     position: "relative",
     display: "grid",

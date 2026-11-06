@@ -87,6 +87,11 @@ export const Settings = Schema.Struct({
       .pipe(withDefault([])),
   }).pipe(withDefault({})),
   tabs: Schema.Struct({
+    /**
+     * Where the tabs are: a horizontal tab bar at the top, like Chrome's (the default), or the
+     * vertical sidebar. Existing profiles keep the vertical sidebar (db/Db.ts).
+     */
+    layout: Schema.Literals(["horizontal", "vertical"]).pipe(withDefault("horizontal")),
     /** Tabs not used for this many minutes are unloaded (their page closes, its state is kept); 0 = never. */
     unloadAfterMinutes: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 24 * 60 })).pipe(withDefault(30)),
   }).pipe(withDefault({})),

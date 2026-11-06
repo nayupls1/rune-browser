@@ -25,6 +25,20 @@ Ctrl+Shift+N (or "New private window") opens a private window, like Chrome's inc
 
 Each window has no title bar, like Zen Browser. On Linux and Windows it's frameless and Rune Browser draws its three buttons as macOS-style lights first in the sidebar's top row: close, minimize and maximize (gray while the window isn't focused, their glyphs on hover; `components/WindowControls.tsx`). macOS keeps its own traffic lights, top left (hidden with the sidebar). That row, the agent sidebar's header and, while the sidebar is hidden, the gutter above the page are where the window is dragged; double-clicking one maximizes it (`lib/windowChrome.ts`).
 
+## Tab layout
+
+The tabs are either in a bar along the top of the window, or in the vertical sidebar described below. New profiles start with horizontal tabs; profiles from before there was a choice keep the sidebar (`db/Db.ts` writes it into their settings once). Switch in Settings → Appearance → Tabs, in a tab's menu ("Use vertical tabs"/"Use horizontal tabs"), the tab bar's own menu (a right-click off the tabs) or the command bar. It changes at once: the pages stay where they are, nothing reloads (`settings.tabs.layout`, cached in `localStorage` so a start doesn't flash the other layout).
+
+### Horizontal tabs
+
+`components/TabStrip.tsx`, built from the sidebar's own pieces (`components/Sidebar.tsx`):
+
+- **One bar**, minimal like Helium's: the window's buttons (macOS: its traffic lights), back, forward and reload, a compact address (it pops out the same way to type), then the tabs right next to it (pinned ones as icons) and a + (a new web tab; right-click for New app, new windows and the closed apps), and at the end the workspaces' icons, the agent and the ⋯ menu (opening downwards). A private window has Settings in place of the workspaces and the agent. The bar drags the window where it's free (double-click maximizes); a right-click there has its own menu.
+- **Tabs** shrink as more open, down to a minimum width; past that they scroll (the wheel scrolls them sideways), always keeping the tab on screen in view. They work as in the sidebar: the same menu, × and middle-click to close, dragging to reorder, onto a side of the page for a split view or out of the window for a new one, drops from other windows, files and links dropped on them. A split view is one group with its tabs. Resting the pointer on a tab shows a card with its name, address and whether it's loaded.
+- The agent sidebar and split view work as with vertical tabs; the agent sidebar sits under the bar. There's no sidebar to hide: Ctrl+Shift+B does nothing.
+
+**Sound:** a tab whose page plays sound shows a speaker (in both layouts); clicking it, or "Mute site" in its menu, mutes the page (`lib/webtabs.ts`, from the page's `audio-state-changed` in `main/web.ts`).
+
 ## Sidebar
 
 The sidebar is the browser's chrome, like Zen Browser's: pages get the whole content area, without a toolbar (`components/TopBar.tsx`, each tab's part in `lib/tabChrome.ts`). The page sits inset from the window and the sidebars, with rounded corners; each pane of a split view is its own card. Fullscreen video still fills the screen.
@@ -37,7 +51,7 @@ The sidebar is the browser's chrome, like Zen Browser's: pages get the whole con
 - **Tabs** have an × (or middle-click, Ctrl+W). Closing a web tab removes it; Ctrl+Shift+T opens the last one again. Closing an app keeps it with its project, data, chat and secrets (`POST /api/apps/:id/close`): "New tab" lists the saved apps to open again in the current workspace (`/api/library`, `POST /api/apps/:id/reopen`), as does the command bar. "Delete" in its menu deletes it for good. A new app with nothing in it yet is just removed.
 - **"New tab"** is under the tabs. At the very bottom, one row: the ⋯ menu on the left, the workspaces' icons centered, the agent (Ctrl+I; a dot while it works) on the right. A private window has Settings there instead.
 
-It hides completely, like Zen's compact mode (the button in the top row, or Ctrl+Shift+B, also from inside web pages): the page gets the whole window, and moving the pointer to the window's left edge brings the sidebar in over the page until the pointer leaves it. Ctrl+L and Ctrl+K work while it's hidden. It's resized by dragging its edge (double-click it for the default width; dragging it far enough to the left hides it). Its width and whether it's hidden are remembered.
+It hides completely, like Zen's compact mode (the button in the top row, or Ctrl+Shift+B, also from inside web pages): the page gets the whole window, and moving the pointer to the window's left edge brings the sidebar in over the page until the pointer leaves it. Any movement in the edge strip does it, not only entering it, and so does leaving the page through the window's left edge (Linux and Windows resize a window that isn't maximized from the 5px inside its edges, which the page never gets). It floats under every menu, popover and dialog (z-index 900, they're 1000 and up), its own included, and stays while one of its menus is open. Ctrl+L and Ctrl+K work while it's hidden. It's resized by dragging its edge (double-click it for the default width; dragging it far enough to the left hides it). Its width and whether it's hidden are remembered.
 
 ## Agent sidebar
 

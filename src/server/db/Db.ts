@@ -27,6 +27,9 @@ export const orDieAll = <T extends Record<string, Fn>>(repo: T) =>
 
 const migrate = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
+  // A profile from before this start (its tables are there already), not a new one.
+  const existing =
+    (yield* sql<{ name: string }>`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'apps'`).length > 0;
   yield* sql.unsafe("PRAGMA foreign_keys = ON");
   // Deleted rows are overwritten, not left in free pages: a closed private window's tabs leave nothing behind.
   yield* sql.unsafe("PRAGMA secure_delete = ON");
@@ -345,6 +348,16 @@ const migrate = Effect.gen(function* () {
     INSERT OR IGNORE INTO bookmarks (id, parent_id, position, title, added_at, changed_at) VALUES
       (1, 0, 0, 'Bookmarks bar', ${Date.now()}, ${Date.now()}),
       (2, 0, 1, 'Other bookmarks', ${Date.now()}, ${Date.now()})`);
+  // New profiles start with horizontal tabs; profiles from before there was a choice keep the vertical
+  // sidebar. Saved settings always say which from then on, so this only ever changes a profile once.
+  yield* sql.unsafe(
+    `INSERT OR IGNORE INTO settings (id, value) VALUES (1, '{"tabs":{"layout":"${existing ? "vertical" : "horizontal"}"}}')`,
+  );
+  if (existing)
+    yield* sql.unsafe(
+      `UPDATE settings SET value = json_set(value, '$.tabs.layout', 'vertical')
+       WHERE id = 1 AND json_valid(value) AND json_type(value, '$.tabs.layout') IS NULL`,
+    );
 });
 
 export const layer = Layer.unwrap(

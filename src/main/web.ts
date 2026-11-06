@@ -182,6 +182,10 @@ export function setupWebTabs(
       browser.trackGuest(contents);
       sitePermissions.track(contents);
     }
+    // The tab's audio indicator.
+    contents.on("audio-state-changed", ({ audible }) =>
+      sendTo(contents, "rune:audio", { contentsId: contents.id, audible }),
+    );
     contents.setWindowOpenHandler(({ url, disposition }) => {
       openTab(contents, url, disposition === "background-tab");
       return { action: "deny" };
