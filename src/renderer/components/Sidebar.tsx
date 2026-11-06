@@ -1434,15 +1434,19 @@ const styles = stylex.create({
     minWidth: 0,
   },
   // In the toolbar under horizontal tabs: as wide as its icons, in one row.
-  // In the bar with horizontal tabs: on a narrow window its icons give way after the address does (hence the tiny
-  // shrink factor) and before the agent and ⋯ buttons do.
+  // In the bar with horizontal tabs: on a narrow window its icons give way after the address does (TopBar.tsx:
+  // its big shrink factor) and before the agent and ⋯ buttons do, keeping one whole. Clipped with room for the ring
+  // a tab dragged over an icon gets.
   workspaceBarInline: {
     flexGrow: 0,
-    flexShrink: 0.001,
+    flexShrink: 1,
     flexBasis: "auto",
-    minWidth: 0,
+    minWidth: 30,
     flexWrap: "nowrap",
-    overflow: "hidden",
+    // Clipped at its end, not both sides.
+    justifyContent: "flex-start",
+    overflow: "clip",
+    overflowClipMargin: 3,
   },
   workspaceIcon: {
     position: "relative",

@@ -117,7 +117,7 @@ const [agentWidth, setAgentWidthSignal] = createSignal(
 
 export { agentWidth };
 
-/** The page keeps at least this much of the window next to the sidebars, when there's room for it. */
+/** The page keeps at least this much of the window next to the sidebars, unless the agent sidebar needs it for its minimum. */
 export const PAGE_MIN = 160;
 
 /**

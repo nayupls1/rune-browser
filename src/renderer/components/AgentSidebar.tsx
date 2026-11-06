@@ -41,16 +41,24 @@ function Resizer(props: { tabId: string }) {
   let stop = () => {};
   onCleanup(() => stop());
 
+  /** The width it's drawn at: a narrow window caps it below the saved one (lib/layout.ts: agentMaxWidth). */
+  const drawnWidth = (handle: EventTarget | null) =>
+    Math.round(
+      Math.min(agentWidth(), (handle as HTMLElement | null)?.parentElement?.getBoundingClientRect().width ?? Infinity),
+    );
+
   const start = (e: PointerEvent) => {
     if (e.button !== 0) return;
     e.preventDefault();
     const startX = e.clientX;
-    // From the width it's drawn at: a narrow window caps it below the stored one (lib/layout.ts: agentMaxWidth).
-    const drawn = (e.currentTarget as HTMLElement).parentElement?.getBoundingClientRect().width;
-    const startWidth = Math.round(Math.min(agentWidth(), drawn ?? Infinity));
+    const saved = agentWidth();
+    // Dragged from where it's drawn, so it follows the pointer right away.
+    const startWidth = drawnWidth(e.currentTarget);
     let raw = startWidth;
+    let moved = false;
     setDragging(true);
     const move = (ev: PointerEvent) => {
+      moved = true;
       raw = startWidth - (ev.clientX - startX);
       setAgentWidth(raw, false);
     };
@@ -60,8 +68,12 @@ function Resizer(props: { tabId: string }) {
       setDragging(false);
       stop = () => {};
       if (raw < Math.min(AGENT_MIN, startWidth) - 80) {
-        setAgentWidth(startWidth);
+        // Closed: it opens again at the width it had.
+        setAgentWidth(saved);
         setAgentCollapsed(props.tabId, true);
+      } else if (!moved || (startWidth < saved && raw >= startWidth)) {
+        // A click, or a capped one made no narrower: the saved width stays for a wider window.
+        setAgentWidth(saved);
       } else setAgentWidth(raw);
     };
     window.addEventListener("pointermove", move);
@@ -82,7 +94,7 @@ function Resizer(props: { tabId: string }) {
         onKeyDown={(e) => {
           const step = e.shiftKey ? 48 : 16;
           if (e.key === "ArrowLeft") setAgentWidth(agentWidth() + step);
-          else if (e.key === "ArrowRight") setAgentWidth(agentWidth() - step);
+          else if (e.key === "ArrowRight") setAgentWidth(drawnWidth(e.currentTarget) - step);
           else return;
           e.preventDefault();
         }}

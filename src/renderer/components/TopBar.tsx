@@ -880,8 +880,9 @@ const styles = stylex.create({
   // Keeps the address's place in the sidebar while it floats.
   addressSlot: { position: "relative", flexShrink: 0, height: 36, marginBottom: 4 },
   // In the bar with horizontal tabs: compact, so the tabs have the room (it pops out to type). Longhands: the
-  // slot's flexShrink would win over a shorthand, and the bar has to fit narrow windows.
-  addressSlotInline: { flexGrow: 0, flexShrink: 1, flexBasis: 300, minWidth: 80, height: 32, marginBottom: 0 },
+  // slot's flexShrink would win over a shorthand. On a narrow window it gives way first (the big factor), then the
+  // workspace icons do (Sidebar.tsx).
+  addressSlotInline: { flexGrow: 0, flexShrink: 1000, flexBasis: 300, minWidth: 80, height: 32, marginBottom: 0 },
   address: {
     position: "relative",
     display: "flex",
