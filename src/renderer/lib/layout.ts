@@ -2,7 +2,7 @@
 // sidebar's width and whether it's hidden (like Zen's compact mode: the page gets the whole
 // window, and the sidebar slides in over it from the left edge), and the agent sidebar's
 // width. Remembered across restarts.
-import { createEffect, createRoot, createSignal } from "solid-js";
+import { createEffect, createRoot, createSignal, on } from "solid-js";
 import type { Settings } from "../../shared/settings";
 import { settings, settingsLoaded, updateSettings } from "./settings";
 
@@ -26,12 +26,10 @@ export const tabLayout = (): TabLayout =>
 export const isHorizontal = () => tabLayout() === "horizontal";
 
 export function setTabLayout(layout: TabLayout) {
-  // A hidden sidebar shown for now (its menu picked this) mustn't come back stuck open later.
-  setSidebarPeek(false);
   updateSettings((s) => ({ ...s, tabs: { ...s.tabs, layout } }));
 }
 
-createRoot(() =>
+createRoot(() => {
   createEffect(() => {
     if (!settingsLoaded()) return;
     try {
@@ -39,8 +37,11 @@ createRoot(() =>
     } catch {
       // Only a convenience for the next start.
     }
-  }),
-);
+  });
+  // A hidden sidebar shown for now (its menu may have switched the layout) mustn't come back stuck open later,
+  // whichever window changed it.
+  createEffect(on(tabLayout, () => setSidebarPeek(false), { defer: true }));
+});
 
 export const SIDEBAR_MIN = 180;
 export const SIDEBAR_MAX = 480;

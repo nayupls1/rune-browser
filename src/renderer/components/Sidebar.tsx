@@ -1316,7 +1316,8 @@ const styles = stylex.create({
   // (A width, not a flex basis: the bar's own width comes from its tabs' widths.)
   itemH: { flex: "0 1 auto", width: 220, minWidth: 72, height: 30, gap: 6, paddingInline: 8, overflow: "hidden" },
   // A pinned tab there: an icon, the tabs' height.
-  tileH: { flex: "none", minWidth: 0, width: 38, height: 30, borderRadius: 8 },
+  // (Its audio badge sits over its corner.)
+  tileH: { flex: "none", minWidth: 0, width: 38, height: 30, borderRadius: 8, overflow: "visible" },
   audio: {
     display: "grid",
     placeItems: "center",

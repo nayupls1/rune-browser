@@ -61,13 +61,18 @@
 [data-titlebar] [data-tab-strip-spacer] {
   -webkit-app-region: drag;
 }
+/* A menu opened over it (portaled, so later in the document) is clicked, not dragged. */
+[data-context-menu] {
+  -webkit-app-region: no-drag;
+}
 
 /* The address bar while it's open floats over everything, the top bars too: none of them
    drags the window then (Electron adds drag regions in document order, so later ones would
    win over the backdrop), and a click on them closes it. */
 [data-address-backdrop],
 [data-address-bar],
-body:has([data-address-open]) [data-titlebar] {
+body:has([data-address-open]) [data-titlebar],
+body:has([data-address-open]) [data-tab-strip-spacer] {
   -webkit-app-region: no-drag;
 }
 
