@@ -31,6 +31,9 @@ import {
   isExtensionId,
   localize,
   networkRulesToDnr,
+  coversPattern,
+  hostPermissionsOf,
+  optionalHostPermissionsOf,
   optionalPermissionsOf,
   permissionsOf,
   parseShortcut,
@@ -851,6 +854,45 @@ export function setupExtensions(options: ExtensionsOptions) {
     listChanged();
   }
 
+  /**
+   * Gives or takes back one of the optional sites it asks for, with the checks
+   * chrome.permissions.request and .remove make: only what its optional sites
+   * cover, never what its required ones do. Taking a site back takes the
+   * narrower ones it was given there too.
+   */
+  function setSiteAccess(id: string, pattern: string, allowed: boolean) {
+    const entry = registry.get(id);
+    if (!entry) return;
+    let manifest;
+    try {
+      manifest = readManifest(entry.path).manifest;
+    } catch {
+      return;
+    }
+    if (coversPattern(hostPermissionsOf(manifest), pattern)) return;
+    const granted = entry.granted ?? { permissions: [], origins: [] };
+    let origins: string[];
+    let changed: string[];
+    if (allowed) {
+      if (!coversPattern(optionalHostPermissionsOf(manifest), pattern) || coversPattern(granted.origins, pattern))
+        return;
+      origins = [...granted.origins, pattern];
+      changed = [pattern];
+    } else {
+      changed = granted.origins.filter((o) => o === pattern || coversPattern([pattern], o));
+      origins = granted.origins.filter((o) => !changed.includes(o));
+      // Nothing of its own to take back, or a broader site it was given still covers it.
+      if (!changed.length || coversPattern(origins, pattern)) return;
+    }
+    registry.update(id, { granted: { ...granted, origins } });
+    for (const s of sessions())
+      if (loaded(s, id))
+        void dispatch(contexts, state(s, id), s, id, allowed ? "permissions.onAdded" : "permissions.onRemoved", [
+          { permissions: [], origins: changed },
+        ]);
+    listChanged();
+  }
+
   function setEnabled(id: string, enabled: boolean) {
     const entry = registry.update(id, { enabled });
     if (!entry) return;
@@ -973,6 +1015,9 @@ export function setupExtensions(options: ExtensionsOptions) {
   handle("rune:extensions-remove", (id: unknown) => (isExtensionId(id) ? remove(id) : undefined));
   handle("rune:extensions-set-permission", (id: unknown, permission: unknown, allowed: unknown) => {
     if (isExtensionId(id) && typeof permission === "string") setPermission(id, permission, allowed === true);
+  });
+  handle("rune:extensions-set-site-access", (id: unknown, pattern: unknown, allowed: unknown) => {
+    if (isExtensionId(id) && typeof pattern === "string") setSiteAccess(id, pattern, allowed === true);
   });
   handle("rune:extensions-set-auto-update", (value: unknown) => {
     registry.autoUpdate = value === true;

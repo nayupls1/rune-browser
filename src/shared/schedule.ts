@@ -1,5 +1,5 @@
 // Schedules: checking them and describing them, for the server and the UI.
-import type { ScheduleSpec, ScheduleTask, ScheduleTrigger } from "./api";
+import type { AppSummary, ScheduleSpec, ScheduleTask, ScheduleTrigger } from "./api";
 import { describeCron, parseCron, shortestGapMinutes } from "./cron";
 
 /** Recurring schedules run at most this often. */
@@ -10,6 +10,31 @@ export const MAX_PROMPT = 20_000;
 
 /** The tab a schedule's task runs in (null: a prompt that opens one on its first run). */
 export const taskTab = (task: ScheduleTask): string | null => task.appId ?? null;
+
+/** An app's event ("app.started:<id>", "app.crashed:<id>", "app:<id>:<name>"): every event but "rune.started". */
+const isAppEvent = (trigger: ScheduleTrigger) => trigger.type === "event" && trigger.event.startsWith("app");
+
+/**
+ * A schedule once the tab its task runs in is deleted (null: the schedule goes
+ * too). A prompt in a web tab doesn't need that tab: closing a web tab deletes
+ * it, so the prompt opens a new tab at the same address on its next run and
+ * keeps that one. Everything else goes: tools and commands need their app, an
+ * app is only deleted on purpose ("and all its data"), private tabs leave
+ * nothing behind, a web tab that wasn't on a website has no address to open,
+ * and a prompt waiting for an app's event needs an existing tab (SchedulesPage:
+ * the event is its tab's).
+ */
+export function specWithoutTab(
+  spec: ScheduleSpec,
+  appId: string,
+  tab: Pick<AppSummary, "kind" | "workspaceId" | "url" | "private"> | null,
+): ScheduleSpec | null {
+  const task = spec.task;
+  if (task.type !== "prompt" || !tab || tab.kind !== "web" || tab.private || isAppEvent(spec.trigger)) return null;
+  if (!tab.url || !/^https?:\/\/\S+$/i.test(tab.url)) return null;
+  const { appId: _, newTab: __, ...rest } = task;
+  return { ...spec, task: { ...rest, newTab: { kind: "web", workspaceId: tab.workspaceId, url: tab.url } } };
+}
 
 const EVENT = /^(rune\.started|app\.(started|crashed):[\w-]+|app:[\w-]+:[\w.-]{1,64})$/;
 

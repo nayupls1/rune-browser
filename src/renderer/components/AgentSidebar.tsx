@@ -6,7 +6,7 @@
 // dragging its left edge like the tab sidebar.
 import * as stylex from "@stylexjs/stylex";
 import { createSignal, onCleanup, Show } from "solid-js";
-import { AGENT_DEFAULT, AGENT_MIN, agentWidth, setAgentWidth } from "../lib/layout";
+import { AGENT_DEFAULT, AGENT_MIN, agentMaxWidth, agentWidth, setAgentWidth } from "../lib/layout";
 import { appById, isAgentCollapsed, isTab, selectedId, setAgentCollapsed, states } from "../lib/store";
 import { colors } from "../theme.stylex";
 import { Chat } from "./Chat";
@@ -23,7 +23,7 @@ export function AgentSidebar() {
       {(tabId) => (
         <div
           {...stylex.attrs(styles.root)}
-          style={{ width: `${agentWidth()}px` }}
+          style={{ width: `${agentWidth()}px`, "max-width": agentMaxWidth() }}
           data-agent-sidebar
           data-agent-for={tabId}
         >
@@ -41,14 +41,24 @@ function Resizer(props: { tabId: string }) {
   let stop = () => {};
   onCleanup(() => stop());
 
+  /** The width it's drawn at: a narrow window caps it below the saved one (lib/layout.ts: agentMaxWidth). */
+  const drawnWidth = (handle: EventTarget | null) =>
+    Math.round(
+      Math.min(agentWidth(), (handle as HTMLElement | null)?.parentElement?.getBoundingClientRect().width ?? Infinity),
+    );
+
   const start = (e: PointerEvent) => {
     if (e.button !== 0) return;
     e.preventDefault();
     const startX = e.clientX;
-    const startWidth = agentWidth();
+    const saved = agentWidth();
+    // Dragged from where it's drawn, so it follows the pointer right away.
+    const startWidth = drawnWidth(e.currentTarget);
     let raw = startWidth;
+    let moved = false;
     setDragging(true);
     const move = (ev: PointerEvent) => {
+      moved = true;
       raw = startWidth - (ev.clientX - startX);
       setAgentWidth(raw, false);
     };
@@ -57,9 +67,13 @@ function Resizer(props: { tabId: string }) {
       window.removeEventListener("pointerup", stop);
       setDragging(false);
       stop = () => {};
-      if (raw < AGENT_MIN - 80) {
-        setAgentWidth(startWidth);
+      if (raw < Math.min(AGENT_MIN, startWidth) - 80) {
+        // Closed: it opens again at the width it had.
+        setAgentWidth(saved);
         setAgentCollapsed(props.tabId, true);
+      } else if (!moved || (startWidth < saved && raw >= startWidth)) {
+        // A click, or a capped one made no narrower: the saved width stays for a wider window.
+        setAgentWidth(saved);
       } else setAgentWidth(raw);
     };
     window.addEventListener("pointermove", move);
@@ -80,7 +94,7 @@ function Resizer(props: { tabId: string }) {
         onKeyDown={(e) => {
           const step = e.shiftKey ? 48 : 16;
           if (e.key === "ArrowLeft") setAgentWidth(agentWidth() + step);
-          else if (e.key === "ArrowRight") setAgentWidth(agentWidth() - step);
+          else if (e.key === "ArrowRight") setAgentWidth(drawnWidth(e.currentTarget) - step);
           else return;
           e.preventDefault();
         }}
@@ -100,8 +114,7 @@ const styles = stylex.create({
     position: "relative",
     display: "flex",
     flexShrink: 0,
-    // Never more than most of the window.
-    maxWidth: "70vw",
+    // Its max-width (lib/layout.ts: agentMaxWidth) keeps it inside the window.
     minHeight: 0,
     // Part of the frame around the page, like the tab sidebar.
     backgroundColor: colors.sidebar,

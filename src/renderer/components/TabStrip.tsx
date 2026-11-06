@@ -293,7 +293,9 @@ const styles = stylex.create({
     alignItems: "center",
     gap: 4,
     flex: 1,
-    minWidth: 0,
+    // On a narrow window: room for New tab (with its gap and the tabs' padding), and nothing past its end.
+    minWidth: 42,
+    overflowX: "clip",
     height: "100%",
     paddingLeft: 4,
   },
@@ -307,7 +309,18 @@ const styles = stylex.create({
     backgroundColor: "#2e1f5e",
     color: "#e4dcff",
   },
-  tiles: { listStyle: "none", display: "flex", gap: 4, flexShrink: 0, margin: 0, padding: 0, paddingRight: 4 },
+  // Pinned tabs give way on a narrow bar too, before New tab does.
+  tiles: {
+    listStyle: "none",
+    display: "flex",
+    gap: 4,
+    flexShrink: 1,
+    minWidth: 0,
+    overflowX: "clip",
+    margin: 0,
+    padding: 0,
+    paddingRight: 4,
+  },
   tabs: {
     listStyle: "none",
     display: "flex",

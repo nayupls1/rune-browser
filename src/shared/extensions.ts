@@ -31,7 +31,13 @@ export interface ExtensionInfo {
   unsupported: string[];
   /** What it asks for (Details on the extensions page): API permissions, and the sites it can read and change. */
   permissions: ExtensionPermission[];
+  /** The sites it always has (host permissions, content scripts). */
   siteAccess: string[];
+  /**
+   * Sites it asks for when it needs them, and whether it has them (see `optionalSiteAccess`). `asked`: in its
+   * manifest, not a narrower one it was given; `coveredBy`: a broader site it was given that includes it.
+   */
+  optionalSiteAccess: { pattern: string; allowed: boolean; asked: boolean; coveredBy: string | null }[];
   /** Its commands that have a key on this platform (`_execute_action` opens its popup). */
   shortcuts: { name: string; description: string; shortcut: string }[];
   /** Can start programs on this computer (native messaging hosts installed for it). */
@@ -370,6 +376,38 @@ export const hostPermissionsOf = (m: Manifest) =>
     (p): p is string => typeof p === "string" && isHostPattern(p),
   );
 
+/** Sites it may ask for when it needs them (chrome.permissions.request): optional_host_permissions, or optional permissions that are patterns. */
+export const optionalHostPermissionsOf = (m: Manifest) => [
+  ...new Set(
+    [...(m.optional_host_permissions ?? []), ...(m.optional_permissions ?? [])].filter(
+      (p): p is string => typeof p === "string" && isHostPattern(p),
+    ),
+  ),
+];
+
+/**
+ * Its optional site access, for its details: the sites it may ask for, and
+ * narrower ones it was given (chrome.permissions.request takes any pattern the
+ * manifest's optional ones cover). Sites its required access already covers
+ * aren't here: it always has those.
+ */
+export function optionalSiteAccess(m: Manifest, grantedOrigins: readonly string[]) {
+  const required = hostPermissionsOf(m);
+  const asked = optionalHostPermissionsOf(m);
+  /** A broader site it was given that covers this one (switching this one off wouldn't change anything). */
+  const broader = (pattern: string) => grantedOrigins.find((o) => o !== pattern && coversPattern([o], pattern)) ?? null;
+  return [...new Set([...asked, ...grantedOrigins])]
+    .filter((pattern) => !coversPattern(required, pattern))
+    .filter((pattern) => asked.includes(pattern) || !broader(pattern))
+    .sort()
+    .map((pattern) => ({
+      pattern,
+      allowed: coversPattern(grantedOrigins, pattern),
+      asked: asked.includes(pattern),
+      coveredBy: broader(pattern),
+    }));
+}
+
 // --- Match patterns ----------------------------------------------------------------
 
 /**
@@ -410,6 +448,44 @@ const escapeRegExp = (s: string) => s.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
 export function matchesAny(patterns: readonly string[], url: string) {
   return patterns.some((p) => matchPattern(p)?.(url) ?? false);
 }
+
+const ALL_URLS_SCHEMES = ["http", "https", "ws", "wss", "ftp", "file", "data", "chrome-extension"];
+
+/** A match pattern's schemes and host (null: not a valid pattern), with `<all_urls>` as every scheme and host. */
+function patternParts(pattern: string) {
+  if (pattern === "<all_urls>") return { schemes: ALL_URLS_SCHEMES, host: "*" };
+  const m = /^(\*|https?|wss?|ftp|file|urn|chrome-extension):\/\/([^/]*)(\/.*)?$/i.exec(pattern);
+  if (!m || !matchPattern(pattern)) return null;
+  const [, scheme, host] = m as unknown as [string, string, string];
+  const s = scheme.toLowerCase();
+  return { schemes: s === "*" ? ["http", "https", "ws", "wss"] : [s], host: host.toLowerCase() };
+}
+
+/**
+ * Whether every site `inner` matches, `outer` matches too, by scheme and host.
+ * Paths don't count: Chrome reads host permissions as path "/*", so
+ * `https://*\/` covers `https://example.com/*`.
+ */
+function patternCovers(outer: string, inner: string) {
+  const o = patternParts(outer);
+  const i = patternParts(inner);
+  if (!o || !i) return false;
+  if (!i.schemes.every((s) => o.schemes.includes(s))) return false;
+  const port = (h: string) => h.replace(/:\d+$/, "");
+  if (o.host !== "*") {
+    if (i.host === "*") return false;
+    if (o.host.startsWith("*.")) {
+      const base = o.host.slice(2);
+      const host = port(i.host.startsWith("*.") ? i.host.slice(2) : i.host);
+      if (host !== base && !host.endsWith(`.${base}`)) return false;
+    } else if (i.host.startsWith("*.") || port(i.host) !== port(o.host)) return false;
+  }
+  return true;
+}
+
+/** Whether the patterns cover this one (like chrome.permissions.contains checks origins). */
+export const coversPattern = (patterns: readonly string[], pattern: string) =>
+  patterns.includes(pattern) || patterns.some((p) => patternCovers(p, pattern));
 
 // --- Keyboard shortcuts ------------------------------------------------------------------
 

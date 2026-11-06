@@ -117,6 +117,22 @@ const [agentWidth, setAgentWidthSignal] = createSignal(
 
 export { agentWidth };
 
+/** The page keeps at least this much of the window next to the sidebars, unless the agent sidebar needs it for its minimum. */
+export const PAGE_MIN = 160;
+
+/**
+ * How wide the agent sidebar may be: most of the window, leaving the page
+ * PAGE_MIN beside it and the tab sidebar (when that's beside the page, not
+ * over it). On a window too narrow for that it still gets AGENT_MIN, from the
+ * page's share, and never more than the window has left.
+ */
+export const agentMaxWidth = () => {
+  const beside = !isHorizontal() && !isSidebarHidden() ? sidebarWidth() : 0;
+  // The page's column keeps its padding (App.tsx) even when the page has no room left.
+  const padding = 8;
+  return `min(70vw, max(calc(100vw - ${beside + PAGE_MIN}px), min(${AGENT_MIN}px, calc(100vw - ${beside + padding}px))))`;
+};
+
 /** While dragging, `persist` is false so only the end of the drag is written. */
 export function setAgentWidth(value: number, persist = true) {
   setAgentWidthSignal(clampAgent(value));

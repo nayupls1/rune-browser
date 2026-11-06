@@ -231,7 +231,7 @@ export const make = Effect.gen(function* () {
         yield* secrets.removeScope(appId);
         yield* permissions.forget(appId);
         yield* history.forget(appTarget(appId));
-        yield* scheduler.forgetApp(appId);
+        yield* scheduler.forgetApp(appId, tab);
         if (tab) yield* pruneSplits(tab.workspaceId);
         yield* hub.publish({ type: "app-deleted", topic: topics.apps, appId });
       }),

@@ -14,6 +14,20 @@
     margin: 0;
   }
 
+  /* The window never scrolls: each region scrolls on its own. The sidebars
+     are sized to fit (lib/layout.ts: agentMaxWidth); this is the backstop, so
+     nothing that pokes past the window's edge can bring up a scrollbar that
+     shifts the layout. #root clips instead of hiding, so scrollIntoView and
+     focus can't scroll it either. */
+  html,
+  body {
+    overflow: hidden;
+  }
+
+  #root {
+    overflow: clip;
+  }
+
   body {
     color-scheme: light dark;
     -webkit-font-smoothing: antialiased;
