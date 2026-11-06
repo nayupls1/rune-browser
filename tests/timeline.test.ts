@@ -131,7 +131,7 @@ describe("timeline rows", () => {
       id: i,
       activity: { kind: kind as never, title: `${i}` },
     }));
-    expect(summarize(many)).toBe("Read 1 file, used the web once and 2 more");
+    expect(summarize(many)).toBe("Read 1 file, used the web once and 2 more steps");
   });
 
   test("elapsed times", () => {

@@ -262,11 +262,8 @@ body:has([data-address-open]) [data-tab-strip-spacer] {
   background-color: color-mix(in oklab, transparent, currentColor 38%);
 }
 
-/* Keyboard focus in the agent sidebar and its popovers: one soft ring instead of the browser's. */
-[data-agent-panel] button:focus-visible,
-[data-popover-menu] button:focus-visible,
-[data-agent-popover] button:focus-visible,
-[data-chat-history] button:focus-visible {
+/* Keyboard focus on the agent sidebar's buttons: one soft ring instead of the browser's (menu items show it with their fill). */
+[data-agent-panel] button:focus-visible {
   outline: 2px solid color-mix(in oklab, currentColor 35%, transparent);
   outline-offset: 1px;
 }

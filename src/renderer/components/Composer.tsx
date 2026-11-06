@@ -490,7 +490,7 @@ const styles = stylex.create({
     color: colors.bg,
   },
   stopSquare: { width: 9, height: 9, borderRadius: 2, backgroundColor: "currentColor" },
-  right: { display: "flex", alignItems: "center", gap: 0, minWidth: 0, flexShrink: 1, overflow: "hidden" },
+  right: { display: "flex", alignItems: "center", gap: 0, minWidth: 0, flexShrink: 1 },
   input: {
     width: "100%",
     minHeight: 32,
@@ -561,7 +561,7 @@ const styles = stylex.create({
     alignItems: "center",
     gap: space.sm,
     height: 30,
-    paddingInline: space.sm,
+    paddingInline: 10,
     borderWidth: 0,
     borderRadius: radius.sm,
     backgroundColor: { default: "transparent", ":hover": colors.surfaceHover },

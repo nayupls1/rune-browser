@@ -15,7 +15,7 @@ import {
 } from "../../shared/api";
 import { providerById, providers, refreshProviders } from "../lib/store";
 import { colors, font, radius, space } from "../theme.stylex";
-import { PopoverMenu } from "./PopoverMenu";
+import { focusComposer, PopoverMenu } from "./PopoverMenu";
 import { Icon } from "./Icon";
 import { ProviderIcon } from "./ProviderIcon";
 
@@ -83,6 +83,7 @@ export function AgentPicker(props: {
     const effort = props.choice.effort && next?.efforts.includes(props.choice.effort) ? props.choice.effort : null;
     props.onChange({ provider, model: modelId, effort });
     setOpen(false);
+    focusComposer(trigger);
   };
 
   return (
@@ -162,15 +163,16 @@ function Popover(props: {
 }) {
   const [browsing, setBrowsing] = createSignal<ProviderId>(props.choice.provider);
   const [query, setQuery] = createSignal("");
-  // Starts on the chosen model.
-  const [highlight, setHighlight] = createSignal(
-    Math.max(
+  /** Where a provider's list starts: on the chosen model (or its default). */
+  const chosenIndex = (id: ProviderId) => {
+    const p = providerById(id);
+    const wanted = id === props.choice.provider ? (props.choice.model ?? p?.defaultModel) : p?.defaultModel;
+    return Math.max(
       0,
-      (providerById(props.choice.provider)?.models ?? []).findIndex(
-        (m) => m.id === (props.choice.model ?? providerById(props.choice.provider)?.defaultModel),
-      ),
-    ),
-  );
+      (p?.models ?? []).findIndex((m) => m.id === wanted),
+    );
+  };
+  const [highlight, setHighlight] = createSignal(chosenIndex(props.choice.provider));
   const close = () => {
     props.onClose();
     props.anchor.focus({ preventScroll: true });
@@ -273,7 +275,7 @@ function Popover(props: {
                   title={`${p()?.label ?? id}${off() ? ` · ${stateText[p()?.state ?? "missing"]}` : ""}`}
                   onClick={() => {
                     setBrowsing(id);
-                    setHighlight(0);
+                    setHighlight(chosenIndex(id));
                     setQuery("");
                     queueMicrotask(() => search?.focus());
                   }}

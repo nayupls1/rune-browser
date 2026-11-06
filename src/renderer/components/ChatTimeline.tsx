@@ -231,7 +231,10 @@ function WorkGroup(props: { appId: string; entries: WorkEntry[]; live: boolean }
   };
   const single = () => props.entries.length === 1;
   return (
-    <Show when={!single()} fallback={<WorkRow appId={props.appId} activity={props.entries[0]!.activity} />}>
+    <Show
+      when={!single()}
+      fallback={<WorkRow appId={props.appId} activity={props.entries[0]!.activity} latest={props.live} />}
+    >
       <section {...stylex.attrs(styles.group)} aria-label="Tool calls" data-tool-group>
         <button
           type="button"
@@ -253,7 +256,15 @@ function WorkGroup(props: { appId: string; entries: WorkEntry[]; live: boolean }
         </button>
         <Show when={expanded()}>
           <div {...stylex.attrs(styles.groupEntries)}>
-            <For each={props.entries}>{(entry) => <WorkRow appId={props.appId} activity={entry.activity} />}</For>
+            <For each={props.entries}>
+              {(entry, i) => (
+                <WorkRow
+                  appId={props.appId}
+                  activity={entry.activity}
+                  latest={props.live && i() === props.entries.length - 1}
+                />
+              )}
+            </For>
           </div>
         </Show>
       </section>
@@ -262,11 +273,13 @@ function WorkGroup(props: { appId: string; entries: WorkEntry[]; live: boolean }
 }
 
 /** One tool call: its icon and line; opens to its detail (the whole command, the arguments). Files it saved show under it. */
-function WorkRow(props: { appId: string; activity: ToolActivity }) {
+/** `latest`: the agent's most recent step while it's working, in full strength with a breathing dot. */
+function WorkRow(props: { appId: string; activity: ToolActivity; latest?: boolean }) {
   const [open, setOpen] = createSignal(false);
   const failed = () => !!props.activity.failed;
   // A failed call always opens (to its error, or its whole line when there's no more to it).
   const hasDetail = () => !!props.activity.detail || failed();
+  const latest = () => !!props.latest && !failed();
   return (
     <div {...stylex.attrs(styles.entry)} data-tool-call={props.activity.kind}>
       <button
@@ -275,10 +288,20 @@ function WorkRow(props: { appId: string; activity: ToolActivity }) {
         aria-expanded={hasDetail() ? open() : undefined}
         title={props.activity.title}
         onClick={() => setOpen(!open())}
-        {...stylex.attrs(stylex.defaultMarker(), styles.row, hasDetail() && styles.rowButton)}
+        {...stylex.attrs(
+          stylex.defaultMarker(),
+          styles.row,
+          hasDetail() && styles.rowButton,
+          latest() && styles.rowLatest,
+        )}
       >
         <span {...stylex.attrs(styles.rowIcon, failed() && styles.rowIconFailed)}>
-          <Icon name={failed() ? "circle-alert" : kindIcons[props.activity.kind]} size={14} />
+          <Show
+            when={latest()}
+            fallback={<Icon name={failed() ? "circle-alert" : kindIcons[props.activity.kind]} size={14} />}
+          >
+            <span {...stylex.attrs(styles.latestDot)} data-latest-step />
+          </Show>
         </span>
         <span {...stylex.attrs(styles.rowTitle)}>
           <InlineCode text={props.activity.title} />
@@ -650,6 +673,17 @@ const styles = stylex.create({
     opacity: 0.85,
   },
   rowIconFailed: { color: colors.danger, opacity: 1 },
+  rowLatest: { color: { default: colors.text, ":hover": colors.text } },
+  latestDot: {
+    width: 6,
+    height: 6,
+    borderRadius: radius.full,
+    backgroundColor: colors.accent,
+    animationName: breathe,
+    animationDuration: "1.6s",
+    animationIterationCount: "infinite",
+    animationTimingFunction: "ease-in-out",
+  },
   rowTitle: {
     flex: 1,
     minWidth: 0,
@@ -830,6 +864,12 @@ const styles = stylex.create({
     gap: 2,
     height: 24,
     opacity: { default: 0, [stylex.when.ancestor(":hover")]: 1, [stylex.when.ancestor(":focus-within")]: 1 },
+    // Hidden, they don't catch clicks meant for what's under them.
+    pointerEvents: {
+      default: "none",
+      [stylex.when.ancestor(":hover")]: "auto",
+      [stylex.when.ancestor(":focus-within")]: "auto",
+    },
     transition: "opacity 150ms",
   },
   actionsStart: {},

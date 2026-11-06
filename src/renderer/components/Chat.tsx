@@ -39,6 +39,7 @@ export function Chat(props: { appId: string }) {
   const [scrolled, setScrolled] = createSignal(false);
   const toEnd = (smooth = false) =>
     scroller.scrollTo({ top: scroller.scrollHeight, behavior: smooth ? "smooth" : "auto" });
+  // At the end, or with nothing to scroll.
   const onScroll = () => {
     setPinned(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 48);
     setScrolled(scroller.scrollTop > 2);
@@ -59,8 +60,14 @@ export function Chat(props: { appId: string }) {
   );
   onMount(() => {
     // Content grows while streaming, when rows open, when images load: keep the end in view.
-    const follow = new ResizeObserver(() => pinned() && toEnd());
+    const follow = new ResizeObserver(() => {
+      if (pinned()) toEnd();
+      // Nothing left to scroll (a shorter chat): back at the end.
+      else onScroll();
+    });
     follow.observe(scroller.firstElementChild!);
+    // The panel itself changing size (the window, the sidebar's width) too.
+    follow.observe(scroller);
     onCleanup(() => follow.disconnect());
   });
   const empty = () => !state().messages.length && !state().running;
@@ -123,7 +130,12 @@ export function Chat(props: { appId: string }) {
         </button>
       </header>
       <div {...stylex.attrs(styles.body)}>
-        <div ref={scroller} onScroll={onScroll} {...stylex.attrs(styles.scroller)} data-chat-scroller>
+        <div
+          ref={scroller}
+          onScroll={onScroll}
+          {...stylex.attrs(styles.scroller, scrolled() && styles.scrollerScrolled)}
+          data-chat-scroller
+        >
           <div {...stylex.attrs(styles.messages, empty() && styles.messagesEmpty)} data-chat-messages>
             <Show when={empty()}>
               <EmptyState appId={props.appId} kind={kind()} />
@@ -295,7 +307,7 @@ function AccessPicker() {
         aria-haspopup="menu"
         aria-expanded={open()}
         onClick={() => setOpen(!open())}
-        {...stylex.attrs(styles.access, fullAccess() && styles.accessFull, open() && styles.accessOpen)}
+        {...stylex.attrs(styles.access, open() && styles.accessOpen, fullAccess() && styles.accessFull)}
         data-access-picker
         data-full-access={fullAccess() ? "" : undefined}
       >
@@ -308,12 +320,12 @@ function AccessPicker() {
           anchor={button}
           title="Agent permissions · every tab"
           name="access-menu"
-          width={280}
+          width={300}
           onClose={() => setOpen(false)}
           items={[
             {
               label: "Ask first",
-              description: "They ask before acting for you",
+              description: "Agents ask before acting for you",
               icon: "shield-check",
               checked: !fullAccess(),
               id: "ask",
@@ -321,7 +333,7 @@ function AccessPicker() {
             },
             {
               label: "Full access",
-              description: "They act without asking. Use with care",
+              description: "Agents act without asking",
               icon: "shield-off",
               danger: true,
               checked: fullAccess(),
@@ -346,11 +358,9 @@ function dayGroup(iso: string, now = new Date()) {
   return "Older";
 }
 
-/** When, short, for its day group: "12 min" or "3:40 PM" today and yesterday, "Tue" this week, else "Oct 25". */
-function when(iso: string, group: string, now = Date.now()) {
+/** When, short, for its day group: "3:40 PM" today and yesterday, "Tue" this week, else "Oct 25". */
+function when(iso: string, group: string) {
   const date = new Date(iso);
-  const minutes = Math.round((now - date.getTime()) / 60_000);
-  if (group === "Today" && minutes < 60) return minutes < 1 ? "now" : `${minutes} min`;
   if (group === "Today" || group === "Yesterday")
     return date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
   if (group === "Previous 7 days") return date.toLocaleDateString(undefined, { weekday: "short" });
@@ -363,6 +373,7 @@ function ChatHistory(props: { appId: string; anchor: HTMLElement; onClose: () =>
   const [query, setQuery] = createSignal("");
   const running = () => !!states[props.appId]?.running;
   let root!: HTMLDivElement;
+  let list!: HTMLDivElement;
   const width = 320;
   const r = props.anchor.getBoundingClientRect();
   const left = Math.max(8, Math.min(r.right - width, window.innerWidth - width - 8));
@@ -413,11 +424,8 @@ function ChatHistory(props: { appId: string; anchor: HTMLElement; onClose: () =>
     return out;
   };
   const searchable = () => (chats()?.length ?? 0) > 5;
-  // Without a search field, the first chat takes the focus once they're there.
-  createEffect(() => {
-    if (chats() && !searchable())
-      queueMicrotask(() => root.querySelector<HTMLButtonElement>("[data-open-chat]:not(:disabled)")?.focus());
-  });
+  // Without a search field the list takes the focus (the arrow keys go from there), nothing highlighted.
+  onMount(() => queueMicrotask(() => !searchable() && list.focus({ preventScroll: true })));
   return (
     <Portal>
       <div
@@ -441,7 +449,7 @@ function ChatHistory(props: { appId: string; anchor: HTMLElement; onClose: () =>
             />
           </label>
         </Show>
-        <div {...stylex.attrs(styles.historyList)}>
+        <div ref={list} tabIndex={-1} {...stylex.attrs(styles.historyList)}>
           <For
             each={groups()}
             fallback={
@@ -649,7 +657,7 @@ const styles = stylex.create({
     fontFamily: "inherit",
     fontSize: font.sm,
   },
-  historyList: { flex: 1, minHeight: 0, overflowY: "auto", padding: 4, paddingTop: 0 },
+  historyList: { flex: 1, minHeight: 0, overflowY: "auto", padding: 4, paddingTop: 0, outline: "none" },
   historyGroup: {
     paddingTop: 10,
     paddingBottom: 4,
@@ -774,19 +782,24 @@ const styles = stylex.create({
     // Fades out over its last 16px, into the composer.
     maskImage: "linear-gradient(to bottom, black calc(100% - 16px), transparent)",
   },
+  // Scrolled: under the header too.
+  scrollerScrolled: {
+    maskImage: "linear-gradient(to bottom, transparent, black 12px, black calc(100% - 16px), transparent)",
+  },
   messages: {
     display: "flex",
     flexDirection: "column",
     gap: 14,
     minWidth: 0,
-    minHeight: "100%",
     paddingTop: space.sm,
     paddingBottom: space.xl,
     paddingLeft: space.lg,
     // The scrollbar's gutter is on this side.
     paddingRight: 10,
   },
-  messagesEmpty: { justifyContent: "center" },
+  // Only the empty chat fills the panel (to center its welcome); otherwise it's as tall as its content, so the
+  // ResizeObserver sees it shrink too.
+  messagesEmpty: { justifyContent: "center", minHeight: "100%" },
   composer: { paddingInline: space.md, paddingBottom: space.sm },
   below: {
     display: "flex",

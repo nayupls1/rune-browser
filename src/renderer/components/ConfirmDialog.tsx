@@ -29,12 +29,14 @@ export function ConfirmHost() {
 
 function Dialog(props: { request: Request }) {
   let confirmButton!: HTMLButtonElement;
+  let cancelButton!: HTMLButtonElement;
   const close = (ok: boolean) => {
     props.request.resolve(ok);
     setRequest(undefined);
   };
   onMount(() => {
-    confirmButton.focus();
+    // Something that can't be taken back (or hands over control) isn't one Enter away.
+    (props.request.danger ? cancelButton : confirmButton).focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
@@ -50,7 +52,9 @@ function Dialog(props: { request: Request }) {
         <div role="alertdialog" aria-modal="true" {...stylex.attrs(styles.dialog)} data-confirm-dialog>
           <p {...stylex.attrs(styles.message)}>{props.request.message}</p>
           <div {...stylex.attrs(styles.actions)}>
-            <Button onClick={() => close(false)}>Cancel</Button>
+            <Button ref={cancelButton} onClick={() => close(false)}>
+              Cancel
+            </Button>
             <Button
               ref={confirmButton}
               variant={props.request.danger ? "danger" : "primary"}

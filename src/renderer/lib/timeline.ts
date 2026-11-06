@@ -145,10 +145,12 @@ export function summarize(entries: readonly WorkEntry[]): string {
   }
   // What changed things comes first.
   const order = (kind: ToolKind) => (first.includes(kind) ? first.indexOf(kind) : first.length);
-  const parts = [...counts]
+  const sorted = [...counts]
     .sort(([a], [b]) => order(a) - order(b))
-    .map(([kind, n]) => kindPhrases[kind](typeof n === "number" ? n : n.size));
-  const shown = parts.length > 3 ? [...parts.slice(0, 2), `${parts.length - 2} more`] : parts;
+    .map(([kind, n]) => [kind, typeof n === "number" ? n : n.size] as const);
+  const parts = sorted.map(([kind, n]) => kindPhrases[kind](n));
+  const rest = sorted.slice(2).reduce((sum, [, n]) => sum + n, 0);
+  const shown = parts.length > 3 ? [...parts.slice(0, 2), plural(rest, "more step", "more steps")] : parts;
   const text = shown.length > 1 ? `${shown.slice(0, -1).join(", ")} and ${shown.at(-1)}` : shown[0]!;
   return text.charAt(0).toUpperCase() + text.slice(1);
 }

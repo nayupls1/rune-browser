@@ -99,7 +99,7 @@ export const ClaudeDriver: ProviderDriver = {
           state: "missing",
           version: null,
           binary: null,
-          message: "Install Claude Code: npm install -g @anthropic-ai/claude-code",
+          message: "Install Claude Code: `npm install -g @anthropic-ai/claude-code`",
           models: [],
           defaultModel: null,
         };

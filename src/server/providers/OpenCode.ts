@@ -152,7 +152,7 @@ export const OpenCodeDriver: ProviderDriver = {
           state: "missing",
           version: null,
           binary: null,
-          message: "Install OpenCode: curl -fsSL https://opencode.ai/install | bash",
+          message: "Install OpenCode: `curl -fsSL https://opencode.ai/install | bash`",
           models: [],
           defaultModel: null,
         };

@@ -1363,8 +1363,8 @@ try {
     if (!(await page!.eval<boolean>(`!!document.querySelector('${panel}')`)))
       await click(`[data-tab-chrome="${appId}"] [data-agent-show]`);
     await page!.waitFor(`!!document.querySelector('${panel} [data-chat-history-button]')`, { label: "chat buttons" });
-    const disabled = await page!.eval<boolean>(`document.querySelector('${panel} [data-new-chat]').disabled`);
-    if (!disabled) throw new Error("New chat is offered for an empty chat");
+    if (await page!.eval<boolean>(`!!document.querySelector('${panel} [data-new-chat]')`))
+      throw new Error("New chat is offered for an empty chat");
     // A suggestion in the empty chat goes into the composer, ready to edit or send.
     await page!.waitFor(`!!document.querySelector('${panel} [data-chat-empty] [data-suggestion]')`, {
       label: "suggestions",

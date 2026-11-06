@@ -22,6 +22,11 @@ export interface PopoverItem {
   onSelect: () => void;
 }
 
+/** After a choice, typing goes on in the agent sidebar's composer (else focus goes back to the button). */
+export function focusComposer(anchor: HTMLElement) {
+  (anchor.closest("[data-agent-panel]")?.querySelector("textarea") ?? anchor).focus({ preventScroll: true });
+}
+
 export function PopoverMenu(props: {
   anchor: HTMLElement;
   items: (PopoverItem | "separator")[];
@@ -45,12 +50,16 @@ export function PopoverMenu(props: {
     const a = props.anchor.getBoundingClientRect();
     const m = menu.getBoundingClientRect();
     const above = a.top > window.innerHeight / 2;
-    // From the button's left edge, kept inside the agent sidebar it's in (else the window).
-    const box = props.anchor.closest("[data-agent-sidebar]")?.getBoundingClientRect();
-    const min = (box?.left ?? 0) + 6;
-    const max = (box?.right ?? window.innerWidth) - m.width - 6;
+    // Kept inside the agent sidebar it's in (else the window): from the button's left edge, or its right edge for a
+    // button in the sidebar's right half.
+    const box = (
+      props.anchor.closest("[data-composer]") ?? props.anchor.closest("[data-agent-sidebar]")
+    )?.getBoundingClientRect();
+    const min = box?.left ?? 6;
+    const max = (box?.right ?? window.innerWidth - 6) - m.width;
+    const right = !!box && a.left + a.width / 2 > box.left + box.width / 2;
     setPos({
-      left: Math.max(6, Math.max(min, Math.min(a.left, max))),
+      left: Math.max(6, Math.max(min, Math.min(right ? a.right - m.width : a.left, max))),
       top: Math.max(6, Math.min(above ? a.top - m.height - 6 : a.bottom + 6, window.innerHeight - m.height - 6)),
     });
     (buttons().find((b) => b.getAttribute("aria-checked") === "true") ?? buttons()[0])?.focus({ preventScroll: true });
@@ -63,8 +72,11 @@ export function PopoverMenu(props: {
         e.stopPropagation();
         props.onClose();
         props.anchor.focus({ preventScroll: true });
-      } else if (e.key === "Tab") props.onClose();
-      else if (e.key === "ArrowDown") (e.preventDefault(), focusBy(1));
+      } else if (e.key === "Tab") {
+        e.preventDefault();
+        props.onClose();
+        props.anchor.focus({ preventScroll: true });
+      } else if (e.key === "ArrowDown") (e.preventDefault(), focusBy(1));
       else if (e.key === "ArrowUp") (e.preventDefault(), focusBy(-1));
     };
     const close = () => props.onClose();
@@ -106,7 +118,7 @@ export function PopoverMenu(props: {
                 disabled={item.disabled}
                 onClick={() => {
                   props.onClose();
-                  props.anchor.focus({ preventScroll: true });
+                  focusComposer(props.anchor);
                   item.onSelect();
                 }}
                 {...stylex.attrs(styles.item, item.danger && styles.danger)}
