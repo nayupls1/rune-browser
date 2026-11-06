@@ -97,10 +97,10 @@ describe("checks", () => {
     expect(specWithoutTab(daily, "a", { ...web, url: "file:///home/me/notes.html" })).toBeNull();
     expect(specWithoutTab(daily, "a", { ...web, url: null })).toBeNull();
     expect(specWithoutTab(daily, "a", null)).toBeNull();
-    // The tab's own events won't happen again; others' still do.
-    for (const event of ["app.started:a", "app.crashed:a", "app:a:done"])
+    // A prompt waiting for an app's event needs a tab that exists; Rune Browser starting doesn't.
+    for (const event of ["app.started:a", "app.crashed:a", "app:a:done", "app:b:done"])
       expect(specWithoutTab({ ...daily, trigger: { type: "event", event } }, "a", web)).toBeNull();
-    expect(specWithoutTab({ ...daily, trigger: { type: "event", event: "app:ab:done" } }, "a", web)).not.toBeNull();
+    expect(specWithoutTab({ ...daily, trigger: { type: "event", event: "rune.started" } }, "a", web)).not.toBeNull();
     expect(specWithoutTab({ ...spec, task: { type: "command", appId: "a", command: "true" } }, "a", web)).toBeNull();
     expect(specWithoutTab({ ...spec, task: { type: "tool", appId: "a", tool: "digest" } }, "a", web)).toBeNull();
   });

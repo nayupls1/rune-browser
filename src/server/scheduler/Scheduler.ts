@@ -343,7 +343,17 @@ export const make = Effect.gen(function* () {
       // Started in the background: the caller (the clock, an event, "Run now") doesn't wait.
       yield* Effect.forkDetach(
         slots
-          .withPermits(1)(perform(row, spec))
+          .withPermits(1)(
+            // What it does now: its tab may have changed while it waited for a slot (a deleted web tab's prompt opens a new one).
+            rowOf(row.id).pipe(
+              Effect.orDie,
+              Effect.flatMap((current) =>
+                current
+                  ? perform(current, JSON.parse(current.spec) as ScheduleSpec)
+                  : Effect.succeed<Outcome>({ status: "skipped", message: "The schedule was deleted", output: null }),
+              ),
+            ),
+          )
           .pipe(
             Effect.timeoutOrElse({
               duration: spec.timeoutSec * 1000,

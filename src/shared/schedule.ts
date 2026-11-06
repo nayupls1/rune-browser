@@ -11,12 +11,8 @@ export const MAX_PROMPT = 20_000;
 /** The tab a schedule's task runs in (null: a prompt that opens one on its first run). */
 export const taskTab = (task: ScheduleTask): string | null => task.appId ?? null;
 
-/** An event of that app ("app.started:<id>", "app.crashed:<id>", "app:<id>:<name>"). */
-export const isAppEvent = (trigger: ScheduleTrigger, appId: string) =>
-  trigger.type === "event" &&
-  (trigger.event === `app.started:${appId}` ||
-    trigger.event === `app.crashed:${appId}` ||
-    trigger.event.startsWith(`app:${appId}:`));
+/** An app's event ("app.started:<id>", "app.crashed:<id>", "app:<id>:<name>"): every event but "rune.started". */
+const isAppEvent = (trigger: ScheduleTrigger) => trigger.type === "event" && trigger.event.startsWith("app");
 
 /**
  * A schedule once the tab its task runs in is deleted (null: the schedule goes
@@ -25,7 +21,8 @@ export const isAppEvent = (trigger: ScheduleTrigger, appId: string) =>
  * keeps that one. Everything else goes: tools and commands need their app, an
  * app is only deleted on purpose ("and all its data"), private tabs leave
  * nothing behind, a web tab that wasn't on a website has no address to open,
- * and the tab's own events won't happen again.
+ * and a prompt waiting for an app's event needs an existing tab (SchedulesPage:
+ * the event is its tab's).
  */
 export function specWithoutTab(
   spec: ScheduleSpec,
@@ -33,8 +30,7 @@ export function specWithoutTab(
   tab: Pick<AppSummary, "kind" | "workspaceId" | "url" | "private"> | null,
 ): ScheduleSpec | null {
   const task = spec.task;
-  if (task.type !== "prompt" || !tab || tab.kind !== "web" || tab.private || isAppEvent(spec.trigger, appId))
-    return null;
+  if (task.type !== "prompt" || !tab || tab.kind !== "web" || tab.private || isAppEvent(spec.trigger)) return null;
   if (!tab.url || !/^https?:\/\/\S+$/i.test(tab.url)) return null;
   const { appId: _, newTab: __, ...rest } = task;
   return { ...spec, task: { ...rest, newTab: { kind: "web", workspaceId: tab.workspaceId, url: tab.url } } };
