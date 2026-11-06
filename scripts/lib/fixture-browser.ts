@@ -212,6 +212,8 @@ export function writeFixtureBrowser(root: string): FixtureBrowser {
       "webRequestAuthProvider",
     ],
     host_permissions: ["http://127.0.0.1/*"],
+    // Asked for when needed (chrome.permissions.request), and given or taken back in its details.
+    optional_host_permissions: ["https://example.com/*"],
     content_scripts: [{ matches: ["http://127.0.0.1/*"], js: ["content.js"], run_at: "document_start" }],
     declarative_net_request: { rule_resources: [{ id: "fixture", enabled: true, path: "rules.json" }] },
     commands: { bump: { suggested_key: { default: "Alt+Shift+Y" }, description: "Bump" } },

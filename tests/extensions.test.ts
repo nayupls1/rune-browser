@@ -19,6 +19,7 @@ import {
   localize,
   matchPattern,
   networkRulesToDnr,
+  optionalSiteAccess,
   parseColor,
   parseShortcut,
   patternCondition,
@@ -196,6 +197,28 @@ describe("manifests", () => {
       description: "somethingNew",
       limited: expect.stringContaining("keeps working"),
     });
+  });
+
+  test("optional site access: what it may ask for, and what it was given", () => {
+    const m = {
+      manifest_version: 3,
+      name: "x",
+      version: "1",
+      host_permissions: ["https://always.example/*"],
+      optional_host_permissions: ["<all_urls>", "https://always.example/*"],
+      // MV2-style optional patterns count too; API permissions don't.
+      optional_permissions: ["https://mail.example/*", "tabs"],
+    };
+    expect(optionalSiteAccess(m, [])).toEqual([
+      { pattern: "<all_urls>", allowed: false },
+      { pattern: "https://mail.example/*", allowed: false },
+    ]);
+    // chrome.permissions.request may have granted a narrower pattern than the manifest's.
+    expect(optionalSiteAccess(m, ["https://docs.example/*", "https://mail.example/*"])).toEqual([
+      { pattern: "<all_urls>", allowed: false },
+      { pattern: "https://docs.example/*", allowed: true },
+      { pattern: "https://mail.example/*", allowed: true },
+    ]);
   });
 
   test("the ID of an extension without a key, like Chromium derives it", () => {

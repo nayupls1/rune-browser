@@ -1,5 +1,5 @@
 // Schedules: checking them and describing them, for the server and the UI.
-import type { ScheduleSpec, ScheduleTask, ScheduleTrigger } from "./api";
+import type { AppSummary, ScheduleSpec, ScheduleTask, ScheduleTrigger } from "./api";
 import { describeCron, parseCron, shortestGapMinutes } from "./cron";
 
 /** Recurring schedules run at most this often. */
@@ -10,6 +10,24 @@ export const MAX_PROMPT = 20_000;
 
 /** The tab a schedule's task runs in (null: a prompt that opens one on its first run). */
 export const taskTab = (task: ScheduleTask): string | null => task.appId ?? null;
+
+/**
+ * A schedule's task once its tab is deleted (null: the schedule goes too).
+ * Tools and commands need their app. A prompt doesn't need its tab: it opens
+ * a new one like it on its next run (a web tab at the same address), and the
+ * schedule keeps that one. Private tabs leave nothing behind, and a web tab
+ * that wasn't on a website has no address to open.
+ */
+export function taskWithoutTab(
+  task: ScheduleTask,
+  tab: Pick<AppSummary, "kind" | "workspaceId" | "url" | "private"> | null,
+): ScheduleTask | null {
+  if (task.type !== "prompt" || !tab || tab.private) return null;
+  const { appId: _, newTab: __, ...rest } = task;
+  if (tab.kind === "app") return { ...rest, newTab: { kind: "app", workspaceId: tab.workspaceId } };
+  if (!tab.url || !/^https?:\/\/\S+$/i.test(tab.url)) return null;
+  return { ...rest, newTab: { kind: "web", workspaceId: tab.workspaceId, url: tab.url } };
+}
 
 const EVENT = /^(rune\.started|app\.(started|crashed):[\w-]+|app:[\w-]+:[\w.-]{1,64})$/;
 

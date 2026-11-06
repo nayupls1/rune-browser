@@ -13,10 +13,10 @@
 // recorded in the audit log.
 import { Cause, Context, Data, Effect, Layer, Semaphore } from "effect";
 import { SqlClient } from "effect/sql";
-import type { Schedule, ScheduleRun, ScheduleSpec, ScheduleTask, ToolResult } from "../../shared/api";
+import type { AppSummary, Schedule, ScheduleRun, ScheduleSpec, ScheduleTask, ToolResult } from "../../shared/api";
 import { nextCron, parseCron } from "../../shared/cron";
 import { topics } from "../../shared/hub";
-import { scheduleProblem, taskTab } from "../../shared/schedule";
+import { scheduleProblem, taskTab, taskWithoutTab } from "../../shared/schedule";
 import { Apps } from "../db/Apps";
 import { Workspaces } from "../db/Workspaces";
 import { Hub } from "../Hub";
@@ -74,8 +74,17 @@ export interface SchedulerShape {
   }) => Effect.Effect<{ scheduleId: string; name: string; at: string }[]>;
   /** Something happened: runs the schedules waiting for it. */
   readonly emit: (event: string) => Effect.Effect<void>;
-  /** The app was deleted: its schedules go too. */
-  readonly forgetApp: (appId: string) => Effect.Effect<void>;
+  /**
+   * A tab was deleted (`tab`: what it was, read before it went). Its prompts
+   * open a new tab like it on their next run; its tools and commands go
+   * (shared/schedule.ts: taskWithoutTab).
+   */
+  readonly forgetApp: (
+    appId: string,
+    tab: Pick<AppSummary, "kind" | "workspaceId" | "url" | "private"> | null,
+  ) => Effect.Effect<void>;
+  /** A workspace was deleted (after its tabs): the prompts that would open a tab in it go. */
+  readonly forgetWorkspace: (workspaceId: string) => Effect.Effect<void>;
   /** Runs scheduled prompts (the agents sit above the scheduler, so they register it: Agent.make). Interrupted on timeout. */
   readonly setPromptRunner: (runner: (run: PromptRun) => Effect.Effect<Outcome>) => void;
 }
@@ -195,6 +204,14 @@ export const make = Effect.gen(function* () {
       Effect.map((list) => list[0] ?? null),
     );
   const changed = hub.publish({ type: "schedules-changed", topic: topics.schedules });
+  const dropSchedules = (ids: string[]) =>
+    ids.length
+      ? Effect.gen(function* () {
+          yield* sql`DELETE FROM schedules WHERE id IN ${sql.in(ids)}`;
+          yield* sql`DELETE FROM schedule_runs WHERE schedule_id IN ${sql.in(ids)}`;
+          yield* changed;
+        })
+      : Effect.void;
 
   const check = (spec: ScheduleSpec) =>
     Effect.gen(function* () {
@@ -492,14 +509,37 @@ export const make = Effect.gen(function* () {
       promptRunner = runner;
     },
 
-    forgetApp: (appId) =>
+    forgetApp: (appId, tab) =>
       Effect.gen(function* () {
         const rows = yield* sql<ScheduleRow>`SELECT * FROM schedules`;
-        const gone = rows.filter((r) => (JSON.parse(r.spec) as ScheduleSpec).task.appId === appId).map((r) => r.id);
-        if (!gone.length) return;
-        yield* sql`DELETE FROM schedules WHERE id IN ${sql.in(gone)}`;
-        yield* sql`DELETE FROM schedule_runs WHERE schedule_id IN ${sql.in(gone)}`;
-        yield* changed;
+        const gone: string[] = [];
+        let kept = false;
+        for (const row of rows) {
+          const spec = JSON.parse(row.spec) as ScheduleSpec;
+          if (spec.task.appId !== appId) continue;
+          const task = taskWithoutTab(spec.task, tab);
+          if (!task) {
+            gone.push(row.id);
+            continue;
+          }
+          yield* sql`UPDATE schedules SET spec = ${JSON.stringify({ ...spec, task })}, updated_at = ${new Date().toISOString()}
+            WHERE id = ${row.id}`;
+          kept = true;
+        }
+        yield* dropSchedules(gone);
+        if (kept && !gone.length) yield* changed;
+      }).pipe(Effect.orDie),
+    forgetWorkspace: (workspaceId) =>
+      Effect.gen(function* () {
+        const rows = yield* sql<ScheduleRow>`SELECT * FROM schedules`;
+        yield* dropSchedules(
+          rows
+            .filter((r) => {
+              const task = (JSON.parse(r.spec) as ScheduleSpec).task;
+              return task.type === "prompt" && task.newTab?.workspaceId === workspaceId;
+            })
+            .map((r) => r.id),
+        );
       }).pipe(Effect.orDie),
   } satisfies SchedulerShape;
 });

@@ -31,7 +31,10 @@ export interface ExtensionInfo {
   unsupported: string[];
   /** What it asks for (Details on the extensions page): API permissions, and the sites it can read and change. */
   permissions: ExtensionPermission[];
+  /** The sites it always has (host permissions, content scripts). */
   siteAccess: string[];
+  /** Sites it asks for when it needs them, and whether it has them (see `optionalSiteAccess`). */
+  optionalSiteAccess: { pattern: string; allowed: boolean }[];
   /** Its commands that have a key on this platform (`_execute_action` opens its popup). */
   shortcuts: { name: string; description: string; shortcut: string }[];
   /** Can start programs on this computer (native messaging hosts installed for it). */
@@ -369,6 +372,28 @@ export const hostPermissionsOf = (m: Manifest) =>
   [...(m.host_permissions ?? []), ...(m.manifest_version === 2 ? (m.permissions ?? []) : [])].filter(
     (p): p is string => typeof p === "string" && isHostPattern(p),
   );
+
+/** Sites it may ask for when it needs them (chrome.permissions.request): optional_host_permissions, or optional permissions that are patterns. */
+export const optionalHostPermissionsOf = (m: Manifest) => [
+  ...new Set(
+    [...(m.optional_host_permissions ?? []), ...(m.optional_permissions ?? [])].filter(
+      (p): p is string => typeof p === "string" && isHostPattern(p),
+    ),
+  ),
+];
+
+/**
+ * Its optional site access, for its details: the sites it may ask for, and the
+ * ones it was given (chrome.permissions.request can grant a narrower pattern
+ * than the manifest's). Required site access isn't here: it always has that.
+ */
+export function optionalSiteAccess(m: Manifest, grantedOrigins: readonly string[]) {
+  const required = hostPermissionsOf(m);
+  return [...new Set([...optionalHostPermissionsOf(m), ...grantedOrigins])]
+    .filter((pattern) => !required.includes(pattern))
+    .sort()
+    .map((pattern) => ({ pattern, allowed: grantedOrigins.includes(pattern) }));
+}
 
 // --- Match patterns ----------------------------------------------------------------
 

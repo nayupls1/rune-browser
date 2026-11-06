@@ -280,6 +280,8 @@ export interface RuneBridge {
     setAllowPrivate: (id: string, allowed: boolean) => Promise<void>;
     /** Allows or blocks one of its permissions (the extension restarts with it). */
     setPermission: (id: string, permission: string, allowed: boolean) => Promise<void>;
+    /** Gives or takes back one of the optional sites it asks for. */
+    setSiteAccess: (id: string, pattern: string, allowed: boolean) => Promise<void>;
     setPinned: (id: string, pinned: boolean) => Promise<void>;
     remove: (id: string) => Promise<void>;
     setAutoUpdate: (enabled: boolean) => Promise<void>;

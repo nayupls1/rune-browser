@@ -31,6 +31,7 @@ import {
   isExtensionId,
   localize,
   networkRulesToDnr,
+  optionalHostPermissionsOf,
   optionalPermissionsOf,
   permissionsOf,
   parseShortcut,
@@ -851,6 +852,30 @@ export function setupExtensions(options: ExtensionsOptions) {
     listChanged();
   }
 
+  /** Gives or takes back one of the optional sites it asks for (what chrome.permissions.request and .remove do). */
+  function setSiteAccess(id: string, pattern: string, allowed: boolean) {
+    const entry = registry.get(id);
+    if (!entry) return;
+    let manifest;
+    try {
+      manifest = readManifest(entry.path).manifest;
+    } catch {
+      return;
+    }
+    const granted = entry.granted ?? { permissions: [], origins: [] };
+    if (allowed ? !optionalHostPermissionsOf(manifest).includes(pattern) : !granted.origins.includes(pattern)) return;
+    const origins = allowed
+      ? [...new Set([...granted.origins, pattern])]
+      : granted.origins.filter((o) => o !== pattern);
+    if (origins.length === granted.origins.length && origins.every((o, i) => o === granted.origins[i])) return;
+    registry.update(id, { granted: { ...granted, origins } });
+    for (const s of sessions())
+      void dispatch(contexts, state(s, id), s, id, allowed ? "permissions.onAdded" : "permissions.onRemoved", [
+        { permissions: [], origins: [pattern] },
+      ]);
+    listChanged();
+  }
+
   function setEnabled(id: string, enabled: boolean) {
     const entry = registry.update(id, { enabled });
     if (!entry) return;
@@ -973,6 +998,9 @@ export function setupExtensions(options: ExtensionsOptions) {
   handle("rune:extensions-remove", (id: unknown) => (isExtensionId(id) ? remove(id) : undefined));
   handle("rune:extensions-set-permission", (id: unknown, permission: unknown, allowed: unknown) => {
     if (isExtensionId(id) && typeof permission === "string") setPermission(id, permission, allowed === true);
+  });
+  handle("rune:extensions-set-site-access", (id: unknown, pattern: unknown, allowed: unknown) => {
+    if (isExtensionId(id) && typeof pattern === "string") setSiteAccess(id, pattern, allowed === true);
   });
   handle("rune:extensions-set-auto-update", (value: unknown) => {
     registry.autoUpdate = value === true;

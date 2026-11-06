@@ -3671,6 +3671,16 @@ try {
     );
     await click(`${permission("history")} [role="switch"]`);
     await page!.waitFor(`${allowed("history")}.then((a) => a === true)`, { label: "history allowed again" });
+    // So can the sites it asks for when it needs them.
+    const optionalSite = `[data-extension-details-page="${id}"] [data-extension-site="https://example.com/*"]`;
+    const siteAllowed = `window.rune.extensions.list().then((r) => r.extensions.find((e) => e.id === "${id}").optionalSiteAccess.find((s) => s.pattern === "https://example.com/*")?.allowed)`;
+    await page!.waitFor(`!!document.querySelector('${optionalSite} [role="switch"][aria-checked="false"]')`, {
+      label: "optional site, not given",
+    });
+    await click(`${optionalSite} [role="switch"]`);
+    await page!.waitFor(`${siteAllowed}.then((a) => a === true)`, { label: "optional site given" });
+    await click(`${optionalSite} [role="switch"]`);
+    await page!.waitFor(`${siteAllowed}.then((a) => a === false)`, { label: "optional site taken back" });
     await click(`[data-extension-details-page="${id}"] button`, "All extensions");
     await page!.waitFor(`!!document.querySelector('[data-extension="${id}"]')`, { label: "back to the list" });
 

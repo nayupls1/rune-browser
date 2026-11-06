@@ -1824,6 +1824,14 @@ function ExtensionCard(props: { info: ExtensionInfo; developer: boolean; onDetai
 function ExtensionDetails(props: { info: ExtensionInfo; onBack: () => void }) {
   const ext = window.rune.extensions;
   const info = () => props.info;
+  const siteAccessDescription = () =>
+    info().optionalSiteAccess.length
+      ? info().siteAccess.length
+        ? "Where it can read and change pages, and the sites it asks for when it needs them."
+        : "The sites it asks for when it needs them."
+      : info().siteAccess.length
+        ? "Where it can read and change pages."
+        : "It doesn't read or change pages.";
   return (
     <div {...stylex.attrs(styles.extDetails)} data-extension-details-page={info().id}>
       <button type="button" onClick={props.onBack} {...stylex.attrs(styles.extBack)}>
@@ -1893,15 +1901,33 @@ function ExtensionDetails(props: { info: ExtensionInfo; onBack: () => void }) {
         </Row>
         <Row
           label="Site access"
-          description={
-            info().siteAccess.length ? "Where it can read and change pages." : "It doesn't read or change pages."
-          }
-          wide={info().siteAccess.length > 0}
+          description={siteAccessDescription()}
+          wide={info().siteAccess.length > 0 || info().optionalSiteAccess.length > 0}
         >
           <Show when={info().siteAccess.length}>
             <div {...stylex.attrs(styles.extChips)}>
               <For each={info().siteAccess}>
                 {(p) => <span {...stylex.attrs(styles.extChip, styles.mono)}>{p}</span>}
+              </For>
+            </div>
+          </Show>
+          <Show when={info().optionalSiteAccess.length}>
+            <div {...stylex.attrs(styles.extPermissions)} data-extension-site-access>
+              <For each={info().optionalSiteAccess}>
+                {(site) => (
+                  <div {...stylex.attrs(styles.extPermission)} data-extension-site={site.pattern}>
+                    <div {...stylex.attrs(styles.extPermissionText)}>
+                      <span {...stylex.attrs(styles.extPermissionName)}>
+                        <span {...stylex.attrs(styles.mono)}>{site.pattern}</span>
+                        <span {...stylex.attrs(styles.extChip)}>Optional</span>
+                      </span>
+                    </div>
+                    <Toggle
+                      checked={site.allowed}
+                      onChange={(on) => void ext.setSiteAccess(info().id, site.pattern, on)}
+                    />
+                  </div>
+                )}
               </For>
             </div>
           </Show>

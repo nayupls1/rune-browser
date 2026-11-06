@@ -143,6 +143,8 @@ const bridge: RuneBridge = {
     setAllowPrivate: (id, allowed) => ipcRenderer.invoke("rune:extensions-set-allow-private", id, allowed),
     setPermission: (id, permission, allowed) =>
       ipcRenderer.invoke("rune:extensions-set-permission", id, permission, allowed),
+    setSiteAccess: (id, pattern, allowed) =>
+      ipcRenderer.invoke("rune:extensions-set-site-access", id, pattern, allowed),
     setPinned: (id, pinned) => ipcRenderer.invoke("rune:extensions-set-pinned", id, pinned),
     remove: (id) => ipcRenderer.invoke("rune:extensions-remove", id),
     setAutoUpdate: (enabled) => ipcRenderer.invoke("rune:extensions-set-auto-update", enabled),

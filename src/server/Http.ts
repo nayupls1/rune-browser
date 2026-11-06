@@ -2085,6 +2085,7 @@ const workspaceRoutes = HttpRouter.addAll([
         if (!space) return yield* fail(404, "Not found");
         if ((yield* workspaces.count()) <= 1) return yield* fail(400, "The last workspace can't be deleted");
         for (const appId of yield* workspaces.appIds(id)) yield* removeApp(appId);
+        yield* (yield* Scheduler).forgetWorkspace(id);
         yield* secrets.removeScope(workspaceScope(id));
         yield* permissions.forget(workspaceScope(id));
         yield* (yield* Network).removeWorkspace(id);
