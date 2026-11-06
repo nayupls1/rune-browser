@@ -588,7 +588,7 @@ try {
       : await page!.waitFor<number>(countModels, { label: "models" });
     await shot("agent-picker.png");
     await page!.eval(
-      `document.querySelector("[data-agent-popover] input").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })), true`,
+      `document.querySelector("[data-agent-popover]").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })), true`,
     );
     await page!.waitFor(`!document.querySelector("[data-agent-popover]")`, { label: "Escape to close" });
     await shot("new-app.png");
