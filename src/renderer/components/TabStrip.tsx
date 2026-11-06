@@ -377,7 +377,8 @@ const styles = stylex.create({
     fontFamily: font.sans,
     pointerEvents: "none",
   },
-  cardTitle: { fontSize: font.sm, fontWeight: 600, overflowWrap: "anywhere" },
+  // At most about three lines of a long title.
+  cardTitle: { maxHeight: "4.2em", overflow: "hidden", fontSize: font.sm, fontWeight: 600, overflowWrap: "anywhere" },
   cardDetail: {
     fontSize: font.xs,
     color: colors.muted,
