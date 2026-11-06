@@ -1,7 +1,7 @@
-// A web tab's extensions button, in the sidebar's top row like Zen Browser's:
-// one menu with every extension (the pinned ones first, with their badges).
-// Choosing one opens its popup (its page in a <webview> of the workspace's
-// session, sized by the page) or tells the extension it was clicked.
+// A web tab's extensions button, at the end of the address bar: one menu with
+// every extension (the pinned ones first, with their badges), dropping down under
+// the address bar. Choosing one opens its popup there (its page in a <webview> of
+// the workspace's session, sized by the page) or tells the extension it was clicked.
 import * as stylex from "@stylexjs/stylex";
 import { createEffect, createSignal, For, on, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
@@ -44,17 +44,27 @@ export function ExtensionsBar(props: {
     void bridge.actions(props.workspaceId, tabId).then(setActions, () => setActions([]));
   });
 
-  // Without extensions there's no button (the ⋯ menu leads to Settings → Extensions).
-  const anchor = () =>
-    (menuButton?.isConnected ? menuButton : document.querySelector("[data-more-menu]"))?.getBoundingClientRect() ??
-    new DOMRect(12, 8, 0, 32);
+  // Menus and popups drop down under the address bar, from its left edge (the button is at its far end, so
+  // hanging them off the button would push them out over the page). Without the button on screen (no
+  // extensions, or the sidebar hidden), the window's top-left corner.
+  const anchor = () => {
+    const bar = menuButton?.isConnected ? menuButton.closest("[data-address-bar]") : null;
+    const rect = bar?.getBoundingClientRect();
+    return rect && rect.right > 0 && rect.width > 0 ? rect : new DOMRect(12, 8, 0, 32);
+  };
 
-  async function activate(action: ExtensionAction, anchor: DOMRect) {
+  async function activate(action: ExtensionAction) {
     setMenu(null);
     if (popup()?.extensionId === action.extensionId) return setPopup(null);
     const url = await bridge.click(props.workspaceId, action.extensionId);
-    setPopup(url ? { extensionId: action.extensionId, url, anchor } : null);
+    setPopup(url ? { extensionId: action.extensionId, url, anchor: anchor() } : null);
   }
+
+  // The button toggles: it closes its menu or a popup that's open (the popovers leave its clicks to it).
+  const toggle = () => {
+    if (popup()) return setPopup(null);
+    setMenu(menu() ? null : anchor());
+  };
 
   // A popup asked for by a shortcut or the extension itself, in the tab on screen.
   createEffect(
@@ -79,7 +89,7 @@ export function ExtensionsBar(props: {
           type="button"
           ref={menuButton}
           title="Extensions"
-          onClick={(e) => setMenu(menu() ? null : e.currentTarget.getBoundingClientRect())}
+          onClick={toggle}
           {...stylex.attrs(styles.button, menuOpen() && styles.buttonOn, showing() && styles.buttonOn)}
           data-extensions-menu
         >
@@ -91,18 +101,26 @@ export function ExtensionsBar(props: {
           <ExtensionsMenu
             anchor={anchor()}
             actions={actions()}
-            onActivate={(a) => void activate(a, anchor())}
+            onActivate={(a) => void activate(a)}
             onActionMenu={(id) => void bridge.actionMenu(props.workspaceId, id)}
             onImport={() => {
               setMenu(null);
               props.onImport();
             }}
             onClose={() => setMenu(null)}
+            button={() => menuButton}
           />
         )}
       </Show>
       <Show when={popup()}>
-        {(p) => <ExtensionPopup popup={p()} workspaceId={props.workspaceId} onClose={() => setPopup(null)} />}
+        {(p) => (
+          <ExtensionPopup
+            popup={p()}
+            workspaceId={props.workspaceId}
+            onClose={() => setPopup(null)}
+            button={() => menuButton}
+          />
+        )}
       </Show>
     </>
   );
@@ -151,22 +169,33 @@ function MoreButton(props: { extensionId: string; onActionMenu: (extensionId: st
   );
 }
 
-/** Closes a popover on Escape, a click elsewhere, or focus moving away (into a page). */
+/**
+ * Closes a popover on Escape, a click elsewhere, or focus moving away. Clicks in a page don't reach this
+ * document, only the page taking the focus does (focusin; the window's blur too, for focus going from one
+ * webview straight to another), but not focus going into the popover's own webview, a native menu or another
+ * window. Clicks on `ignore` (the button that opened it, which toggles it) are left to it.
+ */
 function useDismiss(el: () => HTMLElement, onClose: () => void, ignore?: () => HTMLElement | undefined) {
   onMount(() => {
     const outside = (target: EventTarget | null) =>
       !el().contains(target as Node) && !ignore?.()?.contains(target as Node);
     const onPointer = (e: PointerEvent) => outside(e.target) && onClose();
     const onFocus = (e: FocusEvent) => outside(e.target) && onClose();
+    const onBlur = () => {
+      const active = document.activeElement;
+      if (active?.tagName === "WEBVIEW" && !el().contains(active)) onClose();
+    };
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     document.addEventListener("pointerdown", onPointer, true);
     document.addEventListener("focusin", onFocus, true);
     document.addEventListener("keydown", onKey, true);
+    window.addEventListener("blur", onBlur);
     window.addEventListener("resize", onClose);
     onCleanup(() => {
       document.removeEventListener("pointerdown", onPointer, true);
       document.removeEventListener("focusin", onFocus, true);
       document.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("blur", onBlur);
       window.removeEventListener("resize", onClose);
     });
   });
@@ -179,9 +208,13 @@ function ExtensionsMenu(props: {
   onActionMenu: (extensionId: string) => void;
   onImport: () => void;
   onClose: () => void;
+  button: () => HTMLElement | undefined;
 }) {
   let el!: HTMLDivElement;
-  useDismiss(() => el, props.onClose);
+  useDismiss(() => el, props.onClose, props.button);
+  // The focus moves into it (on macOS a click on the button leaves it in the page): a click back in the
+  // page then takes it away, which closes the menu.
+  onMount(() => el.focus({ preventScroll: true }));
   const left = () => Math.max(8, Math.min(props.anchor.left, window.innerWidth - 308));
   const pinnedFirst = () =>
     [...props.actions].sort(
@@ -193,6 +226,7 @@ function ExtensionsMenu(props: {
       <div
         ref={el}
         role="menu"
+        tabIndex={-1}
         {...stylex.attrs(styles.menu)}
         style={{ left: `${left()}px`, top: `${props.anchor.bottom + 6}px` }}
         data-extensions-list
@@ -290,12 +324,17 @@ const measureScript = `(() => {
   return [width, height];
 })()`;
 
-function ExtensionPopup(props: { popup: Popup; workspaceId: string; onClose: () => void }) {
+function ExtensionPopup(props: {
+  popup: Popup;
+  workspaceId: string;
+  onClose: () => void;
+  button: () => HTMLElement | undefined;
+}) {
   let el!: HTMLDivElement;
   let view: Electron.WebviewTag | undefined;
   let ready = false;
   const [size, setSize] = createSignal<[number, number] | null>(null);
-  useDismiss(() => el, props.onClose);
+  useDismiss(() => el, props.onClose, props.button);
   const left = () => Math.max(8, Math.min(props.popup.anchor.left, window.innerWidth - (size()?.[0] ?? 25) - 10));
   const measure = () => {
     if (!view || !ready) return;
@@ -399,6 +438,7 @@ const styles = stylex.create({
     fontFamily: font.sans,
     fontSize: font.sm,
     color: colors.text,
+    outline: "none",
   },
   item: { display: "flex", alignItems: "center", gap: 2 },
   itemMain: {

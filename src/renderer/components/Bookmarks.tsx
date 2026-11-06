@@ -598,8 +598,14 @@ const styles = stylex.create({
     cursor: "pointer",
   },
   starOn: { color: { default: colors.accent, ":hover": colors.accent } },
-  // Invisible but there: Tab reaches it (and shows it), like the hover does.
-  starQuiet: { opacity: { default: 0, ":focus-visible": 1 } },
+  // Hidden, it takes no room (the row's 7px gap included), so the address isn't cut short for it; the pointer
+  // over the address brings it in over the end of the text. Tab still reaches it (and shows it).
+  starQuiet: {
+    width: { default: 0, ":focus-visible": 24 },
+    marginLeft: { default: -7, ":focus-visible": 0 },
+    overflow: "hidden",
+    opacity: { default: 0, ":focus-visible": 1 },
+  },
   popover: {
     position: "fixed",
     zIndex: 1600,
