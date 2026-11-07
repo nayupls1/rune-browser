@@ -52,6 +52,12 @@ agents, which do much of the work here, but it's just as true for people.
   warning on the run and a section in its summary. Fix those rather than ignoring
   them. A test that fails twice still fails, and so do more than five failing test
   files at once. On Windows, CI doubles every e2e wait (`E2E_TIMEOUT_SCALE=2`).
+- **Running as root** (containers): Chromium refuses its sandbox as root, so
+  `scripts/electron.ts` starts Electron with `--no-sandbox`, and then Electron
+  runs no service-worker preloads. Extensions' missing `chrome.*` APIs and the
+  built-in extension's rules (network rules, site JavaScript and images,
+  third-party cookies, Do Not Track, ads and trackers) don't apply, and the e2e
+  browser settings check fails. Run the app and the checks as a regular user.
 - **Windows:** paths in tests and tool output go through `node:path` (`join`,
   `relative`) or are normalized to `/`; don't compare against hand-written
   `a/b` paths built from `path.slice`, as they come out as `a\b` on Windows.
