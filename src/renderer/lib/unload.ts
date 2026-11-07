@@ -72,13 +72,27 @@ export async function unloadOtherTabs() {
   return count;
 }
 
-// For the e2e checks: run a sweep as if it were later, and wake a tab like an agent would.
+// For the e2e checks and memory benchmarks: run a sweep as if it were later, wake a tab like an
+// agent would, unload one tab, and find a tab's page.
 declare global {
   interface Window {
-    __runeTabs?: { sweep: (inMs: number) => Promise<string[]>; wake: (id: string) => Promise<string> };
+    __runeTabs?: {
+      sweep: (inMs: number) => Promise<string[]>;
+      wake: (id: string) => Promise<string>;
+      unload: (id: string) => Promise<boolean>;
+      contentsId: (id: string) => number | null;
+    };
   }
 }
 window.__runeTabs = {
   sweep: (inMs) => sweep(Date.now() + inMs),
   wake: async (id) => (await wakePage(id)).info().url,
+  unload: (id) => unloadTab(id),
+  contentsId: (id) => {
+    try {
+      return pageOf(id)?.webContentsId() ?? null;
+    } catch {
+      return null;
+    }
+  },
 };
