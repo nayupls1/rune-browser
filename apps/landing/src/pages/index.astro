@@ -1,0 +1,21 @@
+---
+// The homepage: the text, and the browser itself beside it, running off the right edge.
+import { Image } from "astro:assets";
+import * as stylex from "@stylexjs/stylex";
+import changes from "../assets/screens/changes.png";
+import Home from "../layouts/Home.astro";
+import { s } from "../styles/letter";
+---
+
+<Home bleed>
+  <figure {...stylex.attrs(s.frame)}>
+    <Image
+      {...stylex.attrs(s.shot, s.cut)}
+      src={changes}
+      widths={[960, 1280]}
+      sizes="(min-width: 1080px) 58rem, 170vw"
+      alt="Rune Browser on a recipe site: the ads, the life story and the newsletter pop-up are hidden, and the menu of changes on this page lists each with a switch. The agent's sidebar is open beside it."
+      loading="eager"
+    />
+  </figure>
+</Home>

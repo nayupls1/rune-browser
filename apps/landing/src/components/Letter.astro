@@ -1,0 +1,42 @@
+---
+// The homepage's text: what Rune is, its four points, and the download.
+import * as stylex from "@stylexjs/stylex";
+import Mark from "./Mark.astro";
+import { download } from "../lib/site";
+import { s } from "../styles/letter";
+---
+
+<div {...stylex.attrs(s.column)}>
+  <div {...stylex.attrs(s.mark)}><Mark size={30} draw /></div>
+  <p {...stylex.attrs(s.name)}>Rune Browser</p>
+  <h1 {...stylex.attrs(s.title)}>A calm browser you change by asking.</h1>
+
+  <div {...stylex.attrs(s.points)}>
+    <p {...stylex.attrs(s.point)}>
+      <span {...stylex.attrs(s.lead)}>Quiet by default.</span> One slim bar, a sidebar that slides away, and nothing else
+      asking for your attention.
+    </p>
+    <p {...stylex.attrs(s.point)}>
+      <span {...stylex.attrs(s.lead)}>Change any site.</span> Ask it to hide the clutter, restyle a page or add the button
+      you always wanted. The change stays on every visit. It runs on Claude Code, Codex or OpenCode, with the login you
+      already have.
+    </p>
+    <p {...stylex.attrs(s.point)}>
+      <span {...stylex.attrs(s.lead)}>Let it do the clicking.</span> The same agent can work through pages in your tab:
+      search, fill in forms, compare. It asks before anything that pays, posts or deletes.
+    </p>
+    <p {...stylex.attrs(s.point)}>
+      <span {...stylex.attrs(s.lead)}>Gets to know your sites.</span> As you browse, it maps how each site works, the shape
+      of its requests and never your data, so your agent knows the sites you use a little better every week.
+    </p>
+  </div>
+
+  <div {...stylex.attrs(s.actions)}>
+    <a {...stylex.attrs(s.button)} href={download}>Download for macOS</a>
+    <span {...stylex.attrs(s.also)}>
+      Also for <a {...stylex.attrs(s.link)} href={download}>Windows</a> and <a {...stylex.attrs(s.link)} href={download}
+        >Linux</a
+      >.
+    </span>
+  </div>
+</div>

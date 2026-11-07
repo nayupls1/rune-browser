@@ -1,2 +1,7 @@
 [fmt]
 printWidth = 120
+
+[install]
+# Supply-chain safety: only install package versions published at least three
+# days ago, so a hijacked release is usually caught and pulled before it lands here.
+minimumReleaseAge = 259200

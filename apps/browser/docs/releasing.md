@@ -1,12 +1,12 @@
 # Releasing
 
-[README](../README.md) · [Architecture](architecture.md) · [Concepts](concepts.md) · [Interface](interface.md) · [Browsing](browsing.md) · [Design system](design-system.md) · [Development](development.md) · [Releasing](releasing.md)
+[README](../../../README.md) · [Architecture](architecture.md) · [Concepts](concepts.md) · [Interface](interface.md) · [Browsing](browsing.md) · [Design system](design-system.md) · [Development](development.md) · [Releasing](releasing.md)
 
 ## Versions and channels
 
 Versions follow [SemVer](https://semver.org), starting at 0.1.0; before 1.0
 anything may change between minor versions. The version lives in
-`package.json`, and every release is a tag `v<version>` on `master`.
+`apps/browser/package.json`, and every release is a tag `v<version>` on `master`.
 
 - **Stable:** `0.2.0`. Everyone gets it.
 - **Daily:** `0.2.1-daily.20261031.42`: a build of `master`, versioned as the
@@ -18,7 +18,7 @@ anything may change between minor versions. The version lives in
 
 ## Cutting a release
 
-Set the new version in `package.json` in a pull request (on its own, or with
+Set the new version in `apps/browser/package.json` in a pull request (on its own, or with
 the last change that goes into the release) and merge it. Then, from any
 branch:
 

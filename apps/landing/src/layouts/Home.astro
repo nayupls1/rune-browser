@@ -1,0 +1,33 @@
+---
+// The homepage's frame: the text on the left, the slot (a picture of the browser) on the right.
+import * as stylex from "@stylexjs/stylex";
+import Letter from "../components/Letter.astro";
+import Base from "./Base.astro";
+import { repo, version } from "../lib/site";
+import { s } from "../styles/letter";
+
+interface Props {
+  /** The picture runs off the window's right edge. */
+  bleed?: boolean;
+  /** The picture stays in view while the text scrolls. */
+  sticky?: boolean;
+}
+
+const { bleed = false, sticky = true } = Astro.props;
+const bleeds = () => bleed && s.bleed;
+const sticks = () => sticky && s.sticky;
+---
+
+<Base>
+  <div {...stylex.attrs(s.page)}>
+    <main {...stylex.attrs(s.grid, bleeds())}>
+      <Letter />
+      <div {...stylex.attrs(s.visual, sticks())}>
+        <slot />
+      </div>
+    </main>
+    <footer {...stylex.attrs(s.footer)}>
+      Free and open source. Version {version}, on <a {...stylex.attrs(s.link)} href={repo}>GitHub</a>.
+    </footer>
+  </div>
+</Base>
