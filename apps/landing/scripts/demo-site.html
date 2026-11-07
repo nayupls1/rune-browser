@@ -209,17 +209,5 @@
     <div class="newsletter">
       <b>Don't miss a recipe!</b>Join 40,000 home cooks and get new soups every Sunday.<button>Subscribe</button>
     </div>
-    <script>
-      const id = 40 + Math.floor(Math.random() * 50);
-      fetch("/api/recipes/" + id).then((r) => r.json());
-      fetch("/api/recipes/" + id + "/comments?page=1&sort=top").then((r) => r.json());
-      fetch("/api/me/saved?limit=20", { credentials: "include" }).then((r) => r.json());
-      fetch("/api/recipes/" + id + "/rating", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ stars: 5 }),
-      });
-      fetch("/api/search?q=tomato&diet=vegetarian&page=2").then((r) => r.json());
-    </script>
   </body>
 </html>

@@ -1,37 +1,21 @@
 ---
+// The homepage: the text, and the browser itself beside it, running off the right edge.
+import { Image } from "astro:assets";
 import * as stylex from "@stylexjs/stylex";
-import Mark from "../components/Mark.astro";
-import Base from "../layouts/Base.astro";
-import { s } from "../styles/index";
-
-const variants = [
-  { href: "/1", name: "Window", about: "A real screenshot of the browser, running off the right edge." },
-  { href: "/2", name: "Before and after", about: "The cluttered page with the request, and the same page afterwards." },
-  { href: "/3", name: "Tour", about: "Three screenshots down the side: ask, the changes, the API map." },
-  { href: "/4", name: "Sketch", about: "The browser drawn in outline instead of a screenshot." },
-  { href: "/5", name: "Close-ups", about: "The composer and the changes menu, cut out sharp at 2x." },
-];
+import changes from "../assets/screens/changes.png";
+import Home from "../layouts/Home.astro";
+import { s } from "../styles/letter";
 ---
 
-<Base title="Rune Browser: website designs">
-  <div {...stylex.attrs(s.page)}>
-    <main {...stylex.attrs(s.main)}>
-      <Mark size={22} />
-      <h1 {...stylex.attrs(s.title)}>Website designs</h1>
-      <p {...stylex.attrs(s.intro)}>Five takes on the Letter design, each with a different picture beside the text. The chosen one becomes this page.</p>
-      <ul {...stylex.attrs(s.list)}>
-        {
-          variants.map(({ href, name, about }) => (
-            <li>
-              <a {...stylex.attrs(s.link)} href={href}>
-                <span {...stylex.attrs(s.name)}>{name}</span>
-                <br />
-                <span {...stylex.attrs(s.about)}>{about}</span>
-              </a>
-            </li>
-          ))
-        }
-      </ul>
-    </main>
-  </div>
-</Base>
+<Home bleed>
+  <figure {...stylex.attrs(s.frame)}>
+    <Image
+      {...stylex.attrs(s.shot, s.cut)}
+      src={changes}
+      widths={[960, 1280]}
+      sizes="(min-width: 1080px) 58rem, 170vw"
+      alt="Rune Browser on a recipe site: the ads, the life story and the newsletter pop-up are hidden, and the menu of changes on this page lists each with a switch. The agent's sidebar is open beside it."
+      loading="eager"
+    />
+  </figure>
+</Home>

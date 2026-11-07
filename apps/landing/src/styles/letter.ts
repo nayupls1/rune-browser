@@ -100,11 +100,13 @@ export const s = stylex.create({
     boxShadow: brand.shadow,
     backgroundColor: brand.surface,
   },
-  caption: {
-    marginBlockStart: "0.9rem",
-    color: brand.muted,
-    fontSize: "0.9375rem",
-    textWrap: "pretty",
-    maxWidth: "36rem",
+  // The homepage's screenshot: wider than its column, so the window runs off the right edge (the page clips
+  // it). On phones too: there it's shown larger, the page and its menu of changes first.
+  frame: {
+    width: { default: "170%", [WIDE]: "max(100%, 58rem)" },
+    // Beside the text: the window's top lines up with "Rune Browser", below the mark (its height, 30px wide
+    // at the icon's 388:628, and the space under it).
+    marginBlockStart: { default: 0, [WIDE]: "calc(30px * 628 / 388 + 2.75rem)" },
   },
+  cut: { borderStartEndRadius: 0, borderEndEndRadius: 0 },
 });
