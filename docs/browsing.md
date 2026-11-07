@@ -89,7 +89,8 @@ Browser's own settings (`components/BrowserSettings.tsx`, `shared/browser.ts`). 
 settings; cookies and site data stay per workspace. The renderer sends them to the main process whenever they change
 (`main/browser.ts`), which puts them into effect in web tabs:
 
-- **Privacy and security:** the warning before insecure sites; block third-party cookies; send Do Not Track.
+- **Privacy and security:** the warning before insecure sites; block ads and trackers (on by default); block
+  third-party cookies; send Do Not Track.
 - **Clear browsing data** (Ctrl+Shift+Delete, macOS Cmd+Shift+Backspace; rune://settings/clearBrowserData): browsing
   history, download history (the files stay), cookies and other site data, and the cache, for the last hour, 24
   hours, 7 days, 4 weeks or all time, of this workspace or all of them. Extensions keep their data, like in Chrome.
@@ -128,6 +129,10 @@ How they apply:
   blocked image requests from blocked sites, `Cookie`/`Set-Cookie` removed from third-party requests, a `DNT: 1`
   header. They take effect on the next load. Blocking third-party cookies this way stops them on the network; a
   third-party frame's `document.cookie` still works.
+- **Ads and trackers** are one more of those rules: requests other sites make to the domains in `shared/blocklist.ts`
+  (ad servers and exchanges, cookie syncing, tracking analytics) are blocked, except opening one as a page. Besides
+  privacy, it's the biggest memory saving there is on ad-heavy pages: each ad exchange's iframe is a renderer process
+  of its own (~20 MB), and such pages embed dozens.
 - **Sound** mutes a site's tabs when they navigate there.
 - **Fonts** are the webview's preferences when a tab's page is created; the font size also changes in open pages (over
   the DevTools protocol, which only lets a page's font families be set once, so new families and minimum sizes apply

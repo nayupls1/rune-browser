@@ -114,7 +114,8 @@ const electron = await launchElectron(
     `--remote-debugging-port=${port}`,
     "--disable-backgrounding-occluded-windows",
     "--disable-renderer-backgrounding",
-    `--host-resolver-rules=MAP insecure.example:80 ${insecureHost}, MAP insecure.example:443 ${insecureHost}`,
+    // ads.pubmatic.com: an ad exchange on the ads and trackers list (blocked unless that's turned off).
+    `--host-resolver-rules=MAP insecure.example:80 ${insecureHost}, MAP insecure.example:443 ${insecureHost}, MAP ads.pubmatic.com:80 ${insecureHost}`,
   ],
 );
 
@@ -4432,6 +4433,24 @@ try {
         }, 15_000);
         await openSettingsAt("browser-privacy");
         await click('[data-do-not-track] [role="switch"]');
+
+        // Ads and trackers are blocked by default: a request to an ad exchange fails; turned off, it goes through.
+        step = "ads and trackers";
+        const adRequest = `fetch("http://ads.pubmatic.com/ad", { mode: "no-cors" }).then(() => "loaded", () => "blocked")`;
+        await click(`nav li[data-app-id="${tabId}"]`);
+        await waitForValue(async () => ((await inPage<string>(adRequest)) === "blocked" ? true : undefined), 15_000);
+        await openSettingsAt("browser-privacy");
+        await click('[data-block-ads] [role="switch"]');
+        await waitForValue(async () =>
+          (await apiCall<{ browser: { privacy: { blockAdsAndTrackers: boolean } } }>("/api/settings")).browser.privacy
+            .blockAdsAndTrackers
+            ? undefined
+            : true,
+        );
+        await click(`nav li[data-app-id="${tabId}"]`);
+        await waitForValue(async () => ((await inPage<string>(adRequest)) === "loaded" ? true : undefined), 15_000);
+        await openSettingsAt("browser-privacy");
+        await click('[data-block-ads] [role="switch"]');
 
         // Fonts: a bigger default size, in the open page too.
         step = "fonts";

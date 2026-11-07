@@ -4,6 +4,7 @@
 // declarativeNetRequest rules for the privacy and content settings, and what
 // a Chromium profile's Preferences hold (Import).
 import { Effect, Schema } from "effect";
+import { AD_AND_TRACKER_DOMAINS } from "./blocklist";
 import type { DnrRule } from "./extensions";
 
 const withDefault = <S extends Schema.Top>(value: S["Encoded"]) =>
@@ -115,6 +116,8 @@ export const BrowserSettings = Schema.Struct({
   privacy: Schema.Struct({
     thirdPartyCookies: Schema.Literals(["allow", "block"]).pipe(withDefault("allow")),
     doNotTrack: Schema.Boolean.pipe(withDefault(false)),
+    /** Ads and trackers other sites embed (shared/blocklist.ts): also saves the memory of their frames. */
+    blockAdsAndTrackers: Schema.Boolean.pipe(withDefault(true)),
   }).pipe(withDefault({})),
   /** Every site's default for each setting. */
   defaults: Schema.Struct({
@@ -482,6 +485,15 @@ export function browserRulesToDnr(browser: BrowserSettings, firstId: number): Dn
       priority: 1,
       action: { type: "modifyHeaders", requestHeaders: [{ header: "DNT", operation: "set", value: "1" }] },
       condition: condition({}, ALL),
+    });
+  }
+
+  // Not main_frame: opening one of these domains (an ad's link) still works.
+  if (browser.privacy.blockAdsAndTrackers) {
+    add({
+      priority: 3,
+      action: { type: "block" },
+      condition: condition({ requestDomains: [...AD_AND_TRACKER_DOMAINS], domainType: "thirdParty" }, SUBRESOURCES),
     });
   }
   return out;

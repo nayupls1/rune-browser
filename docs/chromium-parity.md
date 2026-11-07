@@ -61,7 +61,7 @@ Chromium's settings, by its own sections. Browser settings get their own part of
 | Chromium                       | Rune Browser   | Note                                                                                                                                           |
 | ------------------------------ | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
 | Autofill and passwords         | Different      | Settings → Passwords and autofill: no password store of its own; password manager extensions work                                              |
-| Privacy and security           | Matched        | Clear browsing data, the insecure-site warning, third-party cookies, Do Not Track                                                              |
+| Privacy and security           | Matched        | Clear browsing data, the insecure-site warning, third-party cookies, Do Not Track; plus built-in ad and tracker blocking                       |
 | Clear browsing data            | Different      | History, downloads, cookies and cache by time range; cookies and cache for the sites visited in the range                                      |
 | Site settings                  | Matched        | Location, camera, microphone, notifications, MIDI, clipboard, JavaScript, images, sound; per site                                              |
 | Performance (Memory Saver)     | Matched        | Settings → General → Performance (tab unloading)                                                                                               |

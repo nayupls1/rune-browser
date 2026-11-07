@@ -80,6 +80,17 @@ export function PrivacySection() {
       </Section>
       <Section title="Cookies and site settings" anchor="browser-cookies">
         <Row
+          label="Block ads and trackers"
+          description="Stops ad networks and trackers that sites embed. Pages load faster and use less memory."
+        >
+          <span data-block-ads>
+            <Toggle
+              checked={browser().privacy.blockAdsAndTrackers}
+              onChange={(blockAdsAndTrackers) => setPart("privacy", { blockAdsAndTrackers })}
+            />
+          </span>
+        </Row>
+        <Row
           label="Block third-party cookies"
           description="Stops tracking through embedded content. Some sign-ins may break."
         >

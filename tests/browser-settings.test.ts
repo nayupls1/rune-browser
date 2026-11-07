@@ -2,6 +2,7 @@
 // rules they become, the search engine, and importing a Chromium profile's
 // Preferences. Also that the server keeps them with the other settings.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { AD_AND_TRACKER_DOMAINS } from "../src/shared/blocklist";
 import {
   applyImport,
   blockedDomains,
@@ -137,14 +138,36 @@ describe("zoom", () => {
 });
 
 describe("rules", () => {
-  test("nothing changes requests by default", () => {
-    expect(browserRulesToDnr(defaultBrowserSettings(), 1)).toEqual([]);
+  test("by default, only ads and trackers other sites embed are blocked", () => {
+    const rules = browserRulesToDnr(defaultBrowserSettings(), 1);
+    expect(rules).toHaveLength(1);
+    const [ads] = rules;
+    expect(ads!.action).toEqual({ type: "block" });
+    expect(ads!.condition.domainType).toBe("thirdParty");
+    expect(ads!.condition.requestDomains).toEqual(expect.arrayContaining(["doubleclick.net", "pubmatic.com"]));
+    // Opening one (an ad's link) still works.
+    expect(ads!.condition.resourceTypes).not.toContain("main_frame");
+    expect(ads!.condition.resourceTypes).toContain("sub_frame");
+  });
+
+  test("the list never blocks what sites need to work", () => {
+    const essential =
+      /(^|\.)(google\.com|gstatic\.com|youtube\.com|facebook\.(com|net)|stripe\.(com|network)|recaptcha\.net|cloudflare\.com|apple\.com|microsoft\.com)$/;
+    for (const domain of AD_AND_TRACKER_DOMAINS.filter((d) => d !== "adservice.google.com"))
+      expect(domain).not.toMatch(essential);
+    expect(new Set(AD_AND_TRACKER_DOMAINS).size).toBe(AD_AND_TRACKER_DOMAINS.length);
+    for (const domain of AD_AND_TRACKER_DOMAINS) expect(domain).toMatch(/^[a-z0-9-]+(\.[a-z0-9-]+)+$/);
+  });
+
+  test("turned off: nothing changes requests", () => {
+    const b = withSites({}, { privacy: { ...defaultBrowserSettings().privacy, blockAdsAndTrackers: false } });
+    expect(browserRulesToDnr(b, 1)).toEqual([]);
   });
 
   test("blocked JavaScript, images, third-party cookies and Do Not Track", () => {
     const b = withSites(
       { "js-off.com": { javascript: "block" }, "pics-off.com": { images: "block" } },
-      { privacy: { thirdPartyCookies: "block", doNotTrack: true } },
+      { privacy: { thirdPartyCookies: "block", doNotTrack: true, blockAdsAndTrackers: false } },
     );
     const rules = browserRulesToDnr(b, 10);
     expect(rules.map((r) => r.id)).toEqual([10, 11, 12, 13, 14]);
