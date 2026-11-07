@@ -5,14 +5,11 @@ import icon from "../../../browser/build/icon.svg?url";
 interface Props {
   title?: string;
   description?: string;
-  /** "light dark" follows the OS; "dark" for pages that are always dark. */
-  scheme?: "light dark" | "dark";
 }
 
 const {
   title = "Rune Browser",
   description = "A calm desktop browser you change by asking, on Claude Code, Codex or OpenCode.",
-  scheme = "light dark",
 } = Astro.props;
 
 // What the page may load: its own stylesheet, fonts and images, nothing else. No scripts at all, so an
@@ -35,7 +32,7 @@ const csp = [
     <meta charset="utf-8" />
     {import.meta.env.PROD && <meta http-equiv="Content-Security-Policy" content={csp} />}
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="color-scheme" content={scheme} />
+    <meta name="color-scheme" content="light" />
     <title>{title}</title>
     <meta name="description" content={description} />
     <link rel="icon" href={icon} type="image/svg+xml" />

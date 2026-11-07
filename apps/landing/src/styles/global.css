@@ -2,10 +2,6 @@
 @layer reset;
 
 @import "@fontsource-variable/schibsted-grotesk/index.css";
-@import "@fontsource-variable/onest/index.css";
-@import "@fontsource-variable/bricolage-grotesque/standard.css";
-@import "@fontsource-variable/instrument-sans/standard.css";
-@import "@fontsource-variable/literata/index.css";
 
 @layer reset {
   *,

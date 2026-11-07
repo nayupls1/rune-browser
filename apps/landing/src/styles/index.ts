@@ -7,7 +7,7 @@ export const s = stylex.create({
     minHeight: "100vh",
     backgroundColor: brand.bg,
     color: brand.text,
-    fontFamily: '"Instrument Sans Variable", ui-sans-serif, system-ui, sans-serif',
+    fontFamily: '"Schibsted Grotesk Variable", ui-sans-serif, system-ui, sans-serif',
     lineHeight: 1.5,
     paddingInline: "1.25rem",
   },

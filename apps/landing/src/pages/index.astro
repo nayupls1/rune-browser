@@ -5,11 +5,11 @@ import Base from "../layouts/Base.astro";
 import { s } from "../styles/index";
 
 const variants = [
-  { href: "/v1", name: "Letter", about: "A short column of plain prose, left of center. The rune draws itself once." },
-  { href: "/v2", name: "Window", about: "Always dark. A drawn browser window shows a change asked for in the sidebar." },
-  { href: "/v3", name: "Statements", about: "Type only: four huge, condensed claims with a line of explanation each." },
-  { href: "/v4", name: "Ask bar", about: "One sentence and the composer, rolling through a request for each agent." },
-  { href: "/v5", name: "Field notes", about: "Serif, about what Rune learns, with a sample of one site's API map." },
+  { href: "/1", name: "Window", about: "A real screenshot of the browser, running off the right edge." },
+  { href: "/2", name: "Before and after", about: "The cluttered page with the request, and the same page afterwards." },
+  { href: "/3", name: "Tour", about: "Three screenshots down the side: ask, the changes, the API map." },
+  { href: "/4", name: "Sketch", about: "The browser drawn in outline instead of a screenshot." },
+  { href: "/5", name: "Close-ups", about: "The composer and the changes menu, cut out sharp at 2x." },
 ];
 ---
 
@@ -18,7 +18,7 @@ const variants = [
     <main {...stylex.attrs(s.main)}>
       <Mark size={22} />
       <h1 {...stylex.attrs(s.title)}>Website designs</h1>
-      <p {...stylex.attrs(s.intro)}>Five directions for Rune Browser's homepage. The chosen one becomes this page.</p>
+      <p {...stylex.attrs(s.intro)}>Five takes on the Letter design, each with a different picture beside the text. The chosen one becomes this page.</p>
       <ul {...stylex.attrs(s.list)}>
         {
           variants.map(({ href, name, about }) => (

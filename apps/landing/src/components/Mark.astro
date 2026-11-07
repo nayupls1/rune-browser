@@ -8,16 +8,12 @@ interface Props {
   size: number;
   /** Draw it in one stroke when the page loads. */
   draw?: boolean;
-  /** Use the dark mode's colors whatever the OS's mode (for pages that are always dark). */
-  dark?: boolean;
   label?: string;
 }
 
-const { size, draw = false, dark = false, label = "Rune" } = Astro.props;
+const { size, draw = false, label = "Rune" } = Astro.props;
 // Each mark on a page needs its own gradient id.
 const id = `rune-${Math.random().toString(36).slice(2, 8)}`;
-const top = () => (dark ? mark.topDark : mark.top);
-const bottom = () => (dark ? mark.bottomDark : mark.bottom);
 const stroke = () => draw && mark.draw;
 ---
 
@@ -31,8 +27,8 @@ const stroke = () => draw && mark.draw;
 >
   <defs>
     <linearGradient id={id} x1="0" y1="252" x2="0" y2="772" gradientUnits="userSpaceOnUse">
-      <stop offset="0" {...stylex.attrs(top())}></stop>
-      <stop offset="1" {...stylex.attrs(bottom())}></stop>
+      <stop offset="0" {...stylex.attrs(mark.top)}></stop>
+      <stop offset="1" {...stylex.attrs(mark.bottom)}></stop>
     </linearGradient>
   </defs>
   <path

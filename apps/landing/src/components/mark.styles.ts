@@ -10,9 +10,6 @@ export const mark = stylex.create({
   svg: { display: "block", height: "auto", overflow: "visible" },
   top: { stopColor: brand.runeTop },
   bottom: { stopColor: brand.runeBottom },
-  // Always the dark mode's colors, for pages that are dark whatever the OS says.
-  topDark: { stopColor: "#f08a5d" },
-  bottomDark: { stopColor: "#d9582f" },
   // The rune drawn in one stroke, the way it's written.
   draw: {
     strokeDasharray: 1,
