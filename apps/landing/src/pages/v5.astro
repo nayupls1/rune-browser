@@ -1,0 +1,98 @@
+---
+import * as stylex from "@stylexjs/stylex";
+import Mark from "../components/Mark.astro";
+import Base from "../layouts/Base.astro";
+import { download, repo, version } from "../lib/site";
+import { s } from "../styles/v5";
+
+// What the API map keeps (apps/browser/docs/browsing.md: API map): path templates and the names and kinds
+// of fields, never values.
+const endpoints = [
+  { method: "GET", path: "/repos/{owner}/{repo}/pulls", fields: "state, sort, per_page" },
+  { method: "GET", path: "/notifications", fields: "all, since: date" },
+  { method: "POST", path: "/repos/{owner}/{repo}/issues", fields: "title, body, labels[]" },
+  { method: "PATCH", path: "/notifications/threads/{id}", fields: "" },
+  { method: "GET", path: "/search/issues", fields: "q, page: integer" },
+];
+
+const more = [
+  {
+    term: "Quiet by default",
+    def: "One slim bar and a sidebar that slides away. Nothing else asks for your attention.",
+  },
+  {
+    term: "Changes that stay",
+    def: "Ask for a site to look or work differently and it does, on every visit. On Claude Code, Codex or OpenCode, with your own login.",
+  },
+  {
+    term: "Does the clicking",
+    def: "It searches, fills in forms and works through pages in your tab, and asks before anything that pays, posts or deletes.",
+  },
+];
+---
+
+<Base>
+  <div {...stylex.attrs(s.page)}>
+    <div {...stylex.attrs(s.wrap)}>
+      <header {...stylex.attrs(s.header)}>
+        <span {...stylex.attrs(s.brand)}><Mark size={13} label="" /> Rune Browser</span>
+        <a {...stylex.attrs(s.headerLink)} href={download}>Download</a>
+      </header>
+      <main>
+        <h1 {...stylex.attrs(s.title)}>A browser that learns the sites you use.</h1>
+        <p {...stylex.attrs(s.intro)}>
+          As you browse, Rune quietly maps how each site works: the requests it makes and the shape of what comes back.
+          The map grows every day you use it, so when you ask your agent for something, it already knows the site.
+        </p>
+
+        <figure>
+          <div {...stylex.attrs(s.card)}>
+            <div {...stylex.attrs(s.cardHead)}>
+              <span {...stylex.attrs(s.host)}>github.com</span>
+              <span {...stylex.attrs(s.count)}>38 endpoints, mapped over three weeks</span>
+            </div>
+            <div {...stylex.attrs(s.rows)}>
+              {
+                endpoints.map(({ method, path, fields }) => (
+                  <div {...stylex.attrs(s.row)}>
+                    <span {...stylex.attrs(s.method)}>{method}</span>
+                    <span {...stylex.attrs(s.path)}>{path}</span>
+                    <span {...stylex.attrs(s.fields)}>{fields}</span>
+                  </div>
+                ))
+              }
+            </div>
+          </div>
+          <figcaption {...stylex.attrs(s.caption)}>
+            Only shapes are kept: paths, field names and what kind of value they hold. Never what you typed or what the
+            site sent back. You can leave any site out.
+          </figcaption>
+        </figure>
+
+        <dl {...stylex.attrs(s.list)}>
+          {
+            more.map(({ term, def }) => (
+              <div {...stylex.attrs(s.item)}>
+                <dt {...stylex.attrs(s.term)}>{term}</dt>
+                <dd {...stylex.attrs(s.def)}>{def}</dd>
+              </div>
+            ))
+          }
+        </dl>
+
+        <div {...stylex.attrs(s.actions)}>
+          <a {...stylex.attrs(s.button)} href={download}>Download for macOS</a>
+          <span {...stylex.attrs(s.also)}>
+            Also for <a {...stylex.attrs(s.link)} href={download}>Windows</a> and <a
+              {...stylex.attrs(s.link)}
+              href={download}>Linux</a
+            >.
+          </span>
+        </div>
+      </main>
+      <footer {...stylex.attrs(s.footer)}>
+        Free and open source. Version {version}, on <a {...stylex.attrs(s.link)} href={repo}>GitHub</a>.
+      </footer>
+    </div>
+  </div>
+</Base>

@@ -1,0 +1,37 @@
+---
+import * as stylex from "@stylexjs/stylex";
+import Mark from "../components/Mark.astro";
+import Base from "../layouts/Base.astro";
+import { s } from "../styles/index";
+
+const variants = [
+  { href: "/v1", name: "Letter", about: "A short column of plain prose, left of center. The rune draws itself once." },
+  { href: "/v2", name: "Window", about: "Always dark. A drawn browser window shows a change asked for in the sidebar." },
+  { href: "/v3", name: "Statements", about: "Type only: four huge, condensed claims with a line of explanation each." },
+  { href: "/v4", name: "Ask bar", about: "One sentence and the composer, rolling through a request for each agent." },
+  { href: "/v5", name: "Field notes", about: "Serif, about what Rune learns, with a sample of one site's API map." },
+];
+---
+
+<Base title="Rune Browser: website designs">
+  <div {...stylex.attrs(s.page)}>
+    <main {...stylex.attrs(s.main)}>
+      <Mark size={22} />
+      <h1 {...stylex.attrs(s.title)}>Website designs</h1>
+      <p {...stylex.attrs(s.intro)}>Five directions for Rune Browser's homepage. The chosen one becomes this page.</p>
+      <ul {...stylex.attrs(s.list)}>
+        {
+          variants.map(({ href, name, about }) => (
+            <li>
+              <a {...stylex.attrs(s.link)} href={href}>
+                <span {...stylex.attrs(s.name)}>{name}</span>
+                <br />
+                <span {...stylex.attrs(s.about)}>{about}</span>
+              </a>
+            </li>
+          ))
+        }
+      </ul>
+    </main>
+  </div>
+</Base>

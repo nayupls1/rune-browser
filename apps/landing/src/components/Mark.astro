@@ -1,0 +1,47 @@
+---
+// Rune's mark (apps/browser/build/icon.svg): the rune alone, without the icon's cream tile.
+import * as stylex from "@stylexjs/stylex";
+import { mark } from "./mark.styles";
+
+interface Props {
+  /** Width in px; the rune is taller than wide. */
+  size: number;
+  /** Draw it in one stroke when the page loads. */
+  draw?: boolean;
+  /** Use the dark mode's colors whatever the OS's mode (for pages that are always dark). */
+  dark?: boolean;
+  label?: string;
+}
+
+const { size, draw = false, dark = false, label = "Rune" } = Astro.props;
+// Each mark on a page needs its own gradient id.
+const id = `rune-${Math.random().toString(36).slice(2, 8)}`;
+const top = () => (dark ? mark.topDark : mark.top);
+const bottom = () => (dark ? mark.bottomDark : mark.bottom);
+const stroke = () => draw && mark.draw;
+---
+
+<svg
+  {...stylex.attrs(mark.svg)}
+  width={size}
+  viewBox="330 198 388 628"
+  role="img"
+  aria-label={label}
+  xmlns="http://www.w3.org/2000/svg"
+>
+  <defs>
+    <linearGradient id={id} x1="0" y1="252" x2="0" y2="772" gradientUnits="userSpaceOnUse">
+      <stop offset="0" {...stylex.attrs(top())}></stop>
+      <stop offset="1" {...stylex.attrs(bottom())}></stop>
+    </linearGradient>
+  </defs>
+  <path
+    {...stylex.attrs(stroke())}
+    d="M384 772 V252 L664 394 L384 536 L664 772"
+    pathLength="1"
+    fill="none"
+    stroke={`url(#${id})`}
+    stroke-width="84"
+    stroke-linecap="round"
+    stroke-linejoin="round"></path>
+</svg>

@@ -43,6 +43,7 @@ Run commands from the repo's root: `bun run check`, `typecheck`, `test` and `bui
   - Keep conditions inside `stylex.attrs(...)` to a single `fn() && styles.x`. Comparisons, `a || b`, `!x`, local booleans etc. make the compiler fail with "Referenced constant is not defined"; wrap them in a `const fn = () => …` helper.
   - Dynamic styles (`x: (v) => ({ prop: v })`) only work for single-word properties. `stylex.attrs` kebab-cases the generated custom property name (`--x-gridTemplateColumns` → `--x-grid-template-columns`), so it no longer matches the CSS. For multi-word properties use Solid's `style={{ "grid-template-columns": … }}` after the attrs spread.
   - Portaled elements (popovers, menus) need their own `fontFamily`.
+  - In `apps/landing`, `stylex.create` goes in `.ts` files next to the pages (`src/styles/`): the compiler doesn't see `.astro` files, which only call `stylex.attrs(...)`.
   - Colors come from `colors` in `theme.stylex.ts` (Rune's palette, [design-system.md](apps/browser/docs/design-system.md)), not hex literals, so themes and dark mode apply.
 - Server code is Effect v4 (`effect@4`, `effect/http`, `effect/sql`):
   - Services are `Context.Service` + `Layer`, wired in `src/server/services.ts`.

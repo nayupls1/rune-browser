@@ -1,0 +1,55 @@
+---
+import * as stylex from "@stylexjs/stylex";
+import Mark from "../components/Mark.astro";
+import Base from "../layouts/Base.astro";
+import { download, repo, version } from "../lib/site";
+import { s } from "../styles/v4";
+
+// One of each thing Rune does: change a site, use it for you, and use what it learned about it.
+const requests = [
+  { agent: "Claude Code", text: "Hide the comments under every video" },
+  { agent: "Codex", text: "Book the earliest table for two on Friday" },
+  { agent: "OpenCode", text: "List the invoices I haven't paid on this site" },
+];
+---
+
+<Base>
+  <div {...stylex.attrs(s.page)}>
+    <main {...stylex.attrs(s.main)}>
+      <Mark size={26} />
+      <h1 {...stylex.attrs(s.title)}>Tell any site what you want.</h1>
+      <p {...stylex.attrs(s.sub)}>
+        Rune is a calm browser with an agent beside every tab. It changes how sites look, does the clicking for you,
+        and learns the sites you use as you go.
+      </p>
+
+      <div {...stylex.attrs(s.bar)} role="img" aria-label="The agent's composer, asking for changes to a site">
+        <div {...stylex.attrs(s.window)} aria-hidden="true">
+          <div {...stylex.attrs(s.reel)}>
+            {
+              [...requests, requests[0]].map(({ agent, text }) => (
+                <div {...stylex.attrs(s.request)}>
+                  <span {...stylex.attrs(s.agent)}>{agent}</span>
+                  <span {...stylex.attrs(s.text)}>{text}</span>
+                </div>
+              ))
+            }
+          </div>
+        </div>
+        <span {...stylex.attrs(s.send)} aria-hidden="true">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5"></path></svg>
+        </span>
+      </div>
+      <p {...stylex.attrs(s.note)}>Claude Code, Codex or OpenCode, on the login you already have.</p>
+
+      <div {...stylex.attrs(s.actions)}>
+        <a {...stylex.attrs(s.button)} href={download}>Download for macOS</a>
+        <a {...stylex.attrs(s.link)} href={download}>Windows and Linux</a>
+      </div>
+    </main>
+    <footer {...stylex.attrs(s.footer)}>
+      <span>Free and open source, version {version}</span>
+      <a {...stylex.attrs(s.link)} href={repo}>GitHub</a>
+    </footer>
+  </div>
+</Base>

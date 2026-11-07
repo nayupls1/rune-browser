@@ -1,0 +1,25 @@
+{
+  "name": "rune-landing",
+  "private": true,
+  "type": "module",
+  "description": "Rune Browser's website: static Astro pages styled with StyleX, no JavaScript",
+  "license": "MIT",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "typecheck": "bun check --no-script"
+  },
+  "devDependencies": {
+    "@fontsource-variable/bricolage-grotesque": "^5.3.0",
+    "@fontsource-variable/instrument-sans": "^5.3.0",
+    "@fontsource-variable/literata": "^5.3.0",
+    "@fontsource-variable/onest": "^5.3.1",
+    "@fontsource-variable/schibsted-grotesk": "^5.3.0",
+    "@stylexjs/stylex": "^0.19.1",
+    "@stylexjs/unplugin": "^0.19.1",
+    "@types/bun": "^1.4.4",
+    "astro": "^7.4.5",
+    "typescript": "^7.0.2"
+  }
+}

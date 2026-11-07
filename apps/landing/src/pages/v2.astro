@@ -1,0 +1,89 @@
+---
+import * as stylex from "@stylexjs/stylex";
+import Mark from "../components/Mark.astro";
+import Base from "../layouts/Base.astro";
+import { download, repo, version } from "../lib/site";
+import { s } from "../styles/v2";
+---
+
+<Base scheme="dark">
+  <div {...stylex.attrs(s.page)}>
+    <main>
+      <section {...stylex.attrs(s.hero)}>
+        <div {...stylex.attrs(s.brand)}><Mark size={13} dark label="" /> Rune Browser</div>
+        <h1 {...stylex.attrs(s.title)}>A calm browser. Your agent changes the rest.</h1>
+        <p {...stylex.attrs(s.sub)}>
+          Ask for a different page and it stays that way. Runs on Claude Code, Codex or OpenCode, with your own login.
+        </p>
+        <div {...stylex.attrs(s.actions)}>
+          <a {...stylex.attrs(s.button)} href={download}>Download for macOS</a>
+          <a {...stylex.attrs(s.link)} href={download}>Windows and Linux</a>
+        </div>
+      </section>
+
+      <figure {...stylex.attrs(s.window)} aria-label="A news site with its job posts hidden by a change asked for in the agent's sidebar">
+        <div {...stylex.attrs(s.bar)}>
+          <div {...stylex.attrs(s.dots)}>
+            <span {...stylex.attrs(s.dot)}></span><span {...stylex.attrs(s.dot)}></span><span {...stylex.attrs(s.dot)}
+            ></span>
+          </div>
+          <div {...stylex.attrs(s.address)}>news.example.com</div>
+          <div {...stylex.attrs(s.barEnd)}></div>
+        </div>
+        <div {...stylex.attrs(s.viewport)}>
+          <div {...stylex.attrs(s.article)} aria-hidden="true">
+            <div {...stylex.attrs(s.heading)}></div>
+            <div {...stylex.attrs(s.row, s.w90)}></div>
+            <div {...stylex.attrs(s.row, s.w80)}></div>
+            <div {...stylex.attrs(s.row, s.w70)}></div>
+            <div {...stylex.attrs(s.gap)}></div>
+            <div {...stylex.attrs(s.removed)}>
+              <span {...stylex.attrs(s.removedLabel)}>Hidden: job posts</span>
+              <div {...stylex.attrs(s.row, s.w80, s.removedRow)}></div>
+              <div {...stylex.attrs(s.row, s.w55, s.removedRow)}></div>
+            </div>
+            <div {...stylex.attrs(s.gap)}></div>
+            <div {...stylex.attrs(s.row, s.w90)}></div>
+            <div {...stylex.attrs(s.row, s.w80)}></div>
+            <div {...stylex.attrs(s.row, s.w55)}></div>
+          </div>
+          <div {...stylex.attrs(s.side)}>
+            <p {...stylex.attrs(s.ask)}>Hide the job posts and keep the text column narrow</p>
+            <p {...stylex.attrs(s.reply)}>Done. Both changes apply on every visit to news.example.com.</p>
+            <p {...stylex.attrs(s.saved)}><span {...stylex.attrs(s.savedDot)}></span> 2 changes saved</p>
+            <div {...stylex.attrs(s.composer)}>
+              <span {...stylex.attrs(s.placeholder)}>Ask for a change</span>
+              <div {...stylex.attrs(s.composerRow)}>
+                <span {...stylex.attrs(s.chip)}>Claude Code</span>
+                <span {...stylex.attrs(s.send)}></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <section {...stylex.attrs(s.facts)}>
+        <div>
+          <h2 {...stylex.attrs(s.factTitle)}>Quiet by default</h2>
+          <p {...stylex.attrs(s.factText)}>One slim bar and a sidebar that slides away. Nothing else asks for your attention.</p>
+        </div>
+        <div>
+          <h2 {...stylex.attrs(s.factTitle)}>It can use pages for you</h2>
+          <p {...stylex.attrs(s.factText)}>
+            Search, fill in forms and click through in your own tab. It asks before anything that pays, posts or deletes.
+          </p>
+        </div>
+        <div>
+          <h2 {...stylex.attrs(s.factTitle)}>Learns the sites you use</h2>
+          <p {...stylex.attrs(s.factText)}>
+            As you browse it maps how each site works, never your data, so the agent knows your sites better every week.
+          </p>
+        </div>
+      </section>
+    </main>
+    <footer {...stylex.attrs(s.footer)}>
+      <span>Free and open source, version {version}</span>
+      <a {...stylex.attrs(s.footLink)} href={repo}>GitHub</a>
+    </footer>
+  </div>
+</Base>

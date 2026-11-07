@@ -1,0 +1,61 @@
+/* The reset sits in the lowest layer, so StyleX's layers always win over it. */
+@layer reset;
+
+@import "@fontsource-variable/schibsted-grotesk/index.css";
+@import "@fontsource-variable/onest/index.css";
+@import "@fontsource-variable/bricolage-grotesque/standard.css";
+@import "@fontsource-variable/instrument-sans/standard.css";
+@import "@fontsource-variable/literata/index.css";
+
+@layer reset {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+  }
+  body,
+  h1,
+  h2,
+  h3,
+  p,
+  ul,
+  ol,
+  figure,
+  dl,
+  dd {
+    margin: 0;
+  }
+  h1,
+  h2,
+  h3 {
+    font-size: inherit;
+    font-weight: inherit;
+  }
+  ul,
+  ol {
+    padding: 0;
+    list-style: none;
+  }
+  a {
+    color: inherit;
+  }
+  svg {
+    display: block;
+  }
+}
+
+@layer reset {
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
