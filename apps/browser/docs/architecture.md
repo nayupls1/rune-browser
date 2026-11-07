@@ -1,6 +1,6 @@
 # Architecture
 
-[README](../README.md) · [Architecture](architecture.md) · [Concepts](concepts.md) · [Interface](interface.md) · [Browsing](browsing.md) · [Design system](design-system.md) · [Development](development.md) · [Releasing](releasing.md)
+[README](../../../README.md) · [Architecture](architecture.md) · [Concepts](concepts.md) · [Interface](interface.md) · [Browsing](browsing.md) · [Design system](design-system.md) · [Development](development.md) · [Releasing](releasing.md)
 
 Rune Browser is three processes: the **Electron main process** (window, web tab
 sessions, extensions, updates), the **renderer** (the SolidJS UI) and a local

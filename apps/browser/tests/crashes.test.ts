@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { crashReport, describeExitCode, issueUrl, linesSince, logLine, redactPaths } from "../src/main/crashReport";
 
 describe("crash reports", () => {
@@ -49,8 +50,8 @@ describe("crash reports", () => {
       issueUrl("https://github.com/o/r/issues", "Rune Browser crashed", "line one\nline two", fields),
     );
     expect(url.pathname).toBe("/o/r/issues/new");
-    // The form's field ids (.github/ISSUE_TEMPLATE/bug_report.yml).
-    const form = readFileSync(".github/ISSUE_TEMPLATE/bug_report.yml", "utf8");
+    // The form's field ids (.github/ISSUE_TEMPLATE/bug_report.yml, at the repo's root).
+    const form = readFileSync(join(import.meta.dir, "../../../.github/ISSUE_TEMPLATE/bug_report.yml"), "utf8");
     expect(url.searchParams.get("template")).toBe("bug_report.yml");
     for (const id of ["what", "version", "os", "os-details", "extra"]) {
       expect(form).toContain(`id: ${id}`);

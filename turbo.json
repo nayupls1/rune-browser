@@ -1,0 +1,15 @@
+{
+  "$schema": "./node_modules/turbo/schema.json",
+  "ui": "stream",
+  "remoteCache": { "enabled": false },
+  "tasks": {
+    "build": {
+      "outputs": ["dist/**"]
+    },
+    "typecheck": {},
+    "test": {
+      "cache": false,
+      "passThroughEnv": ["*"]
+    }
+  }
+}

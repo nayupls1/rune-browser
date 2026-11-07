@@ -10,3 +10,6 @@ release/
 !.env.example
 test-results/
 references/
+
+.turbo/
+.astro/

@@ -1,10 +1,10 @@
 # Development
 
-[README](../README.md) · [Architecture](architecture.md) · [Concepts](concepts.md) · [Interface](interface.md) · [Browsing](browsing.md) · [Design system](design-system.md) · [Development](development.md) · [Releasing](releasing.md)
+[README](../../../README.md) · [Architecture](architecture.md) · [Concepts](concepts.md) · [Interface](interface.md) · [Browsing](browsing.md) · [Design system](design-system.md) · [Development](development.md) · [Releasing](releasing.md)
 
 ## Setup
 
-Requires [Bun](https://bun.sh) (the version in `package.json`'s
+Requires [Bun](https://bun.sh) (the version in the root `package.json`'s
 `packageManager`), and to try agents, at least one of them installed and
 signed in: [Claude Code](https://claude.com/claude-code) (`claude` → `/login`),
 [Codex](https://github.com/openai/codex) (`codex login`) or
@@ -17,16 +17,32 @@ bun install
 bun run dev
 ```
 
+## The repository
+
+A Bun workspace: Rune Browser is `apps/browser` (paths in these docs are
+relative to it), and the website is `apps/landing` (Astro with StyleX).
+Commands run from the repo's root. Typecheck, tests and builds go through
+[Turborepo](https://turborepo.dev) in every package (`turbo.json`), with its
+remote cache switched off so nothing leaves your machine; the browser's other
+scripts are run in `apps/browser` directly. Turborepo collects anonymous usage
+data unless told not to: `bunx turbo telemetry disable` (CI sets
+`TURBO_TELEMETRY_DISABLED`).
+
+Dependencies are installed with Bun's isolated linker: a package only sees
+what its own `package.json` lists. Bun only installs versions that are at least
+three days old (`minimumReleaseAge` in `bunfig.toml`), so a compromised release
+is usually pulled before it reaches us.
+
 ## Scripts
 
 | Command             | What it does                                                                                                                                                                                                                                                                                                |
 | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `bun run dev`       | Vite dev server (HMR) + Electron. Server hot-reloads, main/preload changes restart Electron.                                                                                                                                                                                                                |
-| `bun run build`     | Production build into `dist/` (renderer, main/preload, compiled server binary).                                                                                                                                                                                                                             |
+| `bun run build`     | Production build into `dist/` (renderer, main/preload, compiled server binary), and the website's into `apps/landing/dist/`.                                                                                                                                                                                |
 | `bun run start`     | Runs the production build (unpackaged).                                                                                                                                                                                                                                                                     |
 | `bun run package`   | Builds and packages installers for this OS into `release/` (electron-builder, nothing published).                                                                                                                                                                                                           |
 | `bun run server`    | Runs only the Bun server standalone (port 3000), with watch mode.                                                                                                                                                                                                                                           |
-| `bun run typecheck` | Type-checks the whole project (`bun check`).                                                                                                                                                                                                                                                                |
+| `bun run typecheck` | Type-checks every package (`bun check`).                                                                                                                                                                                                                                                                    |
 | `bun run test`      | Unit tests (`tests/`, bun:test) against the real server with throwaway data. Failed files are run once more; see Flaky checks below.                                                                                                                                                                        |
 | `bun run e2e`       | Launches the built app with a throwaway profile and drives the UI over the DevTools protocol; add `--agent` to also have the agents build an app and customize a site (uses your own plan). Runs offscreen on Chromium's headless display backend, so no window opens. Screenshots land in `test-results/`. |
 | `bun run check`     | Everything: formatting (`bun fmt --check`), typecheck, tests, build, e2e.                                                                                                                                                                                                                                   |
@@ -34,7 +50,7 @@ bun run dev
 
 ## Conventions
 
-[CLAUDE.md](../CLAUDE.md) is the short list of rules the code follows: the
+[CLAUDE.md](../../../CLAUDE.md) is the short list of rules the code follows: the
 product rules (own logins only, secrets never reach agents, untrusted input
 never reaches a provider with tools, permissions and audit for anything beyond
 the sandbox) and the StyleX and Effect v4 pitfalls. It's written for coding
