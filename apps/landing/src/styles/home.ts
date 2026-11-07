@@ -7,7 +7,12 @@ const WIDE = "@media (min-width: 1080px)";
 export const one = stylex.create({
   // Wider than its column, so the window runs off the right edge (the page clips it).
   // On phones too: there it's shown larger, the page and its menu of changes first.
-  frame: { width: { default: "170%", [WIDE]: "max(100%, 58rem)" } },
+  frame: {
+    width: { default: "170%", [WIDE]: "max(100%, 58rem)" },
+    // Beside the text: the window's top lines up with "Rune Browser", below the mark (its height, 30px wide
+    // at the icon's 388:628, and the space under it in letter.ts).
+    marginBlockStart: { default: 0, [WIDE]: "calc(30px * 628 / 388 + 2.75rem)" },
+  },
   shot: { borderStartEndRadius: 0, borderEndEndRadius: 0 },
 });
 
