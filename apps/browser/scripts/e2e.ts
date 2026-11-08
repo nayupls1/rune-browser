@@ -105,7 +105,7 @@ const electron = await launchElectron(
     RUNE_EXTENSION_UPDATES: "0",
     RUNE_DOWNLOADS_DIR: downloadsDir,
     // The test site's name for headless tabs may resolve to it (127.0.0.1); local-name.example may not.
-    RUNE_HEADLESS_TEST_HOSTS: "headless.example",
+    RUNE_HEADLESS_TEST_HOSTS: "headless.example,other.example",
   },
   [
     ...(visible ? [] : ["--ozone-platform=headless", "--ozone-override-screen-size=1920,1080"]),
@@ -118,7 +118,7 @@ const electron = await launchElectron(
     "--disable-renderer-backgrounding",
     // headless.example: the test site under a name that isn't local, for headless tabs (which don't open local
     // addresses); local-name.example: a name that resolves to a local address, which they refuse.
-    `--host-resolver-rules=MAP insecure.example:80 ${insecureHost}, MAP insecure.example:443 ${insecureHost}, MAP headless.example 127.0.0.1, MAP local-name.example 127.0.0.1`,
+    `--host-resolver-rules=MAP insecure.example:80 ${insecureHost}, MAP insecure.example:443 ${insecureHost}, MAP headless.example 127.0.0.1, MAP other.example 127.0.0.1, MAP local-name.example 127.0.0.1`,
   ],
 );
 
@@ -275,7 +275,9 @@ const site = Bun.serve({
            </script>`
                             : path === "/to-local"
                               ? `<title>Leaving</title><script>location.href = "http://127.0.0.1:${url.port}/second";</script>`
-                              : `<title>Test site</title><main><h1 id="headline">Hello from the test site</h1><p class="lead">Plain text</p>
+                              : path === "/to-other"
+                                ? `<title>Leaving</title><script>setTimeout(() => (location.href = "http://other.example:${url.port}/second"), 200);</script>`
+                                : `<title>Test site</title><main><h1 id="headline">Hello from the test site</h1><p class="lead">Plain text</p>
            <button class="cta">Buy now</button> <a id="popup" href="/second" target="_blank">open popup</a></main>`;
     return new Response(`<!doctype html><meta charset="utf-8"><link rel="icon" href="data:,">${body}`, {
       headers: { "Content-Type": "text/html; charset=utf-8" },
@@ -2770,6 +2772,26 @@ try {
       (err: unknown) => String(err),
     );
     if (!after.includes("closed")) throw new Error(`after closing: ${after}`);
+    // With logins: only the hosts the user allowed (a page going elsewhere is stopped), and passwords a
+    // password manager fills in are cleared.
+    const withLogins = await rpc<Page>("headless.open", {
+      workspaceId,
+      url: `${origin}/to-other`,
+      logins: true,
+      hosts: ["headless.example"],
+    });
+    await Bun.sleep(1500);
+    const stayed = await rpc<string>("headless.eval", { id: withLogins.id, code: "location.href" });
+    if (!stayed.startsWith(origin)) throw new Error(`with logins, went to ${stayed}`);
+    await rpc<Page>("headless.navigate", { id: withLogins.id, url: `${origin}/form` });
+    await rpc("headless.eval", { id: withLogins.id, code: `document.querySelector("#pw").value = "hunter2", true` });
+    await Bun.sleep(400);
+    const password = await rpc<string>("headless.eval", {
+      id: withLogins.id,
+      code: `document.querySelector("#pw").value`,
+    });
+    if (password !== "") throw new Error("a password stayed in the field");
+    await rpc("headless.close", { id: withLogins.id });
     // The agent's turn ends: every one its tab has goes.
     for (const path of ["/act", "/second"])
       await rpc("headless.open", { workspaceId, url: `${origin}${path}`, logins: false, hosts: [] });
@@ -2778,7 +2800,7 @@ try {
     if (closed !== 2) throw new Error(`closed ${closed} at the turn's end`);
     await page!.waitFor(`!document.querySelector('[data-headless-tab]')`, { label: "none left" });
     await apiCall(`/api/apps/${tabId}`, { method: "DELETE" });
-    return "read in the background, local addresses and names refused, listed, closed, closed at the turn's end";
+    return "read in the background, local addresses and names refused, logins kept to their hosts, listed, closed, closed at the turn's end";
   });
 
   await check("mods: gallery, make one from a page change, share code, review, install, turn off, remove", async () => {

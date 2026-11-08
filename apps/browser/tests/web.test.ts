@@ -135,6 +135,99 @@ describe("override script", () => {
   });
 });
 
+describe("waiting for frameworks to hydrate (PAGE_READY)", () => {
+  type El = Record<string, unknown> & { n: string; parentNode: unknown; previousSibling: null; nodeType: 1 };
+  /** onElement on a fake page: what it changed so far, and the page to change. */
+  const page = (win: Record<string, unknown>, doc: Record<string, unknown>, byId: Record<string, unknown> = {}) => {
+    const g = globalThis as Record<string, unknown>;
+    const els: El[] = ["a", "b"].map((n) => ({ n, parentNode: null, previousSibling: null, nodeType: 1 }));
+    const saved = { document: g.document, MutationObserver: g.MutationObserver, window: g.window };
+    g.window = { addEventListener() {}, ...win };
+    g.document = Object.assign(doc, {
+      readyState: "complete",
+      querySelectorAll: () => els,
+      getElementById: (id: string) => byId[id] ?? null,
+      documentElement: {},
+    });
+    g.MutationObserver = class {
+      observe() {}
+    };
+    const seen: string[] = [];
+    g.__seen = seen;
+    eval(overrideScript(`onElement("*", (el) => __seen.push(el.n));`));
+    const restore = () => {
+      Object.assign(g, saved);
+      delete g.__seen;
+    };
+    return { els, seen, restore };
+  };
+
+  test("React 16: its legacy root and elements", async () => {
+    const root: Record<string, unknown> = { parentNode: null };
+    const p = page({ __NEXT_DATA__: {} }, {}, { __next: root });
+    try {
+      for (const el of p.els) el.parentNode = root;
+      root["_reactRootContainer"] = {};
+      await Bun.sleep(400);
+      expect(p.seen).toEqual([]);
+      for (const el of p.els) el["__reactInternalInstance$x"] = {};
+      await Bun.sleep(400);
+      expect(p.seen).toEqual(["a", "b"]);
+    } finally {
+      p.restore();
+    }
+  });
+
+  test("Nuxt 2: waits until Vue has mounted its root", async () => {
+    const root: Record<string, unknown> = {};
+    const p = page({ __NUXT__: {} }, {}, { __nuxt: root });
+    try {
+      await Bun.sleep(400);
+      expect(p.seen).toEqual([]);
+      root.__vue__ = {};
+      await Bun.sleep(400);
+      expect(p.seen).toEqual(["a", "b"]);
+    } finally {
+      p.restore();
+    }
+  });
+
+  test("Astro: no running at DOM ready, the island waits until it hydrated", async () => {
+    let island = true;
+    const p = page({}, { querySelector: (sel: string) => (sel.includes("astro-island") ? {} : null) });
+    try {
+      for (const el of p.els) el.closest = () => (island ? {} : null);
+      // Not right away (the page is server-rendered), and not while the island has its ssr mark.
+      expect(p.seen).toEqual([]);
+      await Bun.sleep(400);
+      expect(p.seen).toEqual([]);
+      island = false;
+      await Bun.sleep(400);
+      expect(p.seen).toEqual(["a", "b"]);
+    } finally {
+      p.restore();
+    }
+  });
+
+  test("a framework that never starts is given up on for the whole page", async () => {
+    const now = Date.now;
+    let offset = 0;
+    Date.now = () => now() + offset;
+    const p = page({ __next_f: [] }, {});
+    try {
+      await Bun.sleep(400);
+      expect(p.seen).toEqual([]);
+      // More than 10 seconds after the page settled.
+      offset = 11_000;
+      await Bun.sleep(400);
+      expect(p.seen).toEqual(["a", "b"]);
+    } finally {
+      Date.now = now;
+      p.restore();
+    }
+  });
+});
+
 describe("page context for the website agent", () => {
   const page: PageContext = {
     url: "https://example.com/",

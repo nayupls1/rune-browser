@@ -150,7 +150,17 @@ const PAGE_READY = `(s) => {
     !!(window.__NEXT_DATA__ || window.__next_f || byId("__NEXT_DATA__") || window.__NUXT__ || byId("__NUXT_DATA__") ||
       window.__remixContext || window.__reactRouterContext || window._$HY || byId("___gatsby") ||
       (document.querySelector && document.querySelector("[data-server-rendered], astro-island, [ng-server-context], [ngh], [data-sveltekit-hydrate]")) ||
-      Object.keys(window).some((k) => k.startsWith("__sveltekit_")));
+      window.__VP_HASH_MAP__ || window.__VP_SITE_DATA__ || Object.keys(window).some((k) => k.startsWith("__sveltekit_")) ||
+      serverComments());
+  // Comments server renderers leave: Vue 3's fragments (<!--[-->), Fresh's islands (<!--frsh-…-->), React's
+  // Suspense boundaries. A look at the first ones only.
+  const serverComments = () => {
+    if (!document.createTreeWalker || !document.documentElement) return false;
+    const walker = document.createTreeWalker(document.documentElement, 128);
+    for (let i = 0; i < 500 && walker.nextNode(); i++)
+      if (/^(\\[|frsh-|\\$[?!~]?$)/.test(walker.currentNode.data)) return true;
+    return false;
+  };
   // A framework the page needs that hasn't started (or finished) hydrating; given up on for the whole
   // page READY_MAX_WAIT_MS after it settled.
   const starting = () => {

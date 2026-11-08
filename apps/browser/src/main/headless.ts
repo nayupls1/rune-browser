@@ -44,7 +44,27 @@ const VIEWPORT = { width: 1280, height: 900 };
  * under a name that isn't local, mapped with --host-resolver-rules). The names
  * themselves are still checked.
  */
-const testHosts = new Set((process.env.RUNE_HEADLESS_TEST_HOSTS ?? "").split(",").filter(Boolean));
+const testHosts = new Set(
+  (!app.isPackaged ? (process.env.RUNE_HEADLESS_TEST_HOSTS ?? "") : "").split(",").filter(Boolean),
+);
+/** What a name resolved to is remembered this long (a page asks for many things from the same hosts). */
+const RESOLVED_MS = 10_000;
+
+/**
+ * Runs in a page with logins, once per document: a password a password manager fills in is cleared
+ * right away, so the agent's scripts never see one.
+ */
+const NO_PASSWORDS = `(() => {
+  if (window.__runeNoPasswords) return;
+  window.__runeNoPasswords = true;
+  const clear = () => {
+    for (const input of document.querySelectorAll("input[type=password]")) if (input.value) input.value = "";
+  };
+  clear();
+  document.addEventListener("input", clear, true);
+  document.addEventListener("change", clear, true);
+  setInterval(clear, 100);
+})()`;
 
 interface Entry {
   info: HeadlessInfo;
@@ -97,13 +117,20 @@ export function setupHeadless(options: {
   const byContents = new Map<number, Entry>();
 
   /** Whether a name resolves to this computer or the local network (a name like 127.0.0.1.nip.io, DNS rebinding). */
-  async function resolvesLocal(s: Session, host: string) {
-    if (!host || testHosts.has(host) || /^[\d.]+$|^\[/.test(host)) return false;
-    try {
-      return (await s.resolveHost(host)).endpoints.some((e) => isLocalAddress(e.address));
-    } catch {
-      return false; // Not found: loading it fails anyway.
-    }
+  const resolved = new WeakMap<Session, Map<string, { local: Promise<boolean>; at: number }>>();
+  function resolvesLocal(s: Session, host: string): Promise<boolean> {
+    if (!host || testHosts.has(host) || /^[\d.]+$|^\[/.test(host)) return Promise.resolve(false);
+    let hosts = resolved.get(s);
+    if (!hosts) resolved.set(s, (hosts = new Map()));
+    const known = hosts.get(host);
+    if (known && Date.now() - known.at < RESOLVED_MS) return known.local;
+    const local = s.resolveHost(host).then(
+      (r) => r.endpoints.some((e) => isLocalAddress(e.address)),
+      () => false, // Not found: loading it fails anyway.
+    );
+    if (hosts.size > 500) hosts.clear();
+    hosts.set(host, { local, at: Date.now() });
+    return local;
   }
 
   const own = new Map<string, Session>();
@@ -214,6 +241,7 @@ export function setupHeadless(options: {
       });
       void send(contents, "Page.enable").catch(() => {});
     }
+    if (request.logins) contents.on("dom-ready", () => void contents.executeJavaScript(NO_PASSWORDS).catch(() => {}));
     watchOwner(owner);
     changed(owner);
     return entry;
@@ -274,8 +302,12 @@ export function setupHeadless(options: {
   }
 
   /** Closes the headless tabs a tab's agent opened (its turn ended); how many. */
-  const closeOf = (tabId: string) =>
-    [...entries.values()].filter((e) => e.info.tabId === tabId).filter((e) => close(e.info.id)).length;
+  /** Bumped when a tab's headless tabs are all closed: an open that was waiting meanwhile gives up. */
+  const generations = new Map<string, number>();
+  const closeOf = (tabId: string) => {
+    generations.set(tabId, (generations.get(tabId) ?? 0) + 1);
+    return [...entries.values()].filter((e) => e.info.tabId === tabId).filter((e) => close(e.info.id)).length;
+  };
 
   const watched = new WeakSet<WebContents>();
   /** A window that closes or reloads takes its headless tabs with it (its agents are gone with it). */
@@ -329,9 +361,19 @@ export function setupHeadless(options: {
     };
     if (request.logins && !request.hosts!.includes(hostOf(request.url)))
       throw new Error("With logins, the page's host has to be allowed first");
-    if (entries.size >= MAX_HEADLESS) throw new Error(`At most ${MAX_HEADLESS} headless tabs can be open at once`);
+    const generation = generations.get(request.tabId) ?? 0;
     if (!request.logins) await clearing.get(ownSession(request.workspaceId));
-    return load(create(request, event.sender), request.url);
+    // Its agent's turn ended while it waited.
+    if ((generations.get(request.tabId) ?? 0) !== generation) throw new Error("The agent's turn ended");
+    if (entries.size >= MAX_HEADLESS) throw new Error(`At most ${MAX_HEADLESS} headless tabs can be open at once`);
+    const entry = create(request, event.sender);
+    const opened = await load(entry, request.url);
+    // Refused before anything loaded (a name of the local network): no tab is left behind.
+    if (opened.blocked && !entry.contents.isDestroyed() && !entry.contents.getURL()) {
+      close(entry.info.id);
+      throw new Error("Headless tabs don't open this computer or the local network, only websites.");
+    }
+    return opened;
   });
 
   ipcMain.handle("rune:headless-navigate", async (event, id: unknown, url: unknown, hosts: unknown) => {
