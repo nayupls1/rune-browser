@@ -597,7 +597,6 @@ function PickedContext(props: { content: string }) {
   );
 }
 
-/** A picked element shown as a removable chip. */
 /** A picked element above the composer (or, with `headless`, a headless tab the agent has open: lib/headless.ts). */
 export function Chip(props: {
   label: string;

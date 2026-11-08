@@ -7,10 +7,11 @@
 // - Without logins by default: an empty session that keeps nothing.
 // - With logins (the workspace's cookies) only for the hosts the user allowed
 //   (agent.headless, once per site or remembered).
-// - Cleaned up: the agent closes them when it's done; whatever is still open
-//   closes when the turn ends (finished, failed or stopped); at most
-//   MAX_PER_TURN at once. The main process also closes them when unused for a
-//   few minutes, so one can't outlive the agent by much.
+// - Cleaned up: the agent closes them when it's done; when the turn ends
+//   (finished, failed or stopped) the main process closes every one this tab's
+//   agent has, also one that was still loading when the turn was stopped; at
+//   most MAX_PER_TURN at once. The main process also closes them when unused for
+//   a few minutes, so none can outlive the agent by much.
 import { Effect, Schema } from "effect";
 import type { HeadlessPage } from "../../shared/api";
 import { headlessUrlProblem, hostOf } from "../../shared/web";
@@ -95,18 +96,23 @@ export const headlessTools = Effect.fn(function* (env: ToolEnv) {
   const call = <T>(method: string, params: object, timeoutMs?: number) =>
     hub.rpc<T>(method, { tabId: env.tabId, ...params }, timeoutMs);
 
-  /** This turn's headless tabs: id → whether it has logins. */
-  const open = new Map<string, { logins: boolean }>();
+  /** This turn's headless tabs: id → whether it has logins, and the hosts the user allowed for it. */
+  const open = new Map<string, { logins: boolean; hosts: Set<string> }>();
   let ended = false;
+  /** Whether this turn tried to open one at all (else there's nothing to close at its end). */
+  let tried = false;
   const closeTab = (id: string) => {
     open.delete(id);
     return call<boolean>("headless.close", { id }).pipe(Effect.ignore);
   };
-  // The turn is over (done, failed or stopped): nothing it opened stays open.
+  // The turn is over (done, failed or stopped): nothing its agent opened stays open. The main process
+  // closes them all by tab, so one whose open_headless_tab was cut off by a stop goes too (the requests
+  // reach it in order).
   yield* Effect.addFinalizer(() =>
     Effect.suspend(() => {
       ended = true;
-      return Effect.forEach([...open.keys()], closeTab, { discard: true, concurrency: "unbounded" });
+      open.clear();
+      return tried ? call<number>("headless.closeTab", {}, 10_000).pipe(Effect.ignore) : Effect.void;
     }),
   );
 
@@ -206,6 +212,7 @@ export const headlessTools = Effect.fn(function* (env: ToolEnv) {
           const host = hostOf(args.url);
           if (logins && !(yield* allowLogins(host)))
             return text(`The user didn't allow reading ${host} with their login. Try without logins.`, true);
+          tried = true;
           const page = yield* call<HeadlessPage>(
             "headless.open",
             { workspaceId: app.workspaceId, url: args.url.trim(), logins, hosts: logins ? [host] : [] },
@@ -216,7 +223,7 @@ export const headlessTools = Effect.fn(function* (env: ToolEnv) {
             yield* closeTab(page.id);
             return text("The turn ended.", true);
           }
-          open.set(page.id, { logins });
+          open.set(page.id, { logins, hosts: new Set(logins ? [host] : []) });
           yield* env.log(`Opened ${page.url.slice(0, 80)} in a headless tab${logins ? " (with your login)" : ""}`);
           return yield* report(page, yield* waited(page.id, args));
         }),
@@ -232,8 +239,12 @@ export const headlessTools = Effect.fn(function* (env: ToolEnv) {
           const problem = websiteProblem(args.url);
           if (problem) return text(problem, true);
           const host = hostOf(args.url);
-          if (tab.logins && !(yield* allowLogins(host)))
-            return text(`The user didn't allow reading ${host} with their login.`, true);
+          // Another page of a site already allowed for this tab doesn't ask again.
+          if (tab.logins && !tab.hosts.has(host)) {
+            if (!(yield* allowLogins(host)))
+              return text(`The user didn't allow reading ${host} with their login.`, true);
+            tab.hosts.add(host);
+          }
           const page = yield* use<HeadlessPage>(
             args.id,
             "headless.navigate",
@@ -265,7 +276,10 @@ export const headlessTools = Effect.fn(function* (env: ToolEnv) {
       Schema.Struct({ id: Id, code: Schema.String }),
       ({ id, code }) =>
         use<string>(id, "headless.eval", {
+          // With logins, a password manager may have filled in a password: it's cleared before the agent's
+          // code runs (it never types or reads passwords).
           code: `(async () => {
+          if (${open.get(id)?.logins === true}) for (const input of document.querySelectorAll("input[type=password]")) input.value = "";
           const __result = await (async () => {
 ${code}
           })();

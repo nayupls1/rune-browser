@@ -2,16 +2,18 @@
 // in the background only to read their data. They're never shown and are kept
 // cheap: no images, WebGL, sound, popups, downloads, dialogs or permissions.
 //
-// - Without logins (the default) a page loads in a session of its own that
-//   lives in memory and is cleared when the last such tab closes: no cookies,
-//   no logins, nothing kept.
+// - Without logins (the default) a page loads in a session of its own (one per
+//   workspace) that lives in memory and is cleared when its last tab closes: no
+//   cookies, no logins, nothing kept.
 // - With logins it uses the workspace's web tab session, for the hosts the user
 //   allowed (agent.headless, asked by the server); the page can't go to other
 //   hosts there (a redirect or a link to one is stopped and reported).
-// - This computer and the local network are out of reach (by address, like
-//   shared/insecure.ts decides what's local), and only websites load.
+// - This computer and the local network are out of reach, by name (like
+//   shared/insecure.ts decides what's local) and by the addresses a name
+//   resolves to, and only websites load.
 //
-// They close when the agent closes them, when its turn ends (the server), after
+// They close when the agent closes them, when its turn ends (the server closes
+// all of its tab's, also one still loading), after
 // IDLE_MS unused or MAX_LIFETIME_MS in all, when the window that opened them
 // closes or reloads, and when Rune Browser quits. The renderer relays the
 // server's requests (renderer: lib/headless.ts) and lists them in the agent's tab.
@@ -33,11 +35,20 @@ const MAX_LIFETIME_MS = 15 * 60_000;
 const LOAD_TIMEOUT_MS = 30_000;
 /** A script in the page gives up after this long. */
 const EVAL_TIMEOUT_MS = 30_000;
-/** In memory only (no "persist:"): nothing is written to disk. */
+/** In memory only (no "persist:"): nothing is written to disk. One per workspace. */
 const PARTITION = "rune-headless";
+/** The size pages lay out at (a laptop's window). */
+const VIEWPORT = { width: 1280, height: 900 };
+/**
+ * For the e2e checks only: names that may resolve to a local address (their test site
+ * under a name that isn't local, mapped with --host-resolver-rules). The names
+ * themselves are still checked.
+ */
+const testHosts = new Set((process.env.RUNE_HEADLESS_TEST_HOSTS ?? "").split(",").filter(Boolean));
 
 interface Entry {
   info: HeadlessInfo;
+  session: Session;
   contents: WebContents;
   view: WebContentsView;
   /** The Rune Browser window that opened it. */
@@ -73,6 +84,9 @@ const withTimeout = <T>(promise: Promise<T>, ms: number, fallback: () => T) =>
     );
   });
 
+/** An address of this computer or the local network ("::1" too). */
+const isLocalAddress = (address: string) => isLocalHost(address.includes(":") ? `[${address}]` : address);
+
 export function setupHeadless(options: {
   windows: AppWindows;
   /** The session of a workspace's web tabs (with the user's logins). */
@@ -82,20 +96,35 @@ export function setupHeadless(options: {
   const entries = new Map<string, Entry>();
   const byContents = new Map<number, Entry>();
 
-  let own: Session | undefined;
-  /** The session for tabs without logins, set up on first use. */
-  function ownSession() {
-    if (own) return own;
-    const s = session.fromPartition(PARTITION);
+  /** Whether a name resolves to this computer or the local network (a name like 127.0.0.1.nip.io, DNS rebinding). */
+  async function resolvesLocal(s: Session, host: string) {
+    if (!host || testHosts.has(host) || /^[\d.]+$|^\[/.test(host)) return false;
+    try {
+      return (await s.resolveHost(host)).endpoints.some((e) => isLocalAddress(e.address));
+    } catch {
+      return false; // Not found: loading it fails anyway.
+    }
+  }
+
+  const own = new Map<string, Session>();
+  /** Sessions being cleared after their last tab closed: a new tab waits for it. */
+  const clearing = new Map<Session, Promise<unknown>>();
+  /** A workspace's session for tabs without logins, set up on first use. */
+  function ownSession(workspaceId: string) {
+    const known = own.get(workspaceId);
+    if (known) return known;
+    const s = session.fromPartition(`${PARTITION}-${workspaceId}`);
     s.setUserAgent(options.userAgent);
     s.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
     s.setPermissionCheckHandler(() => false);
     // The page's own requests can't reach this computer or the local network either.
     s.webRequest.onBeforeRequest((details, callback) => {
       const host = hostOf(details.url);
-      callback({ cancel: !!host && /^(https?|wss?):/i.test(details.url) && isLocalHost(host) });
+      if (!host || !/^(https?|wss?):/i.test(details.url)) return callback({});
+      if (isLocalHost(host)) return callback({ cancel: true });
+      void resolvesLocal(s, host).then((local) => callback({ cancel: local }));
     });
-    own = s;
+    own.set(workspaceId, s);
     return s;
   }
 
@@ -118,7 +147,7 @@ export function setupHeadless(options: {
   }
 
   function create(request: HeadlessOpenRequest, owner: WebContents): Entry {
-    const s = request.logins ? options.webSession(request.workspaceId) : ownSession();
+    const s = request.logins ? options.webSession(request.workspaceId) : ownSession(request.workspaceId);
     const view = new WebContentsView({
       webPreferences: {
         session: s,
@@ -135,6 +164,8 @@ export function setupHeadless(options: {
         autoplayPolicy: "document-user-activation-required",
       },
     });
+    // Never shown, but laid out like a window: responsive pages show their usual layout.
+    view.setBounds({ x: 0, y: 0, ...VIEWPORT });
     const contents = view.webContents;
     const entry: Entry = {
       info: {
@@ -145,6 +176,7 @@ export function setupHeadless(options: {
         logins: request.logins,
         openedAt: Date.now(),
       },
+      session: s,
       contents,
       view,
       owner,
@@ -167,10 +199,12 @@ export function setupHeadless(options: {
       entry.info.title = title;
       changed(owner);
     });
-    contents.on("did-navigate", (_event, url) => {
+    const moved = (url: string) => {
       entry.info.url = url;
       changed(owner);
-    });
+    };
+    contents.on("did-navigate", (_event, url) => moved(url));
+    contents.on("did-navigate-in-page", (_event, url, isMainFrame) => isMainFrame && moved(url));
     contents.on("render-process-gone", () => close(entry.info.id));
     // alert(), confirm() and prompt() are answered right away (nobody would see them).
     if (acquire(contents, "headless")) {
@@ -188,6 +222,10 @@ export function setupHeadless(options: {
   async function load(entry: Entry, url: string): Promise<HeadlessPage> {
     entry.lastUsed = Date.now();
     entry.blocked = undefined;
+    if (await resolvesLocal(entry.session, hostOf(url))) {
+      entry.blocked = { url, reason: "not-a-website" };
+      return page(entry);
+    }
     let error: string | undefined;
     await withTimeout(
       entry.contents.loadURL(url).then(
@@ -224,13 +262,20 @@ export function setupHeadless(options: {
       console.warn("Closing a headless tab failed:", err);
     }
     changed(entry.owner);
-    // The last one without logins: what its pages left behind (cookies, storage, cache) goes too.
-    if (own && !entry.hosts && ![...entries.values()].some((e) => !e.hosts)) {
-      void own.clearStorageData().catch(() => {});
-      void own.clearCache().catch(() => {});
+    // The last one in a session without logins: what its pages left behind (cookies, storage, cache) goes too.
+    const s = entry.session;
+    if (!entry.hosts && ![...entries.values()].some((e) => e.session === s)) {
+      const done = Promise.allSettled([s.clearStorageData(), s.clearCache()]).finally(() => {
+        if (clearing.get(s) === done) clearing.delete(s);
+      });
+      clearing.set(s, done);
     }
     return true;
   }
+
+  /** Closes the headless tabs a tab's agent opened (its turn ended); how many. */
+  const closeOf = (tabId: string) =>
+    [...entries.values()].filter((e) => e.info.tabId === tabId).filter((e) => close(e.info.id)).length;
 
   const watched = new WeakSet<WebContents>();
   /** A window that closes or reloads takes its headless tabs with it (its agents are gone with it). */
@@ -285,6 +330,7 @@ export function setupHeadless(options: {
     if (request.logins && !request.hosts!.includes(hostOf(request.url)))
       throw new Error("With logins, the page's host has to be allowed first");
     if (entries.size >= MAX_HEADLESS) throw new Error(`At most ${MAX_HEADLESS} headless tabs can be open at once`);
+    if (!request.logins) await clearing.get(ownSession(request.workspaceId));
     return load(create(request, event.sender), request.url);
   });
 
@@ -318,10 +364,14 @@ export function setupHeadless(options: {
     return close(id);
   });
 
+  ipcMain.handle("rune:headless-close-tab", (event, tabId: unknown) =>
+    options.windows.isUi(event.sender) && typeof tabId === "string" ? closeOf(tabId) : 0,
+  );
+
   ipcMain.handle("rune:headless-list", (event) => (options.windows.isUi(event.sender) ? listFor(event.sender) : []));
 
   return {
-    /** A headless tab's page (no downloads, no sign-in prompts, no permission prompts). */
+    /** A headless tab's page (no downloads, no sign-in prompts, no permissions). */
     isHeadless: (contents: WebContents) => byContents.has(contents.id),
   };
 }

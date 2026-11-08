@@ -59,12 +59,24 @@ describe("override script", () => {
     try {
       const seen: number[] = [];
       g.__seen = seen;
+      // A page no framework server-rendered: onElement runs at DOM ready, right away.
       expect(eval(overrideScript(`onElement(".x", (el) => __seen.push(el.n));`))).toBeNull();
-      // onElement waits for the page to settle (loaded, scripts idle) before it changes anything.
-      expect(seen).toEqual([]);
-      await Bun.sleep(150);
       expect(seen).toEqual([1, 2]);
       expect(eval(overrideScript(`throw new Error("nope")`))).toContain("nope");
+
+      // A server-rendered one (Next.js): it waits for the page to settle (loaded, scripts idle) first.
+      seen.length = 0;
+      g.window = { addEventListener() {}, __next_f: [] };
+      eval(overrideScript(`onElement(".x", (el) => __seen.push(el.n));`));
+      expect(seen).toEqual([]);
+      await Bun.sleep(150);
+      // Next.js hasn't started hydrating: still nothing.
+      expect(seen).toEqual([]);
+      // It has (its root is marked, its elements too).
+      (g.document as Record<string, unknown>)["__reactContainer$x"] = {};
+      for (const el of els) (el as Record<string, unknown>)["__reactFiber$x"] = {};
+      await Bun.sleep(400);
+      expect(seen).toEqual([1, 2]);
     } finally {
       Object.assign(g, saved);
       delete g.__seen;

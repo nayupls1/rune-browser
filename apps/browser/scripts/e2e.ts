@@ -104,6 +104,8 @@ const electron = await launchElectron(
     RUNE_BROWSER_DIRS: fixture.dirs,
     RUNE_EXTENSION_UPDATES: "0",
     RUNE_DOWNLOADS_DIR: downloadsDir,
+    // The test site's name for headless tabs may resolve to it (127.0.0.1); local-name.example may not.
+    RUNE_HEADLESS_TEST_HOSTS: "headless.example",
   },
   [
     ...(visible ? [] : ["--ozone-platform=headless", "--ozone-override-screen-size=1920,1080"]),
@@ -114,8 +116,9 @@ const electron = await launchElectron(
     `--remote-debugging-port=${port}`,
     "--disable-backgrounding-occluded-windows",
     "--disable-renderer-backgrounding",
-    // headless.example: the test site under a name that isn't local, for headless tabs (which don't open local addresses).
-    `--host-resolver-rules=MAP insecure.example:80 ${insecureHost}, MAP insecure.example:443 ${insecureHost}, MAP headless.example 127.0.0.1`,
+    // headless.example: the test site under a name that isn't local, for headless tabs (which don't open local
+    // addresses); local-name.example: a name that resolves to a local address, which they refuse.
+    `--host-resolver-rules=MAP insecure.example:80 ${insecureHost}, MAP insecure.example:443 ${insecureHost}, MAP headless.example 127.0.0.1, MAP local-name.example 127.0.0.1`,
   ],
 );
 
@@ -2721,6 +2724,9 @@ try {
     // Not a tab: the tab list is as it was.
     if ((await page!.eval<number>(`document.querySelectorAll("nav li").length`)) !== count + 1)
       throw new Error("a headless tab showed up in the tab list");
+    // Laid out like a window, although it's never shown.
+    const width = await rpc<number>("headless.eval", { id: opened.id, code: "innerWidth" });
+    if (width !== 1280) throw new Error(`laid out ${width} pixels wide`);
     const heading = await rpc<string>("headless.eval", {
       id: opened.id,
       code: `document.querySelector("h1").textContent`,
@@ -2745,6 +2751,12 @@ try {
       (err: unknown) => String(err),
     );
     if (!local.includes("local network")) throw new Error(`a local address: ${local}`);
+    // A name that resolves to a local address.
+    const named = await rpc<Page>("headless.navigate", {
+      id: opened.id,
+      url: `http://local-name.example:${site.port}/second`,
+    });
+    if (named.blocked?.reason !== "not-a-website") throw new Error(`a local name: ${JSON.stringify(named)}`);
     const left = await rpc<Page>("headless.navigate", { id: opened.id, url: `${origin}/to-local` });
     // The page's own navigation there is stopped: it stays on the site.
     await Bun.sleep(1500);
@@ -2758,8 +2770,15 @@ try {
       (err: unknown) => String(err),
     );
     if (!after.includes("closed")) throw new Error(`after closing: ${after}`);
+    // The agent's turn ends: every one its tab has goes.
+    for (const path of ["/act", "/second"])
+      await rpc("headless.open", { workspaceId, url: `${origin}${path}`, logins: false, hosts: [] });
+    await page!.waitFor(`document.querySelectorAll('[data-headless-tab]').length === 2`, { label: "two listed" });
+    const closed = await rpc<number>("headless.closeTab");
+    if (closed !== 2) throw new Error(`closed ${closed} at the turn's end`);
+    await page!.waitFor(`!document.querySelector('[data-headless-tab]')`, { label: "none left" });
     await apiCall(`/api/apps/${tabId}`, { method: "DELETE" });
-    return "read in the background, local addresses refused, listed and closed";
+    return "read in the background, local addresses and names refused, listed, closed, closed at the turn's end";
   });
 
   await check("mods: gallery, make one from a page change, share code, review, install, turn off, remove", async () => {

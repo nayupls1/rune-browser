@@ -105,52 +105,68 @@ const READY_RETRY_MS = 250;
 const READY_MAX_WAIT_MS = 10_000;
 
 /**
- * Runs in the page, once per document: adds `whenSettled(fn)` and `ready(el)` to the page's state.
+ * Runs in the page, once per document: adds `whenSettled(fn, quick)` and `ready(el)` to the page's state.
  *
  * Frameworks (React, Vue, Svelte…) hydrate server-rendered pages: they walk the DOM the server sent and
  * expect it unchanged. A node added, moved or rewritten under them makes hydration fail, and they render
  * it all again (losing the change, and the page's state) or break. So page changes and overrides only
  * change the DOM
  * - once the page has settled: loaded and its scripts idle (8 seconds at most, for a page that never
- *   finishes loading);
+ *   finishes loading). Overrides' onElement (`quick`) doesn't wait for that on a page that wasn't
+ *   server-rendered by a framework it knows: there's nothing to hydrate, and it runs at DOM ready;
  * - and only elements that are hydrated. React marks its root when hydration starts and each element
  *   when it reaches it; server-rendered Suspense boundaries (<!--$--> … <!--/$-->) hydrate later, one by
- *   one, and frameworks that haven't started yet (Next.js, Remix, Nuxt) leave their own marks. Vue 2's
- *   and Astro's islands drop an attribute when they hydrate. Content a framework doesn't own
- *   (dangerouslySetInnerHTML, other scripts' elements) is ready as soon as its owner is.
+ *   one. Frameworks that haven't started yet (Next.js, Remix, Nuxt, Solid) are waited for, at most
+ *   READY_MAX_WAIT_MS after the page settled for the whole page. Vue 2's and Astro's islands drop an
+ *   attribute when they hydrate. Content a framework doesn't own (dangerouslySetInnerHTML, other scripts'
+ *   elements) is ready as soon as its owner is. An element still waiting after READY_MAX_WAIT_MS is
+ *   changed anyway (a framework that failed). Once ready, an element stays ready: a framework that
+ *   renders again makes new elements.
  */
 const PAGE_READY = `(s) => {
   if (s.whenSettled) return;
-  let settled = false;
+  let settledAt = 0;
   const pending = [];
   const settle = () => {
-    if (settled) return;
-    settled = true;
+    if (settledAt) return;
+    settledAt = Date.now();
     for (const fn of pending.splice(0)) fn();
   };
   const idle = () => (window.requestIdleCallback ? requestIdleCallback(settle, { timeout: 2000 }) : setTimeout(settle, 100));
   if (document.readyState === "complete") idle(); else window.addEventListener("load", idle, { once: true });
   setTimeout(settle, 8000);
-  s.whenSettled = (fn) => { if (settled) fn(); else pending.push(fn); };
 
-  const keyed = (node, prefix) => {
-    try { return Object.keys(node).some((k) => k.startsWith(prefix)); } catch (e) { return false; }
+  const keyed = (node, prefixes) => {
+    try { return Object.keys(node).some((k) => prefixes.some((p) => k.startsWith(p))); } catch (e) { return false; }
   };
-  const fiber = (node) => keyed(node, "__reactFiber$");
+  const byId = (id) => (document.getElementById ? document.getElementById(id) : null);
+  // React 17+ (and 16's legacy roots): its root, and an element it has rendered or hydrated.
+  const CONTAINER = ["__reactContainer$", "_reactRootContainer"];
+  const FIBER = ["__reactFiber$", "__reactInternalInstance$"];
+  const fiber = (node) => keyed(node, FIBER);
   const boundary = (node) => node.nodeType === 8 && /^\\$[?!~]?$/.test(node.data);
-  // Server-rendered React whose hydration hasn't started (its bundle is still loading).
-  const reactComing = () => {
-    if (keyed(document, "__reactContainer$")) return false;
-    const next = document.getElementById && document.getElementById("__next");
-    if (next && keyed(next, "__reactContainer$")) return false;
-    return !!(window.__next_f || window.__remixContext || window.__reactRouterContext ||
-      (document.getElementById && document.getElementById("__NEXT_DATA__")));
+  // Whether the page was server-rendered by a framework that hydrates it.
+  const serverRendered = () =>
+    !!(window.__NEXT_DATA__ || window.__next_f || byId("__NEXT_DATA__") || window.__NUXT__ || byId("__NUXT_DATA__") ||
+      window.__remixContext || window.__reactRouterContext || window._$HY || byId("___gatsby") ||
+      (document.querySelector && document.querySelector("[data-server-rendered], astro-island, [ng-server-context], [ngh], [data-sveltekit-hydrate]")) ||
+      Object.keys(window).some((k) => k.startsWith("__sveltekit_")));
+  // A framework the page needs that hasn't started (or finished) hydrating; given up on for the whole
+  // page READY_MAX_WAIT_MS after it settled.
+  const starting = () => {
+    if (settledAt && Date.now() - settledAt > ${READY_MAX_WAIT_MS}) return false;
+    if (window._$HY && !window._$HY.done) return true;
+    const nuxt = (window.__NUXT__ || byId("__NUXT_DATA__")) && byId("__nuxt");
+    if (nuxt && !nuxt.__vue_app__ && !nuxt.__vue__ && !window.$nuxt) return true;
+    if (!(window.__next_f || window.__remixContext || window.__reactRouterContext || byId("__NEXT_DATA__"))) return false;
+    const next = byId("__next");
+    return !keyed(document, CONTAINER) && !(next && (keyed(next, CONTAINER) || fiber(next.firstElementChild || next)));
   };
   const reactPending = (el) => {
     if (fiber(el)) return false;
     let root = null;
-    for (let n = el.parentNode; n; n = n.parentNode) if (keyed(n, "__reactContainer$")) { root = n; break; }
-    if (!root) return reactComing();
+    for (let n = el.parentNode; n; n = n.parentNode) if (keyed(n, CONTAINER)) { root = n; break; }
+    if (!root) return false;
     // The closest element React has hydrated; none means the root itself is still hydrating.
     let owner = el.parentNode;
     while (owner && owner !== root && !fiber(owner)) owner = owner.parentNode;
@@ -164,32 +180,49 @@ const PAGE_READY = `(s) => {
       }
     return false;
   };
-  const nuxtPending = () => {
-    if (!(window.__NUXT__ || (document.getElementById && document.getElementById("__NUXT_DATA__")))) return false;
-    const root = document.getElementById("__nuxt");
-    return !!root && !root.__vue_app__;
+  const islandPending = (el) => !!(el.closest && el.closest("[data-server-rendered], astro-island[ssr]"));
+
+  s.whenSettled = (fn, quick) => {
+    if (settledAt) return fn();
+    if (quick) {
+      const now = () => (serverRendered() ? pending.push(fn) : fn());
+      if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", now, { once: true });
+      else now();
+      return;
+    }
+    pending.push(fn);
   };
-  const otherPending = (el) => !!(el.closest && el.closest("[data-server-rendered], astro-island[ssr]")) || nuxtPending();
+  const readied = new WeakSet();
   const since = new WeakMap();
   s.ready = (el) => {
-    if (!el || !(reactPending(el) || otherPending(el))) return true;
-    const first = since.get(el);
-    if (first === undefined) { since.set(el, Date.now()); return false; }
-    return Date.now() - first > ${READY_MAX_WAIT_MS};
+    if (!el || readied.has(el)) return true;
+    if (starting() || reactPending(el) || islandPending(el)) {
+      const first = since.get(el);
+      if (first === undefined) { since.set(el, Date.now()); return false; }
+      if (Date.now() - first <= ${READY_MAX_WAIT_MS}) return false;
+    }
+    readied.add(el);
+    return true;
   };
-  // Whether an element has server-rendered Suspense boundaries inside (its text nodes are checked one by one then).
+  // Whether an element has server-rendered Suspense boundaries inside (its text nodes are checked one by
+  // one then). Looked up once per element.
+  const boundaries = new WeakMap();
   s.hasBoundary = (el) => {
+    if (boundaries.has(el)) return boundaries.get(el);
+    let found = false;
     const walker = document.createTreeWalker(el, 128);
-    while (walker.nextNode()) if (boundary(walker.currentNode)) return true;
-    return false;
+    while (!found && walker.nextNode()) found = boundary(walker.currentNode);
+    boundaries.set(el, found);
+    return found;
   };
 }`;
 
 /**
  * Wraps a site override's JavaScript for injection. It runs once per page load;
- * `onElement(selector, fn)` calls `fn` for every matching element once the page
- * has settled and the element is hydrated (see `PAGE_READY`), and whenever the
- * page adds more (single-page apps re-render all the time).
+ * `onElement(selector, fn)` calls `fn` for every matching element once it's
+ * safe to change (at DOM ready, or on a server-rendered page once it's settled
+ * and the element is hydrated: see `PAGE_READY`), and whenever the page adds
+ * more (single-page apps re-render all the time).
  * Evaluates to an error message or null.
  */
 export function overrideScript(js: string) {
@@ -217,7 +250,7 @@ export function overrideScript(js: string) {
       new MutationObserver(() => {
         if (!queued) { queued = true; requestAnimationFrame(run); }
       }).observe(document.documentElement, { childList: true, subtree: true });
-    });
+    }, true);
   };
   try {
 ${js}

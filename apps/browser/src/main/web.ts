@@ -294,13 +294,16 @@ export function setupWebTabs(
    */
   function askForPermissions(s: Electron.Session) {
     s.setPermissionRequestHandler((contents, permission, callback, details) => {
+      // Headless tabs (headless.ts) get none: nobody sees what they would do with them.
+      if (headless.isHeadless(contents)) return callback(false);
       if (extensions.allowsPermission(s, permission, details.requestingUrl)) return callback(true);
       void sitePermissions.request(s, contents, permission, details).then(callback);
     });
     s.setPermissionCheckHandler(
       (contents, permission, requestingOrigin, details) =>
-        extensions.allowsPermission(s, permission, requestingOrigin) ||
-        sitePermissions.check(s, contents, permission, requestingOrigin, details),
+        !(contents && headless.isHeadless(contents)) &&
+        (extensions.allowsPermission(s, permission, requestingOrigin) ||
+          sitePermissions.check(s, contents, permission, requestingOrigin, details)),
     );
     s.setDisplayMediaRequestHandler((request, callback) => {
       void sitePermissions.pickScreen(s, request).then((streams) => {

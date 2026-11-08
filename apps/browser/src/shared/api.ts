@@ -263,6 +263,8 @@ export interface RuneBridge {
       navigate: (id: string, url: string, hosts?: string[]) => Promise<HeadlessPage>;
       eval: (id: string, code: string) => Promise<unknown>;
       close: (id: string) => Promise<boolean>;
+      /** Closes the ones a tab's agent opened (its turn ended); how many. */
+      closeTab: (tabId: string) => Promise<number>;
       list: () => Promise<HeadlessInfo[]>;
       onChanged: (fn: (list: HeadlessInfo[]) => void) => () => void;
     };

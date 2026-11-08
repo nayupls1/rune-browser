@@ -132,6 +132,7 @@ const bridge: RuneBridge = {
       navigate: (id, url, hosts) => ipcRenderer.invoke("rune:headless-navigate", id, url, hosts),
       eval: (id, code) => ipcRenderer.invoke("rune:headless-eval", id, code),
       close: (id) => ipcRenderer.invoke("rune:headless-close", id),
+      closeTab: (tabId) => ipcRenderer.invoke("rune:headless-close-tab", tabId),
       list: () => ipcRenderer.invoke("rune:headless-list"),
       onChanged: listen("rune:headless-changed"),
     },

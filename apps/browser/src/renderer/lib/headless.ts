@@ -1,7 +1,7 @@
 // Headless tabs (main/headless.ts): the website agent's requests from the server
 // (agent/headlessTools.ts) go to the main process, and the agent's tab lists the
-// ones open for it (components/AgentSidebar.tsx), where the user can see a page
-// in a real tab or close it.
+// ones open for it above its composer (components/Chat.tsx), where the user can
+// open a page in a real tab or close it.
 import { createSignal } from "solid-js";
 import type { HeadlessInfo, HeadlessOpenRequest } from "../../shared/api";
 import { handleRpc } from "./realtime";
@@ -33,3 +33,4 @@ handleRpc("headless.open", (params) =>
 handleRpc("headless.navigate", (params) => headless.navigate(str(params.id), str(params.url), hosts(params.hosts)));
 handleRpc("headless.eval", (params) => headless.eval(str(params.id), str(params.code)));
 handleRpc("headless.close", (params) => headless.close(str(params.id)));
+handleRpc("headless.closeTab", (params) => headless.closeTab(str(params.tabId)));
