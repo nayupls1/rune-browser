@@ -52,24 +52,43 @@ const RESOLVED_MS = 10_000;
 
 /**
  * Runs in each frame of a page with logins, once per document: a password a password manager fills in
- * is cleared right away (also in open shadow roots), so the agent's scripts never see one. The main
- * frame's runs in an isolated world, out of the page's scripts' reach.
+ * is cleared right away (also in open shadow roots), so the agent's scripts never see one. It knows the
+ * shadow roots from watching what the page adds, so clearing only looks at password fields. It runs in
+ * an isolated world, out of the page's scripts' reach, before them (CDP); frames in another process get
+ * it in their own world once they're ready.
  */
 const NO_PASSWORDS = `(() => {
   if (window.__runeNoPasswords) return;
   window.__runeNoPasswords = true;
-  const clear = (root) => {
-    for (const input of root.querySelectorAll("input[type=password]")) if (input.value) input.value = "";
-    for (const el of root.querySelectorAll("*")) if (el.shadowRoot) clear(el.shadowRoot);
+  const start = () => {
+    const roots = new Set([document]);
+    const observer = new MutationObserver((records) => {
+      for (const record of records) for (const node of record.addedNodes) if (node.nodeType === 1) find(node);
+    });
+    const add = (root) => {
+      if (roots.has(root)) return;
+      roots.add(root);
+      observer.observe(root, { childList: true, subtree: true });
+      find(root);
+    };
+    const find = (node) => {
+      if (node.shadowRoot) add(node.shadowRoot);
+      for (const el of node.querySelectorAll("*")) if (el.shadowRoot) add(el.shadowRoot);
+    };
+    observer.observe(document, { childList: true, subtree: true });
+    find(document);
+    const clear = () => {
+      for (const root of roots)
+        for (const input of root.querySelectorAll("input[type=password]")) if (input.value) input.value = "";
+    };
+    clear();
+    document.addEventListener("input", clear, true);
+    document.addEventListener("change", clear, true);
+    setInterval(clear, 50);
   };
-  const run = () => document.documentElement && clear(document);
-  run();
-  document.addEventListener("input", run, true);
-  document.addEventListener("change", run, true);
-  setInterval(run, 50);
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start, { once: true });
+  else start();
 })()`;
-/** The isolated world NO_PASSWORDS runs in (any id but 0, the page's own). */
-const ISOLATED_WORLD = 1029;
 
 interface Entry {
   info: HeadlessInfo;
@@ -83,6 +102,8 @@ interface Entry {
   /** The last navigation that was stopped. */
   blocked?: HeadlessPage["blocked"];
   lastUsed: number;
+  /** Sets up the page before it first loads (CDP), once. */
+  prepare: (() => Promise<unknown>) | null;
 }
 
 const hostOf = (url: string) => {
@@ -214,6 +235,7 @@ export function setupHeadless(options: {
       owner,
       hosts: request.logins ? new Set((request.hosts ?? []).map((h) => h.toLowerCase())) : null,
       lastUsed: Date.now(),
+      prepare: null,
     };
     entries.set(entry.info.id, entry);
     byContents.set(contents.id, entry);
@@ -239,21 +261,39 @@ export function setupHeadless(options: {
     contents.on("did-navigate-in-page", (_event, url, isMainFrame) => isMainFrame && moved(url));
     contents.on("render-process-gone", () => close(entry.info.id));
     // alert(), confirm() and prompt() are answered right away (nobody would see them).
-    if (acquire(contents, "headless")) {
+    const cdp = acquire(contents, "headless");
+    if (cdp) {
       contents.debugger.on("message", (_event, method) => {
         if (method === "Page.javascriptDialogOpening")
           void send(contents, "Page.handleJavaScriptDialog", { accept: false }).catch(() => {});
       });
       void send(contents, "Page.enable").catch(() => {});
+      // DevTools only answers once the page has a renderer: after a first (blank) page.
+      if (request.logins)
+        entry.prepare = async () => {
+          await contents.loadURL("about:blank").catch(() => {});
+          if (contents.isDestroyed()) return;
+          await withTimeout(
+            send(contents, "Page.addScriptToEvaluateOnNewDocument", {
+              source: NO_PASSWORDS,
+              worldName: "rune-no-passwords",
+              runImmediately: true,
+            }).catch(() => {}),
+            5_000,
+            () => undefined,
+          );
+        };
     }
-    if (request.logins) {
+    if (request.logins && !cdp)
       contents.on(
         "dom-ready",
-        () => void contents.executeJavaScriptInIsolatedWorld(ISOLATED_WORLD, [{ code: NO_PASSWORDS }]).catch(() => {}),
+        () => void contents.executeJavaScriptInIsolatedWorld(1029, [{ code: NO_PASSWORDS }]).catch(() => {}),
       );
+    if (request.logins) {
+      // Frames in another process (other sites) are out of the script's reach: they get it once ready.
       contents.on("frame-created", (_event, { frame }) => {
         frame?.on("dom-ready", () => {
-          if (frame.isDestroyed?.() || frame === contents.mainFrame) return;
+          if (frame.isDestroyed() || (cdp && frame.processId === contents.mainFrame.processId)) return;
           void frame.executeJavaScript(NO_PASSWORDS).catch(() => {});
         });
       });
@@ -270,6 +310,9 @@ export function setupHeadless(options: {
       entry.blocked = { url, reason: "not-a-website" };
       return page(entry);
     }
+    const prepare = entry.prepare;
+    entry.prepare = null;
+    if (prepare) await prepare();
     // Closed meanwhile (its turn ended, the user closed it, unused for too long).
     if (entry.contents.isDestroyed()) throw new Error("This headless tab is closed");
     let error: string | undefined;
