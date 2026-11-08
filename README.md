@@ -48,10 +48,10 @@ the same agent can hide, restyle or add things, and those changes stay.
 - **Nothing is lost.** Every change is saved as a snapshot, with its diff,
   to undo or restore, including the app's data.
 
-|                                                                                 |                                                                              |
-| ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| ![An app with its agent and History](apps/browser/docs/screenshots/history.png) | ![Page changes on a website](apps/browser/docs/screenshots/page-changes.png) |
-| ![The mods gallery](apps/browser/docs/screenshots/mods-gallery.png)             |                                                                              |
+|                                                                                         |                                                                              |
+| --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| ![An app with its agent and its snapshots](apps/browser/docs/screenshots/snapshots.png) | ![Page changes on a website](apps/browser/docs/screenshots/page-changes.png) |
+| ![The mods gallery](apps/browser/docs/screenshots/mods-gallery.png)                     |                                                                              |
 
 ## Install
 
