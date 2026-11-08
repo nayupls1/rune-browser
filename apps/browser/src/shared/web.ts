@@ -1,6 +1,7 @@
 // Helpers for web tabs shared by the renderer and the website agent.
 import type { PageChange, PageChangeAction, PageChangeSpec, PageScope } from "./api";
 import { searchEngines } from "./browser";
+import { isLocalHost } from "./insecure";
 import { parseInternalUrl } from "./internalPages";
 import { base } from "./theme";
 
@@ -60,6 +61,20 @@ export const isViewableFile = (name: string, mime = "") =>
   /^application\/(pdf|json|xml|xhtml\+xml|javascript)$/.test(mime) ||
   VIEWABLE_EXTENSIONS.test(name);
 
+/** Why a page can't be loaded in a headless tab, or null. */
+export function headlessUrlProblem(url: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return "That isn't a valid URL.";
+  }
+  if (!/^https?:$/.test(parsed.protocol)) return "Only websites (http or https) can be opened in a headless tab.";
+  if (isLocalHost(parsed.hostname))
+    return "Headless tabs don't open this computer or the local network, only websites.";
+  return null;
+}
+
 /**
  * Turns address bar input into a URL: URLs stay as they are, things that look
  * like a domain get https:// (http:// for local addresses), local paths become
@@ -81,29 +96,128 @@ export function normalizeUrl(input: string, searchUrl: string = searchEngines.du
   return searchUrl.replace("%s", encodeURIComponent(text));
 }
 
+/** The page's state for page changes and overrides (shared by the scripts below). */
+const CHANGES_STATE = `(window.__runeChanges || (window.__runeChanges = { active: new Map(), handlers: {}, errors: {} }))`;
+
+/** How often an element that is still hydrating is looked at again. */
+const READY_RETRY_MS = 250;
+/** An element is changed after this long even if it still looks like it's hydrating (a framework that failed to load). */
+const READY_MAX_WAIT_MS = 10_000;
+
+/**
+ * Runs in the page, once per document: adds `whenSettled(fn)` and `ready(el)` to the page's state.
+ *
+ * Frameworks (React, Vue, Svelte…) hydrate server-rendered pages: they walk the DOM the server sent and
+ * expect it unchanged. A node added, moved or rewritten under them makes hydration fail, and they render
+ * it all again (losing the change, and the page's state) or break. So page changes and overrides only
+ * change the DOM
+ * - once the page has settled: loaded and its scripts idle (8 seconds at most, for a page that never
+ *   finishes loading);
+ * - and only elements that are hydrated. React marks its root when hydration starts and each element
+ *   when it reaches it; server-rendered Suspense boundaries (<!--$--> … <!--/$-->) hydrate later, one by
+ *   one, and frameworks that haven't started yet (Next.js, Remix, Nuxt) leave their own marks. Vue 2's
+ *   and Astro's islands drop an attribute when they hydrate. Content a framework doesn't own
+ *   (dangerouslySetInnerHTML, other scripts' elements) is ready as soon as its owner is.
+ */
+const PAGE_READY = `(s) => {
+  if (s.whenSettled) return;
+  let settled = false;
+  const pending = [];
+  const settle = () => {
+    if (settled) return;
+    settled = true;
+    for (const fn of pending.splice(0)) fn();
+  };
+  const idle = () => (window.requestIdleCallback ? requestIdleCallback(settle, { timeout: 2000 }) : setTimeout(settle, 100));
+  if (document.readyState === "complete") idle(); else window.addEventListener("load", idle, { once: true });
+  setTimeout(settle, 8000);
+  s.whenSettled = (fn) => { if (settled) fn(); else pending.push(fn); };
+
+  const keyed = (node, prefix) => {
+    try { return Object.keys(node).some((k) => k.startsWith(prefix)); } catch (e) { return false; }
+  };
+  const fiber = (node) => keyed(node, "__reactFiber$");
+  const boundary = (node) => node.nodeType === 8 && /^\\$[?!~]?$/.test(node.data);
+  // Server-rendered React whose hydration hasn't started (its bundle is still loading).
+  const reactComing = () => {
+    if (keyed(document, "__reactContainer$")) return false;
+    const next = document.getElementById && document.getElementById("__next");
+    if (next && keyed(next, "__reactContainer$")) return false;
+    return !!(window.__next_f || window.__remixContext || window.__reactRouterContext ||
+      (document.getElementById && document.getElementById("__NEXT_DATA__")));
+  };
+  const reactPending = (el) => {
+    if (fiber(el)) return false;
+    let root = null;
+    for (let n = el.parentNode; n; n = n.parentNode) if (keyed(n, "__reactContainer$")) { root = n; break; }
+    if (!root) return reactComing();
+    // The closest element React has hydrated; none means the root itself is still hydrating.
+    let owner = el.parentNode;
+    while (owner && owner !== root && !fiber(owner)) owner = owner.parentNode;
+    if (!owner || owner === root) return true;
+    // A Suspense boundary between the two that hasn't hydrated yet.
+    for (let n = el; n && n !== owner; n = n.parentNode)
+      for (let p = n.previousSibling; p; p = p.previousSibling) {
+        if (p.nodeType !== 8) continue;
+        if (p.data === "/$") break;
+        if (boundary(p)) return true;
+      }
+    return false;
+  };
+  const nuxtPending = () => {
+    if (!(window.__NUXT__ || (document.getElementById && document.getElementById("__NUXT_DATA__")))) return false;
+    const root = document.getElementById("__nuxt");
+    return !!root && !root.__vue_app__;
+  };
+  const otherPending = (el) => !!(el.closest && el.closest("[data-server-rendered], astro-island[ssr]")) || nuxtPending();
+  const since = new WeakMap();
+  s.ready = (el) => {
+    if (!el || !(reactPending(el) || otherPending(el))) return true;
+    const first = since.get(el);
+    if (first === undefined) { since.set(el, Date.now()); return false; }
+    return Date.now() - first > ${READY_MAX_WAIT_MS};
+  };
+  // Whether an element has server-rendered Suspense boundaries inside (its text nodes are checked one by one then).
+  s.hasBoundary = (el) => {
+    const walker = document.createTreeWalker(el, 128);
+    while (walker.nextNode()) if (boundary(walker.currentNode)) return true;
+    return false;
+  };
+}`;
+
 /**
  * Wraps a site override's JavaScript for injection. It runs once per page load;
- * `onElement(selector, fn)` calls `fn` for every matching element, now and
- * whenever the page adds more (single-page apps re-render all the time).
+ * `onElement(selector, fn)` calls `fn` for every matching element once the page
+ * has settled and the element is hydrated (see `PAGE_READY`), and whenever the
+ * page adds more (single-page apps re-render all the time).
  * Evaluates to an error message or null.
  */
 export function overrideScript(js: string) {
   return `(() => {
+  const __rune = ${CHANGES_STATE};
+  (${PAGE_READY})(__rune);
   const onElement = (selector, fn) => {
     const seen = new WeakSet();
     let queued = false;
+    let retry = null;
     const run = () => {
       queued = false;
+      let waiting = false;
       for (const el of document.querySelectorAll(selector)) {
         if (seen.has(el)) continue;
+        if (!__rune.ready(el)) { waiting = true; continue; }
         seen.add(el);
         try { fn(el); } catch (e) { console.error("[Rune Browser override]", e); }
       }
+      // Hydration doesn't change the DOM, so nothing would tell us when it's done: look again shortly.
+      if (waiting && !retry) retry = setTimeout(() => { retry = null; run(); }, ${READY_RETRY_MS});
     };
-    run();
-    new MutationObserver(() => {
-      if (!queued) { queued = true; requestAnimationFrame(run); }
-    }).observe(document.documentElement, { childList: true, subtree: true });
+    __rune.whenSettled(() => {
+      run();
+      new MutationObserver(() => {
+        if (!queued) { queued = true; requestAnimationFrame(run); }
+      }).observe(document.documentElement, { childList: true, subtree: true });
+    });
   };
   try {
 ${js}
@@ -241,9 +355,6 @@ export function pageChangesCss(changes: readonly PageChange[]) {
   return rules.join("\n");
 }
 
-/** The page's state for page changes (shared by the scripts below). */
-const CHANGES_STATE = `(window.__runeChanges || (window.__runeChanges = { active: new Map(), handlers: {}, errors: {} }))`;
-
 /** The DOM changes (text, attribute, insert, button) to apply: undoes the rest. Evaluates to { [id]: error }. */
 export function pageChangesScript(changes: readonly PageChange[]) {
   const dom = changes
@@ -269,40 +380,40 @@ export function pageChangesScript(changes: readonly PageChange[]) {
       s.html = (x) => x;
     }
   }
-  // The page's DOM is only changed once it has settled: loaded, and its scripts idle. Frameworks (React,
-  // Vue, Svelte…) hydrate server-rendered pages right after it loads, and a DOM that changed under them
-  // makes them fail or render it all again.
-  if (!s.settled && !s.pending) {
-    s.pending = [];
-    const settle = () => {
-      if (s.settled) return;
-      s.settled = true;
-      for (const start of s.pending.splice(0)) start();
-    };
-    const idle = () => (window.requestIdleCallback ? requestIdleCallback(settle, { timeout: 2000 }) : setTimeout(settle, 100));
-    if (document.readyState === "complete") idle(); else window.addEventListener("load", idle, { once: true });
-    // A page that never finishes loading (a stuck request) still gets them.
-    setTimeout(settle, 8000);
-  }
-  // Runs fn once the page has settled and whenever it changes (batched per frame).
+  (${PAGE_READY})(s);
+  // Runs fn once the page has settled and whenever it changes (batched per frame). fn gets \`ready(el)\`:
+  // elements that aren't ready (still hydrating) are left for now and looked at again shortly, since
+  // hydration doesn't change the DOM.
   const watch = (id, options, fn) => {
     let queued = false;
     let observer = null;
     let stopped = false;
+    let retry = null;
     const run = () => {
       queued = false;
-      try { fn(); delete s.errors[id]; } catch (e) { s.errors[id] = String((e && e.message) || e); }
+      if (stopped) return;
+      let waiting = false;
+      const ready = (el) => {
+        if (s.ready(el)) return true;
+        waiting = true;
+        return false;
+      };
+      try { fn(ready); delete s.errors[id]; } catch (e) { s.errors[id] = String((e && e.message) || e); }
+      if (waiting && !retry) retry = setTimeout(() => { retry = null; run(); }, ${READY_RETRY_MS});
     };
-    const start = () => {
+    s.whenSettled(() => {
       if (stopped) return;
       run();
       observer = new MutationObserver(() => {
         if (!queued) { queued = true; requestAnimationFrame(run); }
       });
       observer.observe(document.documentElement, { childList: true, subtree: true, ...options });
+    });
+    return () => {
+      stopped = true;
+      clearTimeout(retry);
+      if (observer) observer.disconnect();
     };
-    if (s.settled) start(); else s.pending.push(start);
-    return () => { stopped = true; if (observer) observer.disconnect(); };
   };
   const place = (anchor, node, position) => {
     if (position === "before") anchor.before(node);
@@ -321,21 +432,30 @@ export function pageChangesScript(changes: readonly PageChange[]) {
       // them, and one they no longer find breaks their next update (React's "removeChild" errors). The
       // first one with text gets the new text, the others with text are emptied; elements inside stay.
       const original = new Map();
-      const textNodes = (el) => {
+      // With a Suspense boundary inside that may not be hydrated yet, each text node's element is checked too.
+      const textNodes = (el, ready) => {
+        const deep = s.hasBoundary(el);
         const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
         const nodes = [];
-        while (walker.nextNode()) if (!ours(walker.currentNode.parentElement)) nodes.push(walker.currentNode);
+        while (walker.nextNode()) {
+          const parent = walker.currentNode.parentElement;
+          if (ours(parent)) continue;
+          if (deep && parent !== el && !ready(parent)) return null;
+          nodes.push(walker.currentNode);
+        }
         return nodes;
       };
       const set = (node, value) => {
         if (!original.has(node)) original.set(node, node.nodeValue);
         if (node.nodeValue !== value) node.nodeValue = value;
       };
-      const stop = watch(c.id, { characterData: true }, () => {
+      const stop = watch(c.id, { characterData: true }, (ready) => {
         for (const el of document.querySelectorAll(c.selector)) {
           // One inside another that matches is covered by it (and both changing it would never settle).
           if (ours(el) || (el.parentElement && el.parentElement.closest(c.selector))) continue;
-          const nodes = textNodes(el);
+          if (!ready(el)) continue;
+          const nodes = textNodes(el, ready);
+          if (!nodes) continue;
           const main = nodes.find((n) => n.nodeValue.trim()) || nodes[0];
           if (!main) {
             const added = document.createTextNode(c.value);
@@ -356,9 +476,9 @@ export function pageChangesScript(changes: readonly PageChange[]) {
       };
     } else if (c.action === "attribute") {
       const original = new Map();
-      const stop = watch(c.id, { attributes: true, attributeFilter: [c.name] }, () => {
+      const stop = watch(c.id, { attributes: true, attributeFilter: [c.name] }, (ready) => {
         for (const el of document.querySelectorAll(c.selector)) {
-          if (ours(el)) continue;
+          if (ours(el) || !ready(el)) continue;
           if (!original.has(el)) original.set(el, el.getAttribute(c.name));
           if (el.getAttribute(c.name) !== c.value) el.setAttribute(c.name, c.value);
         }
@@ -398,13 +518,16 @@ export function pageChangesScript(changes: readonly PageChange[]) {
         node.setAttribute(ATTR, c.id);
         return node;
       };
-      const stop = watch(c.id, {}, () => {
+      const inside = c.position === "prepend" || c.position === "append";
+      const stop = watch(c.id, {}, (ready) => {
         // Elements the page replaced: their additions go with them.
         for (const [anchor, node] of made) if (!anchor.isConnected) { node.remove(); made.delete(anchor); }
         for (const anchor of document.querySelectorAll(c.selector)) {
           if (ours(anchor)) continue;
           const node = made.get(anchor);
           if (node && node.isConnected) continue;
+          // Next to it goes into its parent, which has to be hydrated too.
+          if (!ready(anchor) || (!inside && anchor.parentElement && !ready(anchor.parentElement))) continue;
           const fresh = create();
           place(anchor, fresh, c.position || "after");
           made.set(anchor, fresh);

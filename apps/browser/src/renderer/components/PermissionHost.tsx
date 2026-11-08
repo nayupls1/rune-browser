@@ -22,6 +22,7 @@ const icons: Record<PermissionRequest["action"], string> = {
   "agent.schedule": "calendar-clock",
   "agent.tab": "app-window",
   "agent.browse": "mouse-pointer-click",
+  "agent.headless": "eye-off",
   "agent.confirm": "shield-alert",
   "agent.source": "file-code",
 };

@@ -40,12 +40,18 @@ describe("address bar input", () => {
 });
 
 describe("override script", () => {
-  test("runs the code and reports what it throws", () => {
+  test("runs the code and reports what it throws", async () => {
     // Plain-JS stand-ins for the page APIs the wrapper touches.
     const g = globalThis as Record<string, unknown>;
-    const saved = { document: g.document, MutationObserver: g.MutationObserver, console: g.console };
+    const saved = { document: g.document, MutationObserver: g.MutationObserver, console: g.console, window: g.window };
     const els = [{ n: 1 }, { n: 2 }];
-    g.document = { querySelectorAll: () => els, documentElement: {} };
+    g.window = { addEventListener() {} };
+    g.document = {
+      readyState: "complete",
+      querySelectorAll: () => els,
+      getElementById: () => null,
+      documentElement: {},
+    };
     g.MutationObserver = class {
       observe() {}
     };
@@ -54,8 +60,62 @@ describe("override script", () => {
       const seen: number[] = [];
       g.__seen = seen;
       expect(eval(overrideScript(`onElement(".x", (el) => __seen.push(el.n));`))).toBeNull();
+      // onElement waits for the page to settle (loaded, scripts idle) before it changes anything.
+      expect(seen).toEqual([]);
+      await Bun.sleep(150);
       expect(seen).toEqual([1, 2]);
       expect(eval(overrideScript(`throw new Error("nope")`))).toContain("nope");
+    } finally {
+      Object.assign(g, saved);
+      delete g.__seen;
+    }
+  });
+
+  test("leaves elements a framework is still hydrating until it has", async () => {
+    // A page as React leaves it mid-hydration: the root is marked, the header is hydrated, the
+    // main part is a server-rendered Suspense boundary that isn't yet.
+    const g = globalThis as Record<string, unknown>;
+    const saved = { document: g.document, MutationObserver: g.MutationObserver, window: g.window };
+    type Fake = { parentNode: Fake | null; previousSibling: Fake | null; nodeType: number; data?: string; n?: string };
+    const node = (parent: Fake | null, extra: Partial<Fake> = {}): Fake => ({
+      parentNode: parent,
+      previousSibling: null,
+      nodeType: 1,
+      ...extra,
+    });
+    const doc = node(null, { nodeType: 9 });
+    const root = node(doc) as Fake & Record<string, unknown>;
+    root["__reactContainer$x"] = {};
+    const app = node(root) as Fake & Record<string, unknown>;
+    app["__reactFiber$x"] = {};
+    const header = node(app, { n: "header" }) as Fake & Record<string, unknown>;
+    header["__reactFiber$x"] = {};
+    const open = node(app, { nodeType: 8, data: "$", previousSibling: header });
+    const main = node(app, { n: "main", previousSibling: open }) as Fake & Record<string, unknown>;
+    const close = node(app, { nodeType: 8, data: "/$", previousSibling: main });
+    // Not React's (another script added it), and not in the boundary: ready with its owner.
+    const foreign = node(app, { n: "foreign", previousSibling: close });
+    const plain = node(null, { n: "plain" });
+    g.window = { addEventListener() {} };
+    g.document = Object.assign(doc, {
+      readyState: "complete",
+      querySelectorAll: () => [header, main, foreign, plain],
+      getElementById: () => null,
+      documentElement: {},
+    });
+    g.MutationObserver = class {
+      observe() {}
+    };
+    try {
+      const seen: string[] = [];
+      g.__seen = seen;
+      eval(overrideScript(`onElement("*", (el) => __seen.push(el.n));`));
+      await Bun.sleep(150);
+      expect(seen).toEqual(["header", "foreign", "plain"]);
+      // React reaches the boundary: the element gets its fiber, and it's changed on the next look.
+      main["__reactFiber$x"] = {};
+      await Bun.sleep(400);
+      expect(seen).toEqual(["header", "foreign", "plain", "main"]);
     } finally {
       Object.assign(g, saved);
       delete g.__seen;

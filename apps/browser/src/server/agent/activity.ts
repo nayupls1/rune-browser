@@ -41,6 +41,12 @@ const tools: Record<string, { kind: ToolKind; title: (args: Args) => string }> =
   fill_form: { kind: "browse", title: () => "Filled in a form" },
   confirm_action: { kind: "browse", title: () => "Asked to confirm an action" },
   upload_file: { kind: "browse", title: () => "Uploaded files to the page" },
+  // Headless tabs.
+  open_headless_tab: { kind: "web", title: (a) => `Opened${plain(a.url, 70) || " a page"} in a headless tab` },
+  navigate_headless_tab: { kind: "web", title: (a) => `Opened${plain(a.url, 70) || " a page"} in a headless tab` },
+  read_headless_tab: { kind: "page", title: () => "Read a headless tab" },
+  run_js_in_headless_tab: { kind: "code", title: () => "Ran JavaScript in a headless tab" },
+  close_headless_tab: { kind: "web", title: () => "Closed a headless tab" },
   // The chat's folder.
   list_files: { kind: "read", title: (a) => `Listed the chat's files${plain(a.path) ? ` in${plain(a.path)}` : ""}` },
   read_file: { kind: "read", title: (a) => `Read${plain(a.path) || " a file"}` },

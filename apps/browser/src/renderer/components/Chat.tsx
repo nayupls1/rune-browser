@@ -6,9 +6,11 @@ import { FULL_ACCESS_WARNING, fullAccess, setFullAccess } from "../lib/access";
 import { isPicking, picksOf } from "../lib/picks";
 import { sendWithShares } from "../lib/sharing";
 import { api } from "../lib/api";
-import { appById, newChat, openChat, setAgentCollapsed, states, stopAgent } from "../lib/store";
+import { appById, newChat, newWebTab, openChat, setAgentCollapsed, states, stopAgent } from "../lib/store";
 import { confirmDialog } from "./ConfirmDialog";
 import { pageOf, pagesVersion } from "../lib/webtabs";
+import { closeHeadlessTab, headlessTabsOf } from "../lib/headless";
+import { hostOf } from "../../shared/web";
 import { colors, font, radius, space } from "../theme.stylex";
 import { Composer, fillComposer } from "./Composer";
 import { Chip, Timeline } from "./ChatTimeline";
@@ -168,8 +170,22 @@ export function Chat(props: { appId: string }) {
                 : "Describe the app you want…"
           }
           top={
-            <Show when={picksOf(props.appId).length}>
+            <Show when={picksOf(props.appId).length || headlessTabsOf(props.appId).length}>
               <div {...stylex.attrs(styles.chips)}>
+                {/* Headless tabs the agent has open: not shown, unless the user opens one as a real tab. */}
+                <For each={headlessTabsOf(props.appId)}>
+                  {(h) => (
+                    <Chip
+                      icon="eye-off"
+                      headless={h.id}
+                      label={hostOf(h.url) || h.url}
+                      title={`The agent is reading ${h.title ? `“${h.title}” (${h.url})` : h.url} in a headless tab${h.logins ? ", with your login" : ""}. Click to open it in a tab.`}
+                      onOpen={() => void newWebTab(h.url, { workspaceId: tab()?.workspaceId })}
+                      onRemove={() => closeHeadlessTab(h.id)}
+                      removeTitle="Close the headless tab"
+                    />
+                  )}
+                </For>
                 <For each={picksOf(props.appId)}>
                   {(el) => (
                     <Chip

@@ -40,6 +40,7 @@ import { Mcp, type Tool } from "./Mcp";
 import { describeRuneTool, toolKind } from "./activity";
 import { buildAppPrompt, buildWebPrompt, contextSummary, withPageContext } from "./prompts";
 import { browseTools } from "./browseTools";
+import { headlessTools } from "./headlessTools";
 import { ChatFiles } from "./ChatFiles";
 import { fileTools } from "./fileTools";
 import { devtoolsTools } from "./devtoolsTools";
@@ -245,6 +246,7 @@ export const make = Effect.gen(function* () {
             ...(yield* Effect.provide(pageTools(env, { site: true }), context)),
             ...(yield* Effect.provide(devtoolsTools(env, { site: true }), context)),
             ...(yield* Effect.provide(browseTools(env), context)),
+            ...(yield* Effect.provide(headlessTools(env), context)),
             ...(yield* Effect.provide(siteTools(env), context)),
             ...(yield* Effect.provide(networkTools(env), context)),
             ...(yield* Effect.provide(batchTools(env), context)),
