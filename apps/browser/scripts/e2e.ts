@@ -104,6 +104,8 @@ const electron = await launchElectron(
     RUNE_BROWSER_DIRS: fixture.dirs,
     RUNE_EXTENSION_UPDATES: "0",
     RUNE_DOWNLOADS_DIR: downloadsDir,
+    // The test site's name for headless tabs may resolve to it (127.0.0.1); local-name.example may not.
+    RUNE_HEADLESS_TEST_HOSTS: "headless.example,other.example",
   },
   [
     ...(visible ? [] : ["--ozone-platform=headless", "--ozone-override-screen-size=1920,1080"]),
@@ -114,7 +116,9 @@ const electron = await launchElectron(
     `--remote-debugging-port=${port}`,
     "--disable-backgrounding-occluded-windows",
     "--disable-renderer-backgrounding",
-    `--host-resolver-rules=MAP insecure.example:80 ${insecureHost}, MAP insecure.example:443 ${insecureHost}`,
+    // headless.example: the test site under a name that isn't local, for headless tabs (which don't open local
+    // addresses); local-name.example: a name that resolves to a local address, which they refuse.
+    `--host-resolver-rules=MAP insecure.example:80 ${insecureHost}, MAP insecure.example:443 ${insecureHost}, MAP headless.example 127.0.0.1, MAP other.example 127.0.0.1, MAP local-name.example 127.0.0.1`,
   ],
 );
 
@@ -134,6 +138,8 @@ const site = Bun.serve({
   async fetch(req) {
     const url = new URL(req.url);
     const path = url.pathname;
+    // For headless tabs with logins: a first load that redirects to another site.
+    if (path === "/redirect-other") return Response.redirect(`http://other.example:${url.port}/second`, 302);
     // Pages behind a sign-in (HTTP Basic): the fixture extension fills in /auth/extension, you /auth/you.
     if (path.startsWith("/auth/")) {
       const user = path === "/auth/extension" ? "fixture:from-extension" : "you:typed";
@@ -260,7 +266,20 @@ const site = Bun.serve({
                         ? `<title>Second page</title><h1>Second</h1>`
                         : path === "/blocked-by-extension"
                           ? `<title>Should be blocked</title>`
-                          : `<title>Test site</title><main><h1 id="headline">Hello from the test site</h1><p class="lead">Plain text</p>
+                          : path === "/hydrate"
+                            ? // A server-rendered page as React leaves it while hydrating: the root is marked
+                              // (hydrateRoot), its elements get their fiber once hydration reaches them.
+                              `<title>Hydrating page</title><div id="root"><h1 id="hydrated">Server heading</h1><p id="lead">Server text</p></div>
+           <script>
+             const root = document.getElementById("root");
+             root["__reactContainer$e2e"] = {};
+             window.hydrate = () => { for (const el of root.querySelectorAll("*")) el["__reactFiber$e2e"] = {}; return true; };
+           </script>`
+                            : path === "/to-local"
+                              ? `<title>Leaving</title><script>location.href = "http://127.0.0.1:${url.port}/second";</script>`
+                              : path === "/to-other"
+                                ? `<title>Leaving</title><script>setTimeout(() => (location.href = "http://other.example:${url.port}/second"), 200);</script>`
+                                : `<title>Test site</title><main><h1 id="headline">Hello from the test site</h1><p class="lead">Plain text</p>
            <button class="cta">Buy now</button> <a id="popup" href="/second" target="_blank">open popup</a></main>`;
     return new Response(`<!doctype html><meta charset="utf-8"><link rel="icon" href="data:,">${body}`, {
       headers: { "Content-Type": "text/html; charset=utf-8" },
@@ -2627,6 +2646,175 @@ try {
       throw new Error("wait_for didn't see the page");
     await apiCall(`/api/apps/${tabId}`, { method: "DELETE" });
     return "clicked (trusted), typed and submitted with Enter, filled a select and a checkbox";
+  });
+
+  await check("page changes wait for a framework (React) to hydrate the page before changing it", async () => {
+    const count = await page!.eval<number>(`document.querySelectorAll("nav li").length`);
+    await newTab("New web tab");
+    const tabId = await page!.waitFor<string>(
+      `document.querySelectorAll("nav li").length === ${count + 1} && document.querySelector("nav li:last-of-type").dataset.appId`,
+      { label: "web tab in the sidebar" },
+    );
+    const tab = `[data-web-tab="${tabId}"]`;
+    const inPage = <T>(code: string) =>
+      page!.eval<T>(`document.querySelector('${tab} webview').executeJavaScript(${JSON.stringify(code)})`);
+    await page!.waitFor(`!!document.querySelector('${chromeFor(tab)} [data-address]')`, { label: "address bar" });
+    await page!.eval(
+      `window.__runeRpc("page.navigate", ${JSON.stringify({ tabId, url: `${site.url.origin}/hydrate` })})`,
+    );
+    const change = await apiCall<{ id: string }>("/api/page-changes", {
+      method: "POST",
+      body: {
+        title: "Hydrated heading",
+        scope: { type: "page", value: "127.0.0.1/hydrate" },
+        action: "text",
+        selector: "#hydrated",
+        value: "Changed after hydration",
+      },
+    });
+    const inserted = await apiCall<{ id: string }>("/api/page-changes", {
+      method: "POST",
+      body: {
+        title: "Note after the lead",
+        scope: { type: "page", value: "127.0.0.1/hydrate" },
+        action: "insert",
+        selector: "#lead",
+        value: '<p class="hydrated-note">Inserted after hydration</p>',
+      },
+    });
+    try {
+      // Loaded and idle, but not hydrated: the server's DOM stays as it was.
+      await Bun.sleep(3000);
+      const before = await inPage<string>(
+        `document.querySelector("#hydrated").textContent + "|" + !!document.querySelector(".hydrated-note")`,
+      );
+      if (before !== "Server heading|false") throw new Error(`changed before hydration: ${before}`);
+      await inPage(`window.hydrate()`);
+      await waitForValue(
+        async () =>
+          (await inPage<string>(
+            `document.querySelector("#hydrated").textContent + "|" + !!document.querySelector("#lead + .hydrated-note")`,
+          )) === "Changed after hydration|true"
+            ? true
+            : undefined,
+        10_000,
+      ).catch(() => {
+        throw new Error("not changed after hydration");
+      });
+    } finally {
+      await apiCall(`/api/page-changes/${change.id}`, { method: "DELETE" });
+      await apiCall(`/api/page-changes/${inserted.id}`, { method: "DELETE" });
+      await apiCall(`/api/apps/${tabId}`, { method: "DELETE" });
+    }
+    return "left alone while hydrating, changed once hydrated";
+  });
+
+  await check("headless tabs: a page read in the background, listed in the agent's tab, closed again", async () => {
+    const count = await page!.eval<number>(`document.querySelectorAll("nav li").length`);
+    await newTab("New web tab");
+    const tabId = await page!.waitFor<string>(
+      `document.querySelectorAll("nav li").length === ${count + 1} && document.querySelector("nav li:last-of-type").dataset.appId`,
+      { label: "web tab in the sidebar" },
+    );
+    const workspaceId = (await apiCall<{ id: string; workspaceId: string }[]>("/api/apps")).find(
+      (a) => a.id === tabId,
+    )!.workspaceId;
+    const rpc = <T>(method: string, params: object = {}) =>
+      page!.eval<T>(`window.__runeRpc(${JSON.stringify(method)}, ${JSON.stringify({ tabId, ...params })})`);
+    const origin = `http://headless.example:${site.port}`;
+    type Page = { id: string; url: string; title: string; blocked?: { url: string; reason: string } };
+    const opened = await rpc<Page>("headless.open", { workspaceId, url: `${origin}/act`, logins: false, hosts: [] });
+    if (opened.title !== "Act page") throw new Error(`opened ${JSON.stringify(opened)}`);
+    // Not a tab: the tab list is as it was.
+    if ((await page!.eval<number>(`document.querySelectorAll("nav li").length`)) !== count + 1)
+      throw new Error("a headless tab showed up in the tab list");
+    // Laid out like a window, although it's never shown.
+    const width = await rpc<number>("headless.eval", { id: opened.id, code: "innerWidth" });
+    if (width !== 1280) throw new Error(`laid out ${width} pixels wide`);
+    const heading = await rpc<string>("headless.eval", {
+      id: opened.id,
+      code: `document.querySelector("h1").textContent`,
+    });
+    if (heading !== "Act") throw new Error(`read ${heading}`);
+    // Listed above the agent's composer, with a way to open it as a tab.
+    await page!.eval(
+      `window.dispatchEvent(new KeyboardEvent("keydown", { key: "i", ${mod}: true, bubbles: true })), true`,
+    );
+    await page!.waitFor(`!!document.querySelector('[data-agent-for="${tabId}"] [data-headless-tab="${opened.id}"]')`, {
+      label: "listed in the agent's tab",
+    });
+    await shot("headless-tab.png");
+    // Local addresses are out of reach: opened directly, or reached by the page.
+    const local = await rpc("headless.open", {
+      workspaceId,
+      url: `${site.url.origin}/second`,
+      logins: false,
+      hosts: [],
+    }).then(
+      () => "opened",
+      (err: unknown) => String(err),
+    );
+    if (!local.includes("local network")) throw new Error(`a local address: ${local}`);
+    // A name that resolves to a local address.
+    const named = await rpc<Page>("headless.navigate", {
+      id: opened.id,
+      url: `http://local-name.example:${site.port}/second`,
+    });
+    if (named.blocked?.reason !== "not-a-website") throw new Error(`a local name: ${JSON.stringify(named)}`);
+    const left = await rpc<Page>("headless.navigate", { id: opened.id, url: `${origin}/to-local` });
+    // The page's own navigation there is stopped: it stays on the site.
+    await Bun.sleep(1500);
+    const where = await rpc<string>("headless.eval", { id: opened.id, code: "location.href" });
+    if (!where.startsWith(origin)) throw new Error(`went to ${where} (${JSON.stringify(left)})`);
+    // Closed from the chip: gone from the list and from the main process.
+    await click(`[data-headless-tab="${opened.id}"] [data-chip-remove]`);
+    await page!.waitFor(`!document.querySelector('[data-headless-tab]')`, { label: "closed" });
+    const after = await rpc("headless.eval", { id: opened.id, code: "1" }).then(
+      () => "still open",
+      (err: unknown) => String(err),
+    );
+    if (!after.includes("closed")) throw new Error(`after closing: ${after}`);
+    // With logins: only the hosts the user allowed (a page going elsewhere is stopped), and passwords a
+    // password manager fills in are cleared.
+    const withLogins = await rpc<Page>("headless.open", {
+      workspaceId,
+      url: `${origin}/to-other`,
+      logins: true,
+      hosts: ["headless.example"],
+    });
+    await Bun.sleep(1500);
+    const stayed = await rpc<string>("headless.eval", { id: withLogins.id, code: "location.href" });
+    if (!stayed.startsWith(origin)) throw new Error(`with logins, went to ${stayed}`);
+    // A first load redirected to a site that isn't allowed: stopped, and the agent is told which.
+    const redirected = await rpc<Page>("headless.navigate", { id: withLogins.id, url: `${origin}/redirect-other` });
+    if (redirected.blocked?.reason !== "not-allowed" || !redirected.blocked.url.includes("other.example"))
+      throw new Error(`a redirect with logins: ${JSON.stringify(redirected)}`);
+    const firstRedirect = await rpc<Page>("headless.open", {
+      workspaceId,
+      url: `${origin}/redirect-other`,
+      logins: true,
+      hosts: ["headless.example"],
+    });
+    if (firstRedirect.blocked?.reason !== "not-allowed") throw new Error(`opened: ${JSON.stringify(firstRedirect)}`);
+    await rpc("headless.close", { id: firstRedirect.id });
+    await rpc<Page>("headless.navigate", { id: withLogins.id, url: `${origin}/form` });
+    await rpc("headless.eval", { id: withLogins.id, code: `document.querySelector("#pw").value = "hunter2", true` });
+    await Bun.sleep(400);
+    const password = await rpc<string>("headless.eval", {
+      id: withLogins.id,
+      code: `document.querySelector("#pw").value`,
+    });
+    if (password !== "") throw new Error("a password stayed in the field");
+    await rpc("headless.close", { id: withLogins.id });
+    // The agent's turn ends: every one its tab has goes.
+    for (const path of ["/act", "/second"])
+      await rpc("headless.open", { workspaceId, url: `${origin}${path}`, logins: false, hosts: [] });
+    await page!.waitFor(`document.querySelectorAll('[data-headless-tab]').length === 2`, { label: "two listed" });
+    const closed = await rpc<number>("headless.closeTab");
+    if (closed !== 2) throw new Error(`closed ${closed} at the turn's end`);
+    await page!.waitFor(`!document.querySelector('[data-headless-tab]')`, { label: "none left" });
+    await apiCall(`/api/apps/${tabId}`, { method: "DELETE" });
+    return "read in the background, local addresses and names refused, logins kept to their hosts, listed, closed, closed at the turn's end";
   });
 
   await check("mods: gallery, make one from a page change, share code, review, install, turn off, remove", async () => {

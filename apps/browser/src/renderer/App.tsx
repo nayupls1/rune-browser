@@ -21,6 +21,7 @@ import { ToastHost } from "./components/Toast";
 import { Button } from "./components/ui";
 import { WebTab } from "./components/WebTab";
 import "./lib/downloads";
+import "./lib/headless";
 import "./lib/schedules";
 import "./lib/bookmarks";
 import { isBookmarksBarShown } from "./lib/bookmarks";

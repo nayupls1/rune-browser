@@ -2208,6 +2208,7 @@ const permissionActions = [
   "agent.schedule",
   "agent.tab",
   "agent.browse",
+  "agent.headless",
 ] as const satisfies readonly PermissionAction[];
 
 const permissionRoutes = HttpRouter.addAll([

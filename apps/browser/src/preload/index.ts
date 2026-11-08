@@ -127,6 +127,15 @@ const bridge: RuneBridge = {
     certificateProblem: (webContentsId, url) => ipcRenderer.invoke("rune:certificate-problem", webContentsId, url),
     proceedAnyway: (webContentsId, url) => ipcRenderer.invoke("rune:certificate-proceed", webContentsId, url),
     setSearchEngine: (engine) => ipcRenderer.send("rune:search-engine", engine),
+    headless: {
+      open: (request) => ipcRenderer.invoke("rune:headless-open", request),
+      navigate: (id, url, hosts) => ipcRenderer.invoke("rune:headless-navigate", id, url, hosts),
+      eval: (id, code) => ipcRenderer.invoke("rune:headless-eval", id, code),
+      close: (id) => ipcRenderer.invoke("rune:headless-close", id),
+      closeTab: (tabId) => ipcRenderer.invoke("rune:headless-close-tab", tabId),
+      list: () => ipcRenderer.invoke("rune:headless-list"),
+      onChanged: listen("rune:headless-changed"),
+    },
   },
   extensions: {
     list: () => ipcRenderer.invoke("rune:extensions-list"),

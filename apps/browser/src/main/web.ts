@@ -36,6 +36,7 @@ import { setupBrowser } from "./browser";
 import { setupExtensions } from "./extensions";
 import { setupDevtools } from "./devtools";
 import { setupDownloads } from "./downloads";
+import { setupHeadless } from "./headless";
 import { setupNetwork } from "./network";
 import { setupOverrides } from "./overrides";
 import { setupShortcuts } from "./shortcuts";
@@ -128,6 +129,13 @@ export function setupWebTabs(
 
   const devtools = setupDevtools({ windows, isWebTab: (contents) => webSessions.has(contents.session) });
 
+  // Headless tabs: pages the website agent reads in the background, with the workspace's logins if allowed.
+  const headless = setupHeadless({
+    windows,
+    webSession: (workspaceId) => webSession(webPartition(workspaceId)),
+    userAgent: webUserAgent(),
+  });
+
   const downloads = setupDownloads({
     windows,
     folder: () => browser.downloadsFolder(),
@@ -140,6 +148,7 @@ export function setupWebTabs(
         : WEB_PARTITION_PATTERN.test(partition)
           ? webSession(partition)
           : previewSession(partition),
+    noDownloads: (contents) => headless.isHeadless(contents),
   });
 
   app.on("web-contents-created", (_event, contents) => {
@@ -285,13 +294,16 @@ export function setupWebTabs(
    */
   function askForPermissions(s: Electron.Session) {
     s.setPermissionRequestHandler((contents, permission, callback, details) => {
+      // Headless tabs (headless.ts) get none: nobody sees what they would do with them.
+      if (headless.isHeadless(contents)) return callback(false);
       if (extensions.allowsPermission(s, permission, details.requestingUrl)) return callback(true);
       void sitePermissions.request(s, contents, permission, details).then(callback);
     });
     s.setPermissionCheckHandler(
       (contents, permission, requestingOrigin, details) =>
-        extensions.allowsPermission(s, permission, requestingOrigin) ||
-        sitePermissions.check(s, contents, permission, requestingOrigin, details),
+        !(contents && headless.isHeadless(contents)) &&
+        (extensions.allowsPermission(s, permission, requestingOrigin) ||
+          sitePermissions.check(s, contents, permission, requestingOrigin, details)),
     );
     s.setDisplayMediaRequestHandler((request, callback) => {
       void sitePermissions.pickScreen(s, request).then((streams) => {
@@ -344,6 +356,8 @@ export function setupWebTabs(
   app.on("login", (event, contents, details, authInfo, callback) => {
     if (!contents || contents.isDestroyed() || !webSessions.has(contents.session)) return;
     event.preventDefault();
+    // Nobody sees a headless tab: its sign-ins are cancelled (and not filled in by a password manager).
+    if (headless.isHeadless(contents)) return callback();
     void (async () => {
       let answer: Awaited<ReturnType<typeof extensions.authRequired>> = null;
       try {

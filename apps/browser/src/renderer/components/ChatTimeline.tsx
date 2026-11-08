@@ -597,14 +597,43 @@ function PickedContext(props: { content: string }) {
   );
 }
 
-/** A picked element shown as a removable chip. */
-export function Chip(props: { label: string; title?: string; onRemove?: () => void }) {
+/** A picked element above the composer (or, with `headless`, a headless tab the agent has open: lib/headless.ts). */
+export function Chip(props: {
+  label: string;
+  title?: string;
+  icon?: string;
+  /** A headless tab's id. */
+  headless?: string;
+  onOpen?: () => void;
+  onRemove?: () => void;
+  removeTitle?: string;
+}) {
   return (
-    <span {...stylex.attrs(styles.chip)} title={props.title} data-picked-chip>
-      <Icon name="crosshair" size={12} />
-      <span {...stylex.attrs(styles.chipLabel)}>{props.label}</span>
+    <span
+      {...stylex.attrs(styles.chip)}
+      title={props.title}
+      data-picked-chip={props.headless ? undefined : ""}
+      data-headless-tab={props.headless}
+    >
+      <Icon name={props.icon ?? "crosshair"} size={12} />
+      <Show when={props.onOpen} fallback={<span {...stylex.attrs(styles.chipLabel)}>{props.label}</span>}>
+        <button
+          type="button"
+          onClick={() => props.onOpen!()}
+          {...stylex.attrs(styles.chipLabel, styles.chipOpen)}
+          data-headless-open
+        >
+          {props.label}
+        </button>
+      </Show>
       <Show when={props.onRemove}>
-        <button type="button" title="Remove" onClick={() => props.onRemove!()} {...stylex.attrs(styles.chipRemove)}>
+        <button
+          type="button"
+          title={props.removeTitle ?? "Remove"}
+          onClick={() => props.onRemove!()}
+          {...stylex.attrs(styles.chipRemove)}
+          data-chip-remove
+        >
           <Icon name="x" size={12} />
         </button>
       </Show>
@@ -946,6 +975,17 @@ const styles = stylex.create({
     whiteSpace: "nowrap",
   },
   chipLabel: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", maxWidth: 220 },
+  chipOpen: {
+    padding: 0,
+    borderWidth: 0,
+    backgroundColor: "transparent",
+    color: "inherit",
+    fontFamily: "inherit",
+    fontSize: "inherit",
+    whiteSpace: "nowrap",
+    cursor: "pointer",
+    textDecorationLine: { default: "none", ":hover": "underline" },
+  },
   chipRemove: {
     display: "grid",
     placeItems: "center",

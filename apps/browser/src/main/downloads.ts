@@ -58,6 +58,8 @@ export function setupDownloads(options: {
   partitionOf: (s: Session) => string | undefined;
   /** The session of a partition, set up like when it was first used. */
   sessionFor: (partition: string) => Session;
+  /** Pages that never download anything (headless tabs: main/headless.ts). */
+  noDownloads?: (contents: WebContents) => boolean;
 }) {
   const { windows } = options;
   const file = join(app.getPath("userData"), "downloads.json");
@@ -400,7 +402,10 @@ export function setupDownloads(options: {
   function hook(s: Session) {
     if (hooked.has(s)) return;
     hooked.add(s);
-    s.on("will-download", (_event, item, contents) => started(s, item, contents));
+    s.on("will-download", (event, item, contents) => {
+      if (contents && options.noDownloads?.(contents)) return event.preventDefault();
+      started(s, item, contents);
+    });
   }
   hook(session.defaultSession);
   app.on("session-created", hook);

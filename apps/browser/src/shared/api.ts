@@ -257,6 +257,17 @@ export interface RuneBridge {
     proceedAnyway: (webContentsId: number, url: string) => Promise<boolean>;
     /** The search engine Settings picked, for "Search … for" in a page's menu. */
     setSearchEngine: (engine: { label: string; url: string }) => void;
+    /** Headless tabs: pages the website agent loads in the background (main/headless.ts). */
+    headless: {
+      open: (request: HeadlessOpenRequest) => Promise<HeadlessPage>;
+      navigate: (id: string, url: string, hosts?: string[]) => Promise<HeadlessPage>;
+      eval: (id: string, code: string) => Promise<unknown>;
+      close: (id: string) => Promise<boolean>;
+      /** Closes the ones a tab's agent opened (its turn ended); how many. */
+      closeTab: (tabId: string) => Promise<number>;
+      list: () => Promise<HeadlessInfo[]>;
+      onChanged: (fn: (list: HeadlessInfo[]) => void) => () => void;
+    };
   };
   /** Chrome extensions in web tabs (see main/extensions/). */
   extensions: {
@@ -1222,6 +1233,42 @@ export interface ResponseOverride extends ResponseOverrideSpec {
   createdAt: string;
 }
 
+// --- Headless tabs -----------------------------------------------------------------------
+
+/** Opening a headless tab (main/headless.ts). */
+export interface HeadlessOpenRequest {
+  /** The tab whose agent opened it (it's listed there). */
+  tabId: string;
+  /** The workspace whose logins it uses, with `logins`. */
+  workspaceId: string;
+  url: string;
+  /** With the workspace's logins (cookies); else in an empty session that forgets everything. */
+  logins: boolean;
+  /** With logins: the hosts the user allowed; the page can't go to others. */
+  hosts?: string[];
+}
+
+/** Where a headless tab is after loading something. */
+export interface HeadlessPage {
+  id: string;
+  url: string;
+  title: string;
+  /** A navigation that was stopped: not a website (this computer, the local network), or with logins a site the user didn't allow. */
+  blocked?: { url: string; reason: "not-a-website" | "not-allowed" };
+  /** Why loading failed (no such site, no connection), if it did. */
+  error?: string;
+}
+
+/** An open headless tab, as the agent's tab lists it. */
+export interface HeadlessInfo {
+  id: string;
+  tabId: string;
+  url: string;
+  title: string;
+  logins: boolean;
+  openedAt: number;
+}
+
 // --- Permissions and audit log ----------------------------------------------------
 
 /**
@@ -1230,6 +1277,7 @@ export interface ResponseOverride extends ResponseOverrideSpec {
  * agent.site: the website agent customizes a site (subject "website-agent", resource: the host).
  * agent.network: the website agent sends requests to a site with the user's session (resource: the host).
  * agent.override: the website agent changes what a site's requests return (resource: the host of the tab's page).
+ * agent.headless: the website agent loads a site in a headless tab with the user's logins (resource: the host).
  * app.data: an app reads another app's data (resource: that app's id).
  */
 export type PermissionAction =
@@ -1244,6 +1292,7 @@ export type PermissionAction =
   | "agent.schedule"
   | "agent.tab"
   | "agent.browse"
+  | "agent.headless"
   | "agent.confirm"
   | "agent.source";
 

@@ -2,7 +2,7 @@
 // persists the conversation and pushes everything to the renderer on the hub
 // (topic app:<id>). A turn runs in the background; stopping interrupts it.
 import { delimiter } from "node:path";
-import { Context, Data, Effect, Fiber, FiberMap, Layer, Option, Stream } from "effect";
+import { Context, Data, Effect, Fiber, FiberMap, Layer, Option, Scope, Stream } from "effect";
 import {
   appTarget,
   type AgentChoice,
@@ -40,6 +40,7 @@ import { Mcp, type Tool } from "./Mcp";
 import { describeRuneTool, toolKind } from "./activity";
 import { buildAppPrompt, buildWebPrompt, contextSummary, withPageContext } from "./prompts";
 import { browseTools } from "./browseTools";
+import { headlessTools } from "./headlessTools";
 import { ChatFiles } from "./ChatFiles";
 import { fileTools } from "./fileTools";
 import { devtoolsTools } from "./devtoolsTools";
@@ -93,6 +94,13 @@ export interface AgentShape {
 
 export class Agent extends Context.Service<Agent, AgentShape>()("rune/Agent") {}
 
+/**
+ * The services captured for the tools, without the Agent layer's own Scope: provided to a tool
+ * set, that Scope would win over the turn's, and what tools clean up at the end of their turn
+ * (headless tabs, emulation) would wait until Rune Browser stops instead.
+ */
+export const toolContext = <S>(context: Context.Context<S>) => Context.omit(Scope.Scope)(context);
+
 export const make = Effect.gen(function* () {
   const config = yield* ServerConfig;
   const apps = yield* Apps;
@@ -110,28 +118,30 @@ export const make = Effect.gen(function* () {
   const audit = yield* Audit;
   const scheduler = yield* Scheduler;
   const running = yield* FiberMap.make<string>();
-  // Tools need the services; captured once.
-  const context = yield* Effect.context<
-    | Hub
-    | Apps
-    | Workspace
-    | Runtime
-    | Projects
-    | Sites
-    | Permissions
-    | Secrets
-    | Network
-    | ResponseOverrides
-    | Endpoints
-    | AppData
-    | AppTools
-    | PageChanges
-    | Scheduler
-    | Sources
-    | Audit
-    | History
-    | ChatFiles
-  >();
+  // Tools need the services; captured once (without the layer's scope: see toolContext).
+  const context = toolContext(
+    yield* Effect.context<
+      | Hub
+      | Apps
+      | Workspace
+      | Runtime
+      | Projects
+      | Sites
+      | Permissions
+      | Secrets
+      | Network
+      | ResponseOverrides
+      | Endpoints
+      | AppData
+      | AppTools
+      | PageChanges
+      | Scheduler
+      | Sources
+      | Audit
+      | History
+      | ChatFiles
+    >(),
+  );
 
   const emit = (appId: string, event: ChatEvent) =>
     hub.publish({ type: "chat", topic: topics.app(appId), appId, event });
@@ -245,6 +255,7 @@ export const make = Effect.gen(function* () {
             ...(yield* Effect.provide(pageTools(env, { site: true }), context)),
             ...(yield* Effect.provide(devtoolsTools(env, { site: true }), context)),
             ...(yield* Effect.provide(browseTools(env), context)),
+            ...(yield* Effect.provide(headlessTools(env), context)),
             ...(yield* Effect.provide(siteTools(env), context)),
             ...(yield* Effect.provide(networkTools(env), context)),
             ...(yield* Effect.provide(batchTools(env), context)),

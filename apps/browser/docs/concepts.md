@@ -226,6 +226,7 @@ Anything an app or agent does beyond its own sandbox needs your OK:
 - an app's agent creating schedules (once per app);
 - the website agent customizing a site or changing pages (per host or pattern);
 - the website agent using a site for you (per host), and each action with consequences (every time);
+- the website agent reading a site in a headless tab with your login (per host);
 - an agent reading another tab.
 
 Rune Browser asks in a dialog; you can remember the answer. Unanswered requests are denied after a while. Settings → Agent permissions lists remembered decisions, each revocable.
