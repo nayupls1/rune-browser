@@ -78,8 +78,11 @@ const NO_PASSWORDS = `(() => {
     observer.observe(document, { childList: true, subtree: true });
     find(document);
     const clear = () => {
-      for (const root of roots)
+      for (const root of roots) {
+        // A component that left the page takes its shadow root with it.
+        if (root !== document && !root.host.isConnected) { roots.delete(root); continue; }
         for (const input of root.querySelectorAll("input[type=password]")) if (input.value) input.value = "";
+      }
     };
     clear();
     document.addEventListener("input", clear, true);
@@ -104,6 +107,8 @@ interface Entry {
   lastUsed: number;
   /** Sets up the page before it first loads (CDP), once. */
   prepare: (() => Promise<unknown>) | null;
+  /** With logins: the password clearer is in the page's process (CDP), else each frame gets it once ready. */
+  cleared: boolean;
 }
 
 const hostOf = (url: string) => {
@@ -236,6 +241,7 @@ export function setupHeadless(options: {
       hosts: request.logins ? new Set((request.hosts ?? []).map((h) => h.toLowerCase())) : null,
       lastUsed: Date.now(),
       prepare: null,
+      cleared: false,
     };
     entries.set(entry.info.id, entry);
     byContents.set(contents.id, entry);
@@ -254,6 +260,7 @@ export function setupHeadless(options: {
       changed(owner);
     });
     const moved = (url: string) => {
+      if (url === "about:blank") return; // The first, blank page (prepare).
       entry.info.url = url;
       changed(owner);
     };
@@ -273,27 +280,32 @@ export function setupHeadless(options: {
         entry.prepare = async () => {
           await contents.loadURL("about:blank").catch(() => {});
           if (contents.isDestroyed()) return;
-          await withTimeout(
+          entry.cleared = await withTimeout(
             send(contents, "Page.addScriptToEvaluateOnNewDocument", {
               source: NO_PASSWORDS,
               worldName: "rune-no-passwords",
               runImmediately: true,
-            }).catch(() => {}),
+            }).then(
+              () => true,
+              () => false,
+            ),
             5_000,
-            () => undefined,
+            () => false,
           );
+          if (!entry.cleared) console.warn("Headless tab: the password clearer goes in frame by frame instead");
         };
     }
-    if (request.logins && !cdp)
-      contents.on(
-        "dom-ready",
-        () => void contents.executeJavaScriptInIsolatedWorld(1029, [{ code: NO_PASSWORDS }]).catch(() => {}),
-      );
+    // Without it (no DevTools, or it failed): the main frame gets it once ready, in an isolated world.
+    if (request.logins)
+      contents.on("dom-ready", () => {
+        if (!entry.cleared)
+          void contents.executeJavaScriptInIsolatedWorld(1029, [{ code: NO_PASSWORDS }]).catch(() => {});
+      });
     if (request.logins) {
       // Frames in another process (other sites) are out of the script's reach: they get it once ready.
       contents.on("frame-created", (_event, { frame }) => {
         frame?.on("dom-ready", () => {
-          if (frame.isDestroyed() || (cdp && frame.processId === contents.mainFrame.processId)) return;
+          if (frame.isDestroyed() || (entry.cleared && frame.processId === contents.mainFrame.processId)) return;
           void frame.executeJavaScript(NO_PASSWORDS).catch(() => {});
         });
       });
@@ -312,7 +324,7 @@ export function setupHeadless(options: {
     }
     const prepare = entry.prepare;
     entry.prepare = null;
-    if (prepare) await prepare();
+    if (prepare && !entry.contents.isDestroyed()) await prepare();
     // Closed meanwhile (its turn ended, the user closed it, unused for too long).
     if (entry.contents.isDestroyed()) throw new Error("This headless tab is closed");
     let error: string | undefined;
