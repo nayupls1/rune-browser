@@ -138,6 +138,8 @@ const site = Bun.serve({
   async fetch(req) {
     const url = new URL(req.url);
     const path = url.pathname;
+    // For headless tabs with logins: a first load that redirects to another site.
+    if (path === "/redirect-other") return Response.redirect(`http://other.example:${url.port}/second`, 302);
     // Pages behind a sign-in (HTTP Basic): the fixture extension fills in /auth/extension, you /auth/you.
     if (path.startsWith("/auth/")) {
       const user = path === "/auth/extension" ? "fixture:from-extension" : "you:typed";
@@ -2783,6 +2785,18 @@ try {
     await Bun.sleep(1500);
     const stayed = await rpc<string>("headless.eval", { id: withLogins.id, code: "location.href" });
     if (!stayed.startsWith(origin)) throw new Error(`with logins, went to ${stayed}`);
+    // A first load redirected to a site that isn't allowed: stopped, and the agent is told which.
+    const redirected = await rpc<Page>("headless.navigate", { id: withLogins.id, url: `${origin}/redirect-other` });
+    if (redirected.blocked?.reason !== "not-allowed" || !redirected.blocked.url.includes("other.example"))
+      throw new Error(`a redirect with logins: ${JSON.stringify(redirected)}`);
+    const firstRedirect = await rpc<Page>("headless.open", {
+      workspaceId,
+      url: `${origin}/redirect-other`,
+      logins: true,
+      hosts: ["headless.example"],
+    });
+    if (firstRedirect.blocked?.reason !== "not-allowed") throw new Error(`opened: ${JSON.stringify(firstRedirect)}`);
+    await rpc("headless.close", { id: firstRedirect.id });
     await rpc<Page>("headless.navigate", { id: withLogins.id, url: `${origin}/form` });
     await rpc("headless.eval", { id: withLogins.id, code: `document.querySelector("#pw").value = "hunter2", true` });
     await Bun.sleep(400);

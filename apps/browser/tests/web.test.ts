@@ -209,6 +209,34 @@ describe("waiting for frameworks to hydrate (PAGE_READY)", () => {
     }
   });
 
+  test("server renderers' comments, not IE's conditional ones", async () => {
+    const walker = (comments: string[]) => () => {
+      let i = -1;
+      return {
+        nextNode: () => ++i < comments.length,
+        get currentNode() {
+          return { data: comments[i] };
+        },
+      };
+    };
+    // An old site's <!--[if lt IE 9]>: nothing to hydrate, onElement runs at DOM ready.
+    const plain = page({}, { createTreeWalker: walker(["[if lt IE 9]>…<![endif]"]) });
+    try {
+      expect(plain.seen).toEqual(["a", "b"]);
+    } finally {
+      plain.restore();
+    }
+    // Vue 3's <!--[-->: it waits for the page to settle.
+    const vue = page({}, { createTreeWalker: walker(["["]) });
+    try {
+      expect(vue.seen).toEqual([]);
+      await Bun.sleep(200);
+      expect(vue.seen).toEqual(["a", "b"]);
+    } finally {
+      vue.restore();
+    }
+  });
+
   test("a framework that never starts is given up on for the whole page", async () => {
     const now = Date.now;
     let offset = 0;

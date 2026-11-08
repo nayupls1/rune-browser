@@ -51,20 +51,25 @@ const testHosts = new Set(
 const RESOLVED_MS = 10_000;
 
 /**
- * Runs in a page with logins, once per document: a password a password manager fills in is cleared
- * right away, so the agent's scripts never see one.
+ * Runs in each frame of a page with logins, once per document: a password a password manager fills in
+ * is cleared right away (also in open shadow roots), so the agent's scripts never see one. The main
+ * frame's runs in an isolated world, out of the page's scripts' reach.
  */
 const NO_PASSWORDS = `(() => {
   if (window.__runeNoPasswords) return;
   window.__runeNoPasswords = true;
-  const clear = () => {
-    for (const input of document.querySelectorAll("input[type=password]")) if (input.value) input.value = "";
+  const clear = (root) => {
+    for (const input of root.querySelectorAll("input[type=password]")) if (input.value) input.value = "";
+    for (const el of root.querySelectorAll("*")) if (el.shadowRoot) clear(el.shadowRoot);
   };
-  clear();
-  document.addEventListener("input", clear, true);
-  document.addEventListener("change", clear, true);
-  setInterval(clear, 100);
+  const run = () => document.documentElement && clear(document);
+  run();
+  document.addEventListener("input", run, true);
+  document.addEventListener("change", run, true);
+  setInterval(run, 50);
 })()`;
+/** The isolated world NO_PASSWORDS runs in (any id but 0, the page's own). */
+const ISOLATED_WORLD = 1029;
 
 interface Entry {
   info: HeadlessInfo;
@@ -241,7 +246,18 @@ export function setupHeadless(options: {
       });
       void send(contents, "Page.enable").catch(() => {});
     }
-    if (request.logins) contents.on("dom-ready", () => void contents.executeJavaScript(NO_PASSWORDS).catch(() => {}));
+    if (request.logins) {
+      contents.on(
+        "dom-ready",
+        () => void contents.executeJavaScriptInIsolatedWorld(ISOLATED_WORLD, [{ code: NO_PASSWORDS }]).catch(() => {}),
+      );
+      contents.on("frame-created", (_event, { frame }) => {
+        frame?.on("dom-ready", () => {
+          if (frame.isDestroyed?.() || frame === contents.mainFrame) return;
+          void frame.executeJavaScript(NO_PASSWORDS).catch(() => {});
+        });
+      });
+    }
     watchOwner(owner);
     changed(owner);
     return entry;
@@ -254,6 +270,8 @@ export function setupHeadless(options: {
       entry.blocked = { url, reason: "not-a-website" };
       return page(entry);
     }
+    // Closed meanwhile (its turn ended, the user closed it, unused for too long).
+    if (entry.contents.isDestroyed()) throw new Error("This headless tab is closed");
     let error: string | undefined;
     await withTimeout(
       entry.contents.loadURL(url).then(
@@ -302,10 +320,10 @@ export function setupHeadless(options: {
   }
 
   /** Closes the headless tabs a tab's agent opened (its turn ended); how many. */
-  /** Bumped when a tab's headless tabs are all closed: an open that was waiting meanwhile gives up. */
-  const generations = new Map<string, number>();
+  /** Opens of a tab waiting for their session: when the tab's headless tabs are all closed, they give up. */
+  const waiting = new Map<string, Set<{ cancelled: boolean }>>();
   const closeOf = (tabId: string) => {
-    generations.set(tabId, (generations.get(tabId) ?? 0) + 1);
+    for (const open of waiting.get(tabId) ?? []) open.cancelled = true;
     return [...entries.values()].filter((e) => e.info.tabId === tabId).filter((e) => close(e.info.id)).length;
   };
 
@@ -361,15 +379,22 @@ export function setupHeadless(options: {
     };
     if (request.logins && !request.hosts!.includes(hostOf(request.url)))
       throw new Error("With logins, the page's host has to be allowed first");
-    const generation = generations.get(request.tabId) ?? 0;
-    if (!request.logins) await clearing.get(ownSession(request.workspaceId));
+    const wait = { cancelled: false };
+    const others = waiting.get(request.tabId) ?? new Set();
+    waiting.set(request.tabId, others.add(wait));
+    try {
+      if (!request.logins) await clearing.get(ownSession(request.workspaceId));
+    } finally {
+      others.delete(wait);
+      if (!others.size) waiting.delete(request.tabId);
+    }
     // Its agent's turn ended while it waited.
-    if ((generations.get(request.tabId) ?? 0) !== generation) throw new Error("The agent's turn ended");
+    if (wait.cancelled) throw new Error("The agent's turn ended");
     if (entries.size >= MAX_HEADLESS) throw new Error(`At most ${MAX_HEADLESS} headless tabs can be open at once`);
     const entry = create(request, event.sender);
     const opened = await load(entry, request.url);
     // Refused before anything loaded (a name of the local network): no tab is left behind.
-    if (opened.blocked && !entry.contents.isDestroyed() && !entry.contents.getURL()) {
+    if (opened.blocked?.reason === "not-a-website" && !entry.contents.isDestroyed() && !entry.contents.getURL()) {
       close(entry.info.id);
       throw new Error("Headless tabs don't open this computer or the local network, only websites.");
     }
