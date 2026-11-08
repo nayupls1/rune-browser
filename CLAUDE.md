@@ -6,7 +6,7 @@ Electron + SolidJS (StyleX) desktop app; Bun server written with Effect v4 (SQLi
 
 A Bun workspace with Turborepo (`turbo.json`):
 
-- `apps/browser`: Rune Browser, the main package. Paths below (`src/…`, `scripts/…`, `tests/…`) are relative to it.
+- `apps/browser`: Rune Browser, the main package. Paths below (`src/…`, `scripts/…`, `tests/…`) are relative to it. The README's screenshots (`docs/screenshots/`) are of the real app too: `bun run --cwd apps/browser screenshots` takes them again (after a build).
 - `apps/landing`: the website, static Astro pages styled with StyleX. It ships no JavaScript and a strict CSP (`default-src 'none'`: no scripts at all); keep it that way, no third-party scripts, fonts or trackers. Its screenshots are of the real app: `bun run --cwd apps/landing screenshots` takes them again (after `bun run --cwd apps/browser build`).
 
 Run commands from the repo's root: `bun run check`, `typecheck`, `test` and `build` go through Turborepo for every package; `dev`, `start`, `package`, `server`, `e2e` and `release` are the browser's (`dev:landing` for the website).
