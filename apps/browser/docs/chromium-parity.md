@@ -52,9 +52,10 @@ and Windows), Auto Dark Mode for Web Contents, Parallel downloading, Experimenta
 Platform features. What's set is kept in `<userData>/flags.json` and applied as command line switches before the app
 starts (`main/flags.ts`), so a change asks for a relaunch. Switches given on the command line win, and safe mode leaves
 the flags out, in case one keeps Rune Browser from starting. Flags that Electron reads before Rune Browser's code runs
-(the Ozone platform on Linux) can't be offered. Rune Browser turns off one Chromium feature on its own: RenderDocument (a new frame for every
-page a tab goes to), which delays every page a `<webview>` shows (`applyDefaultFeatures` in `main/flags.ts`);
-`--enable-features=RenderDocument` turns it back on.
+(the Ozone platform on Linux) can't be offered. On Linux, Rune Browser turns off one Chromium feature on its own: RenderDocument (a new frame for
+every page a tab goes to), which delays every page a `<webview>` shows (`applyDefaultFeatures` in
+`main/flags.ts`); `--enable-features=RenderDocument` turns it back on. Windows keeps it (its GPU process crashed
+without it), and so does macOS, which isn't tested.
 
 ## Settings
 
