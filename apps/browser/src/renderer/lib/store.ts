@@ -708,6 +708,7 @@ export async function createWorkspace(name: string) {
   const workspace = await api.createWorkspace(name);
   upsertWorkspace(workspace);
   await showWorkspace(workspace.id);
+  return workspace;
 }
 
 export async function updateWorkspace(

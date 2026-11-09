@@ -72,6 +72,7 @@ import { Icon } from "./Icon";
 import { IconPicker, TabIcon } from "./TabIcon";
 import { toast } from "./Toast";
 import { Button } from "./ui";
+import { editWorkspace, workspaceEditing } from "./WorkspaceEditor";
 import { withKeys } from "../lib/shortcuts";
 import {
   moveToNewWindow,
@@ -336,10 +337,6 @@ function VerticalSidebar() {
           New tab
         </Button>
         <Show when={newMenu()}>{(position) => <NewTabMenu position={position()} onClose={() => setNewMenu()} />}</Show>
-        {/* A private window has no workspaces: its tabs all share one session that keeps nothing. */}
-        <Show when={!isPrivate}>
-          <WorkspaceName />
-        </Show>
         {/* At the very bottom, like Zen's: the ⋯ menu, the workspaces in the middle, the agent. */}
         <div {...stylex.attrs(styles.footer)} data-sidebar-footer>
           <MoreMenu />
@@ -423,43 +420,10 @@ function Resizer() {
   );
 }
 
-/** Where a workspace's name is typed: right after "+" made it, or "Rename" in its menu. */
-export function WorkspaceName() {
-  const [naming, setNaming] = createSignal(false);
-  createEffect(on(namingRequest, (n) => n && setNaming(true), { defer: true }));
-  const commit = (value: string) => {
-    if (!naming()) return;
-    setNaming(false);
-    const name = value.trim();
-    const workspace = currentWorkspace();
-    if (workspace && name && name !== workspace.name) void updateWorkspace(workspace.id, { name });
-  };
-  return (
-    <Show when={naming()}>
-      <div {...stylex.attrs(styles.naming)}>
-        <Show when={currentWorkspace()}>{(w) => <WorkspaceBadge workspace={w()} />}</Show>
-        <input
-          ref={(el) => queueMicrotask(() => el.select())}
-          value={currentWorkspace()?.name ?? ""}
-          aria-label="Workspace name"
-          onBlur={(e) => commit(e.currentTarget.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") commit(e.currentTarget.value);
-            if (e.key === "Escape") setNaming(false);
-          }}
-          {...stylex.attrs(styles.rename, styles.workspaceRename)}
-          data-workspace-name
-        />
-      </div>
-    </Show>
-  );
-}
-
-const [namingRequest, setNamingRequest] = createSignal(0);
-/** Creates a workspace, switches to it and lets the user name it. */
+/** Creates a workspace, switches to it and opens its editor, for its name and icon. */
 async function newWorkspace() {
-  await createWorkspace("New workspace");
-  setNamingRequest((n) => n + 1);
+  const workspace = await createWorkspace("New workspace");
+  editWorkspace({ id: workspace.id, focus: "name", isNew: true });
 }
 
 const WORKSPACE_DRAG_TYPE = "application/x-rune-workspace";
@@ -490,16 +454,12 @@ export function WorkspaceBar(props: { inline?: boolean }) {
       <For each={workspaces}>
         {(w, i) => {
           const [menu, setMenu] = createSignal<MenuPosition>();
-          const [iconPicker, setIconPicker] = createSignal<MenuPosition>();
           const current = () => currentWorkspace()?.id === w.id;
+          const edited = () => workspaceEditing()?.id === w.id;
           const isOver = () => over() === w.id;
           const items = (): (MenuItem | "separator")[] => [
-            {
-              label: "Rename",
-              icon: "pencil",
-              onSelect: () => void showWorkspace(w.id).then(() => setNamingRequest((n) => n + 1)),
-            },
-            { label: "Change icon…", icon: "shapes", onSelect: () => setIconPicker(menu() ?? { x: 0, y: 0 }) },
+            { label: "Rename", icon: "pencil", onSelect: () => editWorkspace({ id: w.id, focus: "name" }) },
+            { label: "Change icon…", icon: "shapes", onSelect: () => editWorkspace({ id: w.id, focus: "icon" }) },
             {
               label: "Move left",
               icon: "arrow-left",
@@ -541,6 +501,7 @@ export function WorkspaceBar(props: { inline?: boolean }) {
                 aria-selected={current()}
                 title={withKeys(w.name, `workspace.select-${i() + 1}`)}
                 onClick={() => void showWorkspace(w.id)}
+                onDblClick={() => editWorkspace({ id: w.id, focus: "name" })}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   setMenu({ x: e.clientX, y: e.clientY });
@@ -579,6 +540,7 @@ export function WorkspaceBar(props: { inline?: boolean }) {
                   styles.workspaceIcon,
                   current() && styles.workspaceIconOn,
                   isOver() && styles.workspaceIconOver,
+                  edited() && styles.workspaceIconEdited,
                 )}
                 data-workspace={w.id}
               >
@@ -586,9 +548,6 @@ export function WorkspaceBar(props: { inline?: boolean }) {
               </button>
               <Show when={menu()}>
                 {(position) => <ContextMenu items={items()} position={position()} onClose={() => setMenu()} />}
-              </Show>
-              <Show when={iconPicker()}>
-                {(position) => <IconPicker workspace={w} position={position()} onClose={() => setIconPicker()} />}
               </Show>
             </>
           );
@@ -761,6 +720,12 @@ export function Item(props: { app: AppSummary; tile?: boolean; horizontal?: bool
   const [editing, setEditing] = createSignal(false);
   const [menu, setMenu] = createSignal<MenuPosition>();
   const [iconPicker, setIconPicker] = createSignal<MenuPosition>();
+  // The menu is closed by the time its item runs: the icon picker opens where it was.
+  let menuAt: MenuPosition = { x: 0, y: 0 };
+  createEffect(() => {
+    const at = menu();
+    if (at) menuAt = at;
+  });
   const dropSide = () => (draggedTab() !== props.app.id && dropAt()?.id === props.app.id ? dropAt()!.side : null);
   // The line where a dragged tab would land: above or below it in the sidebar, left or right of it in the tab bar.
   const dropBefore = () => !props.horizontal && dropSide() === "before";
@@ -820,7 +785,7 @@ export function Item(props: { app: AppSummary; tile?: boolean; horizontal?: bool
   createEffect(on(menu, (open) => open && void otherWindows().then(setWindowsToMoveTo)));
   const menuItems = (): (MenuItem | "separator")[] => [
     { label: "Rename", icon: "pencil", onSelect: rename },
-    { label: "Change icon…", icon: "shapes", onSelect: () => setIconPicker(menu() ?? { x: 0, y: 0 }) },
+    { label: "Change icon…", icon: "shapes", onSelect: () => setIconPicker(menuAt) },
     { label: "Duplicate", icon: "copy", onSelect: () => duplicateApp(props.app.id) },
     ...(split()
       ? [{ label: "Remove from split view", icon: "square-x", onSelect: () => removeFromSplit(props.app.id) }]
@@ -1149,7 +1114,6 @@ const styles = stylex.create({
   edge: { position: "fixed", zIndex: 899, top: 0, bottom: 0, left: 0, width: EDGE_WIDTH },
   footerEnd: { display: "flex", justifyContent: "flex-end", flexShrink: 0, minWidth: 32 },
   rootPrivate: { backgroundImage: "linear-gradient(rgb(76 29 149 / 0.12), rgb(76 29 149 / 0.12))" },
-  naming: { display: "flex", alignItems: "center", gap: space.sm, flexShrink: 0 },
   collapse: {
     display: "grid",
     placeItems: "center",
@@ -1238,7 +1202,6 @@ const styles = stylex.create({
     pointerEvents: "none",
   },
   dotFull: { backgroundColor: colors.danger },
-  workspaceRename: { height: 30, fontSize: font.md },
   badge: {
     display: "grid",
     placeItems: "center",
@@ -1484,6 +1447,8 @@ const styles = stylex.create({
     },
   },
   workspaceIconOver: { boxShadow: `0 0 0 2px ${colors.accent}`, opacity: 1 },
+  // Its editor is open.
+  workspaceIconEdited: { boxShadow: `0 0 0 2px ${colors.accent}`, opacity: 1 },
   workspaceAdd: {
     backgroundColor: { default: "transparent", ":hover": `color-mix(in oklab, ${colors.text} 8%, transparent)` },
     opacity: { default: 0.6, ":hover": 1 },

@@ -2,11 +2,11 @@
 // A tab's own icon is a Lucide icon name, an emoji or an image (data URL);
 // without one, apps show a window and web tabs their site's favicon.
 import * as stylex from "@stylexjs/stylex";
-import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createMemo, createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js";
 import { Portal } from "solid-js/web";
-import { isEmojiIcon, isImageIcon, type AppSummary, type WorkspaceInfo } from "../../shared/api";
+import { isEmojiIcon, isImageIcon, type AppSummary } from "../../shared/api";
 import { rankIcons } from "../../shared/icons";
-import { setTabIcon, updateWorkspace } from "../lib/store";
+import { setTabIcon } from "../lib/store";
 import { colors, font, radius, space } from "../theme.stylex";
 import { Icon, iconFor, iconTags } from "./Icon";
 import { toast } from "./Toast";
@@ -135,31 +135,114 @@ async function toIconImage(file: File): Promise<string> {
   }
 }
 
-/** Picks a tab's icon: a Lucide icon (searchable), an emoji, an uploaded image, or the default. */
-/** Picks a tab's own icon (Lucide, emoji or an uploaded image), or a workspace's (Lucide or emoji). */
-export function IconPicker(props: {
-  tab?: AppSummary;
-  workspace?: WorkspaceInfo;
-  position: { x: number; y: number };
-  onClose: () => void;
+/**
+ * Icons to choose from: a search over Lucide's icons (or an emoji typed in it), and before anything is typed,
+ * suggestions and emojis. Used by the tab icon picker and the workspace editor.
+ */
+export function IconChoices(props: {
+  current: string | null;
+  disabled?: boolean;
+  onChoose: (icon: string) => void;
+  /** The search field, for focusing it. */
+  searchRef?: (el: HTMLInputElement) => void;
+  /** Before the search field (the icon's preview). */
+  before?: JSX.Element;
 }) {
-  let root!: HTMLDivElement;
-  let fileInput!: HTMLInputElement;
   const [query, setQuery] = createSignal("");
-  const [pos, setPos] = createSignal(props.position);
-  const [busy, setBusy] = createSignal(false);
-
   const typed = () => query().trim();
   const typedEmoji = () => (isEmojiIcon(typed()) ? typed() : null);
   const results = createMemo(() =>
     (typed() ? rankIcons(iconTags, typed(), 48) : suggestions).filter((name) => iconFor(name)),
   );
+  const isCurrent = (icon: string) => props.current === icon;
+  return (
+    <>
+      <div {...stylex.attrs(styles.header)}>
+        {props.before}
+        <input
+          ref={props.searchRef}
+          value={query()}
+          placeholder="Search icons, or type an emoji"
+          aria-label="Search icons"
+          onInput={(e) => setQuery(e.currentTarget.value)}
+          onKeyDown={(e) => {
+            if (e.key !== "Enter") return;
+            e.preventDefault();
+            const first = typedEmoji() ?? results()[0];
+            if (first) props.onChoose(first);
+          }}
+          {...stylex.attrs(styles.search)}
+          data-icon-search
+        />
+      </div>
+      <Show when={typedEmoji()}>
+        {(emoji) => (
+          <button
+            type="button"
+            disabled={props.disabled}
+            onClick={() => props.onChoose(emoji())}
+            {...stylex.attrs(styles.wide)}
+          >
+            <span {...stylex.attrs(styles.text)}>{emoji()}</span> Use this emoji
+          </button>
+        )}
+      </Show>
+      <div {...stylex.attrs(styles.grid)}>
+        <For each={results()} fallback={<p {...stylex.attrs(styles.empty)}>No icons match.</p>}>
+          {(name) => {
+            const on = () => isCurrent(name);
+            return (
+              <button
+                type="button"
+                title={name}
+                disabled={props.disabled}
+                aria-pressed={on()}
+                onClick={() => props.onChoose(name)}
+                {...stylex.attrs(styles.cell, on() && styles.cellOn)}
+                data-icon={name}
+              >
+                <Icon name={name} size={18} />
+              </button>
+            );
+          }}
+        </For>
+      </div>
+      <Show when={!typed()}>
+        <div {...stylex.attrs(styles.grid)}>
+          <For each={emojis}>
+            {(emoji) => {
+              const on = () => isCurrent(emoji);
+              return (
+                <button
+                  type="button"
+                  disabled={props.disabled}
+                  aria-pressed={on()}
+                  onClick={() => props.onChoose(emoji)}
+                  {...stylex.attrs(styles.cell, styles.text, on() && styles.cellOn)}
+                  data-emoji={emoji}
+                >
+                  {emoji}
+                </button>
+              );
+            }}
+          </For>
+        </div>
+      </Show>
+    </>
+  );
+}
+
+/** Picks a tab's own icon: a Lucide icon (searchable), an emoji, an uploaded image, or the default. */
+export function IconPicker(props: { tab: AppSummary; position: { x: number; y: number }; onClose: () => void }) {
+  let root!: HTMLDivElement;
+  let fileInput!: HTMLInputElement;
+  const [pos, setPos] = createSignal(props.position);
+  const [busy, setBusy] = createSignal(false);
 
   const choose = async (icon: string | null) => {
     setBusy(true);
     try {
-      if (props.tab) await setTabIcon(props.tab.id, icon);
-      else if (props.workspace) await updateWorkspace(props.workspace.id, { icon });
+      await setTabIcon(props.tab.id, icon);
       props.onClose();
     } catch (err) {
       toast({ message: err instanceof Error ? err.message : String(err), kind: "error" });
@@ -199,15 +282,12 @@ export function IconPicker(props: {
     });
   });
 
-  const currentIcon = () => (props.tab ? props.tab.icon : (props.workspace?.icon ?? null));
-  const isCurrent = (icon: string) => currentIcon() === icon;
-
   return (
     <Portal>
       <div
         ref={root}
         role="dialog"
-        aria-label={`Icon for ${props.tab?.name ?? props.workspace?.name ?? ""}`}
+        aria-label={`Icon for ${props.tab.name}`}
         {...stylex.attrs(styles.picker)}
         style={{ left: `${pos().x}px`, top: `${pos().y}px` }}
         // Events from a portal reach the component that opened it (a sidebar tab, which would select or rename itself).
@@ -216,99 +296,28 @@ export function IconPicker(props: {
         onContextMenu={(e) => (e.preventDefault(), e.stopPropagation())}
         data-icon-picker
       >
-        <div {...stylex.attrs(styles.header)}>
-          <span {...stylex.attrs(styles.preview)}>
-            <Show
-              when={props.tab}
-              fallback={
-                <Icon
-                  name={currentIcon()}
-                  size={18}
-                  fallback={
-                    <span {...stylex.attrs(styles.text)}>
-                      {currentIcon() ?? props.workspace?.name.charAt(0).toUpperCase()}
-                    </span>
-                  }
-                />
-              }
-            >
-              {(tab) => <TabIcon tab={tab()} size={18} />}
-            </Show>
-          </span>
-          <input
-            value={query()}
-            placeholder="Search icons, or type an emoji"
-            aria-label="Search icons"
-            onInput={(e) => setQuery(e.currentTarget.value)}
-            onKeyDown={(e) => {
-              if (e.key !== "Enter") return;
-              const first = typedEmoji() ?? results()[0];
-              if (first) void choose(first);
-            }}
-            {...stylex.attrs(styles.search)}
-          />
-        </div>
-        <Show when={typedEmoji()}>
-          {(emoji) => (
-            <button type="button" disabled={busy()} onClick={() => void choose(emoji())} {...stylex.attrs(styles.wide)}>
-              <span {...stylex.attrs(styles.text)}>{emoji()}</span> Use this emoji
-            </button>
-          )}
-        </Show>
-        <div {...stylex.attrs(styles.grid)}>
-          <For each={results()} fallback={<p {...stylex.attrs(styles.empty)}>No icons match.</p>}>
-            {(name) => {
-              const on = () => isCurrent(name);
-              return (
-                <button
-                  type="button"
-                  title={name}
-                  disabled={busy()}
-                  aria-pressed={on()}
-                  onClick={() => void choose(name)}
-                  {...stylex.attrs(styles.cell, on() && styles.cellOn)}
-                  data-icon={name}
-                >
-                  <Icon name={name} size={18} />
-                </button>
-              );
-            }}
-          </For>
-        </div>
-        <Show when={!typed()}>
-          <div {...stylex.attrs(styles.grid)}>
-            <For each={emojis}>
-              {(emoji) => {
-                const on = () => isCurrent(emoji);
-                return (
-                  <button
-                    type="button"
-                    disabled={busy()}
-                    aria-pressed={on()}
-                    onClick={() => void choose(emoji)}
-                    {...stylex.attrs(styles.cell, styles.text, on() && styles.cellOn)}
-                  >
-                    {emoji}
-                  </button>
-                );
-              }}
-            </For>
-          </div>
-        </Show>
+        <IconChoices
+          current={props.tab.icon}
+          disabled={busy()}
+          onChoose={(icon) => void choose(icon)}
+          before={
+            <span {...stylex.attrs(styles.preview)}>
+              <TabIcon tab={props.tab} size={18} />
+            </span>
+          }
+        />
         <div {...stylex.attrs(styles.footer)}>
-          <Show when={props.tab}>
-            <button
-              type="button"
-              disabled={busy()}
-              onClick={() => fileInput.click()}
-              {...stylex.attrs(styles.action)}
-              data-icon-upload
-            >
-              <Icon name="upload" size={14} />
-              Upload image…
-            </button>
-          </Show>
-          <Show when={currentIcon()}>
+          <button
+            type="button"
+            disabled={busy()}
+            onClick={() => fileInput.click()}
+            {...stylex.attrs(styles.action)}
+            data-icon-upload
+          >
+            <Icon name="upload" size={14} />
+            Upload image…
+          </button>
+          <Show when={props.tab.icon}>
             <button
               type="button"
               disabled={busy()}
@@ -317,11 +326,7 @@ export function IconPicker(props: {
               data-icon-reset
             >
               <Icon name="rotate-ccw" size={14} />
-              {props.workspace
-                ? "Use its initial"
-                : props.tab?.kind === "web"
-                  ? "Use the site's icon"
-                  : "Use the default"}
+              {props.tab.kind === "web" ? "Use the site's icon" : "Use the default"}
             </button>
           </Show>
         </div>

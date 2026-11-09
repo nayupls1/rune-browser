@@ -84,6 +84,7 @@ import { PageChangeRows } from "./PageChanges";
 import { OverrideRows } from "./ResponseOverrides";
 import { openExtensionImport } from "./ExtensionImport";
 import { Icon } from "./Icon";
+import { editWorkspace } from "./WorkspaceEditor";
 import { ProviderIcon } from "./ProviderIcon";
 import { setFullAccess } from "../lib/access";
 import { SecretForm, SecretRow } from "./Secrets";
@@ -1164,16 +1165,34 @@ function WorkspaceSection() {
         const agent = () => current().settings.agent;
         return (
           <Section title={`Workspace: ${current().name}`} anchor="workspace">
-            <Row label="Name">
-              <input
-                value={current().name}
-                onChange={(e) => {
-                  const name = e.currentTarget.value.trim();
-                  if (name) void updateWorkspace(workspace.id, { name });
-                }}
-                {...stylex.attrs(styles.textInput)}
-                data-workspace-field="name"
-              />
+            <Row label="Name and icon">
+              <span {...stylex.attrs(styles.nameAndIcon)}>
+                <button
+                  type="button"
+                  title="Change icon"
+                  aria-label="Change icon"
+                  onClick={(e) =>
+                    editWorkspace({ id: workspace.id, focus: "icon", anchor: e.currentTarget.getBoundingClientRect() })
+                  }
+                  {...stylex.attrs(styles.workspaceIconButton)}
+                  data-workspace-field="icon"
+                >
+                  <Icon
+                    name={current().icon}
+                    size={16}
+                    fallback={<>{current().icon ?? current().name.trim().charAt(0).toUpperCase()}</>}
+                  />
+                </button>
+                <input
+                  value={current().name}
+                  onChange={(e) => {
+                    const name = e.currentTarget.value.trim();
+                    if (name) void updateWorkspace(workspace.id, { name });
+                  }}
+                  {...stylex.attrs(styles.textInput)}
+                  data-workspace-field="name"
+                />
+              </span>
             </Row>
             <Row label="Default agent" description="For new tabs in this workspace. Off: the default from Agent below.">
               <Show when={agent()}>
@@ -2741,6 +2760,24 @@ const styles = stylex.create({
     cursor: "pointer",
   },
   iconButtonPlain: { color: { default: colors.muted, ":hover": colors.text } },
+  nameAndIcon: { display: "inline-flex", alignItems: "center", gap: space.sm },
+  workspaceIconButton: {
+    display: "grid",
+    placeItems: "center",
+    width: 32,
+    height: 32,
+    flexShrink: 0,
+    padding: 0,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: colors.border,
+    backgroundColor: { default: colors.surface, ":hover": colors.surfaceHover },
+    color: colors.accent,
+    fontSize: font.sm,
+    fontWeight: 600,
+    cursor: "pointer",
+  },
   textInput: {
     width: 220,
     height: 32,

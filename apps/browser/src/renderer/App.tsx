@@ -6,6 +6,7 @@ import { CommandBar } from "./components/CommandBar";
 import { AuthHost } from "./components/AuthDialog";
 import { ScreenPickHost } from "./components/SitePermissions";
 import { ConfirmHost } from "./components/ConfirmDialog";
+import { WorkspaceEditorHost } from "./components/WorkspaceEditor";
 import { DownloadsPanel } from "./components/Downloads";
 import { ExtensionImportHost } from "./components/ExtensionImport";
 import { PermissionHost } from "./components/PermissionHost";
@@ -135,6 +136,7 @@ export default function App() {
       </Show>
       <Sidebar />
       <ConfirmHost />
+      <WorkspaceEditorHost />
       <AuthHost />
       <ScreenPickHost />
       <ExtensionImportHost />

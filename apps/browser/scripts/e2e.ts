@@ -4149,9 +4149,19 @@ try {
       const personalTabs = await tabIds();
       const personalSelected = await selected();
 
-      // "+" at the bottom makes one, and its name is typed in the header.
+      // "+" at the bottom makes one, and its editor opens next to its icon, the name ready to type.
       await click("[data-new-workspace]");
-      await page!.waitFor(`!!document.querySelector("[data-workspace-name]")`, { label: "workspace name field" });
+      await page!.waitFor(`!!document.querySelector("[data-workspace-editor] [data-workspace-name]")`, {
+        label: "workspace editor",
+      });
+      const placement = await page!.eval<{ near: boolean; focused: boolean }>(`(() => {
+        const editor = document.querySelector("[data-workspace-editor]").getBoundingClientRect();
+        const icon = document.querySelector('[data-workspace="' + document.querySelector("[data-workspace-editor]").dataset.workspaceEditor + '"]').getBoundingClientRect();
+        const gap = Math.min(Math.abs(editor.top - icon.bottom), Math.abs(icon.top - editor.bottom));
+        return { near: gap < 24 && editor.left <= icon.right && editor.right >= icon.left, focused: document.activeElement?.matches("[data-workspace-name]") };
+      })()`);
+      if (!placement.near || !placement.focused) throw new Error(`editor: ${JSON.stringify(placement)}`);
+      await shot("workspace-new.png");
       await page!.eval(`(() => {
       const input = document.querySelector("[data-workspace-name]");
       input.value = "Client";
@@ -4190,18 +4200,47 @@ try {
       const clientCookies = await inView<string>(`[data-web-tab="${tab.id}"]`, `document.cookie`);
       if (clientCookies.includes("space=personal")) throw new Error("the Client workspace sees Personal's cookies");
 
-      // An icon in the bar, and Ctrl+Alt+1 / 2.
+      // An icon in the bar (the same editor, the icon search focused), and Ctrl+Alt+1 / 2.
       await menuOn(client.id, "Change icon…");
-      await page!.waitFor(`!!document.querySelector('[data-icon-picker] [data-icon="briefcase"]')`, {
-        label: "icon picker",
-      });
-      await click('[data-icon-picker] [data-icon="briefcase"]');
+      await page!.waitFor(
+        `!!document.querySelector('[data-workspace-editor="${client.id}"] [data-icon="briefcase"]') && document.activeElement?.matches("[data-icon-search]")`,
+        { label: "workspace editor for the icon" },
+      );
+      await click(`[data-workspace-editor="${client.id}"] [data-icon="briefcase"]`);
       await waitForValue(async () =>
         (await apiCall<{ id: string; icon: string | null }[]>("/api/workspaces")).find((w) => w.id === client.id)
           ?.icon === "briefcase"
           ? true
           : undefined,
       );
+      await page!.waitFor(
+        `!!document.querySelector('[data-workspace-editor] [data-workspace-editor-icon] svg') && !!document.querySelector('[data-workspace="${client.id}"] svg')`,
+        { label: "the icon shown in the editor and the bar" },
+      );
+      await shot("workspace-icon.png");
+      await click("[data-workspace-editor-done]");
+      await page!.waitFor(`!document.querySelector("[data-workspace-editor]")`, { label: "editor closed" });
+      // A double-click opens it too; Escape leaves the name as it was.
+      await page!.eval(
+        `document.querySelector('[data-workspace="${client.id}"]').dispatchEvent(new MouseEvent("dblclick", { bubbles: true })), true`,
+      );
+      await page!.waitFor(`!!document.querySelector('[data-workspace-editor="${client.id}"]')`, {
+        label: "editor on double-click",
+      });
+      await page!.eval(`(() => {
+        const input = document.querySelector("[data-workspace-name]");
+        input.value = "Not this";
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+        return true;
+      })()`);
+      await page!.waitFor(`!document.querySelector("[data-workspace-editor]")`, { label: "editor closed by Escape" });
+      await Bun.sleep(300);
+      if (
+        (await apiCall<{ id: string; name: string }[]>("/api/workspaces")).find((w) => w.id === client.id)?.name !==
+        "Client"
+      )
+        throw new Error("Escape renamed the workspace");
       await shot("workspaces.png");
       await page!.eval(
         `window.dispatchEvent(new KeyboardEvent("keydown", { key: "1", code: "Digit1", ${mod}: true, altKey: true, bubbles: true })), true`,
@@ -4264,7 +4303,7 @@ try {
       await click("[data-confirm-dialog] [data-confirm]");
       await page!.waitFor(`!document.querySelector('[data-workspace="${client.id}"]')`, { label: "deleted" });
       if ((await apiCall<unknown[]>("/api/workspaces")).length !== 1) throw new Error("the workspace wasn't deleted");
-      return `separate cookies; icon, shortcuts, reorder, moved a tab by dropping it; ${await header()} restored`;
+      return `named and given an icon in its editor (next to its icon), separate cookies, shortcuts, reorder, moved a tab by dropping it; ${await header()} restored`;
     },
   );
 
