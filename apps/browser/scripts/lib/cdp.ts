@@ -50,14 +50,7 @@ export class Page {
           (t) => t.type === "page" && !t.url.startsWith("devtools://") && !t.url.startsWith("chrome-extension://"),
         );
         const target = pick ? targets.find(pick) : (pages.find((t) => t.url.startsWith("app://")) ?? pages[0]);
-        if (target) {
-          const ws = new WebSocket(target.webSocketDebuggerUrl);
-          await new Promise((resolve, reject) => {
-            ws.onopen = resolve;
-            ws.onerror = reject;
-          });
-          return new Page(ws);
-        }
+        if (target) return await Page.open(target.webSocketDebuggerUrl);
       } catch {
         // not up yet
       }
@@ -66,14 +59,24 @@ export class Page {
     throw new Error(`No page on debugging port ${port}`);
   }
 
-  send<T = any>(method: string, params: object = {}, sessionId?: string): Promise<T> {
+  /** Connects to a target (or the browser) by its DevTools WebSocket URL. */
+  static async open(webSocketDebuggerUrl: string): Promise<Page> {
+    const ws = new WebSocket(webSocketDebuggerUrl);
+    await new Promise((resolve, reject) => {
+      ws.onopen = resolve;
+      ws.onerror = reject;
+    });
+    return new Page(ws);
+  }
+
+  send<T = any>(method: string, params: object = {}, sessionId?: string, timeoutMs = 30_000): Promise<T> {
     const id = ++this.nextId;
     return new Promise((resolve, reject) => {
       // A blocked renderer would otherwise hang the caller forever.
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        reject(new Error(`${method} got no response within 30s`));
-      }, 30_000);
+        reject(new Error(`${method} got no response within ${Math.round(timeoutMs / 1000)}s`));
+      }, timeoutMs);
       this.pending.set(id, {
         resolve: (v) => (clearTimeout(timer), resolve(v)),
         reject: (e) => (clearTimeout(timer), reject(e)),
@@ -104,6 +107,36 @@ export class Page {
     this.listeners.set(method, [...(this.listeners.get(method) ?? []), fn]);
   }
 
+  /** Stops calling `fn` for `method`. */
+  off(method: string, fn: (params: any) => void) {
+    this.listeners.set(
+      method,
+      (this.listeners.get(method) ?? []).filter((f) => f !== fn),
+    );
+  }
+
+  /** Resolves with the next event `method` (whose params pass `pick`), or rejects after `timeoutMs`. */
+  next<T = any>(method: string, timeoutMs = 30_000, pick: (params: T) => boolean = () => true): Promise<T> {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.off(method, fn);
+        reject(new Error(`no ${method} within ${Math.round(timeoutMs / 1000)}s`));
+      }, timeoutMs);
+      const fn = (params: T) => {
+        if (!pick(params)) return;
+        clearTimeout(timer);
+        this.off(method, fn);
+        resolve(params);
+      };
+      this.on(method, fn);
+    });
+  }
+
+  /** Whether the WebSocket is still open (a closed tab or browser closes it). */
+  get connected() {
+    return this.ws.readyState === WebSocket.OPEN;
+  }
+
   /** Accepts confirm()/alert() dialogs automatically (requires Page.enable). */
   acceptDialogs() {
     this.on("Page.javascriptDialogOpening", () => {
@@ -112,8 +145,13 @@ export class Page {
   }
 
   /** Evaluates an expression (awaiting promises) and returns its JSON value. */
-  async eval<T = unknown>(expression: string): Promise<T> {
-    const res = await this.send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true });
+  async eval<T = unknown>(expression: string, timeoutMs?: number): Promise<T> {
+    const res = await this.send(
+      "Runtime.evaluate",
+      { expression, awaitPromise: true, returnByValue: true },
+      undefined,
+      timeoutMs,
+    );
     if (res.exceptionDetails) {
       throw new Error(res.exceptionDetails.exception?.description ?? res.exceptionDetails.text);
     }

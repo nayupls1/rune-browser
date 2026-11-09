@@ -109,6 +109,7 @@ run the browser's; `bun run dev:landing` runs the website.
 - [Chromium parity](apps/browser/docs/chromium-parity.md): rune:// pages, and how Chromium's settings, shortcuts and behavior fare
 - [Architecture](apps/browser/docs/architecture.md): processes, the server's services, where data lives
 - [Design system](apps/browser/docs/design-system.md): the palette from the icon, light and dark, and how themes build on it
+- [Benchmarks](apps/browser/docs/benchmarks.md): Rune against Chrome, and its UI under stress (speed, CPU, memory, GPU)
 - [Development](apps/browser/docs/development.md) and [Releasing](apps/browser/docs/releasing.md)
 
 Built with Electron and SolidJS (StyleX), and a local Bun server written with

@@ -27,6 +27,7 @@
     "test": "bun scripts/test.ts",
     "e2e": "bun scripts/e2e.ts",
     "screenshots": "bun scripts/screenshots.ts",
+    "bench": "bun scripts/bench.ts",
     "check": "bun fmt --check && bun run typecheck && bun run test && bun run build && bun run e2e"
   },
   "devDependencies": {

@@ -1,6 +1,6 @@
 # Design system
 
-[README](../../../README.md) · [Architecture](architecture.md) · [Concepts](concepts.md) · [Interface](interface.md) · [Browsing](browsing.md) · [Design system](design-system.md) · [Development](development.md) · [Releasing](releasing.md)
+[README](../../../README.md) · [Architecture](architecture.md) · [Concepts](concepts.md) · [Interface](interface.md) · [Browsing](browsing.md) · [Design system](design-system.md) · [Development](development.md) · [Benchmarks](benchmarks.md) · [Releasing](releasing.md)
 
 Rune Browser's look comes from its icon (`build/icon.svg`): a burnt orange rune on warm cream. The same palette is the browser's own UI, its internal pages (Settings, History, Mods…) and the apps it builds, so the icon, the app and what it makes look like one product.
 
