@@ -345,7 +345,6 @@ function manyTabs(layout: "horizontal" | "vertical"): Scenario {
     title: `UI: ${title}`,
     about: `60 tabs opened at once and closed again with ${layout === "horizontal" ? "tabs along the top" : "the vertical tab sidebar"}: how the UI copes with many tabs (frames, blocking, memory), and scrolling through them.`,
     runeOnly: true,
-    maxRuns: 3,
     async run(ctx) {
       const r = rune(ctx);
       await prepareUi(ctx);
@@ -576,7 +575,6 @@ const longChat: Scenario = {
   about:
     "Opening an earlier chat of 500 messages (markdown, code, tool calls) in the agent sidebar, then scrolling it.",
   runeOnly: true,
-  maxRuns: 3,
   async run(ctx) {
     const r = rune(ctx);
     await prepareUi(ctx);

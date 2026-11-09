@@ -24,8 +24,6 @@ export interface Scenario {
   about: string;
   /** Only Rune has it (its own UI). */
   runeOnly?: boolean;
-  /** At most this many runs (the slow ones). */
-  maxRuns?: number;
   run(ctx: Ctx): Promise<void>;
 }
 
@@ -518,7 +516,6 @@ const manyTabs: Scenario = {
   title: "Memory: eight tabs",
   about:
     "Opening eight tabs of different sites one after another (each viewed, as when clicking through them), then idling with them, then closing them: memory per tab, CPU with tabs in the background, and what's given back.",
-  maxRuns: 2,
   async run(ctx) {
     const { browser, site } = ctx;
     await Bun.sleep(1000);
@@ -566,7 +563,6 @@ const idle: Scenario = {
   title: "Idle",
   about:
     "One tab with the article open and nothing happening for 8 s: what the browser costs sitting there (battery, fans).",
-  maxRuns: 3,
   async run(ctx) {
     await ctx.tab.navigate(ctx.site.url("/article"));
     await Bun.sleep(2000);

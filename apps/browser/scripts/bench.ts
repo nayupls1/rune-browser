@@ -223,7 +223,7 @@ async function runScenarios(name: BrowserName, site: Site, list: Scenario[]) {
   await b.newTab(site.url("/blank"));
   try {
     for (const s of list) {
-      const count = Math.min(runs, s.maxRuns ?? runs);
+      const count = runs;
       const started = performance.now();
       let tab;
       try {

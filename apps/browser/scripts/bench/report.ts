@@ -40,14 +40,30 @@ export const MIN_RUNS = 5;
 function significant(m: Metric, a: number[], b: number[], ratio: number) {
   if (a.length < MIN_RUNS || b.length < MIN_RUNS) return false;
   const tiny = { ms: 2, MB: 5, "%": 1, fps: 2, count: 0.5, score: 0.01 }[m.unit];
-  return Math.abs(median(a) - median(b)) > tiny && Math.abs(ratio - 1) >= 0.1 && mannWhitneyP(a, b) < 0.01;
+  return (
+    Math.abs(median(a) - median(b)) > tiny &&
+    (!Number.isFinite(ratio) || Math.abs(ratio - 1) >= 0.1) &&
+    mannWhitneyP(a, b) < 0.01
+  );
 }
+
+/** Whether `value` is worse than `reference` for this metric (works when one of them is 0, unlike a ratio). */
+const worseThan = (m: Metric, value: number, reference: number) =>
+  m.better === "lower" ? value > reference : value < reference;
+
+/** Sorts worst first, a change from or to 0 (no ratio) before all others. */
+const severity = (ratio: number | undefined) =>
+  ratio === undefined ? -Infinity : Number.isFinite(ratio) ? ratio : Infinity;
+
+/** "1.50× worse", or for a change from or to 0 just "worse". */
+const verdict = (ratio: number | undefined, worse: boolean | undefined) =>
+  ratio !== undefined && Number.isFinite(ratio) ? times(ratio) : worse === undefined ? "–" : worse ? "worse" : "better";
 
 export interface Row {
   metric: Metric;
   rune?: number;
   chrome?: number;
-  /** Rune vs Chrome (> 1: Rune is worse). */
+  /** Rune vs Chrome (> 1: Rune is worse; NaN when one of them is 0, like frames missed). */
   ratio?: number;
   vsChrome?: "worse" | "better" | "same";
   overBudget: boolean;
@@ -67,7 +83,11 @@ export function rows(entries: Entry[], baseline?: Entry[]): Row[] {
     if (c?.length) row.chrome = median(c);
     if (r?.length && c?.length) {
       row.ratio = badness(metric, row.rune!, row.chrome!);
-      row.vsChrome = significant(metric, r, c, row.ratio) ? (row.ratio > 1 ? "worse" : "better") : "same";
+      row.vsChrome = significant(metric, r, c, row.ratio)
+        ? worseThan(metric, row.rune!, row.chrome!)
+          ? "worse"
+          : "better"
+        : "same";
     }
     if (metric.budget !== undefined && row.rune !== undefined)
       row.overBudget = metric.better === "lower" ? row.rune > metric.budget : row.rune < metric.budget;
@@ -75,7 +95,11 @@ export function rows(entries: Entry[], baseline?: Entry[]): Row[] {
     if (r?.length && b?.length) {
       row.baseline = median(b);
       row.change = badness(metric, row.rune!, row.baseline);
-      row.vsBaseline = significant(metric, r, b, row.change) ? (row.change > 1 ? "regressed" : "improved") : "same";
+      row.vsBaseline = significant(metric, r, b, row.change)
+        ? worseThan(metric, row.rune!, row.baseline)
+          ? "regressed"
+          : "improved"
+        : "same";
     }
     return row;
   });
@@ -136,13 +160,13 @@ export function markdown(saved: Saved, baseline?: Saved) {
     out.push("");
     const worst = comparable
       .filter((r) => r.vsChrome === "worse")
-      .sort((a, b) => b.ratio! - a.ratio!)
+      .sort((a, b) => severity(b.ratio) - severity(a.ratio))
       .slice(0, 15);
     if (worst.length) {
       out.push(`### Where Rune is furthest behind`, "", `| Metric | Rune | Chrome | |`, `| --- | --- | --- | --- |`);
       for (const r of worst)
         out.push(
-          `| ${r.metric.label} | ${fmt(r.rune, r.metric.unit)} | ${fmt(r.chrome, r.metric.unit)} | ${times(r.ratio)} |`,
+          `| ${r.metric.label} | ${fmt(r.rune, r.metric.unit)} | ${fmt(r.chrome, r.metric.unit)} | ${verdict(r.ratio, true)} |`,
         );
       out.push("");
     }
@@ -170,9 +194,9 @@ export function markdown(saved: Saved, baseline?: Saved) {
     if (!changed.length) out.push("Nothing changed beyond the noise.", "");
     else {
       out.push(`| Metric | Before | Now | Change |`, `| --- | --- | --- | --- |`);
-      for (const r of changed.sort((a, b) => b.change! - a.change!))
+      for (const r of changed.sort((a, b) => severity(b.change) - severity(a.change)))
         out.push(
-          `| ${r.vsBaseline === "regressed" ? "🔴" : "🟢"} ${r.metric.label} | ${fmt(r.baseline, r.metric.unit)} | ${fmt(r.rune, r.metric.unit)} | ${times(r.change)} |`,
+          `| ${r.vsBaseline === "regressed" ? "🔴" : "🟢"} ${r.metric.label} | ${fmt(r.baseline, r.metric.unit)} | ${fmt(r.rune, r.metric.unit)} | ${verdict(r.change, r.vsBaseline === "regressed")} |`,
         );
       out.push("");
     }
@@ -186,7 +210,14 @@ export function markdown(saved: Saved, baseline?: Saved) {
       `| --- | --- | --- | --- | ---${baseline ? " | ---" : ""} |`,
     );
     for (const r of all.filter((x) => x.metric.group === g)) {
-      const vs = r.ratio === undefined ? "–" : r.vsChrome === "same" ? `≈ (${times(r.ratio)})` : times(r.ratio);
+      const vs =
+        r.ratio === undefined
+          ? "–"
+          : r.vsChrome === "same"
+            ? Number.isFinite(r.ratio)
+              ? `≈ (${times(r.ratio)})`
+              : "≈"
+            : verdict(r.ratio, r.vsChrome === "worse");
       const budget =
         r.metric.budget === undefined
           ? ""
@@ -196,7 +227,7 @@ export function markdown(saved: Saved, baseline?: Saved) {
           ? "–"
           : r.vsBaseline === "same"
             ? "≈"
-            : `${r.vsBaseline === "regressed" ? "🔴" : "🟢"} ${times(r.change)}`;
+            : `${r.vsBaseline === "regressed" ? "🔴" : "🟢"} ${verdict(r.change, r.vsBaseline === "regressed")}`;
       out.push(
         `| ${r.metric.label} | ${r.overBudget ? "⚠️ " : ""}${fmt(r.rune, r.metric.unit)} | ${fmt(r.chrome, r.metric.unit)} | ${vs} | ${budget}${baseline ? ` | ${base}` : ""} |`,
       );
@@ -236,11 +267,11 @@ export function summary(saved: Saved, baseline?: Saved) {
     lines.push("", `Since the baseline: ${regressed.length} regressed, ${improved.length} improved`);
     for (const r of regressed)
       lines.push(
-        `  🔴 ${r.metric.label}: ${fmt(r.baseline, r.metric.unit)} → ${fmt(r.rune, r.metric.unit)} (${times(r.change)})`,
+        `  🔴 ${r.metric.label}: ${fmt(r.baseline, r.metric.unit)} → ${fmt(r.rune, r.metric.unit)} (${verdict(r.change, r.vsBaseline === "regressed")})`,
       );
     for (const r of improved)
       lines.push(
-        `  🟢 ${r.metric.label}: ${fmt(r.baseline, r.metric.unit)} → ${fmt(r.rune, r.metric.unit)} (${times(r.change)})`,
+        `  🟢 ${r.metric.label}: ${fmt(r.baseline, r.metric.unit)} → ${fmt(r.rune, r.metric.unit)} (${verdict(r.change, r.vsBaseline === "regressed")})`,
       );
   }
   return { text: lines.join("\n"), regressed };
