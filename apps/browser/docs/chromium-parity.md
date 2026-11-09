@@ -79,6 +79,26 @@ Chromium's settings, by its own sections. Browser settings get their own part of
 | System                         | Different      | Graphics acceleration switches are in rune://flags; the system's proxy settings apply; nothing runs after Rune Browser quits                   |
 | You and Google (sync, sign-in) | Not applicable | No Google account                                                                                                                              |
 
+## Extension APIs
+
+Chrome's extension APIs, by the permission that gives them (see [Browsing → Extensions](browsing.md#extensions)).
+
+| Chromium                                                                                        | Rune Browser   | Note                                                                               |
+| ----------------------------------------------------------------------------------------------- | -------------- | ---------------------------------------------------------------------------------- |
+| action, tabs, windows, commands, contextMenus, permissions, storage, scripting, alarms          | Matched        | Electron's, completed by the shim                                                  |
+| declarativeNetRequest, webRequest, webNavigation, cookies, offscreen, i18n, idle, notifications | Matched        |                                                                                    |
+| bookmarks, history, topSites, sessions, downloads                                               | Matched        | Rune Browser's own, per workspace; no other devices in sessions                    |
+| browsingData, contentSettings, privacy, fontSettings, proxy                                     | Matched        | Change Rune Browser's settings; settings it doesn't have read as Chrome's defaults |
+| debugger, declarativeContent, pageCapture, power, geolocation, favicon, search, management      | Matched        |                                                                                    |
+| desktopCapture, tabCapture                                                                      | Matched        | Rune Browser's screen picker (screens and windows); tabs by their id               |
+| sidePanel                                                                                       | Matched        | A panel on the right of the window                                                 |
+| tts, userScripts, nativeMessaging, system.cpu/memory/display                                    | Matched        | User scripts need the permission allowed in its details                            |
+| identity                                                                                        | Different      | Signing in on websites works; no browser account for getAuthToken                  |
+| ttsEngine                                                                                       | Different      | Its voices are for extensions, not web pages                                       |
+| system.storage                                                                                  | Different      | Devices are listed; ejecting isn't available                                       |
+| tabGroups                                                                                       | Not applicable | Rune Browser has no tab groups                                                     |
+| gcm                                                                                             | Not applicable | Google's push messaging for Chrome                                                 |
+
 ## Keyboard shortcuts
 
 All of Chromium's shortcuts, on Windows, macOS and Linux: see the table in

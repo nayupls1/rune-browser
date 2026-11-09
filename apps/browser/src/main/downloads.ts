@@ -72,6 +72,19 @@ export function setupDownloads(options: {
   const keepTargets = new Map<string, string>();
   /** Downloads that ask where to save whatever the setting ("Save link as…"), by address. */
   const askNext = new Set<string>();
+  /** Downloads an extension started (chrome.downloads.download), by address: the name it asked for, and who waits for its id. */
+  const requested = new Map<string, { filename?: string; conflict?: string; resolve: (id: string) => void }[]>();
+  /** Extensions following the downloads (chrome.downloads' events). */
+  const watchers = new Set<(kind: "created" | "changed" | "erased", d: DownloadInfo) => void>();
+  const notify = (kind: "created" | "changed" | "erased", d: DownloadInfo) => {
+    for (const watcher of watchers) {
+      try {
+        watcher(kind, d);
+      } catch (err) {
+        console.warn("Telling extensions about a download failed:", err);
+      }
+    }
+  };
 
   function load(): DownloadInfo[] {
     try {
@@ -124,6 +137,7 @@ export function setupDownloads(options: {
     publishTimer = undefined;
     const updated = list.filter((d) => changed.has(d.id)).map(view);
     const gone = [...removed];
+    if (watchers.size) for (const d of updated) notify("changed", d);
     changed.clear();
     removed.clear();
     for (const win of windows.all()) {
@@ -145,6 +159,7 @@ export function setupDownloads(options: {
   function drop(ids: string[]) {
     if (!ids.length) return;
     const gone = new Set(ids);
+    for (const d of list) if (gone.has(d.id)) notify("erased", d);
     list = list.filter((d) => !gone.has(d.id));
     for (const id of ids) {
       changed.delete(id);
@@ -189,7 +204,29 @@ export function setupDownloads(options: {
     // An app's page always asks where to save: an app (sandboxed) only gets files out when the user says where.
     const fromApp = !!options.partitionOf(s) && options.workspaceOf(s) === undefined;
     const asking = askNext.delete(url) || askNext.delete(item.getURL()) || options.ask() || fromApp;
-    const dir = downloadsDir();
+    // Started by an extension, maybe under a name of its own (in the downloads folder, like Chrome's).
+    const waiting = requested.get(url) ?? requested.get(item.getURL());
+    const request = waiting?.shift();
+    if (waiting && !waiting.length) requested.delete(url) || requested.delete(item.getURL());
+    let dir = downloadsDir();
+    let wantedName = filename;
+    if (request?.filename) {
+      const parts = request.filename.split(/[\\/]+/).filter((p) => p && p !== "." && p !== "..");
+      if (parts.length) {
+        wantedName = safeFilename(parts.pop()!);
+        if (parts.length) {
+          const sub = join(dir, ...parts.map(safeFilename));
+          try {
+            mkdirSync(sub, { recursive: true });
+            dir = sub;
+          } catch {
+            // the downloads folder then
+          }
+        }
+      }
+    }
+    const nameIn = (folder: string, name: string) =>
+      request?.conflict === "overwrite" && !reserved.has(join(folder, name)) ? name : freeName(folder, name);
     let path = "";
     let unconfirmedPath: string | null = null;
     if (danger) {
@@ -198,9 +235,9 @@ export function setupDownloads(options: {
       item.setSavePath(unconfirmedPath);
       reserved.add(unconfirmedPath);
     } else if (asking) {
-      item.setSaveDialogOptions({ defaultPath: join(dir, freeName(dir, filename)) });
+      item.setSaveDialogOptions({ defaultPath: join(dir, freeName(dir, wantedName)) });
     } else {
-      path = join(dir, freeName(dir, filename));
+      path = join(dir, nameIn(dir, wantedName));
       item.setSavePath(path);
       reserved.add(path);
     }
@@ -209,7 +246,7 @@ export function setupDownloads(options: {
       url: keptUrl(url),
       pageUrl: pageUrl && /^(https?|file):/i.test(pageUrl) ? keptUrl(pageUrl) : null,
       // The name it's saved under ("report (1).pdf"); risky ones get theirs when they're kept.
-      filename: path ? basename(path) : filename,
+      filename: path ? basename(path) : wantedName,
       path,
       mime: item.getMimeType(),
       totalBytes: Math.max(0, item.getTotalBytes()),
@@ -233,6 +270,8 @@ export function setupDownloads(options: {
       void forget(old);
     }
     items.set(d.id, item);
+    request?.resolve(d.id);
+    notify("created", view(d));
 
     item.on("updated", (_event, state) => {
       d.receivedBytes = item.getReceivedBytes();
@@ -459,5 +498,84 @@ export function setupDownloads(options: {
       askNext.add(url);
       contents.downloadURL(url);
     },
+
+    // --- For extensions (chrome.downloads, chrome.browsingData) ----------------------------------
+
+    /** A workspace's downloads, newest first, as the window sees them. */
+    list: (workspaceId: string) => list.filter((d) => d.workspaceId === workspaceId).map(view),
+    get: (id: string) => {
+      const d = find(id);
+      return d ? view(d) : undefined;
+    },
+    act,
+    /**
+     * Downloads a URL in a session, like chrome.downloads.download: under a name in the downloads folder,
+     * asking where to save, or replacing a file with the same name. Resolves with the download's id once it starts.
+     */
+    download(
+      s: Session,
+      url: string,
+      o: { filename?: string; saveAs?: boolean; conflictAction?: string; headers?: Record<string, string> },
+    ) {
+      return new Promise<string>((resolve, reject) => {
+        const entry = { filename: o.filename, conflict: o.conflictAction, resolve };
+        const queue = requested.get(url) ?? [];
+        queue.push(entry);
+        requested.set(url, queue);
+        if (o.saveAs) askNext.add(url);
+        const timer = setTimeout(() => {
+          const q = requested.get(url);
+          const i = q?.indexOf(entry) ?? -1;
+          if (q && i !== -1) q.splice(i, 1);
+          if (q && !q.length) requested.delete(url);
+          reject(new Error("The download didn't start."));
+        }, 30_000);
+        entry.resolve = (id) => {
+          clearTimeout(timer);
+          resolve(id);
+        };
+        s.downloadURL(url, o.headers && Object.keys(o.headers).length ? { headers: o.headers } : undefined);
+      });
+    },
+    /** Takes finished downloads off the list (chrome.downloads.erase), the file stays. */
+    erase: (ids: string[]) => forget(list.filter((d) => ids.includes(d.id) && d.state !== "progressing")),
+    /** Deletes a finished download's file (chrome.downloads.removeFile). */
+    async removeFile(id: string) {
+      const d = find(id);
+      if (!d || d.state !== "completed") throw new Error("The download isn't finished.");
+      const path = shownFile(d);
+      if (!path || !existsSync(path)) throw new Error("The file was moved or deleted.");
+      await rm(path, { force: true });
+      publish(d);
+    },
+    /** Clears what started since a time from workspaces' lists, like Clear browsing data's "Download history". */
+    clear: (since: number, workspaceIds: string[]) =>
+      forget(
+        list.filter(
+          (d) =>
+            d.startedAt >= since &&
+            d.workspaceId !== null &&
+            workspaceIds.includes(d.workspaceId) &&
+            d.state !== "progressing" &&
+            !needsDecision(d) &&
+            !(d.kept && d.unconfirmedPath),
+        ),
+      ),
+    /** The file a download is saved to ("" until it has one). */
+    fileOf: (id: string) => {
+      const d = find(id);
+      return d ? (shownFile(d) ?? "") : "";
+    },
+    /** Opens the downloads folder (chrome.downloads.showDefaultFolder). */
+    showFolder: () => {
+      if (!quiet) void shell.openPath(downloadsDir());
+    },
+    /** Follows the downloads; returns a function that stops. */
+    watch(fn: (kind: "created" | "changed" | "erased", d: DownloadInfo) => void) {
+      watchers.add(fn);
+      return () => watchers.delete(fn);
+    },
   };
 }
+
+export type DownloadsControl = ReturnType<typeof setupDownloads>;

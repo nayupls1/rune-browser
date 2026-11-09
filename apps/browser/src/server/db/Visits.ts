@@ -88,11 +88,25 @@ export const make = Effect.gen(function* () {
         return true;
       }),
 
-    /** Visits, newest first: a workspace's (or every workspace's), matching a search, before a visit (paging). */
-    list: (options: { workspaceId: string | null; search?: string; before?: number; limit: number }) => {
+    /**
+     * Visits, newest first: a workspace's (or every workspace's), matching a search, before a visit (paging),
+     * in a time range or of one page (chrome.history).
+     */
+    list: (options: {
+      workspaceId: string | null;
+      search?: string;
+      before?: number;
+      since?: string;
+      until?: string;
+      url?: string;
+      limit: number;
+    }) => {
       const where = [
         ...(options.workspaceId ? [sql`workspace_id = ${options.workspaceId}`] : []),
         ...(options.before ? [sql`id < ${options.before}`] : []),
+        ...(options.since ? [sql`visited_at >= ${options.since}`] : []),
+        ...(options.until ? [sql`visited_at < ${options.until}`] : []),
+        ...(options.url ? [sql`url = ${options.url}`] : []),
         ...matching(options.search ?? ""),
       ];
       return sql<Row>`SELECT * FROM visits WHERE ${sql.and(where)} ORDER BY id DESC LIMIT ${options.limit}`.pipe(
@@ -112,6 +126,26 @@ export const make = Effect.gen(function* () {
           query,
           rows.map((r) => ({ url: r.url, title: r.title, favicon: r.favicon, visits: r.n, lastVisit: r.last })),
         ).slice(0, limit);
+      }),
+
+    /** A visit added by an extension (chrome.history.addUrl): not in any tab. */
+    add: (workspaceId: string, url: string, title: string) =>
+      Effect.gen(function* () {
+        if (!isRecordable(url)) return false;
+        const named = title.trim().slice(0, 1000);
+        yield* sql`INSERT INTO visits (workspace_id, tab_id, url, title, favicon, visited_at, search)
+          VALUES (${workspaceId}, ${null}, ${url}, ${named}, ${null}, ${new Date().toISOString()}, ${searchText(url, named)})`;
+        return true;
+      }),
+
+    /** Removes every visit to a page (chrome.history.deleteUrl), in a workspace or all; returns how many. */
+    removeUrl: (url: string, workspaceId: string | null) =>
+      Effect.gen(function* () {
+        const rows = yield* sql<{ id: number }>`DELETE FROM visits WHERE ${sql.and([
+          sql`url = ${url}`,
+          ...(workspaceId ? [sql`workspace_id = ${workspaceId}`] : []),
+        ])} RETURNING id`;
+        return rows.length;
       }),
 
     /** Removes visits by id (only the workspace's, when one is given); returns how many. */
@@ -143,12 +177,13 @@ export const make = Effect.gen(function* () {
         return [...origins].sort();
       }),
 
-    /** Removes the visits since a time (all of them without one), in a workspace or all; returns how many. */
-    clear: (workspaceId: string | null, since: string | null) =>
+    /** Removes the visits since a time (all of them without one), up to another, in a workspace or all; returns how many. */
+    clear: (workspaceId: string | null, since: string | null, until: string | null = null) =>
       Effect.gen(function* () {
         const where = [
           ...(workspaceId ? [sql`workspace_id = ${workspaceId}`] : []),
           ...(since ? [sql`visited_at >= ${since}`] : []),
+          ...(until ? [sql`visited_at < ${until}`] : []),
         ];
         const rows = yield* sql<{ id: number }>`DELETE FROM visits WHERE ${sql.and(where)} RETURNING id`;
         return rows.length;

@@ -3,6 +3,7 @@
 // patterns, keyboard shortcuts, manifest strings, what Rune Browser supports, and
 // network rules as declarativeNetRequest rules.
 import type { NetworkRule } from "./api";
+import type { SiteSettingKey } from "./browser";
 
 /** Where an installed extension came from. */
 export type ExtensionSource =
@@ -126,7 +127,78 @@ export interface ExtensionTabs {
 /** An extension wants a tab opened (chrome.tabs.create, its options page, `search` with the search engine…), selected or closed. */
 export type ExtensionTabRequest =
   | { requestId: string; action: "open"; workspaceId: string; url: string; active: boolean; search?: string }
-  | { requestId: string; action: "select" | "close"; workspaceId: string; tabId: number };
+  | { requestId: string; action: "select" | "close" | "discard"; workspaceId: string; tabId: number }
+  /** chrome.sessions: the workspace's tabs closed lately (ClosedTab[]), or one opened again (its webContents id). */
+  | { requestId: string; action: "closed"; workspaceId: string }
+  | { requestId: string; action: "restore"; workspaceId: string; closedAt: number | null }
+  /** contentSettings, privacy, fontSettings: a change to the browser settings (true when it's made). */
+  | { requestId: string; action: "settings"; change: BrowserSettingsChange }
+  /** chrome.tts: speaking (resolves with how it ended), or the rest of it. */
+  | { requestId: string; action: "speak"; utterance: TtsUtterance }
+  | { requestId: string; action: "tts"; command: "stop" | "pause" | "resume" | "voices" | "speaking" }
+  /** chrome.downloads.setUiOptions: whether the downloads button shows. */
+  | { requestId: string; action: "downloads-ui"; enabled: boolean }
+  /** A question for the user (management.uninstallSelf): true for OK. */
+  | { requestId: string; action: "confirm"; workspaceId?: string; message: string; confirmLabel: string }
+  /** Something the user should know (an extension started debugging a tab). */
+  | { requestId: string; action: "notice"; workspaceId?: string; message: string }
+  /** fontSettings.getFontList: the fonts installed here. */
+  | { requestId: string; action: "font-list" }
+  /** chrome.sidePanel: shows its page in the side panel beside a workspace's tabs (null: closes it). */
+  | {
+      requestId: string;
+      action: "side-panel";
+      workspaceId: string;
+      extensionId: string;
+      name: string;
+      url: string | null;
+      /** Its toolbar button: closes the panel when it's the one open. */
+      toggle?: boolean;
+    };
+
+/** A tab closed lately (chrome.sessions). */
+export interface ClosedTab {
+  url: string;
+  title: string;
+  /** When it was closed (ms); it's the session's id. */
+  at: number;
+}
+
+/** What an extension changes in the browser settings (contentSettings, privacy, fontSettings). */
+export type BrowserSettingsChange =
+  | { kind: "site"; site: string; key: SiteSettingKey; value: "allow" | "block" | null }
+  | { kind: "default"; key: SiteSettingKey; value: "allow" | "ask" | "block" }
+  /** Every site's own decision for these settings goes (contentSettings.clear). */
+  | { kind: "clear"; keys: SiteSettingKey[] }
+  | { kind: "privacy"; thirdPartyCookies?: "allow" | "block"; doNotTrack?: boolean }
+  | {
+      kind: "fonts";
+      size?: number;
+      fixedSize?: number;
+      minimumSize?: number;
+      standard?: string;
+      serif?: string;
+      sansSerif?: string;
+      fixed?: string;
+    };
+
+/** What chrome.tts.speak says. */
+export interface TtsUtterance {
+  text: string;
+  lang?: string;
+  voiceName?: string;
+  rate?: number;
+  pitch?: number;
+  volume?: number;
+}
+
+/** How speaking ended, and the voices the system has. */
+export type TtsResult = { type: "end" | "interrupted" | "cancelled" } | { type: "error"; errorMessage: string };
+export interface SystemVoice {
+  voiceName: string;
+  lang: string;
+  remote: boolean;
+}
 
 /** An extension asks for optional permissions (chrome.permissions.request). */
 export interface ExtensionPermissionRequest {
@@ -234,91 +306,73 @@ const PERMISSIONS: Record<string, PermissionAbout> = {
   alarms: full("Run tasks on a schedule"),
   background: full("Keep running in the background"),
   bookmarks: full("Read and change your bookmarks"),
-  browsingData: limited(
-    "Clear your browsing data",
-    "Clearing browsing data isn't available to extensions: those requests fail.",
-  ),
+  browsingData: full("Clear your browsing data"),
   clipboardRead: full("Read what you copy"),
   clipboardWrite: full("Copy to the clipboard"),
-  contentSettings: limited(
-    "Change site settings (cookies, camera…)",
-    "Extensions can't change site settings in Rune Browser: those requests fail.",
-  ),
+  contentSettings: full("Change site settings (JavaScript, camera, location…)"),
   contextMenus: full("Add items to the right-click menu"),
   cookies: full("Read and change websites' cookies"),
-  debugger: limited("Debug pages", "Debugging pages isn't available to extensions: those requests fail."),
-  declarativeContent: limited("Show its button only on some pages", "Its button shows on every page."),
+  debugger: full("Debug pages"),
+  declarativeContent: full("Show its button only on some pages"),
   declarativeNetRequest: full("Block or change network requests"),
   declarativeNetRequestFeedback: full("See which requests its rules matched"),
   declarativeNetRequestWithHostAccess: full("Block or change network requests on the sites it can access"),
-  desktopCapture: limited("Record your screen", "Recording the screen isn't available: it's as if you cancelled."),
-  downloads: limited(
-    "Download files and manage downloads",
-    "It can download files, but doesn't see the list of downloads.",
-  ),
-  "downloads.open": limited("Open downloaded files", "Opening downloaded files isn't available to extensions."),
-  "downloads.shelf": limited("Hide the downloads bar", "There's no downloads bar to hide."),
-  "downloads.ui": limited("Hide the downloads bar", "There's no downloads bar to hide."),
-  favicon: limited("Show websites' icons", "Websites' icons don't show in its pages."),
-  fileSystem: limited("Use files (Chrome apps)", "Only for Chrome apps: extensions don't use it."),
-  fontSettings: limited(
-    "Change font settings",
-    "Font settings aren't available: it sees no fonts and changes nothing.",
-  ),
+  desktopCapture: full("Record your screen"),
+  downloads: full("Download files and manage downloads"),
+  "downloads.open": full("Open downloaded files"),
+  "downloads.shelf": full("Hide the downloads button"),
+  "downloads.ui": full("Hide the downloads button"),
+  favicon: full("Show websites' icons"),
+  fileSystem: full("Use files (Chrome apps only, like in Chrome)"),
+  fontSettings: full("Change font settings"),
   gcm: limited(
     "Get push messages from its servers",
-    "Push messages (Google Cloud Messaging) aren't available: it doesn't get them.",
+    "Push messages go through Google's servers for Chrome only: it doesn't get them.",
   ),
-  geolocation: limited("Know your location", "Your location isn't shared with extensions."),
-  history: limited(
-    "Read and change your browsing history",
-    "Rune Browser's history isn't shared with extensions: it sees an empty one.",
-  ),
+  geolocation: full("Know your location"),
+  history: full("Read and change your browsing history"),
   i18n: full("Show itself in your language"),
   identity: limited(
     "Sign in with your browser's Google account",
-    "Rune Browser has no browser account: sign in on the extension's own page instead.",
+    "Signing in on websites works; Rune Browser has no browser account, so getAuthToken fails: sign in on the extension's own page instead.",
   ),
   "identity.email": limited(
     "Know your browser account's email",
     "Rune Browser has no browser account: it sees no email.",
   ),
   idle: full("Know when you're away from the computer"),
-  management: full("See your other extensions"),
+  management: full("See and manage your other extensions"),
   menus: full("Add items to the right-click menu"),
   nativeMessaging: full("Talk to programs installed on this computer"),
   notifications: full("Show notifications"),
   offscreen: full("Run hidden pages for its own work"),
-  pageCapture: limited("Save pages as MHTML", "Saving pages as MHTML isn't available: those requests fail."),
-  power: limited("Keep the computer awake", "Keeping the computer awake isn't available to extensions."),
-  privacy: limited(
-    "Change privacy settings",
-    "Extensions can't change Rune Browser's privacy settings: it reads them as off, and its changes do nothing.",
-  ),
-  proxy: limited("Change proxy settings", "Extensions can't change the proxy settings: those requests fail."),
+  pageCapture: full("Save pages as MHTML"),
+  power: full("Keep the computer awake"),
+  privacy: full("Change privacy settings"),
+  proxy: full("Change proxy settings"),
   scripting: full("Run scripts in pages"),
   search: full("Search with your search engine"),
-  sessions: limited(
-    "See recently closed tabs and your other devices",
-    "Recently closed tabs and other devices aren't shared with extensions: it sees none.",
-  ),
-  sidePanel: limited("Show a side panel", "Its side panel opens as a popup from its button, or as a tab."),
+  sessions: full("See and reopen recently closed tabs"),
+  sidePanel: full("Show a side panel"),
   storage: full("Store its settings and data"),
   "system.cpu": full("See the processor"),
   "system.display": full("See your displays"),
   "system.memory": full("See the memory"),
-  "system.storage": limited("See storage devices", "It sees no storage devices."),
-  tabCapture: limited("Record a tab's video or sound", "Recording tabs isn't available: those requests fail."),
-  tabGroups: limited("Use tab groups", "Rune Browser has no tab groups: it sees none."),
-  tabs: full("See your tabs' addresses and titles"),
-  topSites: limited("See your most visited sites", "It sees no most visited sites."),
-  tts: limited("Read text aloud", "Text to speech isn't available to extensions: those requests fail."),
-  ttsEngine: limited("Provide a voice for reading text aloud", "Its voice isn't offered to pages."),
-  unlimitedStorage: full("Store lots of data"),
-  userScripts: limited(
-    "Run your user scripts on websites",
-    "User scripts can't run, like in Chrome with “Allow user scripts” off. The rest of the extension works.",
+  "system.storage": limited("See storage devices", "It sees your storage devices, but can't eject them."),
+  tabCapture: full("Record a tab's video or sound"),
+  tabGroups: limited(
+    "Use tab groups",
+    "Rune Browser has no tab groups (split views are something else): it sees none.",
   ),
+  tabs: full("See your tabs' addresses and titles"),
+  topSites: full("See your most visited sites"),
+  tts: full("Read text aloud"),
+  ttsEngine: limited(
+    "Provide a voice for reading text aloud",
+    "Its voices are offered to other extensions (chrome.tts), not to web pages.",
+  ),
+  unlimitedStorage: full("Store lots of data"),
+  userScripts: full("Run your user scripts on websites"),
   webNavigation: full("Follow how tabs navigate"),
   webRequest: full("See and change network requests"),
   webRequestBlocking: full("Block network requests"),

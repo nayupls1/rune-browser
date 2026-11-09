@@ -51,6 +51,7 @@ import {
   type ExtensionState,
   type MenuItem,
 } from "./host";
+import { createBrowserApis, type BrowserApiEnv, type WindowRequest } from "./browserApis";
 import { connectNative, sendNativeMessage, type NativePort } from "./native";
 import {
   extensionFile,
@@ -92,6 +93,13 @@ export interface ApiEnv {
   whenLoaded: (s: Session, id: string) => Promise<void>;
   /** Rune Browser's server (bookmarks live there), once it's started. */
   server: () => { url: string; token: string } | undefined;
+  /** Asks the Rune Browser window and waits for its answer (or `fallback` after `ms`). */
+  ask: <T>(request: WindowRequest, fallback: T, ms: number) => Promise<T>;
+  downloads: BrowserApiEnv["downloads"];
+  browserSettings: BrowserApiEnv["browserSettings"];
+  pickDesktop: BrowserApiEnv["pickDesktop"];
+  setEnabled: (id: string, enabled: boolean) => void;
+  remove: (id: string) => Promise<void>;
 }
 
 type DistributiveOmit<T, K extends keyof any> = T extends unknown ? Omit<T, K> : never;
@@ -130,7 +138,6 @@ const itemSize = (key: string, value: unknown) => key.length + JSON.stringify(va
 
 export function createApis(env: ApiEnv) {
   const sync = new SyncStore();
-  let downloadIds = 0;
   const favicons = new Map<number, string>();
   const nativePorts = new Map<string, NativePort>();
   const notifications = new Map<string, Notification>();
@@ -166,8 +173,12 @@ export function createApis(env: ApiEnv) {
   async function bookmarksApi<T>(ctx: Context, path: string, method = "GET", body?: unknown): Promise<T> {
     if (!hasPermission(ctx.session, ctx.extensionId, "bookmarks"))
       throw err("Access to bookmarks requires the 'bookmarks' permission.");
+    return serverApi<T>(path, method, body);
+  }
+  /** A call to Rune Browser's server (bookmarks and history live there). */
+  async function serverApi<T>(path: string, method = "GET", body?: unknown): Promise<T> {
     const server = env.server();
-    if (!server) throw err("Bookmarks aren't available yet.");
+    if (!server) throw err("Rune Browser's server isn't ready yet.");
     const res = await fetch(`${server.url}${path}`, {
       method,
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${server.token}` },
@@ -446,7 +457,10 @@ export function createApis(env: ApiEnv) {
 
   const handlers: Record<string, Handler> = {
     // The shim's first call: what the user blocked (its calls then fail, its events don't come).
-    hello: (ctx) => ({ denied: denied(ctx.extensionId) }),
+    hello: (ctx) => {
+      void more.restore(ctx.session, ctx.extensionId);
+      return { denied: denied(ctx.extensionId) };
+    },
     listen: (ctx, name: string) => {
       if (typeof name !== "string") return;
       env.contexts.listened(ctx, name);
@@ -930,14 +944,6 @@ export function createApis(env: ApiEnv) {
 
     // The rest
     "idle.queryState": (_ctx, seconds: number) => powerMonitor.getSystemIdleState(Math.max(15, Number(seconds) || 60)),
-    "downloads.download": (ctx, options: { url?: unknown }) => {
-      if (!hasPermission(ctx.session, ctx.extensionId, "downloads"))
-        throw err("Access to downloads requires the 'downloads' permission.");
-      const url = typeof options?.url === "string" ? options.url : "";
-      if (!/^(https?|data|blob):/i.test(url)) throw err("Invalid URL.");
-      ctx.session.downloadURL(url);
-      return ++downloadIds;
-    },
     "search.query": async (ctx, q: { text?: unknown; disposition?: unknown; tabId?: unknown }) => {
       const text = typeof q?.text === "string" ? q.text.trim() : "";
       if (!text) throw err("Empty text parameter.");
@@ -998,12 +1004,6 @@ export function createApis(env: ApiEnv) {
       state.save();
       env.actionsChanged(ctx.session);
     },
-    "sidePanel.open": async (ctx) => {
-      const url = sidePanelUrl(ctx.session, ctx.extensionId);
-      if (!url) throw err("No active side panel for this extension.");
-      if (env.openPopup(ctx.session, ctx.extensionId, url)) return;
-      await openTab(ctx.session, ctx.extensionId, url, true);
-    },
     "management.getSelf": (ctx) => managementInfo(ctx.session, ctx.extensionId),
     "management.get": (ctx, id: string) => {
       if (!ctx.session.extensions.getExtension(id)) throw err(`Failed to find extension with id ${id}.`);
@@ -1025,6 +1025,35 @@ export function createApis(env: ApiEnv) {
     "rules.get": (ctx) => env.rules(ctx.session),
     "rules.applied": () => undefined,
   };
+
+  const more = createBrowserApis({
+    workspaceOf: env.workspaceOf,
+    state: env.state,
+    contexts: env.contexts,
+    sessions: env.sessions,
+    window: env.window,
+    ask: env.ask,
+    serverApi,
+    downloads: env.downloads,
+    browserSettings: env.browserSettings,
+    pickDesktop: env.pickDesktop,
+    setEnabled: env.setEnabled,
+    remove: env.remove,
+    actionsChanged: env.actionsChanged,
+    hasPermission,
+    hostAccess,
+    canSee,
+    tabContents,
+    activeContents,
+    tabsIn,
+    tabObject,
+    waitForContents,
+    emit: (s, event, args) => emit(s, event, args),
+    manifestOf,
+    sidePanelUrl,
+    windowId,
+  });
+  Object.assign(handlers, more.handlers);
 
   /** A worker with an open native port stays up (Chrome keeps it alive while connected). */
   function keepWorker(ctx: Context) {
@@ -1126,6 +1155,7 @@ export function createApis(env: ApiEnv) {
     ["system.cpu", ["system.cpu"]],
     ["system.memory", ["system.memory"]],
     ["system.display", ["system.display"]],
+    ...REQUIRED,
   ];
 
   /** A permission it asks for that the user blocked, if `method` needs it. */
@@ -1143,6 +1173,10 @@ export function createApis(env: ApiEnv) {
     if (!handler) return { error: `${method} isn't supported in Rune Browser` };
     const blocked = blockedFor(ctx.session, ctx.extensionId, method);
     if (blocked) return { error: `The '${blocked}' permission is blocked for this extension in Rune Browser.` };
+    // The shim only offers these to extensions that ask for them; the calls are checked here too.
+    const needs = REQUIRED.find(([prefix]) => method.startsWith(prefix))?.[1];
+    if (needs && !needs.some((p) => hasPermission(ctx.session, ctx.extensionId, p)))
+      return { error: `This needs the '${needs[0]}' permission.` };
     try {
       return { value: await handler(ctx, ...(Array.isArray(args) ? args : [])) };
     } catch (e) {
@@ -1299,6 +1333,7 @@ export function createApis(env: ApiEnv) {
       }));
     });
     contents.once("destroyed", () => favicons.delete(tabId));
+    more.trackGuest(contents);
   }
 
   /** The tabs list changed: created, removed and activated events. */
@@ -1312,10 +1347,12 @@ export function createApis(env: ApiEnv) {
       const contents = webContents.fromId(tabId);
       if (contents && !contents.isDestroyed()) emit(s, "tabs.onCreated", (id) => [tabObject(s, id, contents)]);
     }
-    for (const tabId of before.tabs.filter((t) => !after.tabs.includes(t))) {
+    const closed = before.tabs.filter((t) => !after.tabs.includes(t));
+    for (const tabId of closed) {
       emit(s, "tabs.onRemoved", () => [tabId, { windowId: win, isWindowClosing: false }]);
       for (const ext of s.extensions.getAllExtensions()) env.state(s, ext.id)?.tabActions.delete(tabId);
     }
+    if (closed.length) more.tabsClosed(s);
     if (after.active !== null && after.active !== before.active) {
       emit(s, "tabs.onActivated", () => [{ tabId: after.active, windowId: win }]);
       emit(s, "tabs.onHighlighted", () => [{ tabIds: [after.active], windowId: win }]);
@@ -1573,9 +1610,38 @@ export function createApis(env: ApiEnv) {
     menuItems,
     hasPermission,
     sidePanelUrl,
+    openSidePanel: more.openSidePanel,
+    expectsMedia: more.expectsMedia,
     forgetSync: (id: string) => sync.forget(id),
   };
 }
+
+/** The calls that need a permission (any one of them), checked before they run. */
+const REQUIRED: [string, string[]][] = [
+  ["downloads.", ["downloads"]],
+  ["sidePanel.", ["sidePanel"]],
+  ["history.", ["history"]],
+  ["topSites.", ["topSites"]],
+  ["sessions.", ["sessions"]],
+  ["browsingData.", ["browsingData"]],
+  ["contentSettings.", ["contentSettings"]],
+  ["privacy.", ["privacy"]],
+  ["fontSettings.", ["fontSettings"]],
+  ["proxy.", ["proxy"]],
+  ["debugger.", ["debugger"]],
+  ["declarativeContent.", ["declarativeContent"]],
+  ["desktopCapture.", ["desktopCapture"]],
+  ["tabCapture.", ["tabCapture"]],
+  ["identity.", ["identity"]],
+  ["pageCapture.", ["pageCapture"]],
+  ["power.", ["power"]],
+  ["system.storage", ["system.storage"]],
+  ["tts.", ["tts"]],
+  ["ttsEngine.", ["ttsEngine"]],
+  ["userScripts.", ["userScripts"]],
+  ["favicon.", ["favicon"]],
+  ["management.setEnabled", ["management"]],
+];
 
 const cookieUrl = (c: Electron.Cookie) =>
   `${c.secure ? "https" : "http"}://${(c.domain ?? "").replace(/^\./, "")}${c.path ?? "/"}`;

@@ -95,8 +95,9 @@ chrome.runtime.onInstalled.addListener((details) => {
 });
 // Real extensions read these at the top level.
 chrome.permissions.onAdded.addListener(() => {});
-// Ones Rune Browser only stands in for (no history, no policies): the worker still starts.
+// Real ones (history), and ones Rune Browser only stands in for (tab groups, policies): the worker still starts.
 chrome.history.onVisited.addListener(() => {});
+chrome.tabGroups.onCreated.addListener(() => {});
 chrome.extension.isAllowedIncognitoAccess();
 chrome.storage.managed.get(null);
 // Like a password manager: fills in a site's sign-in.
@@ -126,6 +127,8 @@ chrome.storage.local.get("greeting").then(({ greeting }) => (document.documentEl
   "popup.html": `<!doctype html><meta charset="utf-8"><body style="width: 260px; height: 110px; margin: 12px; font: 14px sans-serif"><h1 style="font-size: 16px">Fixture popup</h1><p id="url">…</p><script src="popup.js"></script></body>`,
   "popup.js": `chrome.tabs.query({ active: true, currentWindow: true }).then((tabs) => (document.getElementById("url").textContent = (tabs[0] && tabs[0].url) || "none"));`,
   "options.html": `<!doctype html><meta charset="utf-8"><title>Fixture options</title><h1>Fixture options</h1>`,
+  "panel.html": `<!doctype html><meta charset="utf-8"><title>Fixture panel</title><body style="font: 14px sans-serif; margin: 16px"><h1 style="font-size: 18px">Fixture side panel</h1><p>Recently visited:</p><ul id="visits"></ul><script src="panel.js"></script></body>`,
+  "panel.js": `chrome.history.search({ text: "", maxResults: 5 }).then((items) => { for (const item of items) { const li = document.createElement("li"); li.textContent = item.title || item.url; document.getElementById("visits").append(li); } });`,
   "rules.json": JSON.stringify([
     {
       id: 1,
@@ -210,7 +213,24 @@ export function writeFixtureBrowser(root: string): FixtureBrowser {
       "bookmarks",
       "webRequest",
       "webRequestAuthProvider",
+      // The browser's data and devices (main/extensions/browserApis.ts).
+      "sessions",
+      "topSites",
+      "downloads",
+      "sidePanel",
+      "declarativeContent",
+      "contentSettings",
+      "privacy",
+      "fontSettings",
+      "tts",
+      "userScripts",
+      "debugger",
+      "pageCapture",
+      "system.storage",
+      "favicon",
+      "tabGroups",
     ],
+    side_panel: { default_path: "panel.html" },
     host_permissions: ["http://127.0.0.1/*"],
     // Asked for when needed (chrome.permissions.request), and given or taken back in its details.
     optional_host_permissions: ["https://example.com/*"],

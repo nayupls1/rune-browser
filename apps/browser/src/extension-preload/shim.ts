@@ -364,13 +364,13 @@ export function shim(bridge: ShimBridge, info: ShimInfo) {
     duplicate: api("tabs.duplicate"),
     highlight: api("tabs.highlight", ([i]) => [i ?? {}]),
     move: api("tabs.move", ([ids, props]) => [Array.isArray(ids) ? ids : [ids], props ?? {}]),
-    discard: api("tabs.get", ([id]) => [id ?? null]),
+    discard: api("tabs.discard", ([id]) => [typeof id === "number" ? id : null]),
     goBack: api("tabs.goBack", ([id]) => [typeof id === "number" ? id : null]),
     goForward: api("tabs.goForward", ([id]) => [typeof id === "number" ? id : null]),
     captureVisibleTab: api("tabs.captureVisibleTab", (args) =>
       typeof args[0] === "number" || args[0] == null ? [args[1] ?? {}] : [args[0] ?? {}],
     ),
-    detectLanguage: resolved("und"),
+    detectLanguage: api("tabs.detectLanguage", ([id]) => [typeof id === "number" ? id : null]),
     group: api("unsupported", () => ["tabs.group"]),
     ungroup: api("unsupported", () => ["tabs.ungroup"]),
     getSelected: api(
@@ -816,8 +816,9 @@ export function shim(bridge: ShimBridge, info: ShimInfo) {
       get: api("management.get"),
       getAll: api("management.getAll"),
       getPermissionWarningsById: resolved([]),
-      setEnabled: api("unsupported", () => ["management.setEnabled"]),
-      uninstallSelf: api("unsupported", () => ["management.uninstallSelf"]),
+      setEnabled: api("management.setEnabled"),
+      uninstallSelf: api("management.uninstall", ([o]) => [null, o ?? {}]),
+      uninstall: api("management.uninstall", ([id, o]) => [id, o ?? {}]),
       onInstalled: ev("management.onInstalled"),
       onUninstalled: ev("management.onUninstalled"),
       onEnabled: ev("management.onEnabled"),
@@ -825,10 +826,8 @@ export function shim(bridge: ShimBridge, info: ShimInfo) {
     });
   }
 
-  // --- What Rune Browser doesn't have ------------------------------------------------------------
-  // Stand-ins, so an extension that asks for these keeps working (calls
-  // answer empty or fail with lastError, events never come) instead of its
-  // worker failing to start on `chrome.history.onVisited` and the like.
+  // --- The browser's data and devices --------------------------------------------------------------
+  // main/extensions/browserApis.ts does the work; a namespace Electron already has is left as it is.
 
   const unavailable = (name: string) => api("unsupported", () => [name]);
   const quietEvents = (...names: string[]) => Object.fromEntries(names.map((n) => [n, localEv()]));
@@ -839,8 +838,10 @@ export function shim(bridge: ShimBridge, info: ShimInfo) {
       return false;
     }
   };
+  const namedEvents = (prefix: string, ...names: string[]) =>
+    Object.fromEntries(names.map((n) => [n, ev(`${prefix}.${n}`)]));
 
-  // There's no side panel: its page shows as the popup of its toolbar button (or in a tab).
+  // chrome.sidePanel: its page in the side panel beside the workspace's tabs.
   if (has("sidePanel")) {
     let behavior = { openPanelOnActionClick: false };
     let panel: any = { enabled: true, path: manifest.side_panel?.default_path };
@@ -857,8 +858,8 @@ export function shim(bridge: ShimBridge, info: ShimInfo) {
       getPanelBehavior: (...args: any[]) => resolved({ ...behavior })(...args),
       getLayout: resolved({ side: "right" }),
       open: api("sidePanel.open", () => []),
-      close: resolved(undefined),
-      ...quietEvents("onClosed", "onOpened"),
+      close: api("sidePanel.close", () => []),
+      ...namedEvents("sidePanel", "onOpened", "onClosed"),
     });
   }
 
@@ -889,33 +890,44 @@ export function shim(bridge: ShimBridge, info: ShimInfo) {
     });
   }
 
+  // The workspace's browsing history (private windows keep none).
   if (missing("history")) {
     defineApi("history", {
-      search: resolved([]),
-      getVisits: resolved([]),
-      addUrl: resolved(undefined),
-      deleteUrl: resolved(undefined),
-      deleteRange: resolved(undefined),
-      deleteAll: resolved(undefined),
-      ...quietEvents("onVisited", "onVisitRemoved"),
+      search: api("history.search", ([q]) => [q ?? {}]),
+      getVisits: api("history.getVisits", ([d]) => [d ?? {}]),
+      addUrl: api("history.addUrl", ([d]) => [d ?? {}]),
+      deleteUrl: api("history.deleteUrl", ([d]) => [d ?? {}]),
+      deleteRange: api("history.deleteRange", ([r]) => [r ?? {}]),
+      deleteAll: api("history.deleteAll", () => []),
+      ...namedEvents("history", "onVisited", "onVisitRemoved"),
+      ...quietEvents("onTitleChanged"),
     });
   }
+  // Tabs closed lately in the workspace, and values kept with tabs and windows.
   if (missing("sessions")) {
+    const values = (kind: "tab" | "window") => ({
+      get: api("sessions.getValue", ([target, key]) => [kind, target, key]),
+      set: api("sessions.setValue", ([target, key, value]) => [kind, target, key, value]),
+      remove: api("sessions.removeValue", ([target, key]) => [kind, target, key]),
+    });
+    const tab = values("tab");
+    const win = values("window");
     defineApi("sessions", {
       MAX_SESSION_RESULTS: 25,
-      getRecentlyClosed: resolved([]),
+      getRecentlyClosed: api("sessions.getRecentlyClosed", ([f]) => [typeof f === "object" && f ? f : {}]),
       getDevices: resolved([]),
-      restore: unavailable("sessions.restore"),
-      getTabValue: resolved(undefined),
-      setTabValue: resolved(undefined),
-      removeTabValue: resolved(undefined),
-      getWindowValue: resolved(undefined),
-      setWindowValue: resolved(undefined),
-      removeWindowValue: resolved(undefined),
-      ...quietEvents("onChanged"),
+      restore: api("sessions.restore", ([id]) => [typeof id === "string" ? id : null]),
+      getTabValue: tab.get,
+      setTabValue: tab.set,
+      removeTabValue: tab.remove,
+      getWindowValue: win.get,
+      setWindowValue: win.set,
+      removeWindowValue: win.remove,
+      onChanged: ev("sessions.onChanged"),
     });
   }
-  if (missing("topSites")) defineApi("topSites", { get: resolved([]) });
+  if (missing("topSites")) defineApi("topSites", { get: api("topSites.get", () => []) });
+  // Rune Browser has no tab groups (split views are something else): there are none to see or change.
   if (missing("tabGroups")) {
     defineApi("tabGroups", {
       TAB_GROUP_ID_NONE: -1,
@@ -937,23 +949,32 @@ export function shim(bridge: ShimBridge, info: ShimInfo) {
       ...quietEvents("onCreated", "onUpdated", "onMoved", "onRemoved"),
     });
   }
+  // Settings → Appearance → Fonts and zoom.
   if (missing("fontSettings")) {
-    const size = (pixelSize: number) => resolved({ pixelSize, levelOfControl: "not_controllable" });
+    const size = (which: string) => ({
+      get: api("fontSettings.getSize", () => [which]),
+      set: api("fontSettings.setSize", ([d]) => [which, d ?? {}]),
+      clear: api("fontSettings.clearSize", () => [which]),
+    });
+    const def = size("default");
+    const fixed = size("fixed");
+    const min = size("minimum");
     defineApi("fontSettings", {
-      getFontList: resolved([]),
-      getFont: resolved({ fontId: "", levelOfControl: "not_controllable" }),
-      setFont: resolved(undefined),
-      clearFont: resolved(undefined),
-      getDefaultFontSize: size(16),
-      setDefaultFontSize: resolved(undefined),
-      clearDefaultFontSize: resolved(undefined),
-      getDefaultFixedFontSize: size(13),
-      setDefaultFixedFontSize: resolved(undefined),
-      clearDefaultFixedFontSize: resolved(undefined),
-      getMinimumFontSize: size(0),
-      setMinimumFontSize: resolved(undefined),
-      clearMinimumFontSize: resolved(undefined),
-      ...quietEvents(
+      getFontList: api("fontSettings.getFontList", () => []),
+      getFont: api("fontSettings.getFont", ([d]) => [d ?? {}]),
+      setFont: api("fontSettings.setFont", ([d]) => [d ?? {}]),
+      clearFont: api("fontSettings.clearFont", ([d]) => [d ?? {}]),
+      getDefaultFontSize: def.get,
+      setDefaultFontSize: def.set,
+      clearDefaultFontSize: def.clear,
+      getDefaultFixedFontSize: fixed.get,
+      setDefaultFixedFontSize: fixed.set,
+      clearDefaultFixedFontSize: fixed.clear,
+      getMinimumFontSize: min.get,
+      setMinimumFontSize: min.set,
+      clearMinimumFontSize: min.clear,
+      ...namedEvents(
+        "fontSettings",
         "onFontChanged",
         "onDefaultFontSizeChanged",
         "onDefaultFixedFontSizeChanged",
@@ -961,27 +982,23 @@ export function shim(bridge: ShimBridge, info: ShimInfo) {
       ),
     });
   }
+  // What Rune Browser has of Chrome's privacy settings (third-party cookies, Do Not Track, WebRTC's IP policy);
+  // the rest read as Rune Browser has them and can't be changed (like settings a policy controls).
   if (missing("privacy")) {
-    // Every setting reads as off and can't be changed (like one a policy controls).
-    const setting = (value: unknown) => ({
-      get: resolved({ value, levelOfControl: "not_controllable" }),
-      set: resolved(undefined),
-      clear: resolved(undefined),
-      onChange: localEv(),
+    const setting = (name: string) => ({
+      get: api("privacy.get", () => [name]),
+      set: api("privacy.set", ([d]) => [name, d ?? {}]),
+      clear: api("privacy.clear", () => [name]),
+      onChange: ev(`privacy.${name}.onChange`),
     });
-    const group = (values: Record<string, unknown>) =>
+    const group = (prefix: string) =>
       new Proxy({} as Record<string, unknown>, {
-        get: (t, k) => (typeof k === "string" ? (t[k] ??= setting(values[k] ?? false)) : undefined),
+        get: (t, k) => (typeof k === "string" && k !== "then" ? (t[k] ??= setting(`${prefix}.${k}`)) : undefined),
       });
     defineApi("privacy", {
-      network: group({ webRTCIPHandlingPolicy: "default" }),
-      services: group({}),
-      websites: group({
-        thirdPartyCookiesAllowed: true,
-        hyperlinkAuditingEnabled: true,
-        referrersEnabled: true,
-        protectedContentEnabled: true,
-      }),
+      network: group("network"),
+      services: group("services"),
+      websites: group("websites"),
       IPHandlingPolicy: {
         DEFAULT: "default",
         DEFAULT_PUBLIC_AND_PRIVATE_INTERFACES: "default_public_and_private_interfaces",
@@ -990,11 +1007,12 @@ export function shim(bridge: ShimBridge, info: ShimInfo) {
       },
     });
   }
+  // Signing in on websites in a window of their own; there's no browser account for getAuthToken.
   if (missing("identity")) {
     defineApi("identity", {
       getRedirectURL: (path?: string) => `https://${info.id}.chromiumapp.org/${String(path ?? "").replace(/^\/+/, "")}`,
-      launchWebAuthFlow: unavailable("identity.launchWebAuthFlow"),
-      getAuthToken: unavailable("identity.getAuthToken"),
+      launchWebAuthFlow: api("identity.launchWebAuthFlow", ([d]) => [d ?? {}]),
+      getAuthToken: unavailable("identity.getAuthToken (Rune Browser has no browser account)"),
       removeCachedAuthToken: resolved(undefined),
       clearAllCachedAuthTokens: resolved(undefined),
       getProfileUserInfo: resolved({ email: "", id: "" }),
@@ -1002,23 +1020,27 @@ export function shim(bridge: ShimBridge, info: ShimInfo) {
       ...quietEvents("onSignInChanged"),
     });
   }
+  // The workspace's downloads (the downloads page's list).
   if (missing("downloads")) {
+    const act = (action: string) => api("downloads.act", ([id]) => [id, action]);
     defineApi("downloads", {
-      download: api("downloads.download", ([o]) => [{ url: String(o?.url ?? "") }]),
-      search: resolved([]),
-      pause: resolved(undefined),
-      resume: resolved(undefined),
-      cancel: resolved(undefined),
-      erase: resolved([]),
-      getFileIcon: resolved(undefined),
-      open: unavailable("downloads.open"),
-      show: unavailable("downloads.show"),
-      showDefaultFolder: () => {},
-      removeFile: unavailable("downloads.removeFile"),
-      acceptDanger: unavailable("downloads.acceptDanger"),
-      setShelfEnabled: () => {},
-      setUiOptions: resolved(undefined),
-      ...quietEvents("onCreated", "onErased", "onChanged", "onDeterminingFilename"),
+      download: api("downloads.download", ([o]) => [o ?? {}]),
+      search: api("downloads.search", ([q]) => [q ?? {}]),
+      pause: act("pause"),
+      resume: act("resume"),
+      cancel: act("cancel"),
+      show: (id: number) => void call("downloads.act", id, "show").catch(() => {}),
+      open: api("downloads.open"),
+      showDefaultFolder: () => void call("downloads.showDefaultFolder").catch(() => {}),
+      erase: api("downloads.erase", ([q]) => [q ?? {}]),
+      removeFile: api("downloads.removeFile"),
+      acceptDanger: api("downloads.acceptDanger"),
+      getFileIcon: api("downloads.getFileIcon", (args) => [args[0], typeof args[1] === "object" ? args[1] : {}]),
+      setShelfEnabled: (enabled: boolean) => void call("downloads.setUi", enabled !== false).catch(() => {}),
+      setUiOptions: api("downloads.setUi", ([o]) => [o?.enabled !== false]),
+      ...namedEvents("downloads", "onCreated", "onErased", "onChanged"),
+      // Rune Browser names downloads itself (it doesn't wait for extensions' suggestions).
+      ...quietEvents("onDeterminingFilename"),
     });
   }
   if (missing("search")) defineApi("search", { query: api("search.query", ([q]) => [q ?? {}]) });
@@ -1033,44 +1055,433 @@ export function shim(bridge: ShimBridge, info: ShimInfo) {
         ...quietEvents("onDisplayChanged"),
       });
     }
-    if (has("system.storage") && !system.storage) {
-      defineOn(system, "storage", {
-        getInfo: resolved([]),
-        ejectDevice: unavailable("system.storage.ejectDevice"),
-        getAvailableCapacity: unavailable("system.storage.getAvailableCapacity"),
-        ...quietEvents("onAttached", "onDetached"),
-      });
+    if (has("system.storage")) {
+      // Electron has its own, but its getInfo never answers and holds up the whole app (Chromium's storage
+      // monitor isn't set up there): its functions are replaced on the object Chromium hands out.
+      const storage = {
+        getInfo: api("system.storage", () => []),
+        // Ejecting is left to the system.
+        ejectDevice: resolved("failure"),
+        getAvailableCapacity: api("system.storageAvailable"),
+      };
+      if (system.storage && typeof system.storage === "object")
+        for (const [key, value] of Object.entries(storage)) define(system.storage, key, value);
+      else defineOn(system, "storage", { ...storage, ...quietEvents("onAttached", "onDetached") });
+    }
+  }
+
+  // tabCapture and desktopCapture: ids for getUserMedia. A tab's id is made for the page that uses it, so
+  // getUserMedia here swaps it for the real one first.
+  const resolveCapture = async (constraints: any) => {
+    const swap = async (track: any) => {
+      const id = track?.mandatory?.chromeMediaSourceId;
+      if (typeof id === "string" && id.startsWith("rune-tab:")) {
+        const real = await call("tabCapture.resolve", id);
+        return { ...track, mandatory: { ...track.mandatory, chromeMediaSource: "tab", chromeMediaSourceId: real } };
+      }
+      return track;
+    };
+    if (!constraints || typeof constraints !== "object") return constraints;
+    return { ...constraints, audio: await swap(constraints.audio), video: await swap(constraints.video) };
+  };
+  if ((has("tabCapture") || has("desktopCapture")) && g.navigator?.mediaDevices?.getUserMedia) {
+    const md = g.navigator.mediaDevices;
+    const original = md.getUserMedia.bind(md);
+    defineOn(md, "getUserMedia", async (constraints: any) => original(await resolveCapture(constraints)));
+    if (typeof g.navigator.webkitGetUserMedia === "function") {
+      defineOn(g.navigator, "webkitGetUserMedia", (constraints: any, ok: any, fail: any) =>
+        resolveCapture(constraints)
+          .then((c2) => original(c2))
+          .then(ok, fail),
+      );
     }
   }
   if (missing("tabCapture")) {
     defineApi("tabCapture", {
-      capture: (_options: unknown, cb?: (stream: null) => void) =>
-        withLastError("tabCapture isn't available in Rune Browser", () => cb?.(null)),
-      getMediaStreamId: unavailable("tabCapture.getMediaStreamId"),
-      getCapturedTabs: resolved([]),
-      ...quietEvents("onStatusChanged"),
+      capture: (options: any, cb?: (stream: any) => void) => {
+        const md = g.navigator?.mediaDevices;
+        void (async () => {
+          try {
+            if (!md) throw new Error("tabCapture.capture is only available in extension pages");
+            const tabId = await call("tabCapture.activeTab");
+            const streamId = await call("tabCapture.getMediaStreamId", { targetTabId: tabId });
+            const track = (on: boolean) =>
+              on ? { mandatory: { chromeMediaSource: "tab", chromeMediaSourceId: streamId } } : false;
+            const stream = await md.getUserMedia({ audio: track(!!options?.audio), video: track(!!options?.video) });
+            cb?.(stream);
+          } catch (e: any) {
+            withLastError(e?.message ?? String(e), () => cb?.(null));
+          }
+        })();
+      },
+      getMediaStreamId: api("tabCapture.getMediaStreamId", ([o]) => [o ?? {}]),
+      getCapturedTabs: api("tabCapture.getCapturedTabs", () => []),
+      onStatusChanged: ev("tabCapture.onStatusChanged"),
     });
   }
   if (missing("desktopCapture")) {
-    // Like the user cancelling the picker.
+    let requests = 0;
     defineApi("desktopCapture", {
+      DesktopCaptureSourceType: { SCREEN: "screen", WINDOW: "window", TAB: "tab", AUDIO: "audio" },
       chooseDesktopMedia: (...args: any[]) => {
         const cb = args.find((a) => typeof a === "function");
-        queueMicrotask(() => cb?.("", { canRequestAudioTrack: false }));
-        return 0;
+        const sources = args.find((a) => Array.isArray(a)) ?? [];
+        const target = args.find((a) => a && typeof a === "object" && !Array.isArray(a) && typeof a.id === "number");
+        call("desktopCapture.choose", sources, target?.id).then(
+          (r: any) => cb?.(r?.streamId ?? "", { canRequestAudioTrack: !!r?.canRequestAudioTrack }),
+          (e: any) => withLastError(e?.message ?? String(e), () => cb?.("", { canRequestAudioTrack: false })),
+        );
+        return ++requests;
       },
       cancelChooseDesktopMedia: () => {},
     });
   }
+  // Push messages need Google's servers (Chrome's own sender): there are none to get.
   if (missing("gcm")) {
     defineApi("gcm", {
       MAX_MESSAGE_SIZE: 4096,
-      register: unavailable("gcm.register"),
+      register: unavailable("gcm.register (push messages need Google's servers)"),
       unregister: resolved(undefined),
-      send: unavailable("gcm.send"),
+      send: unavailable("gcm.send (push messages need Google's servers)"),
       ...quietEvents("onMessage", "onMessagesDeleted", "onSendError"),
     });
   }
+
+  // chrome.browsingData: the workspace's data (extensions keep theirs, like in Chrome).
+  if (missing("browsingData")) {
+    const remove = (types: string[]) =>
+      api("browsingData.remove", ([options]) => [options ?? {}, Object.fromEntries(types.map((t) => [t, true]))]);
+    defineApi("browsingData", {
+      settings: api("browsingData.settings", () => []),
+      remove: api("browsingData.remove", ([options, data]) => [options ?? {}, data ?? {}]),
+      removeAppcache: remove(["appcache"]),
+      removeCache: remove(["cache"]),
+      removeCacheStorage: remove(["cacheStorage"]),
+      removeCookies: remove(["cookies"]),
+      removeDownloads: remove(["downloads"]),
+      removeFileSystems: remove(["fileSystems"]),
+      removeFormData: remove(["formData"]),
+      removeHistory: remove(["history"]),
+      removeIndexedDB: remove(["indexedDB"]),
+      removeLocalStorage: remove(["localStorage"]),
+      removePasswords: remove(["passwords"]),
+      removePluginData: remove(["pluginData"]),
+      removeServiceWorkers: remove(["serviceWorkers"]),
+      removeWebSQL: remove(["webSQL"]),
+    });
+  }
+
+  // chrome.contentSettings: Rune Browser's site settings.
+  if (missing("contentSettings")) {
+    const contentSetting = (type: string) => ({
+      get: api("contentSettings.get", ([d]) => [type, d ?? {}]),
+      set: api("contentSettings.set", ([d]) => [type, d ?? {}]),
+      clear: api("contentSettings.clear", () => [type]),
+      getResourceIdentifiers: resolved(undefined),
+    });
+    const types = [
+      "cookies",
+      "images",
+      "javascript",
+      "location",
+      "plugins",
+      "popups",
+      "notifications",
+      "microphone",
+      "camera",
+      "unsandboxedPlugins",
+      "automaticDownloads",
+      "autoVerify",
+      "clipboard",
+      "sound",
+    ];
+    defineApi("contentSettings", {
+      ...Object.fromEntries(types.map((t) => [t, contentSetting(t)])),
+      CookiesContentSetting: { ALLOW: "allow", BLOCK: "block", SESSION_ONLY: "session_only" },
+      ImagesContentSetting: { ALLOW: "allow", BLOCK: "block" },
+      JavascriptContentSetting: { ALLOW: "allow", BLOCK: "block" },
+      LocationContentSetting: { ALLOW: "allow", BLOCK: "block", ASK: "ask" },
+      NotificationsContentSetting: { ALLOW: "allow", BLOCK: "block", ASK: "ask" },
+      PopupsContentSetting: { ALLOW: "allow", BLOCK: "block" },
+      Scope: { REGULAR: "regular", INCOGNITO_SESSION_ONLY: "incognito_session_only" },
+    });
+  }
+
+  // chrome.debugger: a tab's DevTools protocol.
+  if (missing("debugger")) {
+    defineApi("debugger", {
+      attach: api("debugger.attach", ([target, version]) => [target ?? {}, version]),
+      detach: api("debugger.detach", ([target]) => [target ?? {}]),
+      sendCommand: api("debugger.sendCommand", ([target, method, params]) => [target ?? {}, method, params ?? {}]),
+      getTargets: api("debugger.getTargets", () => []),
+      DetachReason: { CANCELED_BY_USER: "canceled_by_user", TARGET_CLOSED: "target_closed" },
+      ...namedEvents("debugger", "onEvent", "onDetach"),
+    });
+  }
+
+  // chrome.declarativeContent: its toolbar button shown (or its icon set) on the pages its rules match.
+  if (missing("declarativeContent")) {
+    class PageStateMatcher {
+      instanceType = "declarativeContent.PageStateMatcher";
+      constructor(o: any) {
+        Object.assign(this, o ?? {});
+      }
+    }
+    class ShowAction {
+      instanceType = "declarativeContent.ShowAction";
+    }
+    class ShowPageAction {
+      instanceType = "declarativeContent.ShowPageAction";
+    }
+    class SetIcon {
+      instanceType = "declarativeContent.SetIcon";
+      constructor(public o: any) {}
+    }
+    class RequestContentScript {
+      instanceType = "declarativeContent.RequestContentScript";
+      constructor(public o: any) {}
+    }
+    /** An icon as a data: URL (ImageData is drawn on a canvas; a path is read from the extension). */
+    const iconUrl = async (o: any): Promise<string | null> => {
+      const data = o?.imageData;
+      const image =
+        data && typeof data === "object" && !("data" in data) ? data[Object.keys(data).sort().pop()!] : data;
+      if (image && typeof g.OffscreenCanvas === "function") {
+        const canvas = new g.OffscreenCanvas(image.width, image.height);
+        canvas.getContext("2d").putImageData(image, 0, 0);
+        const blob = await canvas.convertToBlob();
+        return await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result));
+          reader.readAsDataURL(blob);
+        });
+      }
+      const path = typeof o?.path === "string" ? o.path : o?.path && Object.values(o.path).pop();
+      return typeof path === "string" ? absolute(path) : null;
+    };
+    const serialize = async (rule: any) => ({
+      id: rule?.id,
+      priority: rule?.priority,
+      conditions: (rule?.conditions ?? []).map((c2: any) => ({
+        pageUrl: c2?.pageUrl,
+        css: c2?.css,
+        isBookmarked: c2?.isBookmarked,
+      })),
+      actions: await Promise.all(
+        (rule?.actions ?? []).map(async (a: any) => {
+          if (a instanceof SetIcon) return { type: "icon", icon: await iconUrl(a.o) };
+          if (a instanceof RequestContentScript)
+            return { type: "script", js: a.o?.js ?? [], css: a.o?.css ?? [], allFrames: !!a.o?.allFrames };
+          return { type: "show" };
+        }),
+      ),
+    });
+    const onPageChanged = ev("declarativeContent.onPageChanged");
+    const rulesCall =
+      (method: string, prepare: (args: any[]) => any[] | Promise<any[]>) =>
+      (...args: any[]) => {
+        const cb = typeof args[args.length - 1] === "function" ? args.pop() : null;
+        Promise.resolve(prepare(args))
+          .then((a) => call(method, ...a))
+          .then(
+            (v) => cb?.(v),
+            (e) => (cb ? withLastError(e?.message ?? String(e), () => cb()) : console.error(e)),
+          );
+      };
+    defineOn(
+      onPageChanged,
+      "addRules",
+      rulesCall("declarativeContent.add", async ([rules]) => [await Promise.all((rules ?? []).map(serialize))]),
+    );
+    defineOn(
+      onPageChanged,
+      "removeRules",
+      rulesCall("declarativeContent.remove", ([ids]) => [Array.isArray(ids) ? ids : null]),
+    );
+    defineOn(
+      onPageChanged,
+      "getRules",
+      rulesCall("declarativeContent.get", ([ids]) => [Array.isArray(ids) ? ids : null]),
+    );
+    defineApi("declarativeContent", {
+      PageStateMatcher,
+      ShowAction,
+      ShowPageAction,
+      SetIcon,
+      RequestContentScript,
+      onPageChanged,
+    });
+  }
+
+  // chrome.pageCapture: a tab saved as MHTML.
+  if (missing("pageCapture")) {
+    defineApi("pageCapture", {
+      saveAsMHTML: api(
+        "pageCapture.saveAsMHTML",
+        ([d]) => [d ?? {}],
+        (base64: string) => {
+          const bytes = Uint8Array.from(atob(base64), (ch) => ch.charCodeAt(0));
+          return new Blob([bytes], { type: "multipart/related" });
+        },
+      ),
+    });
+  }
+
+  // chrome.power: keeping the computer (or its display) awake.
+  if (missing("power")) {
+    defineApi("power", {
+      Level: { SYSTEM: "system", DISPLAY: "display" },
+      requestKeepAwake: (level: string) => void call("power.requestKeepAwake", level).catch(() => {}),
+      releaseKeepAwake: () => void call("power.releaseKeepAwake").catch(() => {}),
+      reportActivity: resolved(undefined),
+    });
+  }
+
+  // chrome.proxy: the workspace's proxy.
+  if (missing("proxy")) {
+    defineApi("proxy", {
+      Mode: {
+        DIRECT: "direct",
+        AUTO_DETECT: "auto_detect",
+        PAC_SCRIPT: "pac_script",
+        FIXED_SERVERS: "fixed_servers",
+        SYSTEM: "system",
+      },
+      settings: {
+        get: api("proxy.get", () => []),
+        set: api("proxy.set", ([d]) => [d ?? {}]),
+        clear: api("proxy.clear", () => []),
+        onChange: ev("proxy.settings.onChange"),
+      },
+      ...quietEvents("onProxyError"),
+    });
+  }
+
+  // chrome.tts: the system's voices (through the window), and other extensions' (ttsEngine).
+  if (missing("tts")) {
+    defineApi("tts", {
+      EventType: {
+        START: "start",
+        END: "end",
+        WORD: "word",
+        SENTENCE: "sentence",
+        MARKER: "marker",
+        INTERRUPTED: "interrupted",
+        CANCELLED: "cancelled",
+        ERROR: "error",
+        PAUSE: "pause",
+        RESUME: "resume",
+      },
+      VoiceGender: { MALE: "male", FEMALE: "female" },
+      speak: (...args: any[]) => {
+        const cb = typeof args[args.length - 1] === "function" ? args.pop() : null;
+        const [text, options] = args;
+        const { onEvent, ...rest } = options ?? {};
+        const fire = (e: any) => {
+          try {
+            if (typeof onEvent === "function") onEvent(e);
+          } catch (err) {
+            console.error(err);
+          }
+        };
+        // Speaking starts now; the callback (or the promise) only says it was queued, like Chrome's.
+        queueMicrotask(() => fire({ type: "start", charIndex: 0 }));
+        void call("tts.speak", String(text ?? ""), rest).then(
+          (result: any) => fire({ type: result?.type ?? "end", charIndex: String(text ?? "").length, ...result }),
+          (e: any) => fire({ type: "error", errorMessage: e?.message ?? String(e) }),
+        );
+        if (!cb) return Promise.resolve();
+        queueMicrotask(() => cb());
+        return undefined;
+      },
+      stop: () => void call("tts.stop").catch(() => {}),
+      pause: () => void call("tts.pause").catch(() => {}),
+      resume: () => void call("tts.resume").catch(() => {}),
+      isSpeaking: api("tts.isSpeaking", () => []),
+      getVoices: api("tts.getVoices", () => []),
+      ...quietEvents("onVoicesChanged"),
+    });
+  }
+  // chrome.ttsEngine: its voices for chrome.tts (sendTtsEvent goes back to whoever asked to speak).
+  if (missing("ttsEngine")) {
+    const onSpeak = ev("ttsEngine.onSpeak");
+    const dispatchSpeak = onSpeak.dispatch.bind(onSpeak);
+    defineOn(onSpeak, "dispatch", ([requestId, utterance, options]: any[]) =>
+      dispatchSpeak([utterance, options, (event: any) => void call("ttsEngine.event", requestId, event ?? {})]),
+    );
+    defineApi("ttsEngine", {
+      updateVoices: (voices: any[]) => void call("ttsEngine.updateVoices", voices ?? []).catch(() => {}),
+      updateLanguage: () => {},
+      onSpeak,
+      ...namedEvents("ttsEngine", "onStop", "onPause", "onResume"),
+      ...quietEvents("onSpeakWithAudioStream", "onInstallLanguageRequest", "onUninstallLanguageRequest"),
+    });
+  }
+
+  // chrome.userScripts: scripts it registers for websites, run in a world of its own (or the page's).
+  if (missing("userScripts")) {
+    defineApi("userScripts", {
+      ExecutionWorld: { MAIN: "MAIN", USER_SCRIPT: "USER_SCRIPT" },
+      register: api("userScripts.register", ([scripts]) => [scripts ?? []]),
+      update: api("userScripts.update", ([scripts]) => [scripts ?? []]),
+      unregister: api("userScripts.unregister", ([f]) => [typeof f === "object" && f ? f : {}]),
+      getScripts: api("userScripts.getScripts", ([f]) => [typeof f === "object" && f ? f : {}]),
+      configureWorld: api("userScripts.configureWorld", ([config]) => [config ?? {}]),
+      getWorldConfigurations: api("userScripts.getWorldConfigurations", () => []),
+      resetWorldConfiguration: api("userScripts.resetWorldConfiguration", ([id]) => [id]),
+      execute: api("userScripts.execute", ([injection]) => [injection ?? {}]),
+    });
+  }
+
+  // Websites' icons for its pages: chrome-extension://<id>/_favicon/?pageUrl=… (Electron doesn't serve them).
+  if (has("favicon")) {
+    const prefix = `${base}_favicon/`;
+    const isFavicon = (url: unknown) => typeof url === "string" && url.startsWith(prefix);
+    const iconFor = (url: string): Promise<string | null> => {
+      const params = new URL(url).searchParams;
+      return call("favicon.get", params.get("pageUrl") ?? "", Number(params.get("size")) || 16).catch(() => null);
+    };
+    const fetch0 = g.fetch?.bind(g);
+    if (fetch0) {
+      defineOn(g, "fetch", async (input: any, init?: any) => {
+        const url = typeof input === "string" ? input : input?.url;
+        if (!isFavicon(url)) return fetch0(input, init);
+        const icon = await iconFor(url);
+        return icon ? fetch0(icon) : new Response(null, { status: 404 });
+      });
+    }
+    const Img = g.HTMLImageElement;
+    const srcProp = Img && Object.getOwnPropertyDescriptor(Img.prototype, "src");
+    if (srcProp?.set && srcProp.get) {
+      const set = srcProp.set;
+      Object.defineProperty(Img.prototype, "src", {
+        ...srcProp,
+        set(this: any, value: unknown) {
+          const url = String(value);
+          if (!isFavicon(url)) return set.call(this, value);
+          void iconFor(url).then((icon) => set.call(this, icon ?? ""));
+        },
+      });
+      // Images in its HTML.
+      const fix = (img: any) => {
+        const url = img.getAttribute?.("src");
+        if (isFavicon(new URL(url ?? "", here()).href)) img.src = new URL(url, here()).href;
+      };
+      const watch = () => {
+        g.document.querySelectorAll?.("img[src*='_favicon/']").forEach(fix);
+        new g.MutationObserver((records: any[]) => {
+          for (const r of records)
+            for (const n of r.addedNodes ?? []) {
+              if (n.tagName === "IMG") fix(n);
+              n.querySelectorAll?.("img[src*='_favicon/']").forEach(fix);
+            }
+        }).observe(g.document, { childList: true, subtree: true });
+      };
+      if (g.document?.readyState === "loading") g.document.addEventListener("DOMContentLoaded", watch);
+      else if (g.document) watch();
+    }
+  }
+
   // Anything else it asks for that isn't there: functions fail, events never come.
   for (const name of permissions) {
     if (PERMISSIONS_WITHOUT_API.has(name) || name.includes(".") || !missing(name)) continue;
@@ -1085,6 +1496,16 @@ export function shim(bridge: ShimBridge, info: ShimInfo) {
         },
       }),
     );
+  }
+
+  // Turning other extensions on and off, and removing one, the user saying yes first.
+  if (c.management) {
+    for (const [name, fn] of [
+      ["setEnabled", api("management.setEnabled")],
+      ["uninstallSelf", api("management.uninstall", ([o]) => [null, o ?? {}])],
+      ["uninstall", api("management.uninstall", ([id, o]) => [id, o ?? {}])],
+    ] as const)
+      define(c.management, name, fn);
   }
 
   // chrome.extension: what Chrome still has of it.
@@ -1201,6 +1622,16 @@ export function shim(bridge: ShimBridge, info: ShimInfo) {
     ["tabCapture", ["tabCapture"]],
     ["desktopCapture", ["desktopCapture"]],
     ["gcm", ["gcm"]],
+    ["browsingData", ["browsingData"]],
+    ["contentSettings", ["contentSettings"]],
+    ["debugger", ["debugger"]],
+    ["declarativeContent", ["declarativeContent"]],
+    ["pageCapture", ["pageCapture"]],
+    ["power", ["power"]],
+    ["proxy", ["proxy"]],
+    ["tts", ["tts"]],
+    ["ttsEngine", ["ttsEngine"]],
+    ["userScripts", ["userScripts"]],
   ];
   const b: any = g.browser;
   for (const [name, perms] of GATED) {

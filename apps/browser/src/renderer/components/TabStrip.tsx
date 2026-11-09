@@ -26,7 +26,6 @@ import {
   tabFromElsewhere,
   tiles,
   WorkspaceBar,
-  WorkspaceName,
 } from "./Sidebar";
 import { AddressBar, AgentButton, MoreMenu, NavButtons } from "./TopBar";
 import { WindowControls } from "./WindowControls";
@@ -62,7 +61,6 @@ export function TopArea() {
       <TabStrip />
       {/* A private window has no workspaces, and no agents. */}
       <Show when={!isPrivate} fallback={<SettingsLink />}>
-        <WorkspaceName />
         <WorkspaceBar inline />
         <AgentButton />
       </Show>

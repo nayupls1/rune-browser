@@ -68,6 +68,9 @@ import {
   type InstalledExtension,
 } from "./registry";
 import { checkUpdates, downloadFromWebStore, downloadUpdate, WEB_STORE_UPDATE_URL } from "./webstore";
+import type { BrowserApiEnv } from "./browserApis";
+import type { DownloadsControl } from "../downloads";
+import type { BrowserSettings } from "../../shared/browser";
 
 export interface ExtensionsOptions {
   windows: AppWindows;
@@ -80,6 +83,12 @@ export interface ExtensionsOptions {
   moreRules?: (firstId: number) => DnrRule[];
   /** Rune Browser's server, once it's started (chrome.bookmarks reads and changes the bookmarks there). */
   server: () => { url: string; token: string } | undefined;
+  /** The downloads (chrome.downloads), once they're set up. */
+  downloads?: () => DownloadsControl | undefined;
+  /** The browser settings in effect (site settings, privacy, fonts). */
+  browserSettings?: () => BrowserSettings;
+  /** The screen picker (chrome.desktopCapture). */
+  pickDesktop?: BrowserApiEnv["pickDesktop"];
 }
 
 const UPDATE_INTERVAL = 5 * 60 * 60 * 1000;
@@ -217,6 +226,12 @@ export function setupExtensions(options: ExtensionsOptions) {
     },
     whenLoaded: (s, id) => loading.get(stateKey(s, id)) ?? Promise.resolve(),
     server: options.server,
+    ask: (request, fallback, ms) => ask(`rune:extensions-tab`, request, fallback, ms),
+    downloads: () => options.downloads?.(),
+    browserSettings: () => options.browserSettings?.(),
+    pickDesktop: (...args) => options.pickDesktop?.(...args) ?? Promise.resolve(null),
+    setEnabled: (id, enabled) => setEnabled(id, enabled),
+    remove: (id) => remove(id),
     reload: (s, id) => {
       const entry = registry.get(id);
       if (!entry) return;
@@ -566,9 +581,29 @@ export function setupExtensions(options: ExtensionsOptions) {
     c ? `rgba(${c[0]}, ${c[1]}, ${c[2]}, ${(c[3] / 255).toFixed(3)})` : null;
 
   /** What its toolbar button opens: its popup, or its side panel when it asked for that. */
-  function popupOf(s: Session, id: string, a: ActionState) {
-    if (a.popup) return a.popup;
-    return state(s, id)?.stored.sidePanel?.openOnAction ? (apis.sidePanelUrl(s, id) ?? "") : "";
+  function popupOf(_s: Session, _id: string, a: ActionState) {
+    return a.popup;
+  }
+
+  /** Its toolbar button opens its side panel (sidePanel.setPanelBehavior): opened, or closed again; false if it doesn't. */
+  function toggleSidePanel(s: Session, id: string) {
+    const url = state(s, id)?.stored.sidePanel?.openOnAction ? apis.sidePanelUrl(s, id) : null;
+    if (!url) return false;
+    const workspaceId = options.workspaceOf(s);
+    if (!workspaceId) return false;
+    let name = id;
+    try {
+      name = readManifest(s.extensions.getExtension(id)!.path).name;
+    } catch {
+      // the ID then
+    }
+    void ask(
+      "rune:extensions-tab",
+      { action: "side-panel", workspaceId, extensionId: id, name, url, toggle: true },
+      false,
+      10_000,
+    );
+    return true;
   }
 
   function actionsFor(workspaceId: string, tabId: number | null): ExtensionAction[] {
@@ -603,7 +638,7 @@ export function setupExtensions(options: ExtensionsOptions) {
     if (!workspaceId) return false;
     const a = state(s, id)?.actionFor(activeOf(workspaceId));
     const popup = url ?? (a ? popupOf(s, id, a) : "");
-    if (!popup) return false;
+    if (!popup) return toggleSidePanel(s, id);
     windowFor(workspaceId)?.webContents.send("rune:extensions-popup", { workspaceId, extensionId: id, url: popup });
     return true;
   }
@@ -625,6 +660,7 @@ export function setupExtensions(options: ExtensionsOptions) {
     if (!a?.enabled) return null;
     const popup = popupOf(s, id, a);
     if (popup) return popup;
+    if (toggleSidePanel(s, id)) return null;
     void dispatch(contexts, state(s, id), s, id, "action.onClicked", [activeTabObject(s, id)]);
     return null;
   }
@@ -706,6 +742,9 @@ export function setupExtensions(options: ExtensionsOptions) {
     if (permission === "clipboard-read") return asks("clipboardRead");
     if (permission === "notifications") return asks("notifications");
     if (permission === "persistent-storage") return asks("unlimitedStorage");
+    if (permission === "geolocation") return asks("geolocation");
+    // A stream from chrome.tabCapture or chrome.desktopCapture's id (the user picked it, or invoked the extension).
+    if (permission === "media") return (asks("tabCapture") || asks("desktopCapture")) && apis.expectsMedia(s, id);
     return false;
   }
 

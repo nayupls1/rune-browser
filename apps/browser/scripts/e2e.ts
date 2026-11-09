@@ -3860,9 +3860,13 @@ try {
     // Every permission can be blocked; a limited one says what's different.
     const permission = (name: string) => `[data-extension-details-page="${id}"] [data-extension-permission="${name}"]`;
     const note = await page!.eval<string>(
-      `document.querySelector('${permission("history")} [data-permission-limited]')?.textContent ?? ""`,
+      `document.querySelector('${permission("tabGroups")} [data-permission-limited]')?.textContent ?? ""`,
     );
-    if (!note.includes("history")) throw new Error(`history permission note: ${note}`);
+    if (!note.includes("tab groups")) throw new Error(`tabGroups permission note: ${note}`);
+    const historyNote = await page!.eval<string | null>(
+      `document.querySelector('${permission("history")} [data-permission-limited]')?.textContent ?? null`,
+    );
+    if (historyNote !== null) throw new Error(`history should work like in Chrome: ${historyNote}`);
     const allowed = (name: string) =>
       `window.rune.extensions.list().then((r) => r.extensions.find((e) => e.id === "${id}").permissions.find((p) => p.name === "${name}").allowed)`;
     await click(`${permission("history")} [role="switch"]`);
@@ -4124,6 +4128,166 @@ try {
   });
 
   await check(
+    "extension APIs: history, closed tabs, downloads, site settings, fonts, speech, user scripts, debugger, side panel",
+    async () => {
+      const id = fixture.extensionId;
+      // Its own page in a tab: the chrome.* APIs run there.
+      const page_ = await apiCall<{ id: string }>("/api/apps", {
+        method: "POST",
+        body: { kind: "web", url: `chrome-extension://${id}/options.html` },
+      });
+      const ext = `[data-web-tab="${page_.id}"]`;
+      await page!.waitFor(`!!document.querySelector('nav li[data-app-id="${page_.id}"]')`, { label: "its page's tab" });
+      await click(`nav li[data-app-id="${page_.id}"]`);
+      await waitForValue(
+        async () =>
+          (await inView<boolean>(ext, `!!(window.chrome && chrome.history && chrome.sidePanel)`)) ? true : undefined,
+        20_000,
+      );
+      const run = <T>(code: string) => inView<T>(ext, `(async () => { ${code} })()`);
+      const origin = site.url.origin;
+
+      // History: what this workspace visited, and a visit it adds.
+      const history = await run<{ urls: string[]; visits: number; top: number }>(`
+        await chrome.history.addUrl({ url: "${origin}/from-extension", title: "Added by the extension" });
+        const items = await chrome.history.search({ text: "", startTime: 0, maxResults: 100 });
+        const visits = await chrome.history.getVisits({ url: "${origin}/from-extension" });
+        const top = await chrome.topSites.get();
+        return { urls: items.map((i) => i.url), visits: visits.length, top: top.length };
+      `);
+      if (!history.urls.includes(`${origin}/from-extension`) || history.visits !== 1 || !history.top)
+        throw new Error(`history: ${JSON.stringify(history)}`);
+
+      // A tab it closes is among the recently closed ones, and comes back.
+      const sessions = await run<{ closed: string | undefined; restored: string | undefined }>(`
+        const tab = await chrome.tabs.create({ url: "${origin}/closed-by-extension", active: false });
+        await new Promise((r) => setTimeout(r, 800));
+        await chrome.tabs.remove(tab.id);
+        await new Promise((r) => setTimeout(r, 300));
+        const closed = await chrome.sessions.getRecentlyClosed();
+        const restored = await chrome.sessions.restore();
+        return { closed: closed[0]?.tab?.url, restored: restored.tab?.url ?? restored.tab?.pendingUrl };
+      `);
+      if (!sessions.closed?.endsWith("/closed-by-extension") || !sessions.restored?.includes("/closed-by-extension"))
+        throw new Error(`sessions: ${JSON.stringify(sessions)}`);
+      for (const tab of await apiCall<{ id: string; url: string | null }[]>("/api/apps"))
+        if (tab.url?.includes("/closed-by-extension")) await apiCall(`/api/apps/${tab.id}`, { method: "DELETE" });
+
+      // A download under a name of its own, followed to the end.
+      const download = await run<{ state: string; filename: string; found: number }>(`
+        const id = await chrome.downloads.download({ url: "${origin}/download/from-extension.txt", filename: "rune-e2e/by-extension.txt" });
+        for (let i = 0; i < 100; i++) {
+          const [d] = await chrome.downloads.search({ id });
+          if (d && d.state !== "in_progress") return { state: d.state, filename: d.filename, found: (await chrome.downloads.search({ query: ["by-extension"] })).length };
+          await new Promise((r) => setTimeout(r, 100));
+        }
+        return { state: "timed out", filename: "", found: 0 };
+      `);
+      if (
+        download.state !== "complete" ||
+        !download.filename.replace(/\\/g, "/").endsWith("rune-e2e/by-extension.txt") ||
+        !download.found
+      )
+        throw new Error(`download: ${JSON.stringify(download)}`);
+
+      // Site settings and fonts are Rune Browser's own (Settings shows the change).
+      const before = await run<string>(
+        `return (await chrome.contentSettings.javascript.get({ primaryUrl: "${origin}/" })).setting;`,
+      );
+      await run(
+        `await chrome.contentSettings.images.set({ primaryPattern: "https://*.images-off.example/*", setting: "block" });`,
+      );
+      const font = await run<number>(`return (await chrome.fontSettings.getDefaultFontSize()).pixelSize;`);
+      const dnt = await run<unknown>(`return (await chrome.privacy.websites.doNotTrackEnabled.get({})).value;`);
+      // Electron's own getInfo would never answer (and hold up the app).
+      const storage = await run<number>(`return (await chrome.system.storage.getInfo()).length;`);
+      const settingsChange = { before, font, dnt, storage };
+      if (settingsChange.before !== "allow" || settingsChange.font !== 16 || settingsChange.dnt !== false || !storage)
+        throw new Error(`settings: ${JSON.stringify(settingsChange)}`);
+      await waitForValue(async () =>
+        (await apiCall<{ browser: { sites: Record<string, { images?: string }> } }>("/api/settings")).browser.sites[
+          "images-off.example"
+        ]?.images === "block"
+          ? true
+          : undefined,
+      ).catch(() => {
+        throw new Error("the site setting didn't reach Settings");
+      });
+      await run(`await chrome.contentSettings.images.clear({});`);
+      await waitForValue(async () =>
+        !(await apiCall<{ browser: { sites: Record<string, unknown> } }>("/api/settings")).browser.sites[
+          "images-off.example"
+        ]
+          ? true
+          : undefined,
+      ).catch(() => {
+        throw new Error("clear didn't take the site setting back");
+      });
+      const voices = await run<number>(`return (await chrome.tts.getVoices()).length;`);
+
+      // A user script runs on the sites it has access to; the debugger and MHTML reach the same tab.
+      await run(`
+        await chrome.userScripts.unregister();
+        await chrome.userScripts.register([{ id: "mark", matches: ["${origin}/*"], js: [{ code: "document.documentElement.dataset.userScript = 'ran'" }] }]);
+      `);
+      const target = await apiCall<{ id: string }>("/api/apps", {
+        method: "POST",
+        body: { kind: "web", url: `${origin}/` },
+      });
+      const targetTab = `[data-web-tab="${target.id}"]`;
+      await page!.waitFor(`!!document.querySelector('nav li[data-app-id="${target.id}"]')`, { label: "site tab" });
+      await click(`nav li[data-app-id="${target.id}"]`);
+      const marked = await waitForValue(
+        async () =>
+          (await inView<string>(targetTab, `document.documentElement.dataset.userScript ?? ""`)) === "ran"
+            ? "ran"
+            : undefined,
+        15_000,
+      ).catch(() => "no");
+      if (marked !== "ran") throw new Error("the user script didn't run");
+      // The isolated world it ran in isn't the page's: the page doesn't see the script's variables, only the DOM.
+      const debug = await run<{ sum: number; mhtml: number }>(`
+        const [tab] = await chrome.tabs.query({ url: "${origin}/" });
+        await chrome.debugger.attach({ tabId: tab.id }, "1.3");
+        const r = await chrome.debugger.sendCommand({ tabId: tab.id }, "Runtime.evaluate", { expression: "20 + 22", returnByValue: true });
+        await chrome.debugger.detach({ tabId: tab.id });
+        const blob = await chrome.pageCapture.saveAsMHTML({ tabId: tab.id });
+        return { sum: r.result.value, mhtml: blob.size };
+      `);
+      if (debug.sum !== 42 || debug.mhtml < 100) throw new Error(`debugger/pageCapture: ${JSON.stringify(debug)}`);
+
+      // Its side panel, beside the tabs, from chrome.sidePanel.open.
+      await run(
+        `const [tab] = await chrome.tabs.query({ active: true }); await chrome.sidePanel.open({ tabId: tab.id });`,
+      );
+      await page!.waitFor(`!!document.querySelector('[data-extension-side-panel="${id}"] webview')`, {
+        label: "side panel",
+      });
+      const panelText = await waitForValue(async () => {
+        const text = await page!
+          .eval<string>(
+            `document.querySelector('[data-extension-side-panel="${id}"] webview').executeJavaScript("document.body.innerText")`,
+          )
+          .catch(() => "");
+        return text.includes("Fixture side panel") && text.includes("Added by the extension") ? text : undefined;
+      }, 15_000).catch(() => "");
+      if (!panelText) throw new Error("the side panel's page didn't show the history");
+      const beside = await page!.eval<boolean>(`(() => {
+        const panel = document.querySelector('[data-extension-side-panel="${id}"]').getBoundingClientRect();
+        const content = document.querySelector("[data-content]").getBoundingClientRect();
+        return panel.left >= content.right - 1 && panel.width > 300;
+      })()`);
+      if (!beside) throw new Error("the side panel isn't beside the page");
+      await shot("extension-side-panel.png");
+      await click(`[data-extension-side-panel="${id}"] [data-close-side-panel]`);
+      await page!.waitFor(`!document.querySelector("[data-extension-side-panel]")`, { label: "side panel closed" });
+      await run(`await chrome.userScripts.unregister();`);
+      for (const tabId of [target.id, page_.id]) await apiCall(`/api/apps/${tabId}`, { method: "DELETE" });
+      return `history (${history.urls.length} pages), closed and restored a tab, downloaded by-extension.txt, a site setting set and cleared, ${voices} voices, a user script, the debugger, MHTML, the side panel`;
+    },
+  );
+
+  await check(
     "workspaces: icons at the bottom, own tabs and web logins, switching keeps state, reorder, move tabs, shortcuts",
     async () => {
       const tabIds = () =>
@@ -4149,9 +4313,19 @@ try {
       const personalTabs = await tabIds();
       const personalSelected = await selected();
 
-      // "+" at the bottom makes one, and its name is typed in the header.
+      // "+" at the bottom makes one, and its editor opens next to its icon, the name ready to type.
       await click("[data-new-workspace]");
-      await page!.waitFor(`!!document.querySelector("[data-workspace-name]")`, { label: "workspace name field" });
+      await page!.waitFor(`!!document.querySelector("[data-workspace-editor] [data-workspace-name]")`, {
+        label: "workspace editor",
+      });
+      const placement = await page!.eval<{ near: boolean; focused: boolean }>(`(() => {
+        const editor = document.querySelector("[data-workspace-editor]").getBoundingClientRect();
+        const icon = document.querySelector('[data-workspace="' + document.querySelector("[data-workspace-editor]").dataset.workspaceEditor + '"]').getBoundingClientRect();
+        const gap = Math.min(Math.abs(editor.top - icon.bottom), Math.abs(icon.top - editor.bottom));
+        return { near: gap < 24 && editor.left <= icon.right && editor.right >= icon.left, focused: document.activeElement?.matches("[data-workspace-name]") };
+      })()`);
+      if (!placement.near || !placement.focused) throw new Error(`editor: ${JSON.stringify(placement)}`);
+      await shot("workspace-new.png");
       await page!.eval(`(() => {
       const input = document.querySelector("[data-workspace-name]");
       input.value = "Client";
@@ -4190,18 +4364,47 @@ try {
       const clientCookies = await inView<string>(`[data-web-tab="${tab.id}"]`, `document.cookie`);
       if (clientCookies.includes("space=personal")) throw new Error("the Client workspace sees Personal's cookies");
 
-      // An icon in the bar, and Ctrl+Alt+1 / 2.
+      // An icon in the bar (the same editor, the icon search focused), and Ctrl+Alt+1 / 2.
       await menuOn(client.id, "Change icon…");
-      await page!.waitFor(`!!document.querySelector('[data-icon-picker] [data-icon="briefcase"]')`, {
-        label: "icon picker",
-      });
-      await click('[data-icon-picker] [data-icon="briefcase"]');
+      await page!.waitFor(
+        `!!document.querySelector('[data-workspace-editor="${client.id}"] [data-icon="briefcase"]') && document.activeElement?.matches("[data-icon-search]")`,
+        { label: "workspace editor for the icon" },
+      );
+      await click(`[data-workspace-editor="${client.id}"] [data-icon="briefcase"]`);
       await waitForValue(async () =>
         (await apiCall<{ id: string; icon: string | null }[]>("/api/workspaces")).find((w) => w.id === client.id)
           ?.icon === "briefcase"
           ? true
           : undefined,
       );
+      await page!.waitFor(
+        `!!document.querySelector('[data-workspace-editor] [data-workspace-editor-icon] svg') && !!document.querySelector('[data-workspace="${client.id}"] svg')`,
+        { label: "the icon shown in the editor and the bar" },
+      );
+      await shot("workspace-icon.png");
+      await click("[data-workspace-editor-done]");
+      await page!.waitFor(`!document.querySelector("[data-workspace-editor]")`, { label: "editor closed" });
+      // A double-click opens it too; Escape leaves the name as it was.
+      await page!.eval(
+        `document.querySelector('[data-workspace="${client.id}"]').dispatchEvent(new MouseEvent("dblclick", { bubbles: true })), true`,
+      );
+      await page!.waitFor(`!!document.querySelector('[data-workspace-editor="${client.id}"]')`, {
+        label: "editor on double-click",
+      });
+      await page!.eval(`(() => {
+        const input = document.querySelector("[data-workspace-name]");
+        input.value = "Not this";
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+        return true;
+      })()`);
+      await page!.waitFor(`!document.querySelector("[data-workspace-editor]")`, { label: "editor closed by Escape" });
+      await Bun.sleep(300);
+      if (
+        (await apiCall<{ id: string; name: string }[]>("/api/workspaces")).find((w) => w.id === client.id)?.name !==
+        "Client"
+      )
+        throw new Error("Escape renamed the workspace");
       await shot("workspaces.png");
       await page!.eval(
         `window.dispatchEvent(new KeyboardEvent("keydown", { key: "1", code: "Digit1", ${mod}: true, altKey: true, bubbles: true })), true`,
@@ -4264,7 +4467,7 @@ try {
       await click("[data-confirm-dialog] [data-confirm]");
       await page!.waitFor(`!document.querySelector('[data-workspace="${client.id}"]')`, { label: "deleted" });
       if ((await apiCall<unknown[]>("/api/workspaces")).length !== 1) throw new Error("the workspace wasn't deleted");
-      return `separate cookies; icon, shortcuts, reorder, moved a tab by dropping it; ${await header()} restored`;
+      return `named and given an icon in its editor (next to its icon), separate cookies, shortcuts, reorder, moved a tab by dropping it; ${await header()} restored`;
     },
   );
 

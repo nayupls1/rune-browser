@@ -9,7 +9,7 @@ beyond its sandbox.
 
 ## Workspaces
 
-Workspaces keep projects and contexts apart, like Zen Browser's: each is a collection of tabs, shown as icons at the bottom of the tab sidebar. Click one to switch (or Ctrl+Alt+1…9, also from inside web pages), "+" makes a new one (and asks for its name), dragging an icon reorders them (`PUT /api/workspaces/order`), dropping a tab on one moves the tab there, and an icon's menu renames it, changes its icon, moves it or deletes it. The current workspace's icon is the highlighted one (its name is in the tooltip). Each has:
+Workspaces keep projects and contexts apart, like Zen Browser's: each is a collection of tabs, shown as icons at the bottom of the tab sidebar. Click one to switch (or Ctrl+Alt+1…9, also from inside web pages), "+" makes a new one, dragging an icon reorders them (`PUT /api/workspaces/order`), dropping a tab on one moves the tab there, and an icon's menu renames it, changes its icon, moves it or deletes it. Its name and icon are edited together in one popover next to its icon (`components/WorkspaceEditor.tsx`): it opens right after "+" (the name ready to type), from Rename or Change icon… in its menu, on a double-click, or from the icon in Settings → Workspace. A picked icon applies at once; the name on Enter, Done or a click elsewhere, and Escape leaves it as it was. The current workspace's icon is the highlighted one (its name is in the tooltip). Each has:
 
 - its own tabs. Tabs can be moved between workspaces (tab menu → Move to);
 - its own default agent and instructions, added after the global ones (Settings → Workspace);

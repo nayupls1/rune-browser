@@ -41,6 +41,7 @@ import { Apps } from "./db/Apps";
 import { BookmarkError, Bookmarks } from "./bookmarks/Bookmarks";
 import { bookmarkSources } from "./bookmarks/sources";
 import { parseBookmarksHtml } from "../shared/bookmarks";
+import { isRecordable } from "../shared/visits";
 import { isIcon } from "./icons";
 import { Network } from "./db/Network";
 import { ResponseOverrides } from "./db/ResponseOverrides";
@@ -2603,9 +2604,24 @@ const visitRoutes = HttpRouter.addAll([
         const workspaceId = yield* optionalWorkspace;
         const params = new URL((yield* HttpServerRequest.HttpServerRequest).url, "http://localhost").searchParams;
         const before = Number(params.get("before")) || undefined;
-        const limit = Math.min(Math.max(Number(params.get("limit")) || 100, 1), 500);
+        const limit = Math.min(Math.max(Number(params.get("limit")) || 100, 1), 5000);
         const search = (params.get("search") ?? "").slice(0, 200);
-        return json(yield* (yield* Visits).list({ workspaceId, search, before, limit }));
+        const time = (name: string) => {
+          const value = params.get(name);
+          return value && !Number.isNaN(Date.parse(value)) ? new Date(value).toISOString() : undefined;
+        };
+        const url = params.get("url")?.slice(0, 8000) || undefined;
+        return json(
+          yield* (yield* Visits).list({
+            workspaceId,
+            search,
+            before,
+            since: time("since"),
+            until: time("until"),
+            url,
+            limit,
+          }),
+        );
       }),
     ),
   ),
@@ -2621,6 +2637,38 @@ const visitRoutes = HttpRouter.addAll([
         const limit = Math.min(Math.max(Number(params.get("limit")) || 5, 1), 20);
         // Nothing typed yet: the pages visited most often and lately (the address bar shows them when it opens).
         return json(yield* (yield* Visits).suggest(workspaceId, query, limit));
+      }),
+    ),
+  ),
+  // A visit added by an extension (chrome.history.addUrl).
+  HttpRouter.route(
+    "POST",
+    "/api/visits/add",
+    handle(
+      Effect.gen(function* () {
+        const workspaceId = yield* workspaceParam;
+        const { url, title } = yield* decodeBody(Schema.Struct({ url: str(8000), title: Schema.optional(str(1000)) }));
+        if (!isRecordable(url)) return yield* fail(400, "Only web pages and files can be in the history");
+        const added = yield* (yield* Visits).add(workspaceId, url, title ?? "");
+        if (added) yield* publishVisits(workspaceId);
+        return json({ added });
+      }),
+    ),
+  ),
+  // Deletes every visit to a page (chrome.history.deleteUrl).
+  HttpRouter.route(
+    "POST",
+    "/api/visits/delete-url",
+    handle(
+      Effect.gen(function* () {
+        const workspaceId = yield* optionalWorkspace;
+        const { url } = yield* decodeBody(Schema.Struct({ url: str(8000) }));
+        const removed = yield* (yield* Visits).removeUrl(url, workspaceId);
+        if (removed) {
+          yield* youDid(workspaceId && workspaceScope(workspaceId), "history.delete", `${removed} visits`);
+          yield* publishVisits(workspaceId);
+        }
+        return json({ removed });
       }),
     ),
   ),
@@ -2665,10 +2713,14 @@ const visitRoutes = HttpRouter.addAll([
     handle(
       Effect.gen(function* () {
         const workspaceId = yield* optionalWorkspace;
-        const { since } = yield* decodeBody(Schema.Struct({ since: Schema.NullOr(str(40)) }));
+        const { since, until } = yield* decodeBody(
+          Schema.Struct({ since: Schema.NullOr(str(40)), until: Schema.optional(Schema.NullOr(str(40))) }),
+        );
         if (since !== null && Number.isNaN(Date.parse(since))) return yield* fail(400, "since must be a time");
+        if (until && Number.isNaN(Date.parse(until))) return yield* fail(400, "until must be a time");
         const from = since === null ? null : new Date(since).toISOString();
-        const removed = yield* (yield* Visits).clear(workspaceId, from);
+        const to = until ? new Date(until).toISOString() : null;
+        const removed = yield* (yield* Visits).clear(workspaceId, from, to);
         yield* youDid(
           workspaceId && workspaceScope(workspaceId),
           "history.clear",

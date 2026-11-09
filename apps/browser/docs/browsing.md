@@ -280,10 +280,29 @@ An imported extension gets `runtime.onInstalled` with `reason: "update"`, so it 
 - toolbar buttons (`action`, `browserAction`, `pageAction`: badges, popups, per-tab state);
 - `tabs`/`windows` (tabs open, select and close through Rune Browser's tab list);
 - `commands`, `contextMenus`, `permissions` (optional ones ask first);
-- `storage.sync`, `webNavigation`, `cookies`, `notifications`, `idle`, `management`, `downloads.download`, `search`, `system.cpu`/`memory`/`display`;
+- `storage.sync`, `webNavigation`, `cookies`, `notifications`, `idle`, `management` (turning other extensions on, and removing one, ask you first), `search`, `system.cpu`/`memory`/`display`/`storage`;
 - `bookmarks` (Rune Browser's own, see Bookmarks);
 - `runtime.onInstalled`/`onStartup`/`openOptionsPage`;
 - native messaging.
+
+The ones that reach into the browser's own data and devices are in `src/main/extensions/browserApis.ts` (with what doesn't need Electron in `src/shared/extensionApis.ts`). Each is checked against the extension's permissions in the main process too, not only by the shim, and covers the extension's workspace:
+
+- `history` and `topSites`: the workspace's browsing history (searched, read by page, added to and deleted from, with `onVisited` and `onVisitRemoved`); private windows keep none, so it's empty there.
+- `sessions`: the tabs closed lately in the workspace (`getRecentlyClosed`, `restore`, `onChanged`), and values kept with tabs and windows until Rune Browser quits. There are no other devices.
+- `downloads`: the workspace's downloads, as the downloads page has them: downloading (under a name of its own in the downloads folder, asking where, or replacing a file), search, pause, resume, cancel, erase, open (`downloads.open`), show, remove the file, keep a risky one (you're asked), its icon, and `onCreated`/`onChanged`/`onErased`. `setUiOptions` and `setShelfEnabled` hide the downloads button. Rune Browser names downloads itself, so `onDeterminingFilename` never fires.
+- `browsingData`: cookies, cache, Cache Storage, storage, service workers, history and downloads of the workspace, for some sites or all; a time range covers the sites visited in it (Electron can't clear by time). Extensions keep their own data, like in Chrome.
+- `contentSettings`, `privacy`, `fontSettings`: Rune Browser's own settings, changed through the window (Settings shows the change): site settings for JavaScript, images, sound, location, camera, microphone, notifications and the clipboard (cookies, pop-ups and automatic downloads have no site setting and read as Chrome's defaults), third-party cookies, Do Not Track and WebRTC's IP policy (Google's services and the Privacy Sandbox read as off and can't be changed), the fonts and their sizes. `clear` takes back only what the extension set.
+- `proxy`: the workspace's proxy (`session.setProxy`), kept until the extension clears it, and put back when it starts again.
+- `debugger`: a tab's DevTools protocol, shared with Rune Browser's own users of it (`main/cdp.ts`); a notice says which extension started debugging which tab.
+- `declarativeContent`: its toolbar button shown, or its icon set, on the pages its rules match (URL filters, CSS selectors looked for in a world of the page's own, bookmarked pages). The rules are kept, like Chrome's. `RequestContentScript` does nothing, like in Chrome's stable builds.
+- `desktopCapture`: the screen picker of site permissions, over the extension's tab, for screens and windows; `tabCapture`: a tab's video and sound, by an id the page that uses it turns into a stream (`getUserMedia` in the extension's page swaps it). Their pages get the `media` permission for a moment after that, not before.
+- `identity.launchWebAuthFlow`: the sign-in page in a window of its own (with the workspace's logins), until it goes to `https://<id>.chromiumapp.org/`; not interactive, it has to get there without you.
+- `pageCapture` (a tab as MHTML), `power` (keeping the computer or the display awake), `geolocation` (for its pages).
+- `tts`: the system's voices, through the window's speech synthesis, and other extensions' voices (`ttsEngine`, which get `onSpeak` and answer with `sendTtsEvent`).
+- `userScripts`: scripts it registers run on the sites it has access to, at `document_start`/`end` (DOM ready) or `document_idle`, in a world of the extension's own on the page's frame (frames inside it: the page's world), or the page's with `world: "MAIN"`; `execute` runs one now.
+- `sidePanel`: its page in a panel on the right of the window, beside the workspace's tabs (`components/ExtensionSidePanel.tsx`), opened by `sidePanel.open` or its toolbar button (`openPanelOnActionClick`, which closes it again), closed by its ×, `window.close()` or `sidePanel.close`.
+- `favicon`: `chrome-extension://<id>/_favicon/?pageUrl=…` in its pages and `fetch` gives the site's icon.
+- `tabs.discard` unloads the tab (tab unloading), `tabs.detectLanguage` reads the page's language.
 
 **Site sign-ins** (HTTP Basic/Digest, proxies): Electron cancels them and never asks extensions. Rune Browser handles them itself (`login` in `src/main/web.ts`): extensions that listen to `webRequest.onAuthRequired` (with `webRequestAuthProvider` or `webRequestBlocking`, and access to the site) are asked first, like in Chrome, so password managers fill them in. A retry keeps its request ID, and after two refused answers the extensions aren't asked again. Then Rune Browser's own sign-in dialog asks you (`components/AuthDialog.tsx`). App previews keep Electron's behavior.
 
@@ -295,7 +314,8 @@ Stopped service workers are started again for the events they listened to. Elect
 
 **Caveats:**
 
-- **Limited permissions** (`shared/extensions.ts`, `permissionAbout`): what Rune Browser doesn't have gets a stand-in, so the extension keeps working: `history`, `sessions`, `tabGroups`, `topSites` are empty, `privacy` and `fontSettings` read as defaults and change nothing, `identity`, `tabCapture`, `gcm` and anything unknown fail with `lastError`, `desktopCapture` acts cancelled. A side panel (`sidePanel`) shows as the popup of its toolbar button, or in a tab. `userScripts` stays missing, like in Chrome with "Allow user scripts" off. Import and the extension's details say what's different for each.
+- **Limited permissions** (`shared/extensions.ts`, `permissionAbout`): what Rune Browser can't have gets a stand-in, so the extension keeps working: `tabGroups` sees no groups (Rune Browser has none; split views are something else), `gcm` gets no push messages (they go through Google's servers for Chrome only), `identity.getAuthToken` and `identity.email` fail (there's no browser account), `ttsEngine`'s voices are offered to extensions but not to web pages, `system.storage` can't eject devices, and anything unknown fails with `lastError`. Import and the extension's details say what's different for each.
+- **User scripts** run when the `userScripts` permission is allowed in its details (Chrome's "Allow user scripts" switch).
 - **Allowing and blocking permissions:** an extension's details list every permission it asks for with a switch. Blocking one restarts the extension; its calls then fail (in the shim and in the main process) and its events don't come. Optional permissions are granted or taken back there too, and so are the optional sites it asks for (`optional_host_permissions`), with the checks `chrome.permissions` makes; narrower sites `chrome.permissions.request` was given can be removed. Those don't restart it: it gets `permissions.onAdded`/`onRemoved`. The sites it always has (host permissions, content scripts) are listed without a switch: Electron can't withhold them.
 - `chrome.storage.sync` data isn't imported (Chrome keeps it in a LevelDB that Rune Browser doesn't parse).
 - Settings are imported into each workspace once, when the extension first loads there; later changes stay per workspace.

@@ -576,6 +576,52 @@ export function setupSitePermissions(options: Options) {
     return true;
   }
 
+  /**
+   * An extension's chrome.desktopCapture.chooseDesktopMedia: the same picker, over a tab of its workspace,
+   * offering the kinds of sources it asks for. The source picked (its desktopCapturer id, or "tab:<id>"), or null.
+   */
+  async function pickForExtension(
+    s: Session,
+    contents: WebContents,
+    name: string,
+    types: readonly string[],
+    audio: boolean,
+  ): Promise<{ id: string; type: ScreenSource["type"]; audio: boolean } | null> {
+    if (!windows.of(contents)) return null;
+    const portal = systemPicker();
+    const found: { sources: ScreenSource[]; error?: string } = portal ? { sources: [] } : await screenSources(s);
+    const sources = found.sources.filter((source) => types.includes(source.type));
+    if (contents.isDestroyed()) return null;
+    const requestId = String(++pickIds);
+    const pick = await new Promise<ScreenPick | null>((resolve) => {
+      picks.set(requestId, { contentsId: contents.id, resolve });
+      sendTo(contents, "rune:screen-pick", {
+        requestId,
+        contentsId: contents.id,
+        site: name,
+        sources,
+        audio,
+        systemPicker: portal,
+        ...(found.error ? { error: found.error } : {}),
+      } satisfies ScreenPickRequest);
+    });
+    if (!pick) return null;
+    if (portal) {
+      const fromPortal = await desktopCapturer.getSources({ types: ["screen", "window"] }).catch(() => []);
+      const first = fromPortal[0];
+      return first ? { id: first.id, type: first.id.startsWith("screen:") ? "screen" : "window", audio: false } : null;
+    }
+    const source = sources.find((x) => x.id === pick.sourceId);
+    if (!source) return null;
+    if (
+      source.type !== "tab" &&
+      process.platform === "darwin" &&
+      systemPreferences.getMediaAccessStatus("screen") === "denied"
+    )
+      return null;
+    return { id: source.id, type: source.type, audio: pick.audio && audio };
+  }
+
   /** The page's getDisplayMedia, after its permission: shares what was picked. */
   async function pickScreen(s: Session, request: DisplayMediaRequestHandlerHandlerRequest): Promise<Streams | null> {
     const contents = request.frame ? webContents.fromFrame(request.frame) : undefined;
@@ -681,6 +727,12 @@ export function setupSitePermissions(options: Options) {
     pickScreen: (s: Session, req: DisplayMediaRequestHandlerHandlerRequest) =>
       pickScreen(s, req).catch((err) => {
         console.warn("Screen sharing failed:", err);
+        return null;
+      }),
+    /** An extension's desktopCapture picker (see pickForExtension). */
+    pickForExtension: (...args: Parameters<typeof pickForExtension>) =>
+      pickForExtension(...args).catch((err) => {
+        console.warn("An extension's screen picker failed:", err);
         return null;
       }),
     /** The browser settings' sites or defaults changed: answers just given are in them now. */

@@ -55,8 +55,15 @@ interface StoredState {
   version?: string;
   menus?: MenuItem[];
   seeded?: boolean;
-  /** chrome.sidePanel: the page it set, and whether its toolbar button opens it (shown as its popup). */
+  /** chrome.sidePanel: the page it set, and whether its toolbar button opens it. */
   sidePanel?: { path?: string; openOnAction?: boolean };
+  /** chrome.declarativeContent's rules (kept, like Chrome's, until it removes them). */
+  pageRules?: unknown[];
+  /** chrome.userScripts: its registered scripts and its worlds' configuration. */
+  userScripts?: unknown[];
+  userScriptWorlds?: Record<string, unknown>;
+  /** chrome.proxy: the proxy it set for the workspace (Chrome's ProxyConfig). */
+  proxy?: unknown;
 }
 
 /** What Rune Browser keeps for one extension in one workspace's session. */
@@ -89,9 +96,13 @@ export class ExtensionState {
     }
   }
 
+  /** What declarativeContent's rules do to its toolbar button on a tab's page (ShowAction, SetIcon). */
+  pageActions = new Map<number, Partial<ActionState>>();
+
   actionFor(tabId: number | null): ActionState {
     const tab = tabId === null ? undefined : this.tabActions.get(tabId);
-    return tab ? { ...this.action, ...tab } : this.action;
+    const page = tabId === null ? undefined : this.pageActions.get(tabId);
+    return tab || page ? { ...this.action, ...page, ...tab } : this.action;
   }
 
   static remove(file: string) {

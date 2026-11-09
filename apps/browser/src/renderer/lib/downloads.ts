@@ -22,6 +22,10 @@ const [panelOpen, setPanelOpen] = createSignal(false);
 const [unseen, setUnseen] = createSignal(0);
 export { panelOpen, unseen };
 
+/** Whether the downloads button shows (an extension can hide it: chrome.downloads.setUiOptions). */
+const [downloadsUi, setDownloadsUi] = createSignal(true);
+export { downloadsUi, setDownloadsUi };
+
 export function showPanel(open: boolean) {
   setPanelOpen(open);
   if (open) setUnseen(0);
