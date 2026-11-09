@@ -1,6 +1,6 @@
 # Development
 
-[README](../../../README.md) · [Architecture](architecture.md) · [Concepts](concepts.md) · [Interface](interface.md) · [Browsing](browsing.md) · [Design system](design-system.md) · [Development](development.md) · [Releasing](releasing.md)
+[README](../../../README.md) · [Architecture](architecture.md) · [Concepts](concepts.md) · [Interface](interface.md) · [Browsing](browsing.md) · [Design system](design-system.md) · [Development](development.md) · [Benchmarks](benchmarks.md) · [Releasing](releasing.md)
 
 ## Setup
 
@@ -46,6 +46,7 @@ is usually pulled before it reaches us.
 | `bun run test`        | Unit tests (`tests/`, bun:test) against the real server with throwaway data. Failed files are run once more; see Flaky checks below.                                                                                                                                                                        |
 | `bun run e2e`         | Launches the built app with a throwaway profile and drives the UI over the DevTools protocol; add `--agent` to also have the agents build an app and customize a site (uses your own plan). Runs offscreen on Chromium's headless display backend, so no window opens. Screenshots land in `test-results/`. |
 | `bun run screenshots` | Takes the README's screenshots (`docs/screenshots/`) again, of the built app in the same headless way.                                                                                                                                                                                                      |
+| `bun run bench`       | Performance benchmarks: Rune against Chrome on the same pages, and Rune's UI under stress (loading, input to paint, frames, freezes, CPU, memory, GPU). See [Benchmarks](benchmarks.md).                                                                                                                    |
 | `bun run check`       | Everything: formatting (`bun fmt --check`), typecheck, tests, build, e2e.                                                                                                                                                                                                                                   |
 | `bun run release`     | Releases, see [Releasing](releasing.md).                                                                                                                                                                                                                                                                    |
 

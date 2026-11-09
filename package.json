@@ -17,6 +17,7 @@
     "typecheck": "turbo run typecheck",
     "test": "turbo run test --",
     "e2e": "bun run --cwd apps/browser e2e",
+    "bench": "bun run --cwd apps/browser bench",
     "check": "bun fmt --check && turbo run typecheck test build && bun run e2e"
   },
   "devDependencies": {

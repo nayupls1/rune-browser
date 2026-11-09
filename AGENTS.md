@@ -9,7 +9,7 @@ A Bun workspace with Turborepo (`turbo.json`):
 - `apps/browser`: Rune Browser, the main package. Paths below (`src/…`, `scripts/…`, `tests/…`) are relative to it. The README's screenshots (`docs/screenshots/`) are of the real app too: `bun run --cwd apps/browser screenshots` takes them again (after a build).
 - `apps/landing`: the website, static Astro pages styled with StyleX. It ships no JavaScript and a strict CSP (`default-src 'none'`: no scripts at all); keep it that way, no third-party scripts, fonts or trackers. Its screenshots are of the real app: `bun run --cwd apps/landing screenshots` takes them again (after `bun run --cwd apps/browser build`).
 
-Run commands from the repo's root: `bun run check`, `typecheck`, `test` and `build` go through Turborepo for every package; `dev`, `start`, `package`, `server`, `e2e` and `release` are the browser's (`dev:landing` for the website).
+Run commands from the repo's root: `bun run check`, `typecheck`, `test` and `build` go through Turborepo for every package; `dev`, `start`, `package`, `server`, `e2e`, `bench` and `release` are the browser's (`dev:landing` for the website).
 
 ## Working in this repo
 
@@ -37,6 +37,7 @@ Run commands from the repo's root: `bun run check`, `typecheck`, `test` and `bui
 - Verify changes with `bun run check` (formatting, typecheck, unit tests, build, e2e). Chain steps with `&&`, and don't hide failures behind pipes.
   - For UI work, look at the screenshots in `apps/browser/test-results/`.
   - `bun run e2e --agent` exercises real agent runs. They use your own plan; it picks Haiku/low effort.
+- Performance work: `bun run bench` measures Rune against Chrome and Rune's UI under stress (loading, input to paint, frames, freezes, CPU, memory, GPU); see [benchmarks.md](apps/browser/docs/benchmarks.md). Save a baseline before the change (`--save-baseline`), then rerun with `--only <scenario>` and look at what regressed. Headless like e2e; never `--headed` for checks.
 - `scripts/lib/cdp.ts` is a small DevTools client for driving the running app if you need to inspect something e2e doesn't cover. Launch it headless as above.
 - StyleX:
   - No `border`/`background` shorthands: they're silently dropped. Use longhands.

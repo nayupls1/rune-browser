@@ -9,6 +9,7 @@ release/
 .env.*
 !.env.example
 test-results/
+bench-results/
 references/
 
 .turbo/

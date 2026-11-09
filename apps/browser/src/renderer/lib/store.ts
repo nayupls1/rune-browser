@@ -252,8 +252,25 @@ function upsertApp(app: AppSummary) {
   if (movedIn) void selectApp(app.id);
 }
 
-/** All open tabs from the server: this window's, and the others'. */
-function setAllApps(list: AppSummary[]) {
+/**
+ * Tab list changes pushed by the hub, newest per tab (null: deleted), with when they came. A full list
+ * fetched before one of them is older than it: without this, a tab created (or renamed, or closed) while
+ * the list was on its way would be undone when the list lands, e.g. one opened right as the window starts.
+ */
+const pushed = new Map<string, { at: number; app: AppSummary | null }>();
+function notePush(id: string, app: AppSummary | null) {
+  const at = performance.now();
+  pushed.set(id, { at, app });
+  for (const [key, p] of pushed) if (at - p.at > 60_000) pushed.delete(key);
+}
+
+/** All open tabs from the server, as of `since` (when the request went out): this window's, and the others'. */
+function setAllApps(fetched: AppSummary[], since: number) {
+  const newer = [...pushed].filter(([, p]) => p.at >= since);
+  const list = fetched
+    .filter((t) => !newer.some(([id, p]) => id === t.id && !p.app))
+    .map((t) => newer.find(([id]) => id === t.id)?.[1].app ?? t);
+  for (const [id, p] of newer) if (p.app && !list.some((t) => t.id === id)) list.push(p.app);
   for (const tab of [...apps]) {
     const now = list.find((t) => t.id === tab.id);
     if (!now) forgetApp(tab.id);
@@ -264,11 +281,22 @@ function setAllApps(list: AppSummary[]) {
 }
 
 /**
+ * Takes the keyboard focus out of a tab's page before the page is removed. A page removed while it has
+ * the focus (its tab closed or moved from elsewhere: an agent, an extension, another window) leaves the
+ * window unable to give any page the focus again: clicks still reach pages, keys don't.
+ */
+function releaseFocus(id: string) {
+  const focused = document.activeElement as HTMLElement | null;
+  if (focused?.closest(`[data-tab-layer="${CSS.escape(id)}"]`)) focused.blur();
+}
+
+/**
  * A tab went to another window: it closes here (its page goes, its chat stays on
  * the server). A window whose last tab left closes too, like in Chrome.
  */
 function leaveWindow(id: string) {
   const index = workspaceTabs().findIndex((a) => a.id === id);
+  releaseFocus(id);
   setApps((list) => list.filter((a) => a.id !== id));
   setOpened(opened().filter((x) => x !== id));
   lastUsed.delete(id);
@@ -290,6 +318,7 @@ function forgetApp(id: string) {
   setOthers((list) => list.filter((a) => a.id !== id));
   const index = workspaceTabs().findIndex((a) => a.id === id);
   if (!appById(id)) return;
+  releaseFocus(id);
   setApps((list) => list.filter((a) => a.id !== id));
   setOpened(opened().filter((x) => x !== id));
   lastUsed.delete(id);
@@ -304,16 +333,21 @@ createRoot(() => createEffect(() => reportTabs(apps.map((a) => a.id))));
 
 // The tab list changes from elsewhere too (the agent names apps, duplicates…).
 watchTopic(topics.apps, (msg) => {
-  if (msg.type === "app") upsertApp(msg.app);
-  else if (msg.type === "app-deleted") forgetApp(msg.appId);
+  if (msg.type === "app") {
+    notePush(msg.app.id, msg.app);
+    upsertApp(msg.app);
+  } else if (msg.type === "app-deleted") {
+    notePush(msg.appId, null);
+    forgetApp(msg.appId);
+  }
 });
-onConnected(
-  () =>
-    void api.listApps().then(
-      (list) => setAllApps(list),
-      () => {},
-    ),
-);
+onConnected(() => {
+  const since = performance.now();
+  void api.listApps().then(
+    (list) => setAllApps(list, since),
+    () => {},
+  );
+});
 
 const addMessage = (id: string, message: ChatMessage) =>
   setStates(
@@ -368,9 +402,10 @@ async function refreshDetail(id: string) {
 }
 
 export async function loadApps() {
+  const since = performance.now();
   const [spaces, list] = await Promise.all([api.workspaces(), api.listApps()]);
   setWorkspaces(reconcile(spaces));
-  setAllApps(list);
+  setAllApps(list, since);
   // A window that has tabs in another workspace only (a tab dragged out into it) shows that one.
   if (!workspaceTabs().length && apps[0]) setCurrentWorkspace(apps[0].workspaceId);
   if (!selectedId()) await showWorkspace(currentWorkspace()!.id);
@@ -597,7 +632,8 @@ export async function reorderTabs(ids: string[]) {
     for (const tab of await api.reorderTabs(workspace.id, ids)) upsertApp(tab);
   } catch (err) {
     console.error("Saving the tab order failed:", err);
-    setAllApps(await api.listApps());
+    const since = performance.now();
+    setAllApps(await api.listApps(), since);
   }
 }
 
