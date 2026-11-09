@@ -3,7 +3,7 @@
 // changed since a baseline run.
 import type { BrowserName } from "./browsers";
 import type { Entry, Metric } from "./results";
-import { geomean, median, separation } from "./stats";
+import { geomean, mannWhitneyP, median } from "./stats";
 
 export interface Environment {
   date: string;
@@ -30,12 +30,17 @@ export function badness(m: Metric, value: number, reference: number) {
   return m.better === "lower" ? value / reference : reference / value;
 }
 
-/** Is a difference real: beyond the noise between runs, and not a rounding-sized one. */
+/** Runs needed on each side before a difference can count: with fewer, no test can tell it from noise. */
+export const MIN_RUNS = 5;
+
+/**
+ * Is a difference real: unlikely to be noise (Mann–Whitney U, p < 0.01), at least 10%, and more than a
+ * rounding-sized amount. With fewer than 5 runs on a side it never is (3 against 3 can't get below p = 0.1).
+ */
 function significant(m: Metric, a: number[], b: number[], ratio: number) {
-  // A run or two can't tell noise from a difference.
-  if (a.length < 3 || b.length < 3) return false;
-  const tiny = { ms: 2, MB: 2, "%": 0.5, fps: 1, count: 0.5, score: 0.01 }[m.unit];
-  return Math.abs(median(a) - median(b)) > tiny && Math.abs(ratio - 1) > 0.05 && separation(a, b) > 2;
+  if (a.length < MIN_RUNS || b.length < MIN_RUNS) return false;
+  const tiny = { ms: 2, MB: 5, "%": 1, fps: 2, count: 0.5, score: 0.01 }[m.unit];
+  return Math.abs(median(a) - median(b)) > tiny && Math.abs(ratio - 1) >= 0.1 && mannWhitneyP(a, b) < 0.01;
 }
 
 export interface Row {
@@ -103,6 +108,11 @@ export function markdown(saved: Saved, baseline?: Saved) {
   );
   for (const [name, b] of Object.entries(env.browsers)) out.push(`- **${name}**: ${b.version} — GPU: ${b.gpu}`);
   out.push("");
+  if (env.runs < MIN_RUNS)
+    out.push(
+      `> ${env.runs} runs: too few to tell differences from noise (that takes ${MIN_RUNS}), so nothing is flagged as better, worse or changed. The ratios are only a first look.`,
+      "",
+    );
 
   const groups = [...new Set(all.map((r) => r.metric.group))];
   const comparable = all.filter((r) => r.ratio !== undefined);
@@ -201,6 +211,11 @@ export function markdown(saved: Saved, baseline?: Saved) {
 export function summary(saved: Saved, baseline?: Saved) {
   const all = rows(saved.entries, baseline?.entries);
   const lines: string[] = [];
+  if (saved.env.runs < MIN_RUNS)
+    lines.push(
+      `${saved.env.runs} runs: too few to tell differences from noise (that takes ${MIN_RUNS}); nothing is flagged.`,
+      "",
+    );
   const comparable = all.filter((r) => r.ratio !== undefined);
   if (comparable.length) {
     lines.push(`Rune vs Chrome, all ${comparable.length} shared metrics: ${times(score(comparable))}`);

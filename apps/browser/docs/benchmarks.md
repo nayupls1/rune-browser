@@ -13,7 +13,7 @@ better or worse.
 ```sh
 bun run build                 # the benchmarks run the built app
 bun run bench                 # everything: about 30–40 minutes
-bun run bench --quick         # 3 runs instead of 5, 2 launches instead of 5
+bun run bench --quick         # 3 runs instead of 5: a look, too few to flag changes
 bun run bench --only "input|ui.tab-switch"   # just what you're working on
 bun run bench --list          # every scenario, with what it does
 ```
@@ -32,11 +32,16 @@ to a JSON file per run next to it (the folder is ignored by git).
    regressed, for scripts.
 
 Only differences beyond the noise count as changes. A metric counts as
-changed when its median moved by more than 5%, by more than a rounding-sized
-amount (2 ms, 2 MB…), and by more than twice the variation between runs
-(medians and median absolute deviations, which ignore the occasional outlier).
-That needs at least 3 runs on each side. Compare runs from the same machine,
-with nothing else heavy running. Two saved runs can also be compared later:
+changed (or as better or worse than Chrome) when the runs on each side are
+unlikely to come from the same distribution (a Mann–Whitney U test, p < 0.01,
+which assumes nothing about the shape of the noise), its median moved by at
+least 10%, and by more than a rounding-sized amount (2 ms, 5 MB…). That takes
+at least 5 runs on each side: with fewer, no test can tell a change from noise,
+so `--quick` runs show the ratios but flag nothing. Noisy metrics (page loads
+on a busy machine) need more: `--runs 10`. Compare runs from the same machine,
+with nothing else heavy running. Even then a machine drifts a little between
+sessions (two runs of the same build flag about 1% of metrics), so confirm a
+change that matters by running just that scenario again (`--only`). Two saved runs can also be compared later:
 `bun run bench compare before.json after.json`.
 
 A `Benchmarks` workflow runs the whole suite on GitHub's Linux runners when
