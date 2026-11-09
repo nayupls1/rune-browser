@@ -25,6 +25,7 @@ import {
   runningDownloads,
   showPanel,
   unseen,
+  downloadsUi,
 } from "../lib/downloads";
 import { withKeys } from "../lib/shortcuts";
 import { colors, font, radius, space } from "../theme.stylex";
@@ -236,7 +237,7 @@ export function DownloadsButton() {
   const spinning = () => busy() && progress() === null;
   const ring = 2 * Math.PI * 12;
   return (
-    <Show when={recentDownloads().length}>
+    <Show when={recentDownloads().length && downloadsUi()}>
       <button
         type="button"
         title={withKeys("Downloads", "open.downloads")}

@@ -187,13 +187,15 @@ describe("manifests", () => {
         manifest_version: 3,
         name: "x",
         version: "1",
-        permissions: ["storage", "privacy", "userScripts", "https://*/*", "tabs"],
+        permissions: ["storage", "privacy", "userScripts", "history", "gcm", "tabGroups", "https://*/*", "tabs"],
       }),
-    ).toEqual(["privacy", "userScripts"]);
+    ).toEqual(["gcm", "tabGroups"]);
     // Each one says what it's for and what's different; unknown ones too.
     expect(permissionAbout("storage")).toEqual({ description: "Store its settings and data", limited: null });
-    expect(permissionAbout("history").limited).toContain("empty");
-    expect(permissionAbout("fileSystem.write").limited).toContain("Chrome apps");
+    for (const p of ["history", "downloads", "debugger", "proxy", "tts", "userScripts", "sidePanel", "tabCapture"])
+      expect(permissionAbout(p).limited).toBeNull();
+    expect(permissionAbout("identity").limited).toContain("getAuthToken");
+    expect(permissionAbout("fileSystem.write")).toMatchObject({ description: expect.stringContaining("Chrome apps") });
     expect(permissionAbout("somethingNew")).toMatchObject({
       description: "somethingNew",
       limited: expect.stringContaining("keeps working"),

@@ -526,7 +526,19 @@ export async function deleteApp(id: string) {
 }
 
 /** Web tabs closed lately in this window, newest last (Ctrl+Shift+T opens the last one again). */
-const recentlyClosed: { url: string; workspaceId: string; at: number }[] = [];
+const recentlyClosed: { url: string; title: string; workspaceId: string; at: number }[] = [];
+
+/** A workspace's web tabs closed lately in this window, newest first (chrome.sessions.getRecentlyClosed). */
+export const closedTabsOf = (workspaceId: string) =>
+  recentlyClosed.filter((c) => c.workspaceId === workspaceId).reverse();
+
+/** Opens one of them again (the latest without `at`), like chrome.sessions.restore; the new tab, or null. */
+export async function restoreClosedTab(workspaceId: string, at: number | null) {
+  const i = recentlyClosed.findLastIndex((c) => c.workspaceId === workspaceId && (at === null || c.at === at));
+  if (i === -1) return null;
+  const [closed] = recentlyClosed.splice(i, 1);
+  return newWebTab(closed!.url, { workspaceId: closed!.workspaceId });
+}
 
 /**
  * Closes a tab, like in a browser. An app is kept with everything it has
@@ -539,7 +551,8 @@ export async function closeTab(id: string) {
   if (tab.kind === "app") await api.closeApp(id);
   else {
     // A private window doesn't remember what it closed: nothing of it is kept.
-    if (tab.url && !isPrivate) recentlyClosed.push({ url: tab.url, workspaceId: tab.workspaceId, at: Date.now() });
+    if (tab.url && !isPrivate)
+      recentlyClosed.push({ url: tab.url, title: tab.name, workspaceId: tab.workspaceId, at: Date.now() });
     if (recentlyClosed.length > 25) recentlyClosed.shift();
     await api.deleteApp(id);
   }

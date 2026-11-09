@@ -7,6 +7,7 @@ import { AuthHost } from "./components/AuthDialog";
 import { ScreenPickHost } from "./components/SitePermissions";
 import { ConfirmHost } from "./components/ConfirmDialog";
 import { WorkspaceEditorHost } from "./components/WorkspaceEditor";
+import { ExtensionSidePanel } from "./components/ExtensionSidePanel";
 import { DownloadsPanel } from "./components/Downloads";
 import { ExtensionImportHost } from "./components/ExtensionImport";
 import { PermissionHost } from "./components/PermissionHost";
@@ -262,6 +263,7 @@ export default function App() {
           </Show>
         </div>
       </div>
+      <ExtensionSidePanel />
       <AgentSidebar />
     </div>
   );

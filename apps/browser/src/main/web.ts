@@ -106,6 +106,9 @@ export function setupWebTabs(
     holdInsecure,
     moreRules: (firstId) => browser.rules(firstId),
     server: getServer,
+    downloads: () => downloads,
+    browserSettings: () => browser.settings(),
+    pickDesktop: (...args) => sitePermissions.pickForExtension(...args),
   });
   /** Websites, and the pages of the extensions running in that session. */
   const isTabUrl = (s: Electron.Session, url: string) => isWebUrl(url) || extensions.isExtensionPage(s, url);
