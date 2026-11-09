@@ -393,11 +393,11 @@ async function newTab(label: "New app" | "New web tab") {
 
 /** Authenticated request to the Rune Browser server, made from the renderer. */
 const apiCall = <T>(path: string, init: { method?: string; body?: unknown } = {}) =>
-  page!.eval<T>(`fetch(window.rune.serverUrl + ${JSON.stringify(path)}, {
+  page!.eval<T>(`window.rune.serverReady().then(() => fetch(window.rune.serverUrl + ${JSON.stringify(path)}, {
     method: ${JSON.stringify(init.method ?? "GET")},
     headers: { "Content-Type": "application/json", Authorization: "Bearer " + window.rune.token },
     ${init.body !== undefined ? `body: ${JSON.stringify(JSON.stringify(init.body))},` : ""}
-  }).then(async (r) => { if (!r.ok) throw new Error(r.status + " " + (await r.text())); return r.status === 204 ? null : r.json(); })`);
+  }).then(async (r) => { if (!r.ok) throw new Error(r.status + " " + (await r.text())); return r.status === 204 ? null : r.json(); }))`);
 
 /** Waits for an app to be running; if it doesn't get there, the error has its status and last log lines. */
 async function waitForAppRunning(root: string, appId: string, label: string, timeoutMs = 60_000) {

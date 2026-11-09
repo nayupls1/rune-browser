@@ -82,7 +82,7 @@ export interface ExtensionsOptions {
   /** More rules for the built-in extension after the network rules (the browser settings'), numbered from `firstId`. */
   moreRules?: (firstId: number) => DnrRule[];
   /** Rune Browser's server, once it's started (chrome.bookmarks reads and changes the bookmarks there). */
-  server: () => { url: string; token: string } | undefined;
+  server: () => { url: string; token: string; ready: Promise<void> } | undefined;
   /** The downloads (chrome.downloads), once they're set up. */
   downloads?: () => DownloadsControl | undefined;
   /** The browser settings in effect (site settings, privacy, fonts). */
