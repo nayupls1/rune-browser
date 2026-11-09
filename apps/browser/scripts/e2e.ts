@@ -1407,6 +1407,79 @@ try {
     if (chats.length) throw new Error("unexpected chats");
   });
 
+  await check("agent sidebar: a reply's buttons (copy, send to…) don't cover the tool calls under it", async () => {
+    const panel = `[data-agent-for="${appId}"]`;
+    // A chat with replies between tool calls, as an earlier chat, opened from the list.
+    const before = new Set((await apiCall<{ id: number }[]>(`/api/apps/${appId}/chats`)).map((c) => c.id));
+    const { Database } = await import("bun:sqlite");
+    const db = new Database(join(profile, "data", "rune.sqlite"));
+    db.run("PRAGMA busy_timeout = 5000");
+    const at = (s: number) => new Date(Date.parse("2026-01-05T10:00:00Z") + s * 1000).toISOString();
+    const chatId = Number(
+      db
+        .query("INSERT INTO chats (app_id, title, created_at, updated_at) VALUES (?, ?, ?, ?) RETURNING id")
+        .get(appId, "Reading list", at(0), at(0))!["id" as never],
+    );
+    const seeded: [string, unknown][] = [
+      ["user", "A tiny reading list"],
+      ["assistant", "I'll look at the project first."],
+      ["tool", { kind: "read", title: "Read `src/main.ts`" }],
+      ["tool", { kind: "read", title: "Read `src/db.ts`" }],
+      ["assistant", "Now the schema."],
+      ["tool", { kind: "edit", title: "Edited `src/db.ts`", detail: "CREATE TABLE books (…)" }],
+      ["assistant", "Checking it builds."],
+      ["tool", { kind: "command", title: "Ran `bun run typecheck`", detail: "bun run typecheck" }],
+      ["assistant", "Done: a reading list."],
+    ];
+    seeded.forEach(([role, content], i) =>
+      db.run("INSERT INTO messages (app_id, chat_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)", [
+        appId,
+        chatId,
+        role,
+        typeof content === "string" ? content : JSON.stringify(content),
+        at(i * 5),
+      ]),
+    );
+    db.close();
+    await click(`${panel} [data-chat-history-button]`);
+    await page!.waitFor(`!!document.querySelector('[data-chat="${chatId}"] [data-open-chat]')`, {
+      label: "the seeded chat",
+    });
+    await click(`[data-chat="${chatId}"] [data-open-chat]`);
+    await page!.waitFor(`!!document.querySelector('${panel} [data-turn-end]')`, { label: "the chat's turn" });
+    await click(`${panel} [data-turn-end]`);
+    await page!.waitFor(`document.querySelectorAll('${panel} [data-turn-steps] [data-reply]').length === 3`, {
+      label: "the turn's steps",
+    });
+    // Hovering each reply that a tool call follows: its buttons end above that tool call.
+    const replies = await page!.eval<{ x: number; y: number }[]>(
+      `[...document.querySelectorAll('${panel} [data-turn-steps] [data-reply]')].map((r) => { const b = r.getBoundingClientRect(); return { x: Math.round(b.left + 20), y: Math.round(b.top + 8) }; })`,
+    );
+    const gaps: number[] = [];
+    for (const [i, r] of replies.entries()) {
+      await page!.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: r.x, y: r.y });
+      const gap = await page!.waitFor<number | null>(
+        `(() => {
+          const reply = document.querySelectorAll('${panel} [data-turn-steps] [data-reply]')[${i}];
+          const bar = reply.querySelector("[data-copy-message]").parentElement;
+          if (getComputedStyle(bar).opacity !== "1") return null;
+          return Math.round(reply.nextElementSibling.getBoundingClientRect().top - bar.getBoundingClientRect().bottom) + 1000;
+        })()`,
+        { label: `reply ${i + 1}'s buttons shown` },
+      );
+      gaps.push(gap! - 1000);
+      if (i === 1) await shot("chat-reply-actions.png");
+    }
+    await page!.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 2, y: 300 });
+    if (gaps.some((g) => g < 0)) throw new Error(`the buttons cover the next row by ${-Math.min(...gaps)}px`);
+    // Back to an empty chat, without the seeded one.
+    await click(`${panel} [data-new-chat]`);
+    await page!.waitFor(`!document.querySelector('${panel} [data-reply]')`, { label: "a new chat" });
+    for (const chat of await apiCall<{ id: number }[]>(`/api/apps/${appId}/chats`))
+      if (!before.has(chat.id)) await apiCall(`/api/apps/${appId}/chats/${chat.id}`, { method: "DELETE" });
+    return `${gaps.join(", ")}px between the buttons and the next row`;
+  });
+
   await check(
     "sidebar: no header; the ⋯ menu, workspaces and the agent in one row at the bottom, also at the minimum width",
     async () => {

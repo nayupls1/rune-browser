@@ -882,12 +882,8 @@ const styles = stylex.create({
     overflowWrap: "anywhere",
     userSelect: "text",
   },
-  // Shown on hover, outside the flow: they take no room between messages.
+  // Shown on hover. A reply's sit under it, in the flow: out of it, they'd cover the tool calls that follow.
   actions: {
-    position: "absolute",
-    top: "100%",
-    left: -4,
-    zIndex: 1,
     display: "flex",
     alignItems: "center",
     gap: 2,
@@ -901,8 +897,11 @@ const styles = stylex.create({
     },
     transition: "opacity 150ms",
   },
-  actionsStart: {},
-  actionsUser: { top: "auto", left: "auto", right: "100%", bottom: 0, paddingRight: 2 },
+  // Tucked under the reply's last line (its line-height leaves room), lined up with its text, and partly in the
+  // gap to the next row, so a reply takes little more room than without it.
+  actionsStart: { marginTop: -4, marginBottom: -6, marginLeft: -4 },
+  // Beside your message, on its left, outside the flow (it has room there).
+  actionsUser: { position: "absolute", zIndex: 1, right: "100%", bottom: 0, paddingRight: 2 },
   action: {
     display: "inline-flex",
     alignItems: "center",
