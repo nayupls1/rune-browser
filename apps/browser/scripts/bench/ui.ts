@@ -52,12 +52,26 @@ async function uiLatency(ctx: Ctx, condition: string, action: () => Promise<unkn
 
 /** Real input into the UI itself (no offset: the window's coordinates). */
 const uiTarget = (ctx: Ctx) => ({ cdp: rune(ctx).ui, offset: async () => ({ x: 0, y: 0 }) });
+/** A real click on an element of the UI, scrolled into view first (a tab beyond the strip's edge) as a user would. */
 const uiClick = async (ctx: Ctx, selector: string) => {
-  const at = await rune(ctx).ui.eval<{ x: number; y: number } | null>(
-    `(() => { const el = [...document.querySelectorAll(${JSON.stringify(selector)})].find((e) => e.getClientRects().length); if (!el) return null; const r = el.getBoundingClientRect(); return { x: r.left + Math.min(r.width / 2, 40), y: r.top + r.height / 2 }; })()`,
-  );
-  if (!at) throw new Error(`nothing to click: ${selector}`);
-  await input.click(uiTarget(ctx), at.x, at.y);
+  const ui = rune(ctx).ui;
+  const deadline = Date.now() + 3000;
+  for (let first = true; ; first = false) {
+    // Where it is now, if that's really it under the pointer (scrolling into view may animate).
+    const at = await ui.eval<{ x: number; y: number } | null | false>(`(() => {
+      const el = [...document.querySelectorAll(${JSON.stringify(selector)})].find((e) => e.getClientRects().length);
+      if (!el) return null;
+      if (${first}) el.scrollIntoView({ block: "nearest", inline: "nearest" });
+      const r = el.getBoundingClientRect();
+      const x = r.left + Math.min(r.width / 2, 40), y = r.top + r.height / 2;
+      const hit = document.elementFromPoint(x, y);
+      return hit && el.contains(hit) ? { x, y } : false;
+    })()`);
+    if (at === null) throw new Error(`nothing to click: ${selector}`);
+    if (at) return input.click(uiTarget(ctx), at.x, at.y);
+    if (Date.now() > deadline) throw new Error(`${selector} is covered by something else`);
+    await Bun.sleep(30);
+  }
 };
 const uiKey = (ctx: Ctx, key: string, modifiers = 0) => input.key(uiTarget(ctx), key, modifiers);
 
@@ -157,11 +171,15 @@ const visible = (tabId: string) =>
   `(() => { const l = document.querySelector('[data-tab-layer="${tabId}"]'); return !!l && getComputedStyle(l).visibility === "visible"; })()`;
 const tabCount = `document.querySelectorAll("[data-app-id]").length`;
 
-async function closeAllBut(ctx: Ctx, keep: string) {
+/** The tabs open now (to close what a scenario opened, and only that). */
+const openTabs = async (ctx: Ctx) => new Set((await rune(ctx).api<{ id: string }[]>("/api/apps")).map((a) => a.id));
+
+/** Closes the tabs opened since `keep` was taken. */
+async function closeAllBut(ctx: Ctx, keep: Set<string>) {
   const r = rune(ctx);
   for (const app of await r.api<{ id: string }[]>("/api/apps"))
-    if (app.id !== keep) await r.api(`/api/apps/${app.id}`, { method: "DELETE" }).catch(() => {});
-  await r.ui.waitFor(`${tabCount} === 1`, { label: "the other tabs closed", timeoutMs: 30_000 });
+    if (!keep.has(app.id)) await r.api(`/api/apps/${app.id}`, { method: "DELETE" }).catch(() => {});
+  await r.ui.waitFor(`${tabCount} === ${keep.size}`, { label: "the other tabs closed", timeoutMs: 30_000 });
 }
 
 /** Back on the scenario's tab, with the focus in the UI rather than the page. */
@@ -198,7 +216,7 @@ const newTab: Scenario = {
   runeOnly: true,
   async run(ctx) {
     await prepareUi(ctx);
-    const keep = rune(ctx).tabIdOf(ctx.tab);
+    const keep = await openTabs(ctx);
     const times: number[] = [];
     await measured(ctx, "ui.new-tab", "New tab", async () => {
       for (let i = 0; i < 10; i++) {
@@ -278,7 +296,7 @@ const tabSwitch: Scenario = {
   async run(ctx) {
     const r = rune(ctx);
     await prepareUi(ctx);
-    const keep = r.tabIdOf(ctx.tab);
+    const keep = await openTabs(ctx);
     const ids: string[] = [];
     for (let i = 0; i < 10; i++) {
       const app = await r.api<{ id: string }>("/api/apps", {
@@ -331,7 +349,7 @@ function manyTabs(layout: "horizontal" | "vertical"): Scenario {
     async run(ctx) {
       const r = rune(ctx);
       await prepareUi(ctx);
-      const keep = r.tabIdOf(ctx.tab);
+      const keep = await openTabs(ctx);
       // Switched as the user does, from a tab's menu (the window doesn't pick up settings saved elsewhere).
       const isVertical = `!!document.querySelector("nav[data-sidebar] li[data-app-id]")`;
       const setLayout = async (to: "horizontal" | "vertical") => {
@@ -351,7 +369,7 @@ function manyTabs(layout: "horizontal" | "vertical"): Scenario {
       let shown = NaN;
       const opening = await uiFrames(ctx, async () => {
         const started = epochNow();
-        const pending = r.ui.eval<number>(`window.__benchWait(() => ${tabCount} >= 61, 60000)`, 70_000);
+        const pending = r.ui.eval<number>(`window.__benchWait(() => ${tabCount} >= ${keep.size + 60}, 60000)`, 70_000);
         for (let i = 0; i < 60; i += 10)
           await Promise.all(
             Array.from({ length: 10 }, (_, k) =>
@@ -388,10 +406,10 @@ function manyTabs(layout: "horizontal" | "vertical"): Scenario {
       let closedIn = NaN;
       const closing = await uiFrames(ctx, async () => {
         const started = epochNow();
-        const pending = r.ui.eval<number>(`window.__benchWait(() => ${tabCount} === 1, 60000)`, 70_000);
+        const pending = r.ui.eval<number>(`window.__benchWait(() => ${tabCount} === ${keep.size}, 60000)`, 70_000);
         const apps = await r.api<{ id: string }[]>("/api/apps");
         await Promise.all(
-          apps.filter((a) => a.id !== keep).map((a) => r.api(`/api/apps/${a.id}`, { method: "DELETE" })),
+          apps.filter((a) => !keep.has(a.id)).map((a) => r.api(`/api/apps/${a.id}`, { method: "DELETE" })),
         );
         closedIn = (await pending) - started;
         await Bun.sleep(300);
@@ -452,7 +470,7 @@ const hungPage: Scenario = {
   async run(ctx) {
     const r = rune(ctx);
     await prepareUi(ctx);
-    const keep = r.tabIdOf(ctx.tab);
+    const keep = await openTabs(ctx);
     const other = await r.api<{ id: string }>("/api/apps", {
       method: "POST",
       body: { kind: "web", url: ctx.site.url("/nav/2"), windowId: r.windowId },
@@ -621,42 +639,6 @@ const longChat: Scenario = {
   },
 };
 
-const resize: Scenario = {
-  id: "ui.resize",
-  title: "UI: resizing the window",
-  about: "Resizing the window 30 times in a row, as when dragging its edge: the UI and the page lay out again.",
-  runeOnly: true,
-  async run(ctx) {
-    const r = rune(ctx);
-    await prepareUi(ctx);
-    await ctx.tab.navigate(ctx.site.url("/article"));
-    const target = await r.ui.send<{ targetInfo: { targetId: string } }>("Target.getTargetInfo");
-    const win = await r.browserCdp
-      .send<{ windowId: number; bounds: { width: number; height: number } }>("Browser.getWindowForTarget", {
-        targetId: target.targetInfo.targetId,
-      })
-      .catch(() => null);
-    if (!win) {
-      ctx.note("Resizing: this Electron doesn't let DevTools resize its window.");
-      return;
-    }
-    const { intervals, data } = await uiFrames(ctx, () =>
-      measured(ctx, "ui.resize", "Resizing", async () => {
-        for (let i = 0; i < 30; i++) {
-          await r.browserCdp.send("Browser.setWindowBounds", {
-            windowId: win.windowId,
-            bounds: { width: win.bounds.width - (i % 10) * 30, height: win.bounds.height - (i % 10) * 15 },
-          });
-          await Bun.sleep(33);
-        }
-        await r.browserCdp.send("Browser.setWindowBounds", { windowId: win.windowId, bounds: win.bounds });
-        await Bun.sleep(300);
-      }),
-    );
-    recordUiFrames(ctx, "ui.resize", "Resizing", intervals, data);
-  },
-};
-
 export const UI_SCENARIOS: Scenario[] = [
   baseline,
   newTab,
@@ -668,5 +650,4 @@ export const UI_SCENARIOS: Scenario[] = [
   hungPage,
   flood,
   longChat,
-  resize,
 ];

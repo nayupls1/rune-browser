@@ -218,6 +218,9 @@ async function runScenarios(name: BrowserName, site: Site, list: Scenario[]) {
   const b = await launch(name);
   env.browsers[name] = { version: b.version, gpu: await gpuInfo(b) };
   console.log(`  ${b.version} · GPU: ${env.browsers[name]!.gpu}`);
+  // A tab that stays open throughout, as a user always has one: the window never runs out of tabs
+  // between scenarios.
+  await b.newTab(site.url("/blank"));
   try {
     for (const s of list) {
       const count = Math.min(runs, s.maxRuns ?? runs);

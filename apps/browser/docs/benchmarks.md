@@ -162,7 +162,7 @@ Rune's own baseline):
   API 100 times a second: what it costs Rune's UI, main process and server
   (frames, round trips, CPU per process).
 - **A long agent chat** (500 messages) opened and scrolled in the agent
-  sidebar, and **resizing the window**.
+  sidebar.
 
 ## Adding a scenario
 
