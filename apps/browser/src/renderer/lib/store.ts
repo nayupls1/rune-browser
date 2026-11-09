@@ -281,11 +281,22 @@ function setAllApps(fetched: AppSummary[], since: number) {
 }
 
 /**
+ * Takes the keyboard focus out of a tab's page before the page is removed. A page removed while it has
+ * the focus (its tab closed or moved from elsewhere: an agent, an extension, another window) leaves the
+ * window unable to give any page the focus again: clicks still reach pages, keys don't.
+ */
+function releaseFocus(id: string) {
+  const focused = document.activeElement as HTMLElement | null;
+  if (focused?.closest(`[data-tab-layer="${CSS.escape(id)}"]`)) focused.blur();
+}
+
+/**
  * A tab went to another window: it closes here (its page goes, its chat stays on
  * the server). A window whose last tab left closes too, like in Chrome.
  */
 function leaveWindow(id: string) {
   const index = workspaceTabs().findIndex((a) => a.id === id);
+  releaseFocus(id);
   setApps((list) => list.filter((a) => a.id !== id));
   setOpened(opened().filter((x) => x !== id));
   lastUsed.delete(id);
@@ -307,6 +318,7 @@ function forgetApp(id: string) {
   setOthers((list) => list.filter((a) => a.id !== id));
   const index = workspaceTabs().findIndex((a) => a.id === id);
   if (!appById(id)) return;
+  releaseFocus(id);
   setApps((list) => list.filter((a) => a.id !== id));
   setOpened(opened().filter((x) => x !== id));
   lastUsed.delete(id);
