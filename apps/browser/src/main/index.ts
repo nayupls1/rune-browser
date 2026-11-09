@@ -219,10 +219,13 @@ app.whenReady().then(async () => {
   };
   try {
     server = await startServer({ allowedOrigin: rendererOrigin, onExit: serverStopped });
+    // Linux opens the windows while the server starts (their requests wait for it): starting takes
+    // about as long. Elsewhere they wait for it, as Windows' GPU process crashed later on (a CHECK,
+    // again and again until Chromium gave up) when its window came up that early; macOS isn't tested.
+    if (process.platform !== "linux") await server.ready;
   } catch (err) {
     return failedToStart(err);
   }
-  // The windows open while the server starts (their requests wait for it): starting takes about as long.
   server.ready.catch(failedToStart);
 
   await manager.start(server);
