@@ -6,7 +6,7 @@ import { apiMapReporter } from "./apiMap";
 import { describeExitCode, redactPaths } from "./crashReport";
 import { setupCrashReports } from "./crashes";
 import { claimSingleInstance, restartArgs, setupLinks } from "./defaultBrowser";
-import { applyFlags } from "./flags";
+import { applyDefaultFeatures, applyFlags } from "./flags";
 import { setupInternals } from "./internals";
 import { startServer, type ServerHandle } from "./server";
 import { appUserModelId, taskbarDetails } from "./taskbar";
@@ -94,6 +94,7 @@ const safeMode = process.argv.includes("--safe-mode") || process.env.RUNE_SAFE_M
 
 // rune://flags, as Chromium switches (before the app is ready).
 const appliedFlags = applyFlags(safeMode);
+applyDefaultFeatures();
 
 function relaunch(safe: boolean) {
   const args = restartArgs().filter((a) => a !== "--safe-mode");
@@ -210,15 +211,19 @@ app.whenReady().then(async () => {
   setupUpdates(windows);
   setupInternals({ windows, appliedFlags, safeMode });
 
-  try {
-    server = await startServer({ allowedOrigin: rendererOrigin, onExit: serverStopped });
-  } catch (err) {
+  const failedToStart = (err: unknown) => {
     crashes.log(`The backend server didn't start: ${err}`);
     dialog.showErrorBox("Rune Browser", `Failed to start the backend server:\n\n${err}`);
     crashes.cleanExit();
     app.exit(1);
-    return;
+  };
+  try {
+    server = await startServer({ allowedOrigin: rendererOrigin, onExit: serverStopped });
+  } catch (err) {
+    return failedToStart(err);
   }
+  // The windows open while the server starts (their requests wait for it): starting takes about as long.
+  server.ready.catch(failedToStart);
 
   await manager.start(server);
   const first = windows.current();

@@ -99,6 +99,8 @@ export interface RuneBridge {
   serverUrl: string;
   /** Sent with every request to the Rune Browser server (and the hub). */
   token: string;
+  /** Resolves once the server is up and knows this window: it starts with the window, and takes a moment. */
+  serverReady: () => Promise<void>;
   /**
    * Started with --safe-mode (or Ctrl+Alt+Shift+S): the theme and site
    * customizations are off, so a change that broke the UI can be undone.

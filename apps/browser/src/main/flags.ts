@@ -49,3 +49,22 @@ export function applyFlags(safeMode: boolean): FlagState {
   }
   return applied;
 }
+
+/**
+ * Chromium features Rune Browser turns off (call before the app is ready, after applyFlags), unless
+ * --enable-features on the command line turns them on.
+ *
+ * - RenderDocument: a new frame (and compositor surface) for every page a tab goes to. A Chrome tab is
+ *   drawn by the browser itself, but a web tab is a <webview> inside Rune Browser's window, so the
+ *   window's page has to pick up the new surface first, and the compositor waits for that (up to four
+ *   frames). Without it, the next page was on screen 15–30% sooner.
+ */
+const TURNED_OFF = ["RenderDocument"];
+
+export function applyDefaultFeatures() {
+  const enabled = app.commandLine.getSwitchValue("enable-features").split(",");
+  appendList(
+    "disable-features",
+    TURNED_OFF.filter((name) => !enabled.includes(name)),
+  );
+}
