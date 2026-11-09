@@ -115,8 +115,13 @@ export class Socket {
   onRpc: ((method: string, params: unknown) => unknown) | undefined;
   connected = false;
 
-  constructor(private url: string) {
-    this.open();
+  /** Connects once `ready` resolves (the server may still be starting), or right away. */
+  constructor(
+    private url: string,
+    ready?: Promise<unknown>,
+  ) {
+    if (ready) ready.then(this.open.bind(this), this.open.bind(this));
+    else this.open();
   }
 
   private open() {

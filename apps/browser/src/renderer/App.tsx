@@ -186,30 +186,32 @@ export default function App() {
           {...stylex.attrs(styles.content, split() && styles.contentSplit, anyPainting() && styles.contentCovering)}
           data-content
         >
-          <Switch
-            fallback={
-              <div {...stylex.attrs(styles.empty)}>
-                <p>
-                  {workspaceTabs().length
-                    ? "Select a tab"
-                    : `Nothing in ${currentWorkspace()?.name ?? "this workspace"} yet`}
-                </p>
-                <div {...stylex.attrs(styles.emptyActions)}>
-                  <Show when={!isPrivate}>
-                    <Button variant="primary" onClick={() => newApp()}>
-                      + New app
-                    </Button>
-                  </Show>
-                  <Button onClick={() => newWebTab()}>+ New web tab</Button>
+          <div {...stylex.attrs(styles.page)}>
+            <Switch
+              fallback={
+                <div {...stylex.attrs(styles.empty)}>
+                  <p>
+                    {workspaceTabs().length
+                      ? "Select a tab"
+                      : `Nothing in ${currentWorkspace()?.name ?? "this workspace"} yet`}
+                  </p>
+                  <div {...stylex.attrs(styles.emptyActions)}>
+                    <Show when={!isPrivate}>
+                      <Button variant="primary" onClick={() => newApp()}>
+                        + New app
+                      </Button>
+                    </Show>
+                    <Button onClick={() => newWebTab()}>+ New web tab</Button>
+                  </div>
                 </div>
-              </div>
-            }
-          >
-            <Match when={isSettingsView(selectedId())}>
-              <SettingsShell view={selectedId()!} />
-            </Match>
-            <Match when={openTabs().some((t) => t.id === selectedId())}>{null}</Match>
-          </Switch>
+              }
+            >
+              <Match when={isSettingsView(selectedId())}>
+                <SettingsShell view={selectedId()!} />
+              </Match>
+              <Match when={openTabs().some((t) => t.id === selectedId())}>{null}</Match>
+            </Switch>
+          </div>
           {/* Tabs stay mounted (hidden) so pages and previews keep their state between visits.
               In a split view, its tabs' layers are placed side by side. */}
           <For each={openTabs()}>
@@ -235,9 +237,12 @@ export default function App() {
                   onFocusIn={focus}
                   data-tab-layer={tab.id}
                 >
-                  <Show when={tab.kind === "web"} fallback={<AppTab appId={tab.id} active={isSelected(tab.id)} />}>
-                    <WebTab appId={tab.id} active={isSelected(tab.id)} />
-                  </Show>
+                  <div {...stylex.attrs(styles.clip)}>
+                    <Show when={tab.kind === "web"} fallback={<AppTab appId={tab.id} active={isSelected(tab.id)} />}>
+                      <WebTab appId={tab.id} active={isSelected(tab.id)} />
+                    </Show>
+                    <PageCorners />
+                  </div>
                 </div>
               );
             }}
@@ -297,20 +302,30 @@ const styles = stylex.create({
   columnHorizontal: { paddingLeft: space.sm, paddingTop: 0 },
   // Below the window's top edge, which resizes it.
   dragStrip: { position: "absolute", zIndex: 1, top: 3, left: 0, right: 0, height: 5 },
-  // Pages scroll vertically; nothing in it should ever scroll the whole area sideways.
+  // The card: rounded, but it doesn't clip. A rounded clip around a page makes the compositor draw the
+  // whole page into a surface of its own and mask it, every frame it changes (scrolling, animation):
+  // that halved the frame rate with a software GPU. Tabs are clipped square instead, and their
+  // corners drawn over them (PageCorners).
   content: {
     position: "relative",
     flex: 1,
     minWidth: 0,
     minHeight: 0,
+    borderRadius: radius.md,
+    backgroundColor: colors.bg,
+    boxShadow: `0 0 0 1px ${colors.border}, 0 1px 3px rgb(0 0 0 / 0.06)`,
+  },
+  // Pages that aren't tabs (settings, the empty state) scroll vertically, never sideways. Nothing
+  // composited is in them, so their rounded clip is free.
+  page: {
+    position: "absolute",
+    inset: 0,
     overflowX: "hidden",
     overflowY: "auto",
     // A thin scrollbar on a clear track, inside the rounded corners.
     scrollbarWidth: "thin",
     scrollbarColor: "rgb(127 127 127 / 0.45) transparent",
     borderRadius: radius.md,
-    backgroundColor: colors.bg,
-    boxShadow: `0 0 0 1px ${colors.border}, 0 1px 3px rgb(0 0 0 / 0.06)`,
   },
   // The panes are the cards; the gaps between them show the frame.
   contentSplit: { backgroundColor: "transparent", boxShadow: "none" },
@@ -346,10 +361,33 @@ const styles = stylex.create({
     position: "absolute",
     inset: 0,
     zIndex: 1,
-    overflow: "hidden",
     borderRadius: radius.md,
     backgroundColor: colors.bg,
   },
+  // What's in a tab stays in it: a square clip (see content).
+  clip: { position: "absolute", inset: 0, overflow: "hidden" },
+  // A tab's rounded corners, drawn over its square clip: the frame outside the curve, with the card's
+  // 1px edge along it. Never in the way of the page's input.
+  corner: {
+    position: "absolute",
+    zIndex: 10,
+    width: radius.md,
+    height: radius.md,
+    overflow: "hidden",
+    pointerEvents: "none",
+  },
+  // Anchored to the same sides as its corner, twice its size: its center is the corner's inner point.
+  cornerCircle: {
+    position: "absolute",
+    width: `calc(2 * ${radius.md})`,
+    height: `calc(2 * ${radius.md})`,
+    borderRadius: "50%",
+    boxShadow: `0 0 0 1px ${colors.border}, 0 0 0 calc(2 * ${radius.md}) ${colors.sidebar}`,
+  },
+  cornerTopLeft: { top: 0, left: 0 },
+  cornerTopRight: { top: 0, right: 0 },
+  cornerBottomLeft: { bottom: 0, left: 0 },
+  cornerBottomRight: { bottom: 0, right: 0 },
   pane: { boxShadow: `0 0 0 1px ${colors.border}, 0 1px 3px rgb(0 0 0 / 0.06)` },
   // Not display:none: webviews must keep their size to stay rendered.
   hidden: { visibility: "hidden", pointerEvents: "none", zIndex: 0 },
@@ -406,3 +444,19 @@ const styles = stylex.create({
     color: colors.muted,
   },
 });
+
+/**
+ * A tab's rounded corners, over the page (see styles.content). Each is a quarter of a clear circle whose
+ * shadows draw the card's 1px edge and the frame beyond it, the way the card's own box-shadow does.
+ */
+function PageCorners() {
+  return (
+    <>
+      {(["TopLeft", "TopRight", "BottomLeft", "BottomRight"] as const).map((at) => (
+        <div {...stylex.attrs(styles.corner, styles[`corner${at}`])} data-page-corner>
+          <div {...stylex.attrs(styles.cornerCircle, styles[`corner${at}`])} />
+        </div>
+      ))}
+    </>
+  );
+}

@@ -107,6 +107,10 @@ function followPageFullScreen(win: BrowserWindow) {
 
 export function createWindowManager(options: WindowManagerOptions) {
   const file = join(app.getPath("userData"), "windows.json");
+  /** The server answers, and knows the windows (which tabs are whose): windows' pages wait for it. */
+  let windowsReady!: () => void;
+  const serverReady = new Promise<void>((resolve) => (windowsReady = resolve));
+  ipcMain.handle("rune:server-ready", () => serverReady);
   const live = new Map<number, Live>();
   /** Window ids, the focused last. */
   let focusOrder: string[] = [];
@@ -163,6 +167,7 @@ export function createWindowManager(options: WindowManagerOptions) {
 
   async function api<T>(path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
     if (!server) throw new Error("The server isn't running");
+    await server.ready;
     const res = await fetch(`${server.url}${path}`, {
       method: init.method ?? "GET",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${server.token}` },
@@ -267,6 +272,8 @@ export function createWindowManager(options: WindowManagerOptions) {
     return win;
   }
 
+  /** The private session wiped at startup (whatever a private window left when Rune Browser quit or crashed). */
+  let privateCleared: Promise<void> = Promise.resolve();
   async function clearPrivate() {
     const s = session.fromPartition(PRIVATE_PARTITION);
     await s.clearStorageData().catch(() => {});
@@ -279,6 +286,7 @@ export function createWindowManager(options: WindowManagerOptions) {
   async function openNew(isPrivate: boolean, tabIds: string[] = [], at?: { x: number; y: number }, newTab = true) {
     // Rune Browser is quitting: nothing new opens (it would outlive the cleanup).
     if (quitting) return null;
+    if (isPrivate) await privateCleared;
     const id = newWindowId(isPrivate);
     let moved = 0;
     opening.add(id);
@@ -448,17 +456,25 @@ export function createWindowManager(options: WindowManagerOptions) {
 
   return {
     windows,
-    /** Opens the windows the startup setting says (after telling the server, so tabs are where they belong). */
+    /**
+     * Opens the windows the startup setting says, while the server is still starting: their pages load
+     * meanwhile, and wait for `serverReady` (the server up and told which windows there are, so tabs are
+     * where they belong) before asking it anything.
+     */
     async start(handle: ServerHandle) {
       server = handle;
-      const onStartup = await api<{ browser?: { startup?: { mode?: OnStartup } } }>("/api/settings")
-        .then((s) => s.browser?.startup?.mode ?? "continue")
-        .catch(() => "continue" as const);
-      // Whatever a private window left (Rune Browser quit or crashed with one open) goes first.
-      await clearPrivate();
-      const plan = startupPlan(parseWindowsFile(readJson(file)), onStartup);
+      const saved = parseWindowsFile(readJson(file));
+      // The startup setting only decides between several windows: with one (or none) it opens either way.
+      const onStartup: OnStartup =
+        saved.open.length > 1
+          ? await api<{ browser?: { startup?: { mode?: OnStartup } } }>("/api/settings")
+              .then((s) => s.browser?.startup?.mode ?? "continue")
+              .catch(() => "continue" as const)
+          : "continue";
+      privateCleared = clearPrivate();
+      const plan = startupPlan(saved, onStartup);
       closed = plan.closed;
-      await sync(plan.forget, () => plan.open.map((w) => w.id));
+      void sync(plan.forget, () => plan.open.map((w) => w.id)).then(windowsReady);
       // The first window does what the startup setting says (a new tab, the startup pages).
       plan.open.forEach((saved, i) => open(saved, i === 0 ? "startup" : null));
       save();

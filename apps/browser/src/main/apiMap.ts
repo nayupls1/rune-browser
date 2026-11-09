@@ -16,6 +16,7 @@ export function apiMapReporter(getServer: () => ServerHandle | undefined) {
     timer = undefined;
     const server = getServer();
     if (!server) return;
+    await server.ready.catch(() => {});
     for (const [workspaceId, observations] of [...queues]) {
       queues.delete(workspaceId);
       for (let i = 0; i < observations.length; i += 200) {

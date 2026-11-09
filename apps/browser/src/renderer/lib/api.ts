@@ -55,8 +55,11 @@ import type {
 import type { WorkspaceSettings } from "../../shared/settings";
 
 const url = (path: string) => `${window.rune.serverUrl}${path}`;
+/** The server starts with the window: requests wait until it's up (a few hundred ms at launch, then never). */
+export const serverReady = window.rune.serverReady();
 
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  await serverReady;
   const res = await fetch(url(path), {
     ...init,
     headers: {

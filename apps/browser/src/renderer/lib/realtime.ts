@@ -2,10 +2,12 @@
 // tab list changes, and requests from the server (the agents' page tools).
 import { createSignal } from "solid-js";
 import { Socket, type TopicMessage } from "../../shared/hub";
+import { serverReady } from "./api";
 
 // The window's id: requests about its tabs come here (Hub.ts).
 const socket = new Socket(
   `${window.rune.serverUrl.replace(/^http/, "ws")}/api/ws?role=renderer&window=${encodeURIComponent(window.rune.window.id)}&token=${encodeURIComponent(window.rune.token)}`,
+  serverReady,
 );
 
 /** Tells the server which tabs this window has (agents' requests about them come here). */

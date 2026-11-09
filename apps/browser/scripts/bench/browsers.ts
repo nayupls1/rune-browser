@@ -224,11 +224,11 @@ export async function launchRune(opts: LaunchOptions & { seedProfile?: (profile:
     const electron = await ui.eval<string>(`window.rune.versions.electron`);
     const windowId = await ui.eval<string>(`window.rune.window.id`);
     const api = <T>(path: string, init: { method?: string; body?: unknown } = {}) =>
-      ui.eval<T>(`fetch(window.rune.serverUrl + ${JSON.stringify(path)}, {
+      ui.eval<T>(`window.rune.serverReady().then(() => fetch(window.rune.serverUrl + ${JSON.stringify(path)}, {
         method: ${JSON.stringify(init.method ?? "GET")},
         headers: { "Content-Type": "application/json", Authorization: "Bearer " + window.rune.token },
         ${init.body !== undefined ? `body: ${JSON.stringify(JSON.stringify(init.body))},` : ""}
-      }).then(async (r) => { if (!r.ok) throw new Error(r.status + " " + (await r.text())); return r.status === 204 ? null : r.json(); })`);
+      }).then(async (r) => { if (!r.ok) throw new Error(r.status + " " + (await r.text())); return r.status === 204 ? null : r.json(); }))`);
     const tabIds = new WeakMap<Tab, string>();
 
     const browser: RuneBrowser = {
