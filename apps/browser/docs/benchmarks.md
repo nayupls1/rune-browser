@@ -44,10 +44,7 @@ sessions (two runs of the same build flag about 1% of metrics), so confirm a
 change that matters by running just that scenario again (`--only`). Two saved runs can also be compared later:
 `bun run bench compare before.json after.json`.
 
-A `Benchmarks` workflow runs the whole suite on GitHub's Linux runners when
-started by hand (Actions → Benchmarks → Run workflow, for any branch). Its report is
-the run's summary and its data an artifact. The runners are noisy, so it's for a
-broad picture; small changes need your own machine.
+The benchmarks aren't part of CI: they're run by hand, on your own machine.
 
 ## How it's measured
 
