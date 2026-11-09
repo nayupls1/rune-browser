@@ -227,7 +227,6 @@ export default function App() {
                 <div
                   {...stylex.attrs(
                     styles.layer,
-                    roundedClip() && styles.layerRounded,
                     inPane() && styles.pane,
                     inBackground() && styles.hidden,
                     painting() && styles.painting,
@@ -242,9 +241,7 @@ export default function App() {
                     <Show when={tab.kind === "web"} fallback={<AppTab appId={tab.id} active={isSelected(tab.id)} />}>
                       <WebTab appId={tab.id} active={isSelected(tab.id)} />
                     </Show>
-                    <Show when={!roundedClip()}>
-                      <PageCorners />
-                    </Show>
+                    <PageCorners />
                   </div>
                 </div>
               );
@@ -276,12 +273,6 @@ export default function App() {
     </div>
   );
 }
-
-/**
- * Windows clips tabs round itself, without PageCorners: there the GPU process crashed (a CHECK) as tabs
- * closed with the corners drawn over their pages, until Chromium gave up.
- */
-const roundedClip = () => window.rune.window.platform === "win32";
 
 const styles = stylex.create({
   root: {
@@ -375,8 +366,6 @@ const styles = stylex.create({
   },
   // What's in a tab stays in it: a square clip (see content).
   clip: { position: "absolute", inset: 0, overflow: "hidden" },
-  // Windows: the tab is clipped round instead (see roundedClip).
-  layerRounded: { overflow: "hidden" },
   // A tab's rounded corners, drawn over its square clip: the frame outside the curve, with the card's
   // 1px edge along it. Never in the way of the page's input.
   corner: {
