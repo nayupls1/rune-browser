@@ -14,7 +14,6 @@ const listen =
 const bridge: RuneBridge = {
   serverUrl: arg("rune-server-url"),
   token: arg("rune-token"),
-  serverReady: () => ipcRenderer.invoke("rune:server-ready"),
   safeMode: arg("rune-safe-mode") === "1",
   offscreen: arg("rune-offscreen") === "1",
   relaunch: (safeMode) => ipcRenderer.send("rune:relaunch", safeMode),

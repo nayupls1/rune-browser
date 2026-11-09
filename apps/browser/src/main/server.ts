@@ -9,8 +9,6 @@ export interface ServerHandle {
   url: string;
   /** Required on every API request; only Rune Browser's own window gets it. */
   token: string;
-  /** Resolves once the server answers (it takes a few hundred ms to start); rejects if it never does. */
-  ready: Promise<void>;
   stop: () => void;
 }
 
@@ -61,13 +59,11 @@ async function waitForHealthy(url: string, child: ChildProcess, timeoutMs = 10_0
     } catch {
       // not up yet
     }
-    // Often: the windows wait for it.
-    await new Promise((r) => setTimeout(r, 15));
+    await new Promise((r) => setTimeout(r, 100));
   }
   throw new Error(`Server did not become healthy within ${timeoutMs}ms`);
 }
 
-/** Starts the server: resolves once it's spawned, before it answers (see ServerHandle.ready). */
 export async function startServer({ allowedOrigin, onExit }: ServerOptions): Promise<ServerHandle> {
   const port = await getFreePort();
   const url = `http://127.0.0.1:${port}`;
@@ -128,15 +124,13 @@ export async function startServer({ allowedOrigin, onExit }: ServerOptions): Pro
     if (child.exitCode === null && !child.killed) child.kill();
   };
 
-  // Not waited for here: the windows open meanwhile (their requests wait for `ready`).
-  const ready = waitForHealthy(url, child).then(
-    () => void (running = true),
-    (err) => {
-      stop();
-      throw err;
-    },
-  );
-  ready.catch(() => {});
+  try {
+    await waitForHealthy(url, child);
+    running = true;
+  } catch (err) {
+    stop();
+    throw err;
+  }
 
-  return { url, token, ready, stop };
+  return { url, token, stop };
 }

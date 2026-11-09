@@ -211,19 +211,15 @@ app.whenReady().then(async () => {
   setupUpdates(windows);
   setupInternals({ windows, appliedFlags, safeMode });
 
-  const failedToStart = (err: unknown) => {
+  try {
+    server = await startServer({ allowedOrigin: rendererOrigin, onExit: serverStopped });
+  } catch (err) {
     crashes.log(`The backend server didn't start: ${err}`);
     dialog.showErrorBox("Rune Browser", `Failed to start the backend server:\n\n${err}`);
     crashes.cleanExit();
     app.exit(1);
-  };
-  try {
-    server = await startServer({ allowedOrigin: rendererOrigin, onExit: serverStopped });
-  } catch (err) {
-    return failedToStart(err);
+    return;
   }
-  // The windows open while the server starts (their requests wait for it): starting takes about as long.
-  server.ready.catch(failedToStart);
 
   await manager.start(server);
   const first = windows.current();

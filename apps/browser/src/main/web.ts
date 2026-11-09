@@ -60,7 +60,7 @@ const allowedPermissions = new Set(["fullscreen", "clipboard-sanitized-write", "
 export function setupWebTabs(
   windows: AppWindows,
   onApiCall?: (workspaceId: string, observation: Observation) => void,
-  getServer: () => { url: string; token: string; ready: Promise<void> } | undefined = () => undefined,
+  getServer: () => { url: string; token: string } | undefined = () => undefined,
 ) {
   /** Tells the window a page is in. */
   const sendTo = (contents: WebContents, channel: string, ...args: unknown[]) =>

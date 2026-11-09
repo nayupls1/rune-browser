@@ -94,11 +94,11 @@ const click = (selector: string, text?: string) =>
   })()`);
 /** Authenticated request to the Rune Browser server, made from the renderer. */
 const api = <T>(path: string, init: { method?: string; body?: unknown } = {}) =>
-  ev<T>(`window.rune.serverReady().then(() => fetch(window.rune.serverUrl + ${JSON.stringify(path)}, {
+  ev<T>(`fetch(window.rune.serverUrl + ${JSON.stringify(path)}, {
     method: ${JSON.stringify(init.method ?? "GET")},
     headers: { "Content-Type": "application/json", Authorization: "Bearer " + window.rune.token },
     ${init.body !== undefined ? `body: ${JSON.stringify(JSON.stringify(init.body))},` : ""}
-  }).then(async (r) => { if (!r.ok) throw new Error(r.status + " " + (await r.text())); return r.status === 204 ? null : r.json(); }))`);
+  }).then(async (r) => { if (!r.ok) throw new Error(r.status + " " + (await r.text())); return r.status === 204 ? null : r.json(); })`);
 /** Runs code in the webview inside `root` (an app preview or web tab). */
 const inView = <T>(root: string, code: string) =>
   ev<T>(`document.querySelector(${JSON.stringify(`${root} webview`)}).executeJavaScript(${JSON.stringify(code)})`);

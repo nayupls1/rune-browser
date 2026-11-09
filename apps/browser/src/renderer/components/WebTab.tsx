@@ -47,7 +47,7 @@ import {
   type BrowseAction,
   type PageInfo,
 } from "../lib/webtabs";
-import { focusAddress, networkTab, registerChrome, setNetworkTab, spinnerFor } from "../lib/tabChrome";
+import { focusAddress, networkTab, registerChrome, setNetworkTab } from "../lib/tabChrome";
 import { colors, font, radius, space } from "../theme.stylex";
 import type { MenuPosition } from "./ContextMenu";
 import { openExtensionImport } from "./ExtensionImport";
@@ -92,7 +92,6 @@ export function WebTab(props: { appId: string; active: boolean }) {
   const [address, setAddress] = createSignal(initialUrl);
   const [currentUrl, setCurrentUrl] = createSignal(initialUrl);
   const [loading, setLoading] = createSignal(false);
-  const spinner = spinnerFor(loading);
   const [history, setHistory] = createSignal({ back: false, forward: false });
   // Opened from the command bar ("Network requests"): it's mostly for the agent.
   const networkOpen = () => networkTab() === props.appId;
@@ -771,7 +770,7 @@ export function WebTab(props: { appId: string; active: boolean }) {
         <Show
           when={siteForUrl(currentUrl())}
           fallback={
-            <Show when={spinner()} fallback={<Icon name={addressIcon()} size={13} />}>
+            <Show when={loading()} fallback={<Icon name={addressIcon()} size={13} />}>
               <Icon name="loader-circle" size={13} {...stylex.attrs(styles.spinning)} data-address-loading />
             </Show>
           }
@@ -803,7 +802,7 @@ export function WebTab(props: { appId: string; active: boolean }) {
               url={currentUrl()}
               fallback={
                 // While the page loads, a spinner in place of its icon (the address bar is the toolbar).
-                <Show when={spinner()} fallback={<Icon name={addressIcon()} size={13} />}>
+                <Show when={loading()} fallback={<Icon name={addressIcon()} size={13} />}>
                   <Icon name="loader-circle" size={13} {...stylex.attrs(styles.spinning)} data-address-loading />
                 </Show>
               }

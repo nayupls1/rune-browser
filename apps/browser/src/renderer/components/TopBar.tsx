@@ -27,7 +27,7 @@ import {
   toggleAgent,
   workspaces,
 } from "../lib/store";
-import { chromeOf, focusRequest, setAddressHovered, spinnerFor } from "../lib/tabChrome";
+import { chromeOf, focusRequest, setAddressHovered } from "../lib/tabChrome";
 import { isSidebarHidden, toggleSidebar } from "../lib/layout";
 import { colors, font, radius, space } from "../theme.stylex";
 import { DownloadsButton } from "./Downloads";
@@ -323,9 +323,8 @@ export function AddressBar(props: { inline?: boolean }) {
     input.select();
   }
 
-  const spinner = spinnerFor(() => !!chrome()?.loading());
   // A web tab's site settings button stays while it loads (it shows the spinner itself).
-  const loadingShown = () => !editing() && !chrome()?.identity && spinner();
+  const loadingShown = () => !editing() && !chrome()?.identity && !!chrome()?.loading();
   const notSecure = () => !editing() && !!chrome()?.notSecure?.();
   const query = () => (editing() && typed() ? text().trim() : "");
   /**

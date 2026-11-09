@@ -92,7 +92,7 @@ export interface ApiEnv {
   /** Resolves when the extension finished loading in the session. */
   whenLoaded: (s: Session, id: string) => Promise<void>;
   /** Rune Browser's server (bookmarks live there), once it's started. */
-  server: () => { url: string; token: string; ready: Promise<void> } | undefined;
+  server: () => { url: string; token: string } | undefined;
   /** Asks the Rune Browser window and waits for its answer (or `fallback` after `ms`). */
   ask: <T>(request: WindowRequest, fallback: T, ms: number) => Promise<T>;
   downloads: BrowserApiEnv["downloads"];
@@ -179,7 +179,6 @@ export function createApis(env: ApiEnv) {
   async function serverApi<T>(path: string, method = "GET", body?: unknown): Promise<T> {
     const server = env.server();
     if (!server) throw err("Rune Browser's server isn't ready yet.");
-    await server.ready;
     const res = await fetch(`${server.url}${path}`, {
       method,
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${server.token}` },
