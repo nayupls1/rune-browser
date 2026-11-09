@@ -2,8 +2,27 @@
 // its address, back, forward and reload, its extensions and its own items in the ⋯ menu. Pages get the whole
 // content area, like in Zen Browser; each tab (WebTab, AppTab) registers its
 // chrome here while it's mounted.
-import { createSignal, type JSX } from "solid-js";
+import { createEffect, createSignal, onCleanup, type JSX } from "solid-js";
 import type { MenuItem } from "../components/ContextMenu";
+
+/** How long a page loads before the address bar shows a spinner. */
+const SPINNER_DELAY_MS = 500;
+
+/**
+ * Whether the address bar shows a spinner for a page loading: once it has taken a while. Most pages are
+ * on screen before that, and an animation anywhere in the window makes the compositor draw the whole
+ * window every frame, which delays the page's own first paint. (The Stop button shows it's loading at once.)
+ */
+export function spinnerFor(loading: () => boolean) {
+  const [shown, setShown] = createSignal(false);
+  createEffect(() => {
+    setShown(false);
+    if (!loading()) return;
+    const timer = setTimeout(() => setShown(true), SPINNER_DELAY_MS);
+    onCleanup(() => clearTimeout(timer));
+  });
+  return shown;
+}
 
 export interface TabChrome {
   /** What the address field shows (an app's preview: its localhost URL). */
