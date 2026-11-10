@@ -65,6 +65,7 @@ import { FindBar, ZoomBadge } from "./FindBar";
 import { LoadErrorPage } from "./LoadError";
 import { describeLoadError, type LoadError } from "../../shared/loadErrors";
 import { BookmarkStar } from "./Bookmarks";
+import { ADDRESS_ICON_SIZE, addressButton } from "./addressButton";
 import { applySiteZoom, foundInPage } from "../lib/pageTools";
 import { siteForUrl } from "../lib/browser";
 
@@ -102,6 +103,10 @@ export function WebTab(props: { appId: string; active: boolean }) {
   const [menu, setMenu] = createSignal<MenuPosition>();
   const [overridesMenu, setOverridesMenu] = createSignal<MenuPosition>();
   const [siteMenu, setSiteMenu] = createSignal<MenuPosition>();
+  // Their buttons in the address bar look pressed while their popovers are open.
+  const siteMenuOpen = () => siteMenu() !== undefined;
+  const overridesMenuOpen = () => overridesMenu() !== undefined;
+  const changesMenuOpen = () => menu() !== undefined;
   const [contentsId, setContentsId] = createSignal<number | null>(null);
   // The webview waits for the workspace's extensions (never long).
   const [prepared, setPrepared] = createSignal(false);
@@ -789,9 +794,12 @@ export function WebTab(props: { appId: string; active: boolean }) {
               setSiteMenu(siteMenu() ? undefined : { x: r.left, y: r.bottom + 6 });
             }}
             {...stylex.attrs(
+              addressButton.button,
               styles.identity,
+              siteMenuOpen() && addressButton.on,
               notSecure() && styles.identityWarning,
-              siteLive() && styles.siteLive,
+              siteLive() && addressButton.badge,
+              siteLive() && addressButton.accent,
               siteRefused() && styles.siteRefused,
             )}
             data-site-info-button
@@ -803,8 +811,13 @@ export function WebTab(props: { appId: string; active: boolean }) {
               url={currentUrl()}
               fallback={
                 // While the page loads, a spinner in place of its icon (the address bar is the toolbar).
-                <Show when={spinner()} fallback={<Icon name={addressIcon()} size={13} />}>
-                  <Icon name="loader-circle" size={13} {...stylex.attrs(styles.spinning)} data-address-loading />
+                <Show when={spinner()} fallback={<Icon name={addressIcon()} size={ADDRESS_ICON_SIZE} />}>
+                  <Icon
+                    name="loader-circle"
+                    size={ADDRESS_ICON_SIZE}
+                    {...stylex.attrs(styles.spinning)}
+                    data-address-loading
+                  />
                 </Show>
               }
             />
@@ -823,10 +836,15 @@ export function WebTab(props: { appId: string; active: boolean }) {
                 const r = e.currentTarget.getBoundingClientRect();
                 setOverridesMenu(overridesMenu() ? undefined : { x: r.left, y: r.bottom + 6 });
               }}
-              {...stylex.attrs(styles.overrides)}
+              {...stylex.attrs(
+                addressButton.button,
+                addressButton.badge,
+                styles.overrides,
+                overridesMenuOpen() && addressButton.on,
+              )}
               data-overrides={overridesHere().length}
             >
-              <Icon name="flask-conical" size={13} />
+              <Icon name="flask-conical" size={ADDRESS_ICON_SIZE} />
               {overridesHere().length}
             </button>
           </Show>
@@ -842,10 +860,14 @@ export function WebTab(props: { appId: string; active: boolean }) {
                 const r = e.currentTarget.getBoundingClientRect();
                 setMenu(menu() ? undefined : { x: r.left, y: r.bottom + 6 });
               }}
-              {...stylex.attrs(styles.customized, overrideActive() && styles.customizedOn)}
+              {...stylex.attrs(
+                addressButton.button,
+                changesMenuOpen() && addressButton.on,
+                overrideActive() && addressButton.accent,
+              )}
               data-customized={overrideActive() ? "on" : "off"}
             >
-              <Icon name="paintbrush" size={13} />
+              <Icon name="paintbrush" size={ADDRESS_ICON_SIZE} />
             </button>
           </Show>
         </>
@@ -1086,57 +1108,18 @@ const styles = stylex.create({
     color: colors.text,
     fontSize: font.sm,
   },
-  customized: {
-    display: "grid",
-    placeItems: "center",
-    flexShrink: 0,
-    width: 22,
-    height: 22,
-    marginRight: -4,
-    padding: 0,
-    borderStyle: "none",
-    borderRadius: radius.full,
-    backgroundColor: { default: "transparent", ":hover": colors.surfaceHover },
-    color: colors.muted,
-    cursor: "pointer",
-  },
+  // The agent's changes to this page's responses: in the warning color, with their number.
   overrides: {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 3,
-    flexShrink: 0,
-    height: 22,
-    minWidth: 22,
-    marginRight: -4,
-    paddingInline: 5,
-    borderStyle: "none",
-    borderRadius: radius.full,
     backgroundColor: {
       default: `color-mix(in srgb, ${colors.warning} 16%, transparent)`,
-      ":hover": colors.surfaceHover,
+      ":hover": `color-mix(in srgb, ${colors.warning} 24%, transparent)`,
     },
-    color: colors.warning,
-    fontFamily: "inherit",
-    fontSize: 11,
-    fontWeight: 600,
-    cursor: "pointer",
+    color: { default: colors.warning, ":hover": colors.warning },
   },
   // In place of the address field's icon, at its start.
-  identity: {
-    display: "grid",
-    placeItems: "center",
-    flexShrink: 0,
-    minWidth: 22,
-    height: 22,
-    marginLeft: -5,
-    padding: 0,
-    borderStyle: "none",
-    borderRadius: radius.full,
-    backgroundColor: { default: "transparent", ":hover": colors.surfaceHover },
-    color: colors.muted,
-    cursor: "pointer",
-  },
-  identityWarning: { color: colors.warning },
+  // Its icon where the field's icon is when there's no button (TopBar.tsx: the row's 11px padding).
+  identity: { marginLeft: -5 },
+  identityWarning: { color: { default: colors.warning, ":hover": colors.warning } },
   spinning: {
     color: colors.accent,
     animationName: spin,
@@ -1144,16 +1127,7 @@ const styles = stylex.create({
     animationIterationCount: "infinite",
     animationTimingFunction: "linear",
   },
-  siteLive: {
-    width: "auto",
-    gap: 2,
-    gridAutoFlow: "column",
-    paddingInline: 5,
-    backgroundColor: { default: colors.accentSoft, ":hover": colors.accentSoft },
-    color: colors.accent,
-  },
-  siteRefused: { color: colors.danger },
-  customizedOn: { color: colors.accent, backgroundColor: { default: colors.accentSoft, ":hover": colors.accentSoft } },
+  siteRefused: { color: { default: colors.danger, ":hover": colors.danger } },
   agentButton: {
     display: "inline-flex",
     alignItems: "center",

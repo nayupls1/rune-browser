@@ -32,6 +32,7 @@ import { addressHovered } from "../lib/tabChrome";
 import { colors, font, radius, space } from "../theme.stylex";
 import { ContextMenu, type MenuItem, type MenuPosition } from "./ContextMenu";
 import { Icon } from "./Icon";
+import { ADDRESS_ICON_SIZE, addressButton } from "./addressButton";
 import { Button, Input, Select } from "./ui";
 import { openBookmarkImport } from "./BookmarksPage";
 import { toast } from "./Toast";
@@ -132,10 +133,10 @@ export function BookmarkStar(props: { tabId: string; url: string }) {
         type="button"
         title={withKeys(bookmarked() ? "Edit bookmark" : "Bookmark this tab", "bookmark.page")}
         onClick={() => void bookmarkTab(props.tabId)}
-        {...stylex.attrs(styles.star, bookmarked() && styles.starOn, quiet() && styles.starQuiet)}
+        {...stylex.attrs(addressButton.button, bookmarked() && styles.starOn, quiet() && styles.starQuiet)}
         data-bookmark-star={bookmarked() ? "on" : "off"}
       >
-        <Icon name="star" size={14} fill={bookmarked() ? "currentColor" : "none"} />
+        <Icon name="star" size={ADDRESS_ICON_SIZE} fill={bookmarked() ? "currentColor" : "none"} />
       </button>
     </Show>
   );
@@ -584,23 +585,11 @@ export function BookmarksBar() {
 const styles = stylex.create({
   icon: { flexShrink: 0, color: colors.muted },
   image: { flexShrink: 0, borderRadius: 3, objectFit: "contain" },
-  star: {
-    display: "grid",
-    placeItems: "center",
-    flexShrink: 0,
-    width: 24,
-    height: 24,
-    padding: 0,
-    borderWidth: 0,
-    borderRadius: radius.sm,
-    backgroundColor: { default: "transparent", ":hover": colors.surfaceHover },
-    color: { default: colors.muted, ":hover": colors.text },
-    cursor: "pointer",
-  },
   starOn: { color: { default: colors.accent, ":hover": colors.accent } },
   // Hidden, it takes no room (the row's 7px gap included), so the address isn't cut short for it; the pointer
   // over the address brings it in over the end of the text. Tab still reaches it (and shows it).
   starQuiet: {
+    // The address bar's button size (addressButton.ts).
     width: { default: 0, ":focus-visible": 24 },
     marginLeft: { default: -7, ":focus-visible": 0 },
     overflow: "hidden",

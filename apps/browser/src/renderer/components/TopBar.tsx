@@ -164,6 +164,7 @@ export function AgentButton() {
         onClick={() => toggleAgent(tabId()!)}
         {...stylex.attrs(styles.navButton, styles.footerButton, agentShown() && styles.agentOn)}
         data-agent-show={agentHidden() ? "" : undefined}
+        data-agent-button
       >
         <Icon name="bot" size={17} />
         <Show when={working()}>

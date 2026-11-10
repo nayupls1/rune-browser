@@ -1,5 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
-import { createEffect, createSignal, For, on, onCleanup, Show } from "solid-js";
+import { createEffect, createSignal, For, on, onCleanup, onMount, Show } from "solid-js";
 import type { AppSummary, WorkspaceInfo } from "../../shared/api";
 import {
   appById,
@@ -73,7 +73,8 @@ import { IconPicker, TabIcon } from "./TabIcon";
 import { toast } from "./Toast";
 import { Button } from "./ui";
 import { editWorkspace, workspaceEditing } from "./WorkspaceEditor";
-import { withKeys } from "../lib/shortcuts";
+import { shortcutLabel, withKeys } from "../lib/shortcuts";
+import { TabHoverCard } from "./TabHoverCard";
 import {
   moveToNewWindow,
   moveToWindow,
@@ -134,11 +135,74 @@ const POPOVERS = [
 const isOverlay = () => isSidebarHidden();
 const isAway = () => isSidebarHidden() && !sidebarPeek();
 
-/** Switches between horizontal tabs and the vertical sidebar (in a tab's menu, and the tab bar's). */
-export const layoutMenuItem = (): MenuItem =>
+/** Switches between horizontal tabs and the vertical sidebar. */
+const layoutMenuItem = (): MenuItem =>
   isHorizontal()
     ? { id: "tab-layout", label: "Use vertical tabs", icon: "panel-left", onSelect: () => setTabLayout("vertical") }
     : { id: "tab-layout", label: "Use horizontal tabs", icon: "panel-top", onSelect: () => setTabLayout("horizontal") };
+
+/**
+ * The tab area's own menu, on its empty space (the same in the sidebar and the tab bar): what's for all the
+ * tabs, not one of them. A tab's menu only has what's for that tab.
+ */
+export const tabAreaMenuItems = (): (MenuItem | "separator")[] => [
+  { id: "new-tab", label: "New tab", icon: "plus", hint: shortcutLabel("tab.new"), onSelect: () => void newWebTab() },
+  // Apps are built by agents, which private windows don't have.
+  ...(isPrivate ? [] : [{ id: "new-app", label: "New app", icon: "sparkles", onSelect: () => newApp() }]),
+  "separator",
+  layoutMenuItem(),
+];
+
+/** Right-clicks on these in the tab area are theirs (they have menus of their own, or none). */
+const NOT_TAB_AREA =
+  "[data-app-id], [data-split-group], button, input, textarea, a, [data-address-slot], [data-sidebar-footer], [data-sidebar-chrome], [data-nav-row]";
+
+/** A right-click on the tab area's empty space (not on a tab, a button or the address): where its menu opens. */
+export const tabAreaMenuAt = (e: MouseEvent): MenuPosition | undefined => {
+  if ((e.target as Element).closest(NOT_TAB_AREA)) return;
+  e.preventDefault();
+  return { x: e.clientX, y: e.clientY };
+};
+
+/**
+ * While something is dragged near an end of a list that scrolls (a tab being reordered, a link), the list
+ * scrolls that way, so every place in it can be reached.
+ */
+export function scrollWhileDragging(list: HTMLElement, axis: "x" | "y", area: HTMLElement = list) {
+  const onDragOver = (e: DragEvent) => {
+    const r = list.getBoundingClientRect();
+    const [at, start, end] = axis === "x" ? [e.clientX, r.left, r.right] : [e.clientY, r.top, r.bottom];
+    const zone = Math.min(36, (end - start) / 4);
+    const step = at < start + zone ? -(start + zone - at) : at > end - zone ? at - (end - zone) : 0;
+    if (!step) return;
+    const by = Math.sign(step) * Math.min(14, 3 + Math.abs(step) / 2);
+    if (axis === "x") list.scrollLeft += by;
+    else list.scrollTop += by;
+  };
+  area.addEventListener("dragover", onDragOver, true);
+  onCleanup(() => area.removeEventListener("dragover", onDragOver, true));
+}
+
+/** Scrolls the list so the tab on screen is in it, with `margin` to spare (a new tab, or one picked elsewhere). */
+export function keepSelectedInView(list: () => HTMLElement | undefined, axis: "x" | "y", margin: number) {
+  createEffect(
+    on([selectedId, () => entries().length, () => tiles().length], ([id]) =>
+      requestAnimationFrame(() => {
+        const el = list();
+        const tab = id && el?.isConnected && el.querySelector(`[data-app-id="${CSS.escape(id)}"]`);
+        if (!el || !tab) return;
+        const box = el.getBoundingClientRect();
+        const r = tab.getBoundingClientRect();
+        const [lo, hi, boxLo, boxHi] =
+          axis === "x" ? [r.left, r.right, box.left, box.right] : [r.top, r.bottom, box.top, box.bottom];
+        const delta = lo < boxLo + margin ? lo - boxLo - margin : hi > boxHi - margin ? hi - boxHi + margin : 0;
+        if (!delta) return;
+        if (axis === "x") el.scrollLeft += delta;
+        else el.scrollTop += delta;
+      }),
+    ),
+  );
+}
 
 /** The New tab menu: a web tab or an app, a window, and the closed apps to open again. */
 export function NewTabMenu(props: { position: MenuPosition; onClose: () => void; anchor?: Element }) {
@@ -186,7 +250,15 @@ export function Sidebar() {
 
 function VerticalSidebar() {
   const [newMenu, setNewMenu] = createSignal<MenuPosition>();
+  const [areaMenu, setAreaMenu] = createSignal<MenuPosition>();
   let nav!: HTMLElement;
+  let list!: HTMLUListElement;
+  let pinnedList: HTMLUListElement | undefined;
+  // Only the tabs scroll (the address, pinned tabs, New tab and the buttons at the bottom stay).
+  onMount(() => scrollWhileDragging(list, "y"));
+  keepSelectedInView(() => list, "y", 4);
+  // Many pinned tabs scroll in their own few rows.
+  keepSelectedInView(() => pinnedList, "y", 2);
   // Hidden: it slides back out once the pointer has left it, unless a menu or the address is still open.
   let leaveTimer: ReturnType<typeof setTimeout> | undefined;
   onCleanup(() => clearTimeout(leaveTimer));
@@ -271,6 +343,10 @@ function VerticalSidebar() {
         inert={isAway() && !addressOpen() ? true : undefined}
         onMouseEnter={() => clearTimeout(leaveTimer)}
         onMouseLeave={() => isOverlay() && leaveSoon()}
+        onContextMenu={(e) => {
+          const at = tabAreaMenuAt(e);
+          if (at) setAreaMenu(at);
+        }}
         // Files, links and text dropped on the tab bar open in new tabs (not on fields: they take the text).
         onDragOver={(e) => {
           if (isForeignTabDrag(e.dataTransfer)) {
@@ -297,16 +373,16 @@ function VerticalSidebar() {
         }}
       >
         {/* The tab on screen: its navigation and address, its tools in the ⋯ menu (components/TopBar.tsx). */}
-        <div {...stylex.attrs(styles.chrome)}>
+        <div {...stylex.attrs(styles.chrome)} data-sidebar-chrome>
           <NavRow />
           <AddressBar />
         </div>
         <Show when={tiles().length}>
-          <ul {...stylex.attrs(styles.tiles)} data-pinned-tiles>
+          <ul ref={pinnedList} {...stylex.attrs(styles.tiles)} data-pinned-tiles>
             <For each={tiles()}>{(app) => <Item app={app} tile />}</For>
           </ul>
         </Show>
-        <ul {...stylex.attrs(styles.list)}>
+        <ul ref={list} {...stylex.attrs(styles.list, styles.listScroll)} data-tab-list>
           <For each={entries()}>
             {(key) => (
               <Show
@@ -337,6 +413,10 @@ function VerticalSidebar() {
           New tab
         </Button>
         <Show when={newMenu()}>{(position) => <NewTabMenu position={position()} onClose={() => setNewMenu()} />}</Show>
+        <Show when={areaMenu()}>
+          {(position) => <ContextMenu items={tabAreaMenuItems()} position={position()} onClose={() => setAreaMenu()} />}
+        </Show>
+        <TabHoverCard area={() => nav} placement="beside" />
         {/* At the very bottom, like Zen's: the ⋯ menu, the workspaces in the middle, the agent. */}
         <div {...stylex.attrs(styles.footer)} data-sidebar-footer>
           <MoreMenu />
@@ -760,6 +840,9 @@ export function Item(props: { app: AppSummary; tile?: boolean; horizontal?: bool
   const selected = () => selectedId() === props.app.id;
   /** Icon only: a pinned tile. */
   const hideName = () => !!props.tile;
+  // In the tab bar, the close button of a tab that isn't on screen shows over the end of its name (on hover)
+  // instead of taking room from it: a narrow tab still shows a readable part of its name.
+  const closeOverName = () => !!props.horizontal && !props.tile && !selected();
   const running = () => !!states[props.app.id]?.running;
   const menuOpen = () => menu() !== undefined;
   const highlighted = () => selected() || menuOpen();
@@ -860,7 +943,6 @@ export function Item(props: { app: AppSummary; tile?: boolean; horizontal?: bool
           },
         ]
       : []),
-    layoutMenuItem(),
     "separator",
     {
       label: props.app.kind === "app" ? "Close (the app is kept)" : "Close tab",
@@ -907,16 +989,7 @@ export function Item(props: { app: AppSummary; tile?: boolean; horizontal?: bool
         dropRight() && styles.dropRight,
         dropInto() && styles.dropInto,
       )}
-      // Horizontal tabs show a card with its name and address instead (components/TabStrip.tsx).
-      title={
-        props.horizontal
-          ? undefined
-          : props.tile
-            ? props.app.name
-            : asleep()
-              ? "Not loaded: opens where you left it"
-              : undefined
-      }
+      // No tooltip: the pointer resting on it shows its card, with its name and address (components/TabHoverCard.tsx).
       aria-label={props.tile ? props.app.name : undefined}
       onClick={() => selectApp(props.app.id)}
       onAuxClick={(e) => {
@@ -1056,7 +1129,7 @@ export function Item(props: { app: AppSummary; tile?: boolean; horizontal?: bool
             e.stopPropagation();
             void close();
           }}
-          {...stylex.attrs(styles.more, selected() && styles.moreOpen)}
+          {...stylex.attrs(styles.more, selected() && styles.moreOpen, closeOverName() && styles.moreOverName)}
           data-close-tab
         >
           <Icon name="x" size={14} />
@@ -1087,8 +1160,8 @@ const styles = stylex.create({
     padding: space.md,
     // No border: the page's inset (App.tsx) sets it apart, like Zen Browser.
     backgroundColor: colors.sidebar,
-    overflowX: "hidden",
-    overflowY: "auto",
+    // Only the tab list scrolls (listScroll; its scrollbar in global.css), never the whole sidebar.
+    overflow: "hidden",
   },
   footerSpacer: { flex: 1 },
   // A private window's sidebar is tinted, so it's never mistaken for a normal one.
@@ -1232,13 +1305,18 @@ const styles = stylex.create({
   chrome: { display: "flex", flexDirection: "column", gap: 6, flexShrink: 0 },
   tiles: {
     listStyle: "none",
-    margin: 0,
-    padding: 0,
     display: "grid",
     gridTemplateColumns: "repeat(auto-fill, minmax(44px, 1fr))",
     gap: 6,
-    marginBottom: 4,
     flexShrink: 0,
+    // Many of them: a few rows, then they scroll themselves, leaving the tabs their room. Padded (and pulled
+    // back out by as much) for the ring of the one on screen.
+    maxHeight: "min(30vh, 200px)",
+    overflowY: "auto",
+    padding: 2,
+    marginTop: -2,
+    marginInline: -2,
+    marginBottom: 2,
   },
   // Pinned tabs: tiles in the address pill's tint, the one on screen lifted like a selected tab.
   tile: {
@@ -1262,6 +1340,19 @@ const styles = stylex.create({
   },
   chevron: { marginLeft: "auto", opacity: 0.6 },
   list: { listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 2 },
+  // The sidebar's tabs: as tall as they are, then scrolling in what's left between the pinned tabs and New tab.
+  // Padded (and pulled back out by as much) so the selected tab's ring and the drop lines aren't clipped.
+  listScroll: {
+    flexGrow: 0,
+    flexShrink: 1,
+    flexBasis: "auto",
+    minHeight: 0,
+    overflowX: "hidden",
+    overflowY: "auto",
+    overscrollBehavior: "contain",
+    padding: 2,
+    margin: -2,
+  },
   item: {
     display: "flex",
     alignItems: "center",
@@ -1275,9 +1366,19 @@ const styles = stylex.create({
     backgroundColor: { default: "transparent", ":hover": colors.surfaceHover },
   },
   // A tab in the horizontal tab bar: as wide as there's room for, up to Chrome's width; past the
-  // narrowest, the bar scrolls (components/TabStrip.tsx).
+  // narrowest (still room for a few letters of its name next to its icon and close button), the bar scrolls
+  // (components/TabStrip.tsx).
   // (A width, not a flex basis: the bar's own width comes from its tabs' widths.)
-  itemH: { flex: "0 1 auto", width: 220, minWidth: 72, height: 30, gap: 6, paddingInline: 8, overflow: "hidden" },
+  itemH: {
+    position: "relative",
+    flex: "0 1 auto",
+    width: 220,
+    minWidth: 112,
+    height: 30,
+    gap: 6,
+    paddingInline: 8,
+    overflow: "hidden",
+  },
   // A pinned tab there: an icon, the tabs' height.
   // (Its audio badge sits over its corner.)
   tileH: { flex: "none", minWidth: 0, width: 38, height: 30, borderRadius: 8, overflow: "visible" },
@@ -1387,6 +1488,13 @@ const styles = stylex.create({
     opacity: { default: 0, [stylex.when.ancestor(":hover")]: 1, ":focus-visible": 1 },
   },
   moreOpen: { opacity: 1 },
+  moreOverName: {
+    position: "absolute",
+    top: "50%",
+    right: 4,
+    marginTop: -11,
+    backgroundColor: { default: colors.surfaceHover, ":hover": colors.surfaceHover },
+  },
   workspaceBar: {
     display: "flex",
     flexWrap: "wrap",

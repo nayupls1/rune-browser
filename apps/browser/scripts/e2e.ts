@@ -477,6 +477,68 @@ const click = (selector: string, text?: string) =>
     return true;
   })()`);
 
+/** Closes the open menu with Escape. */
+const closeMenu = async () => {
+  await page!.eval(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })), true`);
+  await page!.waitFor(`!document.querySelector("[data-context-menu]")`, { label: "menu closed" });
+};
+
+/**
+ * Right-clicks the tab area's empty space (below New tab in the sidebar, the free room after New tab in the tab
+ * bar) and waits for its menu.
+ */
+const openTabAreaMenu = async (attempt = 1): Promise<void> => {
+  const on = await page!.eval<string>(`(() => {
+    let x, y;
+    if (document.querySelector("nav[data-sidebar]")) {
+      const n = document.querySelector("nav [data-new-tab]").getBoundingClientRect();
+      const f = document.querySelector("[data-sidebar-footer]").getBoundingClientRect();
+      x = Math.round(n.left + n.width / 2);
+      y = Math.round((n.bottom + f.top) / 2);
+    } else {
+      const s = document.querySelector("[data-tab-strip-spacer]").getBoundingClientRect();
+      x = Math.round(s.left + s.width / 2);
+      y = Math.round(s.top + s.height / 2);
+    }
+    const el = document.elementFromPoint(x, y);
+    el.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: x, clientY: y }));
+    return el.tagName.toLowerCase() + (el.dataset.tabStripSpacer !== undefined ? "[data-tab-strip-spacer]" : "");
+  })()`);
+  // Menus close on resize and blur, which can still arrive from a change of the window's size: open it again then.
+  const opened = await page!
+    .waitFor(`!!document.querySelector('[data-context-menu] [data-menu-item="tab-layout"]')`, {
+      label: `the tab area's menu (right-clicked ${on})`,
+      timeoutMs: attempt < 3 ? 3000 : undefined,
+    })
+    .then(
+      () => true,
+      (err) => {
+        if (attempt >= 3) throw err;
+        return false;
+      },
+    );
+  if (!opened) return openTabAreaMenu(attempt + 1);
+};
+
+/** The address bar's buttons (in `root`) that aren't all the same size, or don't fit its row with room to spare. */
+const unevenAddressButtons = (root: string) =>
+  page!.eval<{ shown: number; uneven: string[] }>(`(() => {
+    const row = document.querySelector(${JSON.stringify(`${root} [data-address-bar]`)}).firstElementChild.getBoundingClientRect();
+    const buttons = [...document.querySelectorAll(${JSON.stringify(`${root} [data-address-bar] button`)})].filter(
+      (b) => !b.closest("[data-suggestions]") && b.getBoundingClientRect().width > 0,
+    );
+    const uneven = [];
+    for (const b of buttons) {
+      const r = b.getBoundingClientRect();
+      const name = Object.keys(b.dataset)[0] ?? b.title;
+      // Badges (zoom, the agent's response changes, a site using the camera) are as wide as their text.
+      const badge = b.textContent.trim().length > 0;
+      if (r.height !== 24 || (badge ? r.width < 24 : r.width !== 24) || r.top < row.top + 2 || r.bottom > row.bottom - 2)
+        uneven.push(\`\${name} \${r.width}×\${r.height} at \${Math.round(r.top - row.top)}/\${Math.round(row.height)}\`);
+    }
+    return { shown: buttons.length, uneven };
+  })()`);
+
 /** Where the sidebar shows a tab's navigation, address and tools (when it's the tab on screen). */
 const chromeFor = (tabSelector: string) => tabSelector.replace(/^\[data-(?:web|app)-tab=/, "[data-tab-chrome=");
 /** Picks an item of the top row's ⋯ menu (the browser's pages, the tab's tools: an app's logs, data…). */
@@ -1236,19 +1298,47 @@ try {
   });
 
   await check(
-    "horizontal tabs: switched to from a tab's menu without a reload, new tab, hover card, back from the bar's menu",
+    "horizontal tabs: switched to from the tab area's menu without a reload, new tab, hover card, back from the bar's menu",
     async () => {
       const count = await page!.eval<number>(`document.querySelectorAll("nav li[data-app-id]").length`);
       // The pages stay where they are in the DOM: a webview that moves reloads.
       await page!.eval(
         `document.querySelectorAll("[data-tab-layer]").forEach((l) => (l.__kept = l.parentElement)), true`,
       );
+      // A tab's menu is only for that tab: the layout isn't in it.
       await page!.eval(
         `(() => { const li = document.querySelector("nav li[data-app-id]"); const r = li.getBoundingClientRect(); li.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: r.left + 20, clientY: r.top + 10 })); })(), true`,
       );
-      await page!.waitFor(`!!document.querySelector('[data-context-menu] [data-menu-item="tab-layout"]')`, {
-        label: "the layout in the tab's menu",
-      });
+      await page!.waitFor(`!!document.querySelector("[data-context-menu]")`, { label: "the tab's menu" });
+      if (await page!.eval<boolean>(`!!document.querySelector('[data-context-menu] [data-menu-item="tab-layout"]')`))
+        throw new Error("the layout is in a tab's menu");
+      await closeMenu();
+      // The pointer resting on a tab in the sidebar shows the same card as horizontal tabs, beside the sidebar.
+      const row = await page!.eval<{ x: number; y: number; title: boolean }>(`(() => {
+        const li = document.querySelector("nav li[data-app-id]");
+        const r = li.getBoundingClientRect();
+        return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2), title: li.hasAttribute("title") };
+      })()`);
+      if (row.title) throw new Error("a tab in the sidebar has a tooltip of its own");
+      await page!.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: row.x, y: row.y });
+      const beside = await page!.waitFor<{ card: number; nav: number }>(
+        `(() => {
+          const card = document.querySelector('[data-tab-card][data-tab-card-placement="beside"]');
+          return card && { card: card.getBoundingClientRect().left, nav: document.querySelector("nav[data-sidebar]").getBoundingClientRect().right };
+        })()`,
+        { label: "the hover card beside the sidebar" },
+      );
+      if (beside.card < beside.nav) throw new Error(`the card covers the sidebar: ${JSON.stringify(beside)}`);
+      await shot("sidebar-tab-card.png");
+      await page!.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 900, y: 500 });
+      await page!.waitFor(`!document.querySelector("[data-tab-card]")`, { label: "the sidebar's card gone" });
+      // The empty space in the sidebar has the tab area's menu: new tab, new app, the layout.
+      await openTabAreaMenu();
+      await page!.waitFor(
+        `["new-tab", "new-app", "tab-layout"].every((id) => document.querySelector(\`[data-context-menu] [data-menu-item="\${id}"]\`))`,
+        { label: "the tab area's menu in the sidebar" },
+      );
+      await shot("sidebar-tab-area-menu.png");
       await click('[data-context-menu] [data-menu-item="tab-layout"]');
       await page!.waitFor(
         `!!document.querySelector("[data-tab-strip]") && !document.querySelector("nav[data-sidebar]")`,
@@ -1336,6 +1426,223 @@ try {
         return s.tabs.layout === "vertical" ? s : undefined;
       });
       return `${count} tabs in the bar (${saved.tabs.layout}), and back`;
+    },
+  );
+
+  await check(
+    "many tabs: pinned tabs past the bar's room behind a button, arrows to tabs out of view, only the sidebar's tab list scrolls, even address bar buttons",
+    async () => {
+      const make = (i: number) =>
+        apiCall<{ id: string }>("/api/apps", {
+          method: "POST",
+          body: { kind: "web", url: `${site.url.origin}/?tab=${i}` },
+        });
+      const pinned: string[] = [];
+      const plain: string[] = [];
+      for (let i = 0; i < 14; i++) pinned.push((await make(i)).id);
+      for (const id of pinned) await apiCall(`/api/apps/${id}/pinned`, { method: "PUT", body: { pinned: true } });
+      for (let i = 0; i < 30; i++) plain.push((await make(100 + i)).id);
+      const pinnedCount = await page!.waitFor<number>(
+        `(() => { const n = document.querySelectorAll("nav [data-pinned-tiles] [data-app-id]").length; return n >= 14 && n; })()`,
+        { label: "the pinned tabs in the sidebar" },
+      );
+      await page!.waitFor(`!!document.querySelector('nav li[data-app-id="${plain.at(-1)}"]')`, {
+        label: "the tabs in the sidebar",
+      });
+      // A tab of the site on screen, loaded (its site info button), with the pointer on the address (its star).
+      await click(`nav li[data-app-id="${plain[0]}"]`);
+      await page!.waitFor(`!!document.querySelector("nav[data-sidebar] [data-site-info-button]")`, {
+        timeoutMs: 20_000,
+        label: "the site info button",
+      });
+
+      // Vertical: only the tab list scrolls; the address, pinned tabs, New tab and the footer stay.
+      const sidebar = await page!.eval<{
+        navScrolls: boolean;
+        listScrolls: boolean;
+        footerShown: boolean;
+        newTabShown: boolean;
+        selectedShown: boolean;
+      }>(`(() => {
+        const nav = document.querySelector("nav[data-sidebar]");
+        const list = nav.querySelector("[data-tab-list]");
+        const footer = nav.querySelector("[data-sidebar-footer]").getBoundingClientRect();
+        const newTab = nav.querySelector("[data-new-tab]").getBoundingClientRect();
+        const box = list.getBoundingClientRect();
+        const selected = list.querySelector('[aria-current="page"]').getBoundingClientRect();
+        return {
+          navScrolls: nav.scrollHeight > nav.clientHeight + 1,
+          listScrolls: list.scrollHeight > list.clientHeight + 1,
+          footerShown: footer.bottom <= innerHeight && footer.height > 0,
+          newTabShown: newTab.top >= box.bottom - 1 && newTab.bottom <= footer.top,
+          selectedShown: selected.top >= box.top - 1 && selected.bottom <= box.bottom + 1,
+        };
+      })()`);
+      if (
+        sidebar.navScrolls ||
+        !sidebar.listScrolls ||
+        !sidebar.footerShown ||
+        !sidebar.newTabShown ||
+        !sidebar.selectedShown
+      )
+        throw new Error(`the sidebar with many tabs: ${JSON.stringify(sidebar)}`);
+      // Scrolled to the end, the rest stays put; the last tab picked elsewhere is scrolled into view.
+      const stays = await page!.eval<boolean>(`(() => {
+        const nav = document.querySelector("nav[data-sidebar]");
+        const at = () => [nav.querySelector("[data-address-bar]"), nav.querySelector("[data-sidebar-footer]")].map((e) => e.getBoundingClientRect().top).join();
+        const before = at();
+        nav.querySelector("[data-tab-list]").scrollTop = 1e6;
+        return before === at() && nav.scrollTop === 0;
+      })()`);
+      if (!stays) throw new Error("scrolling the tabs moved the rest of the sidebar");
+      await page!.eval(`document.querySelector("nav [data-tab-list]").scrollTop = 0, true`);
+      await click(`nav [data-pinned-tiles] li[data-app-id="${pinned.at(-1)}"]`);
+      await page!.eval(`document.querySelector('nav li[data-app-id="${plain.at(-1)}"]').click(), true`);
+      await page!.waitFor(
+        `(() => {
+          const list = document.querySelector("nav [data-tab-list]").getBoundingClientRect();
+          const r = document.querySelector('nav li[data-app-id="${plain.at(-1)}"]').getBoundingClientRect();
+          return r.top >= list.top - 1 && r.bottom <= list.bottom + 1;
+        })()`,
+        { label: "the tab on screen scrolled into view in the sidebar" },
+      );
+      await shot("sidebar-many-tabs.png");
+      await click(`nav li[data-app-id="${plain[0]}"]`);
+      await page!.waitFor(`!!document.querySelector("nav[data-sidebar] [data-site-info-button]")`, {
+        timeoutMs: 20_000,
+        label: "the site info button again",
+      });
+      const hoverAddress = async () => {
+        const r = await page!.eval<{ x: number; y: number }>(`(() => {
+          const r = document.querySelector("[data-address-bar]").getBoundingClientRect();
+          return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+        })()`);
+        await page!.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: r.x, y: r.y });
+        await page!.waitFor(`document.querySelector("[data-bookmark-star]")?.getBoundingClientRect().width === 24`, {
+          label: "the star shown",
+        });
+      };
+      await hoverAddress();
+      const vertical = await unevenAddressButtons("nav[data-sidebar]");
+      if (vertical.uneven.length || vertical.shown < 2)
+        throw new Error(`the sidebar's address bar buttons: ${vertical.shown} shown, ${vertical.uneven.join(", ")}`);
+      await shot("address-buttons-vertical.png");
+
+      // Horizontal: the same tabs in the bar.
+      await page!.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 900, y: 500 });
+      await openTabAreaMenu();
+      await click('[data-context-menu] [data-menu-item="tab-layout"]');
+      await page!.waitFor(
+        `!!document.querySelector("[data-tab-strip]") && !document.querySelector("nav[data-sidebar]")`,
+        {
+          label: "the tab bar",
+        },
+      );
+      const bar = async () =>
+        page!.eval<{
+          tilesCut: string[];
+          tilesShown: number;
+          more: number;
+          narrowest: number;
+          before: number;
+          after: number;
+          arrows: string[];
+          outOfBar: string[];
+        }>(`(() => {
+          const strip = document.querySelector("[data-tab-strip]").getBoundingClientRect();
+          const tiles = [...document.querySelectorAll("[data-pinned-tiles] > li")];
+          const tilesCut = tiles
+            .filter((t) => { const r = t.getBoundingClientRect(); return r.left < strip.left || r.right > strip.right || r.width < 30; })
+            .map((t) => t.dataset.appId ?? "more");
+          const list = document.querySelector("[data-tab-list]");
+          const widths = [...list.querySelectorAll(":scope > li[data-app-id]")].map((t) => t.getBoundingClientRect().width);
+          // What must stay in the bar: New tab, the workspaces, the agent and the ⋯ menu.
+          const outOfBar = ["[data-tab-strip] [data-new-tab]", "[data-horizontal-tabs] [data-workspace-bar] [data-workspace]", "[data-horizontal-tabs] [data-agent-button]", "[data-horizontal-tabs] [data-more-menu]"]
+            .filter((sel) => { const e = document.querySelector(sel); if (!e) return true; const r = e.getBoundingClientRect(); return r.width < 20 || r.right > innerWidth || (sel.includes("new-tab") && r.right > strip.right); });
+          return {
+            tilesCut,
+            tilesShown: document.querySelectorAll("[data-pinned-tiles] li[data-app-id]").length,
+            more: Number(document.querySelector("[data-more-pinned]")?.dataset.morePinned ?? 0),
+            narrowest: Math.min(...widths),
+            before: Number(list.dataset.tabsHiddenBefore),
+            after: Number(list.dataset.tabsHiddenAfter),
+            arrows: [...document.querySelectorAll("[data-tabs-scroll]")].map((a) => a.dataset.tabsScroll),
+            outOfBar,
+          };
+        })()`);
+      const wide = await bar();
+      if (wide.tilesCut.length || wide.tilesShown + wide.more !== pinnedCount || !wide.more || wide.outOfBar.length)
+        throw new Error(`pinned tabs in the bar: ${JSON.stringify(wide)}`);
+      if (wide.narrowest < 111 || wide.before + wide.after === 0 || !wide.arrows.length)
+        throw new Error(`many tabs in the bar: ${JSON.stringify(wide)}`);
+      await shot("horizontal-tabs-many.png");
+      // An arrow shows the tabs past that end.
+      const side = wide.arrows.includes("end") ? "end" : "start";
+      const scrolled = await page!.eval<number>(`document.querySelector("[data-tab-list]").scrollLeft`);
+      await click(`[data-tabs-scroll="${side}"]`);
+      await page!.waitFor(
+        `Math.abs(document.querySelector("[data-tab-list]").scrollLeft - ${scrolled}) > 100 && !!document.querySelector('[data-tabs-scroll="${side === "end" ? "start" : "end"}"]')`,
+        { label: `scrolled by the ${side} arrow` },
+      );
+      // The pinned tabs that don't fit: in a list under their button, each picked from there.
+      await click("[data-more-pinned]");
+      await page!.waitFor(`document.querySelectorAll("[data-pinned-overflow] [data-app-id]").length === ${wide.more}`, {
+        label: "the rest of the pinned tabs in their list",
+      });
+      await shot("horizontal-tabs-pinned-overflow.png");
+      const last = pinned.at(-1)!;
+      await click(`[data-pinned-overflow] [data-app-id="${last}"]`);
+      await page!.waitFor(
+        `!document.querySelector("[data-pinned-overflow]") && document.querySelector("[data-tab-chrome]")?.dataset.tabChrome === "${last}"`,
+        { label: "a pinned tab picked from the list" },
+      );
+      // The address bar's buttons, in the bar's lower address row.
+      await click(`[data-tab-list] li[data-app-id="${plain[0]}"]`);
+      await page!.waitFor(`!!document.querySelector("[data-horizontal-tabs] [data-site-info-button]")`, {
+        timeoutMs: 20_000,
+        label: "the site info button in the bar",
+      });
+      await hoverAddress();
+      const horizontal = await unevenAddressButtons("[data-horizontal-tabs]");
+      if (horizontal.uneven.length || horizontal.shown < 2)
+        throw new Error(`the bar's address bar buttons: ${horizontal.shown} shown, ${horizontal.uneven.join(", ")}`);
+      await shot("address-buttons-horizontal.png");
+      await page!.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 900, y: 500 });
+      // A narrow window: still only whole pinned tiles, and New tab, the workspaces and the agent in the bar.
+      await page!.send("Emulation.setDeviceMetricsOverride", {
+        width: 900,
+        height: 700,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      try {
+        await page!.waitFor(`innerWidth === 900`, { label: "narrow window" });
+        await page!.eval(`new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))`);
+        const narrow = await bar();
+        if (narrow.tilesCut.length || narrow.tilesShown + narrow.more !== pinnedCount || narrow.outOfBar.length)
+          throw new Error(`the bar on a narrow window: ${JSON.stringify(narrow)}`);
+        await shot("horizontal-tabs-narrow.png");
+      } finally {
+        await page!.send("Emulation.setDeviceMetricsOverride", {
+          width: 1400,
+          height: 900,
+          deviceScaleFactor: 1,
+          mobile: false,
+        });
+        await page!.waitFor(`innerWidth === 1400 && innerHeight === 900`, { label: "window size back" });
+      }
+
+      // Back to the sidebar, from the bar's free room, and the tabs closed again.
+      await openTabAreaMenu();
+      await click('[data-context-menu] [data-menu-item="tab-layout"]');
+      await page!.waitFor(`!!document.querySelector("nav[data-sidebar]")`, { label: "the sidebar back" });
+      await waitForValue(async () => {
+        const s = await apiCall<{ tabs: { layout: string } }>("/api/settings");
+        return s.tabs.layout === "vertical" ? s : undefined;
+      });
+      for (const id of [...pinned, ...plain]) await apiCall(`/api/apps/${id}`, { method: "DELETE" });
+      await page!.waitFor(`!document.querySelector('nav li[data-app-id="${plain[0]}"]')`, { label: "the tabs closed" });
+      return `${pinnedCount} pinned (${wide.tilesShown} in the bar, ${wide.more} behind their button), ${wide.before + wide.after} tabs out of view, tabs at least ${Math.round(wide.narrowest)}px`;
     },
   );
 

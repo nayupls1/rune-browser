@@ -30,6 +30,7 @@ import {
 import { withKeys } from "../lib/shortcuts";
 import { colors, font, radius, space } from "../theme.stylex";
 import { Icon } from "./Icon";
+import { ADDRESS_ICON_SIZE, addressButton } from "./addressButton";
 import { Button, EmptyState } from "./ui";
 
 /** How many downloads the panel shows. */
@@ -243,10 +244,10 @@ export function DownloadsButton() {
         title={withKeys("Downloads", "open.downloads")}
         aria-expanded={panelOpen()}
         onClick={() => showPanel(!panelOpen())}
-        {...stylex.attrs(styles.navButton, panelOpen() && styles.navButtonOn, waiting() && styles.navButtonWarning)}
+        {...stylex.attrs(addressButton.button, panelOpen() && addressButton.on, waiting() && styles.navButtonWarning)}
         data-downloads-button
       >
-        <Icon name={waiting() ? "triangle-alert" : "download"} size={15} />
+        <Icon name={waiting() ? "triangle-alert" : "download"} size={ADDRESS_ICON_SIZE} />
         <Show when={busy()}>
           <svg viewBox="0 0 28 28" {...stylex.attrs(styles.ring, spinning() && styles.ringSpinning)} aria-hidden="true">
             <circle cx="14" cy="14" r="12" {...stylex.attrs(styles.ringTrack)} />
@@ -480,22 +481,16 @@ const styles = stylex.create({
     color: { default: colors.muted, ":hover": colors.text },
     cursor: "pointer",
   },
-  navButton: {
-    position: "relative",
-    display: "grid",
-    placeItems: "center",
-    width: 30,
-    height: 30,
-    padding: 0,
-    borderWidth: 0,
-    borderRadius: radius.sm,
-    backgroundColor: { default: "transparent", ":hover": colors.surfaceHover },
-    color: { default: colors.muted, ":hover": colors.text },
-    cursor: "pointer",
-  },
-  navButtonOn: { backgroundColor: colors.surfaceHover, color: colors.text },
   navButtonWarning: { color: { default: colors.warning, ":hover": colors.warning } },
-  ring: { position: "absolute", inset: 1, width: 28, height: 28, transform: "rotate(-90deg)", pointerEvents: "none" },
+  ring: {
+    position: "absolute",
+    inset: 1,
+    // Inside the address bar's 24px button (addressButton.ts).
+    width: 22,
+    height: 22,
+    transform: "rotate(-90deg)",
+    pointerEvents: "none",
+  },
   ringSpinning: {
     animationName: spin,
     animationDuration: "1s",
