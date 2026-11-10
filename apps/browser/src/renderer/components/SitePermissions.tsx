@@ -29,6 +29,7 @@ import {
   usageOf,
 } from "../lib/sitePermissions";
 import { colors, font, radius, space } from "../theme.stylex";
+import { ADDRESS_ICON_SIZE } from "./addressButton";
 import { Icon } from "./Icon";
 import { Button, Checkbox } from "./ui";
 
@@ -154,12 +155,12 @@ export function SiteStatusIcon(props: { contentsId: number | null; url: string; 
   const inUse = () => usage()?.inUse ?? [];
   const blocked = () => usage()?.blocked ?? [];
   return (
-    <Switch fallback={props.fallback ?? <Icon name="sliders-horizontal" size={13} />}>
+    <Switch fallback={props.fallback ?? <Icon name="sliders-horizontal" size={ADDRESS_ICON_SIZE} />}>
       <Match when={inUse().length}>
-        <For each={inUse()}>{(key) => <Icon name={siteSettings[key].icon} size={13} />}</For>
+        <For each={inUse()}>{(key) => <Icon name={siteSettings[key].icon} size={ADDRESS_ICON_SIZE} />}</For>
       </Match>
       <Match when={blocked()[0]}>
-        {(key) => <Icon name={promptInfo(key()).offIcon ?? "shield-alert"} size={13} />}
+        {(key) => <Icon name={promptInfo(key()).offIcon ?? "shield-alert"} size={ADDRESS_ICON_SIZE} />}
       </Match>
     </Switch>
   );

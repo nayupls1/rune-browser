@@ -221,12 +221,16 @@ body:has([data-address-open]) [data-tab-strip-spacer] {
   margin: 1em 0;
 }
 
-/* The agent sidebar's scrolling parts: a slim scrollbar without arrow buttons, like the rest of the chat. */
+/* The agent sidebar's scrolling parts, and the tab sidebar's tabs and pinned tabs: a slim scrollbar without arrow
+   buttons, like the rest of the chat. */
 [data-chat-scroller]::-webkit-scrollbar,
 .rune-markdown pre::-webkit-scrollbar,
 .rune-markdown table::-webkit-scrollbar,
 [data-agent-popover] ::-webkit-scrollbar,
-[data-chat-history] ::-webkit-scrollbar {
+[data-chat-history] ::-webkit-scrollbar,
+nav[data-sidebar] [data-tab-list]::-webkit-scrollbar,
+nav[data-sidebar] [data-pinned-tiles]::-webkit-scrollbar,
+[data-pinned-overflow]::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
@@ -234,21 +238,30 @@ body:has([data-address-open]) [data-tab-strip-spacer] {
 .rune-markdown pre::-webkit-scrollbar-button,
 .rune-markdown table::-webkit-scrollbar-button,
 [data-agent-popover] ::-webkit-scrollbar-button,
-[data-chat-history] ::-webkit-scrollbar-button {
+[data-chat-history] ::-webkit-scrollbar-button,
+nav[data-sidebar] [data-tab-list]::-webkit-scrollbar-button,
+nav[data-sidebar] [data-pinned-tiles]::-webkit-scrollbar-button,
+[data-pinned-overflow]::-webkit-scrollbar-button {
   display: none;
 }
 [data-chat-scroller]::-webkit-scrollbar-track,
 .rune-markdown pre::-webkit-scrollbar-track,
 .rune-markdown table::-webkit-scrollbar-track,
 [data-agent-popover] ::-webkit-scrollbar-track,
-[data-chat-history] ::-webkit-scrollbar-track {
+[data-chat-history] ::-webkit-scrollbar-track,
+nav[data-sidebar] [data-tab-list]::-webkit-scrollbar-track,
+nav[data-sidebar] [data-pinned-tiles]::-webkit-scrollbar-track,
+[data-pinned-overflow]::-webkit-scrollbar-track {
   background: transparent;
 }
 [data-chat-scroller]::-webkit-scrollbar-thumb,
 .rune-markdown pre::-webkit-scrollbar-thumb,
 .rune-markdown table::-webkit-scrollbar-thumb,
 [data-agent-popover] ::-webkit-scrollbar-thumb,
-[data-chat-history] ::-webkit-scrollbar-thumb {
+[data-chat-history] ::-webkit-scrollbar-thumb,
+nav[data-sidebar] [data-tab-list]::-webkit-scrollbar-thumb,
+nav[data-sidebar] [data-pinned-tiles]::-webkit-scrollbar-thumb,
+[data-pinned-overflow]::-webkit-scrollbar-thumb {
   border: 3px solid transparent;
   border-radius: 999px;
   background-clip: padding-box;
@@ -258,7 +271,10 @@ body:has([data-address-open]) [data-tab-strip-spacer] {
 .rune-markdown pre::-webkit-scrollbar-thumb:hover,
 .rune-markdown table::-webkit-scrollbar-thumb:hover,
 [data-agent-popover] ::-webkit-scrollbar-thumb:hover,
-[data-chat-history] ::-webkit-scrollbar-thumb:hover {
+[data-chat-history] ::-webkit-scrollbar-thumb:hover,
+nav[data-sidebar] [data-tab-list]::-webkit-scrollbar-thumb:hover,
+nav[data-sidebar] [data-pinned-tiles]::-webkit-scrollbar-thumb:hover,
+[data-pinned-overflow]::-webkit-scrollbar-thumb:hover {
   background-color: color-mix(in oklab, transparent, currentColor 38%);
 }
 

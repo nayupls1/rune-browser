@@ -17,6 +17,7 @@ import {
 } from "../lib/extensions";
 import { colors, font, radius, space } from "../theme.stylex";
 import { Icon } from "./Icon";
+import { ADDRESS_ICON_SIZE, addressButton } from "./addressButton";
 
 const bridge = window.rune.extensions;
 
@@ -90,10 +91,10 @@ export function ExtensionsBar(props: {
           ref={menuButton}
           title="Extensions"
           onClick={toggle}
-          {...stylex.attrs(styles.button, menuOpen() && styles.buttonOn, showing() && styles.buttonOn)}
+          {...stylex.attrs(addressButton.button, menuOpen() && addressButton.on, showing() && addressButton.on)}
           data-extensions-menu
         >
-          <Icon name="puzzle" size={16} />
+          <Icon name="puzzle" size={ADDRESS_ICON_SIZE} />
         </button>
       </Show>
       <Show when={menu()}>
@@ -382,25 +383,6 @@ function ExtensionPopup(props: {
 }
 
 const styles = stylex.create({
-  button: {
-    position: "relative",
-    display: "grid",
-    placeItems: "center",
-    flexShrink: 0,
-    width: 30,
-    height: 30,
-    padding: 0,
-    borderStyle: "none",
-    borderRadius: radius.sm,
-    backgroundColor: { default: "transparent", ":hover": colors.surfaceHover, ":disabled": "transparent" },
-    color: { default: colors.muted, ":hover": colors.text },
-    opacity: { default: 1, ":disabled": 0.4 },
-    cursor: { default: "pointer", ":disabled": "default" },
-  },
-  buttonOn: {
-    backgroundColor: { default: colors.accentSoft, ":hover": colors.accentSoft },
-    color: { default: colors.accent, ":hover": colors.accent },
-  },
   // Room for its badge before the name.
   iconWrap: { position: "relative", display: "grid", placeItems: "center", marginRight: 6 },
   icon: { display: "block", objectFit: "contain" },

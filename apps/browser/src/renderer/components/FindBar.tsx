@@ -7,6 +7,7 @@ import { closeFind, findOf, findStep, search, zoom, zoomKnown, zoomOf } from "..
 import { shortcutLabel } from "../lib/shortcuts";
 import { colors, font, radius, space } from "../theme.stylex";
 import { Icon } from "./Icon";
+import { ADDRESS_ICON_SIZE, addressButton } from "./addressButton";
 
 export function FindBar(props: { tabId: string }) {
   const state = () => findOf(props.tabId);
@@ -102,10 +103,10 @@ export function ZoomBadge(props: { tabId: string }) {
         type="button"
         title={`Zoom: ${percent()}%. Click for the default size${shortcutLabel("zoom.reset") ? ` (${shortcutLabel("zoom.reset")})` : ""}`}
         onClick={() => zoom(props.tabId, 0)}
-        {...stylex.attrs(styles.zoom)}
+        {...stylex.attrs(addressButton.button, addressButton.badge, styles.zoom)}
         data-zoom={percent()}
       >
-        <Icon name={percent() > 100 ? "zoom-in" : "zoom-out"} size={12} />
+        <Icon name={percent() > 100 ? "zoom-in" : "zoom-out"} size={ADDRESS_ICON_SIZE} />
         {percent()}%
       </button>
     </Show>
@@ -170,19 +171,12 @@ const styles = stylex.create({
     opacity: { default: 1, ":disabled": 0.4 },
     cursor: { default: "pointer", ":disabled": "default" },
   },
+  // A badge in the address bar while the page isn't at the default size.
   zoom: {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 3,
-    flexShrink: 0,
-    height: 20,
-    paddingInline: 6,
-    borderStyle: "none",
-    borderRadius: radius.full,
-    backgroundColor: { default: colors.surfaceHover, ":hover": colors.accentSoft },
-    color: colors.muted,
-    fontSize: font.xs,
-    fontVariantNumeric: "tabular-nums",
-    cursor: "pointer",
+    backgroundColor: {
+      default: `color-mix(in oklab, ${colors.text} 7%, transparent)`,
+      ":hover": colors.accentSoft,
+    },
+    color: { default: colors.muted, ":hover": colors.accent },
   },
 });
