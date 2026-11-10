@@ -688,6 +688,8 @@ export function SplitGroup(props: { splitId: string; horizontal?: boolean }) {
   const [menu, setMenu] = createSignal<MenuPosition>();
   const split = () => workspaces.flatMap((w) => w.splits).find((x) => x.id === props.splitId);
   const isRow = () => split()?.direction === "row";
+  // In the sidebar's list, which scrolls: at its full height, never squeezed (in the tab bar it shrinks, groupH).
+  const vertical = () => !props.horizontal;
   const isDragged = () => draggedSplit() === props.splitId;
   const openMenu = (position: MenuPosition) => setMenu(position);
 
@@ -705,7 +707,12 @@ export function SplitGroup(props: { splitId: string; horizontal?: boolean }) {
     <Show when={split()}>
       {(s) => (
         <li
-          {...stylex.attrs(styles.group, props.horizontal && styles.groupH, isDragged() && styles.dragging)}
+          {...stylex.attrs(
+            styles.group,
+            props.horizontal && styles.groupH,
+            vertical() && styles.fullHeight,
+            isDragged() && styles.dragging,
+          )}
           data-split-group={props.splitId}
         >
           <div
@@ -818,6 +825,8 @@ export function Item(props: { app: AppSummary; tile?: boolean; horizontal?: bool
     return before ? "before" : "after";
   };
   const tileH = () => !!props.tile && !!props.horizontal;
+  // A row in the sidebar's list, which scrolls: at its full height, never squeezed (in the tab bar it shrinks, itemH).
+  const vertical = () => !props.horizontal;
   const audible = () => isAudible(props.app.id);
   const split = () => splitOf(props.app.id);
   // On screen next to the selected tab, in a split view.
@@ -977,6 +986,7 @@ export function Item(props: { app: AppSummary; tile?: boolean; horizontal?: bool
         stylex.defaultMarker(),
         styles.item,
         props.horizontal && styles.itemH,
+        vertical() && styles.fullHeight,
         props.tile && styles.tile,
         tileH() && styles.tileH,
         highlighted() && styles.selected,
@@ -1260,6 +1270,7 @@ const styles = stylex.create({
   // Where a file or link dragged in opens in a new tab: a slot at the end of the list.
   dropSlot: {
     display: "flex",
+    flexShrink: 0,
     alignItems: "center",
     gap: space.sm,
     height: 34,
@@ -1353,6 +1364,9 @@ const styles = stylex.create({
     padding: 2,
     margin: -2,
   },
+  // The sidebar's tabs, split views and drop slot keep their height: past the room there is, the list scrolls.
+  // (Only ever applied without itemH/groupH, whose flex shorthands it would win over: longhands go first.)
+  fullHeight: { flexShrink: 0 },
   item: {
     display: "flex",
     alignItems: "center",

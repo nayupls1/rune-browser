@@ -1463,6 +1463,7 @@ try {
         footerShown: boolean;
         newTabShown: boolean;
         selectedShown: boolean;
+        squeezed: string[];
       }>(`(() => {
         const nav = document.querySelector("nav[data-sidebar]");
         const list = nav.querySelector("[data-tab-list]");
@@ -1476,6 +1477,11 @@ try {
           footerShown: footer.bottom <= innerHeight && footer.height > 0,
           newTabShown: newTab.top >= box.bottom - 1 && newTab.bottom <= footer.top,
           selectedShown: selected.top >= box.top - 1 && selected.bottom <= box.bottom + 1,
+          // The tabs keep their height (34px) while the list scrolls, rather than being squeezed to fit.
+          squeezed: [...list.querySelectorAll(":scope > li[data-app-id]")]
+            .map((li) => li.getBoundingClientRect().height)
+            .filter((h) => Math.abs(h - 34) > 0.5)
+            .map((h) => h.toFixed(1)),
         };
       })()`);
       if (
@@ -1483,7 +1489,8 @@ try {
         !sidebar.listScrolls ||
         !sidebar.footerShown ||
         !sidebar.newTabShown ||
-        !sidebar.selectedShown
+        !sidebar.selectedShown ||
+        sidebar.squeezed.length
       )
         throw new Error(`the sidebar with many tabs: ${JSON.stringify(sidebar)}`);
       // Scrolled to the end, the rest stays put; the last tab picked elsewhere is scrolled into view.
