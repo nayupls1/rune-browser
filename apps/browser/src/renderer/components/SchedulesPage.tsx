@@ -1,37 +1,83 @@
-// Schedules: background runs of apps' tools and commands, and prompts for a
-// tab's agent (each run a new chat in the tab), at a time, on a repeating
-// schedule or on an event. Shows the current workspace's schedules
-// (pause, edit, run now, delete), what's running, what's coming up and the
-// past runs with their results. Updates live.
+// Scheduled tasks: prompts for an agent that run on their own (each run a new
+// chat in the task's tab, as if the user had sent it), once, repeating or on
+// an event. Shows every task (pause, edit, run now, delete), what's running,
+// what's coming up and the past runs with the agent's replies. The times are
+// picked in words (every weekday at 9:00), not as cron expressions. Updates live.
 import * as stylex from "@stylexjs/stylex";
 import { createEffect, createResource, createSignal, For, on, onCleanup, Show } from "solid-js";
-import type { AppTool, Schedule, ScheduleRun, ScheduleSpec, ScheduleTask, ScheduleTrigger } from "../../shared/api";
-import { describeCron, parseCron } from "../../shared/cron";
+import {
+  effortLabels,
+  type AgentChoice,
+  type Schedule,
+  type ScheduleRun,
+  type ScheduleSpec,
+  type ScheduleTarget,
+  type ScheduleTrigger,
+} from "../../shared/api";
+import {
+  cronToRepeat,
+  describeRepeat,
+  HOUR_STEPS,
+  MINUTE_STEPS,
+  parseCron,
+  repeatToCron,
+  WEEKDAYS,
+  type Repeat,
+} from "../../shared/cron";
 import { topics } from "../../shared/hub";
-import { DEFAULT_TIMEOUT_SEC, describeTrigger, scheduleProblem } from "../../shared/schedule";
+import { DEFAULT_TIMEOUT_SEC, describeTrigger, nameFromPrompt, nextRun, scheduleProblem } from "../../shared/schedule";
 import { api } from "../lib/api";
 import { watchTopic } from "../lib/realtime";
-import { allApps, currentWorkspace } from "../lib/store";
+import { scheduleDraft, setScheduleDraft } from "../lib/schedules";
+import {
+  allApps,
+  currentWorkspace,
+  defaultAgent,
+  providerById,
+  selectApp,
+  setAgentCollapsed,
+  workspaceById,
+  workspaces,
+} from "../lib/store";
 import { colors, font, radius, space } from "../theme.stylex";
+import { AgentPicker, choiceModel } from "./AgentPicker";
 import { confirmDialog } from "./ConfirmDialog";
 import { Icon } from "./Icon";
 import { Button, EmptyState } from "./ui";
 
-const appName = (id: string) => allApps().find((a) => a.id === id)?.name ?? "a deleted app";
-const taskIcons: Record<ScheduleTask["type"], string> = { tool: "wrench", command: "terminal", prompt: "sparkles" };
+const tabById = (id: string | null) => (id ? allApps().find((a) => a.id === id) : undefined);
+const appName = (id: string) => tabById(id)?.name ?? "a deleted app";
+const host = (url: string) => {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+};
 
-/** "Notes · sync", "Notes · bun run x", "a new tab · “Summarize…”". */
-function describeTask(task: ScheduleTask) {
-  if (task.type === "tool") return `${appName(task.appId)} · ${task.tool}`;
-  if (task.type === "command") return `${appName(task.appId)} · ${task.command}`;
-  const where = task.appId
-    ? appName(task.appId)
-    : task.newTab?.kind === "web"
-      ? `a new tab (${task.newTab.url})`
-      : "a new app tab";
-  const prompt = task.prompt.replace(/\s+/g, " ").trim();
-  return `${where} · “${prompt.length > 80 ? `${prompt.slice(0, 79)}…` : prompt}”`;
+/** "Notes", "a new tab at news.example", "a new app tab"; with the workspace when there are several. */
+function describeTarget(target: ScheduleTarget, workspaceId: string) {
+  const tab = tabById(target.tabId);
+  const where = target.tabId
+    ? (tab?.name ?? "a closed tab")
+    : target.kind === "app"
+      ? "a new app tab"
+      : target.url
+        ? `a new tab at ${host(target.url)}`
+        : "a new tab";
+  const space = workspaces.length > 1 ? workspaceById(workspaceId)?.name : undefined;
+  return space ? `${where} in ${space}` : where;
 }
+
+/** "Sonnet 4.5 · High", "Codex default". */
+export function describeAgent(agent: AgentChoice) {
+  const name =
+    choiceModel(agent)?.name.replace(/^Claude /, "") ??
+    agent.model ??
+    `${providerById(agent.provider)?.label ?? agent.provider} default`;
+  return agent.effort ? `${name} · ${effortLabels[agent.effort] ?? agent.effort}` : name;
+}
+
 const when = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 const statusIcons: Record<ScheduleRun["status"], string> = {
   running: "loader",
@@ -41,7 +87,7 @@ const statusIcons: Record<ScheduleRun["status"], string> = {
   skipped: "skip-forward",
 };
 
-/** "in 5 minutes", "in 2 hours", "tomorrow"… */
+/** "in 5 min", "in 2 h", "in 3 days"… */
 function relative(iso: string) {
   const minutes = Math.round((Date.parse(iso) - Date.now()) / 60_000);
   if (minutes < 1) return "now";
@@ -56,16 +102,30 @@ const duration = (run: ScheduleRun) => {
   return s < 1 ? "<1 s" : s < 120 ? `${Math.round(s)} s` : `${Math.round(s / 60)} min`;
 };
 
-export function SchedulesPage() {
-  const workspace = () => currentWorkspace()?.id;
-  const [schedules, { refetch: refetchSchedules }] = createResource(workspace, (id) => api.schedules(id));
-  const [upcoming, { refetch: refetchUpcoming }] = createResource(workspace, (id) => api.upcomingRuns(id));
-  const [runs, setRuns] = createSignal<ScheduleRun[]>([]);
-  const [editing, setEditing] = createSignal<Schedule | "new" | null>(null);
-  const [error, setError] = createSignal<string>();
-  const mine = (run: ScheduleRun) => schedules()?.some((s) => s.id === run.scheduleId) ?? false;
+/** Opens the tab a run's chat is in, with its agent sidebar. */
+const openChat = (tabId: string) => {
+  setAgentCollapsed(tabId, false);
+  void selectApp(tabId);
+};
 
-  createEffect(on(workspace, (id) => void api.scheduleRuns({ workspace: id, limit: 100 }).then(setRuns)));
+type Editing = { schedule: Schedule | null; draft: ScheduleSpec | null };
+
+export function SchedulesPage() {
+  const [schedules, { refetch: refetchSchedules }] = createResource(() => api.schedules());
+  const [upcoming, { refetch: refetchUpcoming }] = createResource(() => api.upcomingRuns());
+  const [runs, setRuns] = createSignal<ScheduleRun[]>([]);
+  const [editing, setEditing] = createSignal<Editing | null>(null);
+  const [error, setError] = createSignal<string>();
+
+  void api.scheduleRuns({ limit: 100 }).then(setRuns);
+  // /schedule in a chat: its request, ready to be given a time.
+  createEffect(
+    on(scheduleDraft, (draft) => {
+      if (!draft) return;
+      setEditing({ schedule: null, draft });
+      setScheduleDraft(null);
+    }),
+  );
   onCleanup(
     watchTopic(topics.schedules, (msg) => {
       if (msg.type === "schedules-changed") {
@@ -73,7 +133,6 @@ export function SchedulesPage() {
         void refetchUpcoming();
       } else if (msg.type === "schedule-run") {
         void refetchSchedules();
-        if (!mine(msg.run)) return;
         setRuns((list) => [msg.run, ...list.filter((r) => r.id !== msg.run.id)].sort((a, b) => b.id - a.id));
       }
     }),
@@ -93,39 +152,36 @@ export function SchedulesPage() {
   return (
     <div {...stylex.attrs(styles.page)} data-schedules>
       <div {...stylex.attrs(styles.titleRow)}>
-        <p {...stylex.attrs(styles.muted)}>Tools, commands and agent prompts that run on their own.</p>
-        <Button variant="primary" onClick={() => setEditing("new")} data-new-schedule>
-          + New schedule
+        <p {...stylex.attrs(styles.muted)}>
+          Prompts for an agent that run on their own. Each run is a new chat, as if you had sent the prompt.
+        </p>
+        <Button variant="primary" onClick={() => setEditing({ schedule: null, draft: null })} data-new-schedule>
+          + New task
         </Button>
       </div>
       <Show when={error()}>
         <p {...stylex.attrs(styles.error)}>{error()}</p>
       </Show>
-      <Show when={editing()}>
-        {(target) => (
-          <ScheduleEditor
-            schedule={target() === "new" ? null : (target() as Schedule)}
-            onDone={() => setEditing(null)}
-          />
-        )}
+      <Show when={editing()} keyed>
+        {(target) => <ScheduleEditor schedule={target.schedule} draft={target.draft} onDone={() => setEditing(null)} />}
       </Show>
 
       <section {...stylex.attrs(styles.section)}>
-        <h2 {...stylex.attrs(styles.sectionTitle)}>In {currentWorkspace()?.name ?? "this workspace"}</h2>
+        <h2 {...stylex.attrs(styles.sectionTitle)}>Scheduled tasks</h2>
         <div {...stylex.attrs(styles.list)}>
           <For
             each={schedules()}
             fallback={
               <EmptyState
                 icon="calendar-clock"
-                title="No schedules yet"
-                hint={'Create one, or ask an app\'s agent ("check for new articles every morning").'}
+                title="No scheduled tasks yet"
+                hint="Create one, or type /schedule in a chat to repeat what you asked."
               />
             }
           >
             {(s) => (
               <div {...stylex.attrs(styles.item)} data-schedule={s.id} data-paused={s.paused ? "yes" : "no"}>
-                <Icon name={taskIcons[s.task.type]} size={16} {...stylex.attrs(styles.itemIcon)} />
+                <Icon name="sparkles" size={16} {...stylex.attrs(styles.itemIcon)} />
                 <div {...stylex.attrs(styles.itemText)}>
                   <span {...stylex.attrs(styles.itemTitle)}>
                     {s.name}
@@ -136,8 +192,9 @@ export function SchedulesPage() {
                       <span {...stylex.attrs(styles.badge, styles.badgeRunning)}>running</span>
                     </Show>
                   </span>
-                  <span {...stylex.attrs(styles.meta)}>
-                    {describeTrigger(s.trigger, appName)} · {describeTask(s.task)}
+                  <span {...stylex.attrs(styles.meta)} data-schedule-meta>
+                    {describeTrigger(s.trigger, appName)} · {describeTarget(s.target, s.workspaceId)}
+                    <Show when={s.agent}>{(agent) => <> · {describeAgent(agent())}</>}</Show>
                   </span>
                   <span {...stylex.attrs(styles.meta)}>
                     <Show
@@ -180,7 +237,7 @@ export function SchedulesPage() {
                 <button
                   type="button"
                   title="Edit"
-                  onClick={() => setEditing(s)}
+                  onClick={() => setEditing({ schedule: s, draft: null })}
                   {...stylex.attrs(styles.iconButton)}
                   data-edit-schedule
                 >
@@ -191,7 +248,7 @@ export function SchedulesPage() {
                   title="Delete"
                   onClick={async () => {
                     if (
-                      await confirmDialog(`Delete the schedule “${s.name}” and its runs?`, {
+                      await confirmDialog(`Delete the task “${s.name}” and its runs?`, {
                         confirmLabel: "Delete",
                         danger: true,
                       })
@@ -250,30 +307,47 @@ export function SchedulesPage() {
   );
 }
 
+/** A run: how it went, the agent's reply (kept when its tab is gone), and its chat while the tab is open. */
 function RunRow(props: { run: ScheduleRun }) {
   const [open, setOpen] = createSignal(false);
   const bad = () => props.run.status === "error" || props.run.status === "timeout";
+  const chatTab = () => tabById(props.run.tabId);
   return (
     <div {...stylex.attrs(styles.run)} data-run={props.run.id} data-run-status={props.run.status}>
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        disabled={!props.run.output}
-        {...stylex.attrs(styles.runHead)}
-      >
-        <Icon
-          name={statusIcons[props.run.status]}
-          size={15}
-          {...stylex.attrs(styles.runIcon, bad() && styles.runIconBad)}
-        />
-        <span {...stylex.attrs(styles.itemTitle)}>{props.run.scheduleName}</span>
-        <span {...stylex.attrs(styles.meta, styles.runMessage)}>{props.run.message || props.run.status}</span>
-        <span {...stylex.attrs(styles.meta)}>
-          {props.run.trigger === "manual" ? "run by you" : props.run.trigger === "event" ? "on event" : "on time"} ·{" "}
-          {when(props.run.startedAt)}
-          {props.run.finishedAt ? ` · ${duration(props.run)}` : ""}
-        </span>
-      </button>
+      <div {...stylex.attrs(styles.runRow)}>
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          disabled={!props.run.output}
+          {...stylex.attrs(styles.runHead)}
+        >
+          <Icon
+            name={statusIcons[props.run.status]}
+            size={15}
+            {...stylex.attrs(styles.runIcon, bad() && styles.runIconBad)}
+          />
+          <span {...stylex.attrs(styles.itemTitle)}>{props.run.scheduleName}</span>
+          <span {...stylex.attrs(styles.meta, styles.runMessage)}>{props.run.message || props.run.status}</span>
+          <span {...stylex.attrs(styles.meta)}>
+            {props.run.trigger === "manual" ? "run by you" : props.run.trigger === "event" ? "on event" : "on time"} ·{" "}
+            {when(props.run.startedAt)}
+            {props.run.finishedAt ? ` · ${duration(props.run)}` : ""}
+          </span>
+        </button>
+        <Show when={chatTab()}>
+          {(tab) => (
+            <button
+              type="button"
+              title={`Open the chat in ${tab().name}`}
+              onClick={() => openChat(tab().id)}
+              {...stylex.attrs(styles.iconButton)}
+              data-open-run-chat
+            >
+              <Icon name="message-circle" size={15} />
+            </button>
+          )}
+        </Show>
+      </div>
       <Show when={open() && props.run.output}>
         <pre {...stylex.attrs(styles.output)}>{props.run.output}</pre>
       </Show>
@@ -281,13 +355,21 @@ function RunRow(props: { run: ScheduleRun }) {
   );
 }
 
-const CRON_PRESETS: [string, string][] = [
-  ["0 * * * *", "Every hour"],
-  ["0 8 * * *", "Every day at 08:00"],
-  ["0 8 * * 1-5", "Weekdays at 08:00"],
-  ["0 9 * * 1", "Mondays at 09:00"],
-  ["*/15 * * * *", "Every 15 minutes"],
+type When = "once" | Repeat["every"] | "event" | "custom";
+
+const WHEN_OPTIONS: [When, string][] = [
+  ["once", "Once"],
+  ["day", "Every day"],
+  ["weekdays", "Every weekday"],
+  ["week", "Every week"],
+  ["month", "Every month"],
+  ["hours", "Every few hours"],
+  ["minutes", "Every few minutes"],
+  ["event", "When something happens"],
 ];
+/** The week as people read it: Monday first. */
+const WEEK = [1, 2, 3, 4, 5, 6, 0];
+const TIME_LIMITS = [1, 2, 5, 10, 15, 20, 30].map((m) => m * 60);
 
 /** A datetime-local value for an ISO time (local). */
 const localInput = (iso: string) => {
@@ -295,111 +377,125 @@ const localInput = (iso: string) => {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 };
+/** "9:00" ⇄ the time input's "09:00". */
+const timeInput = (time: string) => time.padStart(5, "0");
+const fromTimeInput = (value: string) => value.replace(/^0(\d)/, "$1") || "9:00";
 
-function ScheduleEditor(props: { schedule: Schedule | null; onDone: () => void }) {
+function ScheduleEditor(props: { schedule: Schedule | null; draft: ScheduleSpec | null; onDone: () => void }) {
   const s = props.schedule;
-  const workspaceApps = () => allApps().filter((a) => a.kind === "app" && a.workspaceId === currentWorkspace()?.id);
-  // A prompt can go to any tab, or to one it opens.
-  const workspaceTabs = () => allApps().filter((a) => a.workspaceId === currentWorkspace()?.id);
+  const initial = s ?? props.draft;
+  const [prompt, setPrompt] = createSignal(initial?.prompt ?? "");
   const [name, setName] = createSignal(s?.name ?? "");
-  const [appId, setAppId] = createSignal(s?.task.appId ?? workspaceApps()[0]?.id ?? "");
-  const [taskType, setTaskType] = createSignal<ScheduleTask["type"]>(s?.task.type ?? "tool");
-  const [prompt, setPrompt] = createSignal(s?.task.type === "prompt" ? s.task.prompt : "");
-  /** A tab's id, or "new:app" / "new:web". */
-  const [target, setTarget] = createSignal(
-    s?.task.type === "prompt"
-      ? (s.task.appId ?? `new:${s.task.newTab?.kind ?? "app"}`)
-      : (s?.task.appId ?? workspaceTabs()[0]?.id ?? "new:app"),
+
+  // When: a repeat in words (stored as a cron expression), once, or an event.
+  const repeat = initial?.trigger.type === "cron" ? cronToRepeat(initial.trigger.cron) : null;
+  const [mode, setMode] = createSignal<When>(
+    !initial ? "day" : initial.trigger.type === "cron" ? (repeat?.every ?? "custom") : initial.trigger.type,
   );
-  const [url, setUrl] = createSignal(s?.task.type === "prompt" ? (s.task.newTab?.url ?? "") : "");
-  const isPrompt = () => taskType() === "prompt";
-  const newWebTab = () => isPrompt() && target() === "new:web";
-  /** The tab app events are about. */
-  const eventApp = () => (isPrompt() ? target() : appId());
-  const [tool, setTool] = createSignal(s?.task.type === "tool" ? s.task.tool : "");
-  const [params, setParams] = createSignal(
-    s?.task.type === "tool" && s.task.params ? JSON.stringify(s.task.params) : "",
-  );
-  const [command, setCommand] = createSignal(s?.task.type === "command" ? s.task.command : "");
-  const [when, setWhen] = createSignal<ScheduleTrigger["type"]>(s?.trigger.type ?? "cron");
+  const [time, setTime] = createSignal(repeat && "time" in repeat ? repeat.time : "9:00");
+  const [days, setDays] = createSignal<number[]>(repeat?.every === "week" ? repeat.days : [1]);
+  const [monthDay, setMonthDay] = createSignal(repeat?.every === "month" ? repeat.day : 1);
+  const [hours, setHours] = createSignal(repeat?.every === "hours" ? repeat.n : 2);
+  const hourMinute = repeat?.every === "hours" ? repeat.minute : 0;
+  const [minutes, setMinutes] = createSignal(repeat?.every === "minutes" ? repeat.n : 15);
+  const [cron, setCron] = createSignal(initial?.trigger.type === "cron" ? initial.trigger.cron : "0 9 * * *");
   const [at, setAt] = createSignal(
-    s?.trigger.type === "once" ? localInput(s.trigger.at) : localInput(new Date(Date.now() + 3600_000).toISOString()),
+    initial?.trigger.type === "once"
+      ? localInput(initial.trigger.at)
+      : localInput(new Date(Date.now() + 3600_000).toISOString()),
   );
-  const [cron, setCron] = createSignal(s?.trigger.type === "cron" ? s.trigger.cron : "0 8 * * *");
-  const initialEvent = s?.trigger.type === "event" ? s.trigger.event : "rune.started";
+  const initialEvent = initial?.trigger.type === "event" ? initial.trigger.event : "rune.started";
   const [eventKind, setEventKind] = createSignal(
     initialEvent === "rune.started" ? "rune.started" : initialEvent.split(":")[0]!,
   );
   const [eventName, setEventName] = createSignal(
     initialEvent.startsWith("app:") ? initialEvent.split(":").slice(2).join(":") : "",
   );
-  const [notify, setNotify] = createSignal<ScheduleSpec["notify"]>(s?.notify ?? "failure");
-  const [timeout, setTimeout_] = createSignal(String(s?.timeoutSec ?? DEFAULT_TIMEOUT_SEC));
-  const [error, setError] = createSignal<string>();
-  const [tools] = createResource(appId, (id) =>
-    id ? api.appTools(id).then((list) => list.filter((t: AppTool) => !t.path)) : Promise.resolve([]),
+
+  // Where: a tab of the workspace, or a new one opened on the first run (and kept).
+  const [workspaceId, setWorkspaceId] = createSignal(
+    (s?.workspaceId ?? initial?.target.workspaceId) || (currentWorkspace()?.id ?? ""),
   );
-  const isTool = () => taskType() === "tool";
-  const isCommand = () => taskType() === "command";
-  const cronText = () => {
-    const parsed = parseCron(cron());
-    return typeof parsed === "string" ? parsed : describeCron(cron());
+  const tabsOf = () => allApps().filter((a) => a.workspaceId === workspaceId() && !a.private);
+  /** A tab's id, or "new:web" / "new:app". */
+  const [target, setTarget] = createSignal(initial?.target.tabId ?? `new:${initial?.target.kind ?? "web"}`);
+  const keptTab = initial?.target.tabId && !tabById(initial.target.tabId) ? initial.target.tabId : null;
+  const [url, setUrl] = createSignal(initial?.target.url ?? "");
+  const newTab = () => target().startsWith("new:");
+  const newWebTab = () => target() === "new:web";
+
+  // Who answers: the workspace's default agent, or a model picked for the task.
+  const [agent, setAgent] = createSignal<AgentChoice | null>(initial?.agent ?? null);
+  const shownAgent = () => agent() ?? defaultAgent(workspaceById(workspaceId()));
+  const usesDefault = () => !agent();
+
+  const [notify, setNotify] = createSignal<ScheduleSpec["notify"]>(initial?.notify ?? "failure");
+  const [timeout, setTimeout_] = createSignal(initial?.timeoutSec ?? DEFAULT_TIMEOUT_SEC);
+  const limits = () => [...new Set([...TIME_LIMITS, timeout()])].sort((a, b) => a - b);
+  const [error, setError] = createSignal<string>();
+
+  const currentRepeat = (): Repeat | null => {
+    const m = mode();
+    if (m === "minutes") return { every: "minutes", n: minutes() };
+    if (m === "hours") return { every: "hours", n: hours(), minute: hourMinute };
+    if (m === "day" || m === "weekdays") return { every: m, time: time() };
+    if (m === "week") return { every: "week", days: days(), time: time() };
+    if (m === "month") return { every: "month", day: monthDay(), time: time() };
+    return null;
   };
+  const trigger = (): ScheduleTrigger => {
+    const r = currentRepeat();
+    if (r) return { type: "cron", cron: repeatToCron(r) };
+    if (mode() === "custom") return { type: "cron", cron: cron().trim() };
+    if (mode() === "once") return { type: "once", at: new Date(at()).toISOString() };
+    const tab = target();
+    return {
+      type: "event",
+      event:
+        eventKind() === "rune.started"
+          ? "rune.started"
+          : eventKind() === "app"
+            ? `app:${tab}:${eventName().trim()}`
+            : `${eventKind()}:${tab}`,
+    };
+  };
+  /** The schedule read back in words, with its next run. */
+  const summary = () => {
+    const t = trigger();
+    if (t.type === "cron" && typeof parseCron(t.cron) === "string") return parseCron(t.cron) as string;
+    if (mode() === "week" && !days().length) return "Pick at least one day";
+    const r = currentRepeat();
+    const words = r ? describeRepeat(r) : describeTrigger(t, appName);
+    const next = nextRun(t, new Date());
+    return next ? `${words} · next ${when(next)} (${relative(next)})` : words;
+  };
+  const appEvent = () => mode() === "event" && eventKind() !== "rune.started";
+  const toggleDay = (d: number) => setDays((list) => (list.includes(d) ? list.filter((x) => x !== d) : [...list, d]));
 
   const spec = (): ScheduleSpec | string => {
-    let parsedParams: Record<string, unknown> | undefined;
-    if (isTool() && params().trim()) {
-      try {
-        parsedParams = JSON.parse(params());
-      } catch {
-        return "The params aren't valid JSON";
-      }
-    }
-    const trigger: ScheduleTrigger =
-      when() === "once"
-        ? { type: "once", at: new Date(at()).toISOString() }
-        : when() === "cron"
-          ? { type: "cron", cron: cron().trim() }
-          : {
-              type: "event",
-              event:
-                eventKind() === "rune.started"
-                  ? "rune.started"
-                  : eventKind() === "app"
-                    ? `app:${eventApp()}:${eventName().trim()}`
-                    : `${eventKind()}:${eventApp()}`,
-            };
+    if (appEvent() && newTab()) return "App events need one of the workspace's tabs";
+    if (mode() === "week" && !days().length) return "Pick at least one day";
     const where = target();
-    const task: ScheduleTask = isPrompt()
-      ? where.startsWith("new:")
-        ? {
-            type: "prompt",
-            prompt: prompt(),
-            newTab: {
-              kind: where === "new:web" ? "web" : "app",
-              workspaceId: currentWorkspace()?.id ?? "",
-              ...(where === "new:web" ? { url: url().trim() } : {}),
-            },
-          }
-        : { type: "prompt", prompt: prompt(), appId: where }
-      : isTool()
-        ? { type: "tool", appId: appId(), tool: tool(), ...(parsedParams ? { params: parsedParams } : {}) }
-        : { type: "command", appId: appId(), command: command() };
-    if (isPrompt() && when() === "event" && eventKind() !== "rune.started" && where.startsWith("new:"))
-      return "App events need an existing tab";
     return {
-      name:
-        name().trim() ||
-        (isPrompt()
-          ? prompt().trim().split(/\s+/).slice(0, 6).join(" ")
-          : isTool()
-            ? tool()
-            : command().split(" ")[0]!) ||
-        "",
-      trigger,
-      task,
+      name: name().trim() || nameFromPrompt(prompt()),
+      trigger: trigger(),
+      prompt: prompt(),
+      target: newTab()
+        ? {
+            workspaceId: workspaceId(),
+            tabId: null,
+            kind: where === "new:app" ? "app" : "web",
+            url: newWebTab() && url().trim() ? url().trim() : null,
+          }
+        : {
+            workspaceId: workspaceId(),
+            tabId: where,
+            kind: tabById(where)?.kind ?? initial?.target.kind ?? "web",
+            url: initial?.target.url ?? null,
+          },
+      agent: agent(),
       notify: notify(),
-      timeoutSec: Math.round(Number(timeout()) || DEFAULT_TIMEOUT_SEC),
+      timeoutSec: timeout(),
     };
   };
 
@@ -419,156 +515,113 @@ function ScheduleEditor(props: { schedule: Schedule | null; onDone: () => void }
 
   return (
     <form onSubmit={save} {...stylex.attrs(styles.editor)} data-schedule-editor>
-      <h2 {...stylex.attrs(styles.sectionTitle)}>{s ? `Edit “${s.name}”` : "New schedule"}</h2>
+      <h2 {...stylex.attrs(styles.sectionTitle)}>{s ? `Edit “${s.name}”` : "New scheduled task"}</h2>
+      <label {...stylex.attrs(styles.field, styles.top)}>
+        <span {...stylex.attrs(styles.label)}>Prompt</span>
+        <textarea
+          value={prompt()}
+          rows={4}
+          placeholder="Check the news sites I follow and summarize what's new since yesterday."
+          onInput={(e) => setPrompt(e.currentTarget.value)}
+          {...stylex.attrs(styles.input, styles.textarea)}
+          data-schedule-prompt
+        />
+      </label>
       <label {...stylex.attrs(styles.field)}>
         <span {...stylex.attrs(styles.label)}>Name</span>
         <input
           value={name()}
-          placeholder="Fetch new articles"
+          placeholder={nameFromPrompt(prompt()) || "Morning news"}
           onInput={(e) => setName(e.currentTarget.value)}
           {...stylex.attrs(styles.input)}
           data-schedule-name
         />
       </label>
-      <Show
-        when={isPrompt()}
-        fallback={
-          <label {...stylex.attrs(styles.field)}>
-            <span {...stylex.attrs(styles.label)}>App</span>
-            <select
-              value={appId()}
-              onChange={(e) => setAppId(e.currentTarget.value)}
-              {...stylex.attrs(styles.input)}
-              data-schedule-app
-            >
-              <For each={workspaceApps()}>{(a) => <option value={a.id}>{a.name}</option>}</For>
-            </select>
-          </label>
-        }
-      >
-        <div {...stylex.attrs(styles.field)}>
-          <span {...stylex.attrs(styles.label)}>In</span>
-          <select
-            value={target()}
-            onChange={(e) => setTarget(e.currentTarget.value)}
-            {...stylex.attrs(styles.input)}
-            data-schedule-target
-          >
-            <For each={workspaceTabs()}>{(a) => <option value={a.id}>{a.name}</option>}</For>
-            <option value="new:app">A new app tab (opened on the first run)</option>
-            <option value="new:web">A new web tab (opened on the first run)</option>
-          </select>
-          <Show when={newWebTab()}>
-            <input
-              value={url()}
-              placeholder="https://example.com"
-              onInput={(e) => setUrl(e.currentTarget.value)}
-              {...stylex.attrs(styles.input)}
-              data-schedule-url
-            />
-          </Show>
-        </div>
-      </Show>
-      <div {...stylex.attrs(styles.field)}>
-        <span {...stylex.attrs(styles.label)}>Does</span>
-        <select
-          value={taskType()}
-          onChange={(e) => setTaskType(e.currentTarget.value as ScheduleTask["type"])}
-          {...stylex.attrs(styles.input, styles.narrow)}
-          data-schedule-task
-        >
-          <option value="prompt">Ask the agent</option>
-          <option value="tool">Use a tool</option>
-          <option value="command">Run a command</option>
-        </select>
-        <Show when={isPrompt()}>
-          <span {...stylex.attrs(styles.meta)}>Each run is a new chat in the tab, as if you had sent the prompt.</span>
-        </Show>
-        <Show when={isTool()}>
-          <select
-            value={tool()}
-            onChange={(e) => setTool(e.currentTarget.value)}
-            {...stylex.attrs(styles.input)}
-            data-schedule-tool
-          >
-            <option value="">Pick a tool…</option>
-            <For each={tools()}>{(t) => <option value={t.id}>{`${t.id} — ${t.title}`}</option>}</For>
-          </select>
-        </Show>
-        <Show when={isCommand()}>
-          <input
-            value={command()}
-            placeholder="bun run scripts/sync.ts"
-            onInput={(e) => setCommand(e.currentTarget.value)}
-            {...stylex.attrs(styles.input, styles.mono)}
-            data-schedule-command
-          />
-        </Show>
-      </div>
-      <Show when={isPrompt()}>
-        <label {...stylex.attrs(styles.field, styles.top)}>
-          <span {...stylex.attrs(styles.label)}>Prompt</span>
-          <textarea
-            value={prompt()}
-            rows={4}
-            placeholder="Check the news sites I follow and summarize what's new since yesterday."
-            onInput={(e) => setPrompt(e.currentTarget.value)}
-            {...stylex.attrs(styles.input, styles.textarea)}
-            data-schedule-prompt
-          />
-        </label>
-      </Show>
-      <Show when={isTool()}>
-        <label {...stylex.attrs(styles.field)}>
-          <span {...stylex.attrs(styles.label)}>Params</span>
-          <input
-            value={params()}
-            placeholder='{ "limit": 10 } (optional)'
-            onInput={(e) => setParams(e.currentTarget.value)}
-            {...stylex.attrs(styles.input, styles.mono)}
-          />
-        </label>
-      </Show>
-      <div {...stylex.attrs(styles.field)}>
+
+      <div {...stylex.attrs(styles.field, styles.wrap)}>
         <span {...stylex.attrs(styles.label)}>When</span>
         <select
-          value={when()}
-          onChange={(e) => setWhen(e.currentTarget.value as ScheduleTrigger["type"])}
+          value={mode()}
+          onChange={(e) => setMode(e.currentTarget.value as When)}
           {...stylex.attrs(styles.input, styles.narrow)}
           data-schedule-when
         >
-          <option value="once">Once</option>
-          <option value="cron">Repeating</option>
-          <option value="event">On an event</option>
+          <For each={WHEN_OPTIONS}>{([value, label]) => <option value={value}>{label}</option>}</For>
+          <Show when={repeat === null && initial?.trigger.type === "cron"}>
+            <option value="custom">Custom</option>
+          </Show>
         </select>
-        <Show when={when() === "once"}>
+        <Show when={mode() === "once"}>
           <input
             type="datetime-local"
             value={at()}
             onInput={(e) => setAt(e.currentTarget.value)}
-            {...stylex.attrs(styles.input)}
+            {...stylex.attrs(styles.input, styles.auto)}
             data-schedule-at
           />
         </Show>
-        <Show when={when() === "cron"}>
+        <Show when={mode() === "month"}>
+          <span {...stylex.attrs(styles.meta)}>on the</span>
+          <select
+            value={monthDay()}
+            onChange={(e) => setMonthDay(Number(e.currentTarget.value))}
+            {...stylex.attrs(styles.input, styles.tiny)}
+            data-schedule-monthday
+          >
+            <For each={Array.from({ length: 28 }, (_, i) => i + 1)}>{(d) => <option value={d}>{d}</option>}</For>
+          </select>
+        </Show>
+        <Show when={mode() === "day" || mode() === "weekdays" || mode() === "week" || mode() === "month"}>
+          <span {...stylex.attrs(styles.meta)}>at</span>
+          <input
+            type="time"
+            value={timeInput(time())}
+            onInput={(e) => setTime(fromTimeInput(e.currentTarget.value))}
+            {...stylex.attrs(styles.input, styles.time)}
+            data-schedule-time
+          />
+        </Show>
+        <Show when={mode() === "hours"}>
+          <select
+            value={hours()}
+            onChange={(e) => setHours(Number(e.currentTarget.value))}
+            {...stylex.attrs(styles.input, styles.auto)}
+            data-schedule-hours
+          >
+            <For each={HOUR_STEPS}>
+              {(n) => <option value={n}>{n === 1 ? "every hour" : `every ${n} hours`}</option>}
+            </For>
+          </select>
+        </Show>
+        <Show when={mode() === "minutes"}>
+          <select
+            value={minutes()}
+            onChange={(e) => setMinutes(Number(e.currentTarget.value))}
+            {...stylex.attrs(styles.input, styles.auto)}
+            data-schedule-minutes
+          >
+            <For each={MINUTE_STEPS}>{(n) => <option value={n}>{`every ${n} minutes`}</option>}</For>
+          </select>
+        </Show>
+        <Show when={mode() === "custom"}>
           <input
             value={cron()}
             onInput={(e) => setCron(e.currentTarget.value)}
             {...stylex.attrs(styles.input, styles.mono, styles.narrow)}
             data-schedule-cron
           />
-          <span {...stylex.attrs(styles.meta)}>{cronText()}</span>
         </Show>
-        <Show when={when() === "event"}>
+        <Show when={mode() === "event"}>
           <select
             value={eventKind()}
             onChange={(e) => setEventKind(e.currentTarget.value)}
-            {...stylex.attrs(styles.input)}
+            {...stylex.attrs(styles.input, styles.auto)}
+            data-schedule-event
           >
             <option value="rune.started">Rune Browser starts</option>
-            <option value="app.started">The app starts</option>
-            <option value="app.crashed">The app crashes</option>
-            <option value="app">The app sends an event…</option>
+            <option value="app.started">Its app starts</option>
+            <option value="app.crashed">Its app crashes</option>
+            <option value="app">Its app sends an event…</option>
           </select>
           <Show when={eventKind() === "app"}>
             <input
@@ -580,18 +633,92 @@ function ScheduleEditor(props: { schedule: Schedule | null; onDone: () => void }
           </Show>
         </Show>
       </div>
-      <Show when={when() === "cron"}>
-        <div {...stylex.attrs(styles.presets)}>
-          <For each={CRON_PRESETS}>
-            {([value, label]) => (
-              <button type="button" onClick={() => setCron(value)} {...stylex.attrs(styles.preset)}>
-                {label}
-              </button>
-            )}
+      <Show when={mode() === "week"}>
+        <div {...stylex.attrs(styles.days)} role="group" aria-label="Days of the week">
+          <For each={WEEK}>
+            {(d) => {
+              const on = () => days().includes(d);
+              return (
+                <button
+                  type="button"
+                  aria-pressed={on()}
+                  onClick={() => toggleDay(d)}
+                  {...stylex.attrs(styles.day, on() && styles.dayOn)}
+                  data-schedule-day={d}
+                >
+                  {WEEKDAYS[d]!.slice(0, 3)}
+                </button>
+              );
+            }}
           </For>
         </div>
       </Show>
-      <div {...stylex.attrs(styles.field)}>
+      <p {...stylex.attrs(styles.summary)} data-schedule-summary>
+        <Icon name="calendar-clock" size={13} />
+        {summary()}
+      </p>
+
+      <div {...stylex.attrs(styles.field, styles.wrap)}>
+        <span {...stylex.attrs(styles.label)}>Runs in</span>
+        <Show when={workspaces.length > 1}>
+          <select
+            value={workspaceId()}
+            onChange={(e) => {
+              setWorkspaceId(e.currentTarget.value);
+              if (!newTab()) setTarget("new:web");
+            }}
+            {...stylex.attrs(styles.input, styles.auto)}
+            data-schedule-workspace
+          >
+            <For each={workspaces}>{(w) => <option value={w.id}>{w.name}</option>}</For>
+          </select>
+        </Show>
+        <select
+          value={target()}
+          onChange={(e) => setTarget(e.currentTarget.value)}
+          {...stylex.attrs(styles.input)}
+          data-schedule-target
+        >
+          <option value="new:web">A new tab (opened on the first run)</option>
+          <option value="new:app">A new app tab (opened on the first run)</option>
+          <For each={tabsOf()}>{(a) => <option value={a.id}>{a.name}</option>}</For>
+          <Show when={keptTab}>{(id) => <option value={id()}>Its tab (closed)</option>}</Show>
+        </select>
+      </div>
+      <Show when={newWebTab()}>
+        <div {...stylex.attrs(styles.field)}>
+          <span {...stylex.attrs(styles.label)} />
+          <input
+            value={url()}
+            placeholder="At a website (optional): https://example.com"
+            onInput={(e) => setUrl(e.currentTarget.value)}
+            {...stylex.attrs(styles.input)}
+            data-schedule-url
+          />
+        </div>
+      </Show>
+
+      <div {...stylex.attrs(styles.field)} data-schedule-agent>
+        <span {...stylex.attrs(styles.label)}>Model</span>
+        <AgentPicker choice={shownAgent()} onChange={setAgent} />
+        <Show
+          when={usesDefault()}
+          fallback={
+            <button
+              type="button"
+              onClick={() => setAgent(null)}
+              {...stylex.attrs(styles.link)}
+              data-schedule-default-agent
+            >
+              Use the default
+            </button>
+          }
+        >
+          <span {...stylex.attrs(styles.meta)}>The workspace's default</span>
+        </Show>
+      </div>
+
+      <div {...stylex.attrs(styles.field, styles.wrap)}>
         <span {...stylex.attrs(styles.label)}>Notify</span>
         <select
           value={notify()}
@@ -602,19 +729,22 @@ function ScheduleEditor(props: { schedule: Schedule | null; onDone: () => void }
           <option value="always">After every run</option>
           <option value="never">Never</option>
         </select>
-        <span {...stylex.attrs(styles.label)}>Time limit</span>
-        <input
-          type="number"
-          min="5"
-          max="1800"
+        <span {...stylex.attrs(styles.meta)}>Stop after</span>
+        <select
           value={timeout()}
-          onInput={(e) => setTimeout_(e.currentTarget.value)}
-          {...stylex.attrs(styles.input, styles.tiny)}
-        />
-        <span {...stylex.attrs(styles.meta)}>seconds</span>
+          onChange={(e) => setTimeout_(Number(e.currentTarget.value))}
+          {...stylex.attrs(styles.input, styles.auto)}
+          data-schedule-timeout
+        >
+          <For each={limits()}>
+            {(sec) => <option value={sec}>{sec % 60 ? `${sec} seconds` : `${sec / 60} min`}</option>}
+          </For>
+        </select>
       </div>
       <Show when={error()}>
-        <p {...stylex.attrs(styles.error)}>{error()}</p>
+        <p {...stylex.attrs(styles.error)} data-schedule-error>
+          {error()}
+        </p>
       </Show>
       <div {...stylex.attrs(styles.actions)}>
         <Button variant="primary" type="submit" data-save-schedule>
@@ -707,6 +837,8 @@ const styles = stylex.create({
     borderTopColor: colors.border,
   },
   runHead: {
+    flex: 1,
+    minWidth: 0,
     display: "flex",
     alignItems: "center",
     gap: space.md,
@@ -775,9 +907,13 @@ const styles = stylex.create({
     fontFamily: "inherit",
     lineHeight: 1.45,
   },
-  presets: { display: "flex", flexWrap: "wrap", gap: 4, paddingLeft: 78 },
-  preset: {
-    height: 24,
+  wrap: { flexWrap: "wrap", rowGap: space.sm },
+  auto: { flexGrow: 0, flexShrink: 0, flexBasis: "auto", width: "auto" },
+  time: { flexGrow: 0, flexShrink: 0, flexBasis: "auto", width: 110 },
+  days: { display: "flex", flexWrap: "wrap", gap: 4, paddingLeft: 78 },
+  day: {
+    minWidth: 44,
+    height: 28,
     paddingInline: space.sm,
     borderWidth: 1,
     borderStyle: "solid",
@@ -785,8 +921,32 @@ const styles = stylex.create({
     borderRadius: radius.full,
     backgroundColor: { default: "transparent", ":hover": colors.surfaceHover },
     color: colors.muted,
-    fontSize: 11,
+    fontSize: font.xs,
+    fontWeight: 500,
     cursor: "pointer",
   },
+  dayOn: {
+    borderColor: colors.accent,
+    backgroundColor: { default: colors.accent, ":hover": colors.accent },
+    color: colors.accentText,
+  },
+  summary: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    margin: 0,
+    paddingLeft: 78,
+    color: colors.text,
+    fontSize: font.xs,
+  },
+  link: {
+    padding: 0,
+    borderStyle: "none",
+    backgroundColor: "transparent",
+    color: { default: colors.accent, ":hover": colors.text },
+    fontSize: font.xs,
+    cursor: "pointer",
+  },
+  runRow: { display: "flex", alignItems: "center", paddingRight: space.sm },
   actions: { display: "flex", gap: space.sm, paddingLeft: 78 },
 });

@@ -182,22 +182,28 @@ Data tools write the app's database directly: the app sees the change on its nex
 
 ## Schedules
 
-Schedules run apps' tools and commands in the background, without a tab open, and prompts for a tab's agent (`scheduler/Scheduler.ts`). The Schedules page (in Settings) shows the workspace's schedules, what's running, what's coming up and the past runs with their results and output. Each schedule can be paused, edited, run now or deleted.
+Scheduled tasks are prompts for an agent that run on their own (`scheduler/Scheduler.ts`): each run starts a new chat in the task's tab (the current chat goes to its earlier chats) and sends the prompt as if you had, so the run can be read and continued there; its tools ask for permissions as usual. There are no other kinds of task: what an app's tool or a command would do, the agent does when the prompt asks for it. The Schedules page (in Settings) shows every task, whatever its workspace, with what's running, what's coming up and the past runs with the agent's replies. Each task can be paused, edited, run now or deleted.
 
-- **What:** one of an app's tools from the registry, with params; the call goes through the registry's permissions and audit log, as the user (or as the agent that made it). Or a command in the app's sandbox, without its secrets, like `run_command`.
-- **Prompts:** or a prompt for an agent (made by you, not by agents). It runs in a tab of the workspace, or in a new app or web tab opened on its first run, which the schedule then keeps. Each run starts a new chat in that tab (the current chat goes to its earlier chats) and sends the prompt as if you had, so the run can be read and continued there; its tools ask for permissions as usual. A run fails if the tab's agent is busy, and the agent is stopped at the time limit. The run's result is the agent's last reply, or its error. A prompt in a web tab outlives the tab: closing a web tab deletes it, so the schedule opens a new tab at the address the old one was on at its next run, and keeps that one, with its past runs. Everything else goes with its tab: tools and commands need their app, deleting an app deletes its prompts with its data, and so do private tabs, web tabs that weren't on a website, and prompts waiting for an app's event. Each rescued prompt opens its own tab. Deleting a workspace deletes its tabs' schedules and the prompts that open tabs in it.
-- **When:**
-  - once at a time;
-  - a cron expression in local time (`0 8 * * 1-5`);
-  - an event: Rune Browser started, an app started or crashed, or one an app sends itself with `POST $RUNE_API_URL/events {"name": "new-order"}`.
-- **Who:** you on the page, or an app's agent (`create_schedule`, `update_schedule`, `delete_schedule`, `run_schedule`, `list_schedules`) for its own app, after you allow it once per app (`agent.schedule`).
+- **When:** picked in words on the page, and read back the same way with the next run ("Every weekday at 9:00 · next Thu, Nov 12, 9:00"):
+  - once at a date and time;
+  - every day, every weekday, every week on the days picked, or every month on a day (1 to 28), at a time;
+  - every few hours (1, 2, 3, 4, 6, 8 or 12) or minutes (5 to 30);
+  - when something happens: Rune Browser started, the task's app started or crashed, or an event the app sends itself with `POST $RUNE_API_URL/events {"name": "new-order"}`.
+
+  Repeats are stored as cron expressions in local time (`shared/cron.ts`: `repeatToCron`, `cronToRepeat`, `describeRepeat`). An agent can give any cron expression; one the picker doesn't offer is shown as it is and edited as "Custom".
+
+- **Where:** a tab of a workspace, or a new tab (empty or at a website, or a new app tab) opened on its first run, which the task then keeps. Tasks belong to you, not to a tab: closing or deleting its tab (an app tab too) keeps the task, and its next run opens a new tab of the same kind in the same workspace, a web tab at the address the old one was on (`targetWithoutTab` in `shared/schedule.ts`). Each run records the tab its chat is in: the page opens that chat while the tab is open, and keeps the agent's reply after it's gone. Deleting a workspace moves its tasks to another one, paused, since its logins and secrets aren't that workspace's. Private tabs can't have tasks.
+- **Model:** each task can pick the provider, model and reasoning effort that run it (the same picker as the composer); without one, the workspace's default agent runs it. The choice is shown on the task.
+- **/schedule:** typed in a chat with one request and one reply, it opens the page's editor with the request as the prompt, the chat's tab as where it runs and the chat's model and effort; you pick when and confirm.
+- **Runs:** a run fails if the tab's agent is busy, and the agent is stopped at the time limit. The run's result is the agent's last reply, or its error.
+- **Who:** you on the page, or an app's agent for itself (`create_schedule`, `update_schedule`, `delete_schedule`, `list_schedules`): a prompt it gets in its own tab, after you allow it once per app (`agent.schedule`).
 - **Limits:**
   - recurring schedules run at most every 5 minutes, and at most two runs happen at once (the rest wait);
-  - a schedule never overlaps itself (the extra run is recorded as skipped), and every run has a time limit (5 s to 30 min, 5 min by default);
-  - event runs happen at most every 30 s per schedule;
-  - output is capped at 20 kB, and the last 50 runs per schedule are kept.
+  - a task never overlaps itself (the extra run is recorded as skipped), and every run has a time limit (5 s to 30 min, 5 min by default);
+  - event runs happen at most every 30 s per task;
+  - output is capped at 20 kB, and the last 50 runs per task are kept.
 - **Missed runs:** a run missed while Rune Browser wasn't running happens once when it starts. Runs that were going when it stopped are marked as failed.
-- **Notifications:** a notice when a run fails (or after every run, per schedule), and a system notification when Rune Browser isn't focused. Every run is in Activity.
+- **Notifications:** a notice when a run fails (or after every run, per task), and a system notification when Rune Browser isn't focused. Every run is in Activity.
 
 ## Secrets
 
@@ -223,7 +229,7 @@ Anything an app or agent does beyond its own sandbox needs your OK:
 - an app using a global secret;
 - an app reading another app's data;
 - an app (or its agent) using another app's tools;
-- an app's agent creating schedules (once per app);
+- an app's agent scheduling tasks for itself (once per app);
 - the website agent customizing a site or changing pages (per host or pattern);
 - the website agent using a site for you (per host), and each action with consequences (every time);
 - the website agent reading a site in a headless tab with your login (per host);

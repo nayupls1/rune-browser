@@ -841,7 +841,7 @@ try {
     return `${tools.length} tools`;
   });
 
-  await check("schedules: created on the page, run now, paused, deleted; a prompt for an agent", async () => {
+  await check("scheduled tasks: a prompt with a schedule picked in words, paused, edited, deleted", async () => {
     const choose = (selector: string, value: string) =>
       page!.eval(`(() => {
         const select = document.querySelector(${JSON.stringify(selector)});
@@ -849,60 +849,155 @@ try {
         select.dispatchEvent(new Event("change", { bubbles: true }));
         return true;
       })()`);
+    const summary = `(document.querySelector("[data-schedule-summary]")?.innerText ?? "")`;
     await openSettingsAt("schedules");
     await page!.waitFor(`!!document.querySelector("[data-schedules]")`, { label: "schedules page" });
     await click("[data-new-schedule]");
     await page!.waitFor(`!!document.querySelector("[data-schedule-editor]")`, { label: "editor" });
-    await type("[data-schedule-name]", "Say hello");
-    await choose("[data-schedule-app]", appId);
-    await choose("[data-schedule-task]", "command");
-    await page!.waitFor(`!!document.querySelector("[data-schedule-command]")`, { label: "command field" });
-    await type("[data-schedule-command]", "echo scheduled in $RUNE_MODE");
+    // Only prompts: no other kinds of task.
+    if (await page!.eval<boolean>(`!!document.querySelector("[data-schedule-task], [data-schedule-command]")`))
+      throw new Error("the editor still offers other kinds of task");
+    await type("[data-schedule-prompt]", "Summarize what's new on the front page");
+    await choose("[data-schedule-when]", "weekdays");
+    await page!.eval(`(() => {
+      const input = document.querySelector("[data-schedule-time]");
+      input.value = "09:30";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      return true;
+    })()`);
+    await page!.waitFor(`${summary}.startsWith("Every weekday at 9:30 · next ")`, { label: "read back in words" });
+    await choose("[data-schedule-when]", "week");
+    await click('[data-schedule-day="3"]');
+    await click('[data-schedule-day="5"]');
+    await page!.waitFor(`${summary}.startsWith("Every Monday, Wednesday and Friday at 9:30")`, {
+      label: "days of the week",
+    });
+    await choose("[data-schedule-target]", "new:web");
+    await page!.waitFor(`!!document.querySelector("[data-schedule-url]")`, { label: "url field" });
+    await type("[data-schedule-url]", "https://example.com");
+    await page!.waitFor(`(document.querySelector("[data-schedule-agent]")?.innerText ?? "").includes("default")`, {
+      label: "the default model",
+    });
+    await shot("schedule-editor.png");
     await click("[data-save-schedule]");
     const row = "[data-schedules] [data-schedule]";
-    await page!.waitFor(`!!document.querySelector('${row}') && !document.querySelector("[data-schedule-editor]")`, {
-      label: "schedule listed",
-    });
-    await click(`${row} [data-run-schedule]`);
-    await page!.waitFor(`!!document.querySelector('[data-past-runs] [data-run-status="ok"]')`, {
-      label: "run finished",
-      timeoutMs: 20_000,
-    });
-    await click(`[data-past-runs] [data-run-status="ok"] button`);
-    await page!.waitFor(`document.querySelector("[data-past-runs]").innerText.includes("scheduled in")`, {
-      label: "output",
+    await page!.waitFor(
+      `!document.querySelector("[data-schedule-editor]") && /Every Monday, Wednesday and Friday at 9:30 · a new tab at example\\.com/.test(document.querySelector('${row} [data-schedule-meta]')?.innerText ?? "")`,
+      { label: "task listed in words" },
+    );
+    await page!.waitFor(`(document.querySelector('${row}')?.innerText ?? "").includes("Next in")`, {
+      label: "next run shown",
     });
     await click(`${row} [data-pause-schedule]`);
     await page!.waitFor(`document.querySelector('${row}')?.dataset.paused === "yes"`, { label: "paused" });
     await shot("schedules.png");
+    // Edited: the picker reads the schedule back as it was.
+    await click(`${row} [data-edit-schedule]`);
+    await page!.waitFor(
+      `document.querySelector("[data-schedule-when]")?.value === "week" && ${summary}.startsWith("Every Monday, Wednesday and Friday at 9:30")`,
+      { label: "editor with the schedule" },
+    );
+    await choose("[data-schedule-when]", "hours");
+    await choose("[data-schedule-hours]", "6");
+    await click("[data-save-schedule]");
+    await page!.waitFor(
+      `(document.querySelector('${row} [data-schedule-meta]')?.innerText ?? "").startsWith("Every 6 hours")`,
+      {
+        label: "edited",
+      },
+    );
     await click(`${row} [data-delete-schedule]`);
     await page!.waitFor(`!!document.querySelector("[data-confirm-dialog]")`, { label: "confirm dialog" });
     await click("[data-confirm-dialog] [data-confirm]");
     await page!.waitFor(`!document.querySelector('${row}')`, { label: "deleted" });
-
-    // A prompt for an agent, in a new web tab (not run: that needs a model).
-    await click("[data-new-schedule]");
-    await page!.waitFor(`!!document.querySelector("[data-schedule-editor]")`, { label: "editor again" });
-    await choose("[data-schedule-task]", "prompt");
-    await page!.waitFor(
-      `!!document.querySelector("[data-schedule-prompt]") && !!document.querySelector("[data-schedule-target]")`,
-      { label: "prompt fields" },
-    );
-    await type("[data-schedule-prompt]", "Summarize what's new on the front page");
-    await choose("[data-schedule-target]", "new:web");
-    await page!.waitFor(`!!document.querySelector("[data-schedule-url]")`, { label: "url field" });
-    await type("[data-schedule-url]", "https://example.com");
-    await shot("schedule-prompt.png");
-    await click("[data-save-schedule]");
-    await page!.waitFor(
-      `!document.querySelector("[data-schedule-editor]") && (document.querySelector('${row}')?.innerText ?? "").includes("a new tab (https://example.com)")`,
-      { label: "prompt schedule listed" },
-    );
-    await click(`${row} [data-delete-schedule]`);
-    await page!.waitFor(`!!document.querySelector("[data-confirm-dialog]")`, { label: "confirm dialog" });
-    await click("[data-confirm-dialog] [data-confirm]");
-    await page!.waitFor(`!document.querySelector('${row}')`, { label: "prompt schedule deleted" });
     await click(`nav li[data-app-id="${appId}"]`);
+  });
+
+  await check("/schedule turns a chat with one request and one reply into a scheduled task", async () => {
+    const panel = `[data-agent-for="${appId}"]`;
+    await page!.waitFor(`!!document.querySelector('${panel} textarea')`, { label: "agent sidebar" });
+    const before = new Set((await apiCall<{ id: number }[]>(`/api/apps/${appId}/chats`)).map((c) => c.id));
+    const typeInComposer = (text: string, key?: string) =>
+      page!.eval(`(() => {
+        const t = document.querySelector(${JSON.stringify(`${panel} textarea`)});
+        t.value = ${JSON.stringify(text)};
+        t.dispatchEvent(new InputEvent("input", { bubbles: true }));
+        ${key ? `t.dispatchEvent(new KeyboardEvent("keydown", { key: ${JSON.stringify(key)}, bubbles: true }));` : ""}
+        return true;
+      })()`);
+    // An empty chat can't be scheduled.
+    await typeInComposer("/sch");
+    await page!.waitFor(
+      `(document.querySelector('${panel} [data-slash-command="schedule"]')?.getAttribute("aria-disabled")) === "true"`,
+      { label: "/schedule offered, unavailable" },
+    );
+    await typeInComposer("");
+    // A chat with one request and one reply, as an earlier chat, opened from the list.
+    const { Database } = await import("bun:sqlite");
+    const db = new Database(join(profile, "data", "rune.sqlite"));
+    db.run("PRAGMA busy_timeout = 5000");
+    const at = new Date().toISOString();
+    const chatId = Number(
+      db
+        .query("INSERT INTO chats (app_id, title, created_at, updated_at) VALUES (?, ?, ?, ?) RETURNING id")
+        .get(appId, "Front page", at, at)!["id" as never],
+    );
+    const request = "Check the front page of example.com and tell me what's new";
+    for (const [role, content] of [
+      ["user", request],
+      ["assistant", "Nothing new since yesterday."],
+    ] as const)
+      db.run("INSERT INTO messages (app_id, chat_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)", [
+        appId,
+        chatId,
+        role,
+        content,
+        at,
+      ]);
+    db.close();
+    await click(`${panel} [data-chat-history-button]`);
+    await page!.waitFor(`!!document.querySelector('[data-chat="${chatId}"] [data-open-chat]')`, { label: "the chat" });
+    await click(`[data-chat="${chatId}"] [data-open-chat]`);
+    await page!.waitFor(
+      `(document.querySelector('${panel}')?.innerText ?? "").includes("Nothing new since yesterday")`,
+      {
+        label: "the chat's reply",
+      },
+    );
+    await typeInComposer("/sch");
+    await page!.waitFor(
+      `document.querySelector('${panel} [data-slash-command="schedule"]')?.getAttribute("aria-disabled") === "false"`,
+      { label: "/schedule available" },
+    );
+    await shot("slash-schedule.png");
+    await typeInComposer("/schedule", "Enter");
+    // The editor, with the request as the prompt, this tab, and the chat's model.
+    await page!.waitFor(
+      `document.querySelector("[data-schedule-prompt]")?.value === ${JSON.stringify(request)} && document.querySelector("[data-schedule-target]")?.value === ${JSON.stringify(appId)} && !!document.querySelector("[data-schedule-default-agent]")`,
+      { label: "editor prefilled from the chat" },
+    );
+    await click("[data-save-schedule]");
+    const row = "[data-schedules] [data-schedule]";
+    await page!.waitFor(
+      `!document.querySelector("[data-schedule-editor]") && (document.querySelector('${row} [data-schedule-meta]')?.innerText ?? "").startsWith("Every day at 9:00")`,
+      { label: "task listed" },
+    );
+    const [task] =
+      await apiCall<{ id: string; prompt: string; target: { tabId: string }; agent: unknown }[]>("/api/schedules");
+    if (task?.prompt !== request || task.target.tabId !== appId || !task.agent)
+      throw new Error(`unexpected task: ${JSON.stringify(task)}`);
+    await apiCall(`/api/schedules/${task.id}`, { method: "DELETE" });
+    await click(`nav li[data-app-id="${appId}"]`);
+    await click(`${panel} [data-new-chat]`);
+    await page!.waitFor(
+      `!(document.querySelector('${panel}')?.innerText ?? "").includes("Nothing new since yesterday")`,
+      {
+        label: "a new chat",
+      },
+    );
+    for (const chat of await apiCall<{ id: number }[]>(`/api/apps/${appId}/chats`))
+      if (!before.has(chat.id)) await apiCall(`/api/apps/${appId}/chats/${chat.id}`, { method: "DELETE" });
+    return "prefilled from the chat";
   });
 
   await check("secrets: added in the app tab, never shown again", async () => {

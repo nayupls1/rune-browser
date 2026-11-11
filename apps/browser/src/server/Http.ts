@@ -24,7 +24,6 @@ import {
   type SecretsOverview,
 } from "../shared/api";
 import { topics } from "../shared/hub";
-import { taskTab } from "../shared/schedule";
 import { isPrivateWindow, tabFate, WINDOW_ID_PATTERN } from "../shared/windows";
 import { Settings as SettingsSchema, WorkspaceSettings } from "../shared/settings";
 import { Agent } from "./agent/Agent";
@@ -1234,28 +1233,20 @@ export const ScheduleBody = Schema.Struct({
     Schema.Struct({ type: Schema.Literal("cron"), cron: str(100) }),
     Schema.Struct({ type: Schema.Literal("event"), event: str(200) }),
   ]),
-  task: Schema.Union([
+  prompt: str(20_000),
+  target: Schema.Struct({
+    workspaceId: str(100),
+    tabId: Schema.NullOr(str(64)),
+    kind: Schema.Literals(["app", "web"]),
+    url: Schema.NullOr(str(8000)),
+  }),
+  agent: Schema.NullOr(
     Schema.Struct({
-      type: Schema.Literal("tool"),
-      appId: str(64),
-      tool: str(80),
-      params: Schema.optionalKey(Schema.Record(Schema.String, Schema.Unknown)),
-      input: Schema.optionalKey(str(4000)),
+      provider: Schema.Literals(providerIds),
+      model: Schema.NullOr(str(200)),
+      effort: Schema.NullOr(str(40)),
     }),
-    Schema.Struct({ type: Schema.Literal("command"), appId: str(64), command: str(2000) }),
-    Schema.Struct({
-      type: Schema.Literal("prompt"),
-      prompt: str(20_000),
-      appId: Schema.optionalKey(str(64)),
-      newTab: Schema.optionalKey(
-        Schema.Struct({
-          kind: Schema.Literals(["app", "web"]),
-          workspaceId: str(100),
-          url: Schema.optionalKey(str(8000)),
-        }),
-      ),
-    }),
-  ]),
+  ),
   notify: Schema.Literals(["always", "failure", "never"]),
   timeoutSec: Schema.Finite,
 });
@@ -1312,11 +1303,7 @@ const scheduleRoutes = HttpRouter.addAll([
       Effect.gen(function* () {
         const spec = yield* decodeBody(ScheduleBody);
         const schedule = yield* scheduleFail((yield* Scheduler).create(spec, { by: "user" }));
-        yield* youDid(
-          taskTab(spec.task) ?? (spec.task.type === "prompt" ? `workspace:${spec.task.newTab?.workspaceId}` : null),
-          "schedule.create",
-          schedule.name,
-        );
+        yield* youDid(spec.target.tabId ?? `workspace:${spec.target.workspaceId}`, "schedule.create", schedule.name);
         return json(schedule);
       }),
     ),
@@ -1342,7 +1329,7 @@ const scheduleRoutes = HttpRouter.addAll([
         const schedule = yield* scheduler.get(yield* param("id"));
         if (!schedule) return yield* fail(404, "Not found");
         yield* scheduler.remove(schedule.id);
-        yield* youDid(taskTab(schedule.task) ?? `workspace:${schedule.workspaceId}`, "schedule.delete", schedule.name);
+        yield* youDid(schedule.target.tabId ?? `workspace:${schedule.workspaceId}`, "schedule.delete", schedule.name);
         return noContent;
       }),
     ),
