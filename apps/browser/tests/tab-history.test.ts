@@ -121,6 +121,9 @@ describe("crashed pages (Aw, Snap!)", () => {
     expect(crashCode("crashed", 10, "darwin")).toBe("SIGBUS");
     expect(crashCode("crashed", 5, "darwin")).toBe("SIGTRAP");
     expect(crashCode("abnormal-exit", 9, "linux")).toBe("9");
+    // A wait status: exited with 241 (chrome://kill), or SIGSEGV with a core dump.
+    expect(crashCode("abnormal-exit", 241 << 8, "linux")).toBe("241");
+    expect(crashCode("crashed", 11 | 0x80, "linux")).toBe("SIGSEGV");
     expect(crashCode("crashed", 0xc0000005, "win32")).toBe("STATUS_ACCESS_VIOLATION");
     expect(crashCode("crashed", -1073741819, "win32")).toBe("STATUS_ACCESS_VIOLATION");
     expect(crashCode("killed", 1, "win32")).toBe("RESULT_CODE_KILLED");

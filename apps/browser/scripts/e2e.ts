@@ -6208,15 +6208,16 @@ try {
     const tab = `[data-web-tab="${tabId}"]`;
     let other: string | undefined;
     try {
-      // The page's process dies (chrome://crash, like Chromium's own way to test the sad tab).
-      await page!.eval(`document.querySelector('${tab} webview').loadURL("chrome://crash").catch(() => {}), true`);
+      // The page's process dies: chrome://kill ends it at once (chrome://crash would wait for its crash dump,
+      // which takes far longer than this allows on Linux CI).
+      await page!.eval(`document.querySelector('${tab} webview').loadURL("chrome://kill").catch(() => {}), true`);
       await page!.waitFor(`document.querySelector('${tab} [data-load-error]')?.dataset.loadError === "crash"`, {
         timeoutMs: 20_000,
         label: "the sad tab",
       });
       // The crashed page's load can be reported as failed after the crash (on Linux CI it is): the sad tab stays.
       await page!.eval(
-        `document.querySelector('${tab} webview').dispatchEvent(Object.assign(new Event("did-fail-load"), { errorCode: -2, errorDescription: "ERR_FAILED", validatedURL: "chrome://crash/", isMainFrame: true })), true`,
+        `document.querySelector('${tab} webview').dispatchEvent(Object.assign(new Event("did-fail-load"), { errorCode: -2, errorDescription: "ERR_FAILED", validatedURL: "chrome://kill/", isMainFrame: true })), true`,
       );
       if ((await page!.eval(`document.querySelector('${tab} [data-load-error]')?.dataset.loadError`)) !== "crash")
         throw new Error("a failed load reported after the crash replaced the sad tab");
@@ -6246,7 +6247,7 @@ try {
       const bg = `[data-web-tab="${other}"]`;
       await click(`nav li[data-app-id="${tabId}"]`);
       const crashInBackground = async () => {
-        await page!.eval(`document.querySelector('${bg} webview').loadURL("chrome://crash").catch(() => {}), true`);
+        await page!.eval(`document.querySelector('${bg} webview').loadURL("chrome://kill").catch(() => {}), true`);
         await page!.waitFor(`document.querySelector('${bg} [data-load-error]')?.dataset.loadError === "crash"`, {
           timeoutMs: 20_000,
           label: "the sad tab in the background",

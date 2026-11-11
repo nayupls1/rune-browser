@@ -177,8 +177,10 @@ export function crashCode(reason: CrashReason, exitCode: number, platform: strin
       (unsigned > 0xffff ? `0x${unsigned.toString(16).toUpperCase().padStart(8, "0")}` : String(exitCode))
     );
   }
-  // Linux and macOS report the signal that ended the process.
-  const signal = (reason === "killed" || reason === "crashed") && SIGNALS[exitCode];
+  // Linux and macOS report the process's wait status: the signal that ended it in the low bits (0x80 when it
+  // dumped core), or the code it exited with in the next byte.
+  if (exitCode > 0xff && (exitCode & 0x7f) === 0) return String(exitCode >> 8);
+  const signal = (reason === "killed" || reason === "crashed") && SIGNALS[exitCode & 0x7f];
   if (signal) return (platform === "darwin" ? signal[1] : undefined) ?? signal[0];
   return String(exitCode);
 }
