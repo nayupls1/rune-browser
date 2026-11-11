@@ -2,8 +2,9 @@
 // Tabs) have their page closed to free its memory. What the page showed (URL,
 // scroll position, form input: lib/pagestate.ts) is kept and put back when the
 // tab is opened again. Never unloaded: tabs on screen, pinned tabs, tabs whose
-// agent is working and pages playing sound. The chat and the app's server
-// aren't affected, and agents wake a tab up when they need its page (wakePage).
+// agent is working or runs a background job, and pages playing sound. The chat
+// and the app's server aren't affected, and agents wake a tab up when they
+// need its page (wakePage).
 import { createEffect, createRoot, on } from "solid-js";
 import { forgetSavedPage, savePage } from "./pagestate";
 import { settings } from "./settings";
@@ -38,6 +39,8 @@ export function idleTabs(now = Date.now()) {
   if (minutes <= 0) return [];
   return openedIds().filter((id) => {
     if (!canUnload(id) || appById(id)?.pinned || states[id]?.running || pageOf(id)?.busy()) return false;
+    // A background job may be running a script in its page.
+    if (states[id]?.jobs.some((j) => j.state === "running")) return false;
     return now - (lastUsedAt(id) ?? now) >= minutes * 60_000;
   });
 }

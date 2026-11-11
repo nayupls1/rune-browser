@@ -1,7 +1,9 @@
-import { app, BrowserWindow, dialog, ipcMain, net, protocol } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, net, protocol, shell } from "electron";
+import { stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join, normalize, sep } from "node:path";
+import { isAbsolute, join, normalize, sep } from "node:path";
 import { pathToFileURL } from "node:url";
+import { opensAsProgram } from "../shared/web";
 import { apiMapReporter } from "./apiMap";
 import { describeExitCode, redactPaths } from "./crashReport";
 import { setupCrashReports } from "./crashes";
@@ -142,6 +144,25 @@ ipcMain.handle("rune:pick-files", async (event) => {
   if (!win || !windows.isUi(event.sender)) return [];
   const picked = await dialog.showOpenDialog(win, { title: "Open file", properties: ["openFile", "multiSelections"] });
   return picked.canceled ? [] : picked.filePaths;
+});
+
+// A file or folder from the chat (a file link's chip; the server says which paths the chat may show) in the
+// system's app, or shown in its folder. Programs, scripts and executable files are only ever shown in their
+// folder: a click in the chat never runs anything. Offscreen (the e2e checks), nothing opens: it only answers.
+ipcMain.handle("rune:open-path", async (event, path: unknown, how: unknown) => {
+  if (!windows.isUi(event.sender)) return "Not allowed";
+  if (typeof path !== "string" || !isAbsolute(path) || path.includes("\0")) return "Not a path";
+  const info = await stat(path).catch(() => null);
+  if (!info) return "It was moved or deleted";
+  const reveal =
+    how === "reveal" || (info.isFile() && opensAsProgram(path, process.platform === "win32" ? 0 : info.mode));
+  if (process.env.RUNE_OFFSCREEN === "1") return reveal ? "revealed" : "opened";
+  if (reveal) {
+    shell.showItemInFolder(path);
+    return "revealed";
+  }
+  const error = await shell.openPath(path);
+  return error || "opened";
 });
 
 function registerAppProtocol() {

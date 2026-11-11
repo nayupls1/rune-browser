@@ -18,6 +18,7 @@ import { addFolder, SourcesBar } from "./Sources";
 import { PopoverMenu } from "./PopoverMenu";
 import { TabIcon } from "./TabIcon";
 import { Icon } from "./Icon";
+import { JobsBar } from "./JobsBar";
 import { toast } from "./Toast";
 import { withKeys } from "../lib/shortcuts";
 
@@ -159,6 +160,7 @@ export function Chat(props: { appId: string }) {
         </Show>
       </div>
       <div {...stylex.attrs(styles.composer)}>
+        <JobsBar appId={props.appId} />
         <Composer
           appId={props.appId}
           running={state().running}

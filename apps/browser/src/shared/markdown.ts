@@ -1,9 +1,21 @@
 // Minimal Markdown → HTML for agent replies. Input is
 // escaped first, so the agent (or data) can never inject markup; only the
-// constructs below are produced. Links must be http(s) or mailto.
+// constructs below are produced. Links must be http(s) or mailto; links to
+// local paths become file links (data-file-link), which the chat shows as chips.
 
 const escape = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+
+/**
+ * A link target that's a local path: absolute, relative, ~/…, C:\… or file://. Not a web address, an anchor
+ * (#…) or another scheme (javascript:, data:…).
+ */
+export function isLocalPath(target: string) {
+  const t = target.trim();
+  if (!t || t.startsWith("#") || t.startsWith("//")) return false;
+  if (/^file:\/\//i.test(t) || /^[a-z]:[\\/]/i.test(t)) return true;
+  return !/^[a-z][a-z0-9+.-]*:/i.test(t);
+}
 
 function inline(text: string): string {
   const codes: string[] = [];
@@ -12,10 +24,16 @@ function inline(text: string): string {
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
     .replace(/(^|[^*])\*([^*\s][^*]*)\*/g, "$1<em>$2</em>")
     .replace(/~~([^~]+)~~/g, "<del>$1</del>")
-    .replace(
-      /\[([^\]]+)\]\(((?:https?:\/\/|mailto:)[^\s)]+)\)/g,
-      '<a href="$2" target="_blank" rel="noreferrer">$1</a>',
-    );
+    // [label](url), [label](path) or [label](<path with spaces>): web links stay links, local paths become
+    // file links (the chat turns them into chips), anything else (javascript:, data:…) stays text.
+    .replace(/\[([^\]]+)\]\((?:&lt;((?:(?!&gt;).)+)&gt;|([^\s)]+))\)/g, (match, label: string, angled, plain) => {
+      const target: string = angled ?? plain;
+      if (target.includes("\u0000")) return match;
+      if (/^(https?:\/\/|mailto:)/i.test(target))
+        return /\s/.test(target) ? match : `<a href="${target}" target="_blank" rel="noreferrer">${label}</a>`;
+      if (isLocalPath(target)) return `<span class="rune-file-link" data-file-link="${target}">${label}</span>`;
+      return match;
+    });
   return out.replace(/\u0000(\d+)\u0000/g, (_, i: string) => `<code>${codes[Number(i)]}</code>`);
 }
 

@@ -61,6 +61,15 @@ export const isViewableFile = (name: string, mime = "") =>
   /^application\/(pdf|json|xml|xhtml\+xml|javascript)$/.test(mime) ||
   VIEWABLE_EXTENSIONS.test(name);
 
+const PROGRAM_EXTENSIONS =
+  /\.(exe|com|bat|cmd|msi|msix|msp|scr|pif|cpl|ps1|psm1|vbs|vbe|js|jse|wsf|wsh|hta|lnk|url|reg|jar|app|command|tool|pkg|dmg|mpkg|workflow|scpt|desktop|sh|bash|zsh|csh|fish|run|bin|appimage|deb|rpm|snap|flatpak|py|pyw|pl|rb|php)$/i;
+
+/**
+ * Whether opening a file with the system's app would run it (programs, installers, scripts, shortcuts, or a file
+ * marked executable): those are shown in their folder instead of opened from the chat.
+ */
+export const opensAsProgram = (name: string, mode = 0) => PROGRAM_EXTENSIONS.test(name) || (mode & 0o111) !== 0;
+
 /** Why a page can't be loaded in a headless tab, or null. */
 export function headlessUrlProblem(url: string): string | null {
   let parsed: URL;

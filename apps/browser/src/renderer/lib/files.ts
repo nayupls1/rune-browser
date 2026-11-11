@@ -4,7 +4,7 @@
 // browser can show (PDF, image, video, audio, text, page) opens in a tab;
 // anything else is downloaded, like Chrome does.
 import { createStore } from "solid-js/store";
-import { DEFAULT_WORKSPACE, PRIVATE_WORKSPACE, type ChatFile } from "../../shared/api";
+import { DEFAULT_WORKSPACE, PRIVATE_WORKSPACE, type ChatFile, type PathInfo } from "../../shared/api";
 import { fileNameOf, fileUrl, isViewableFile } from "../../shared/web";
 import { api } from "./api";
 import { appById, currentWorkspace, isPrivate, newWebTab, selectApp } from "./store";
@@ -58,6 +58,8 @@ const [folders, setFolders] = createStore<Record<string, { dir: string; files: C
 export async function refreshChatFiles(tabId: string) {
   const listed = await api.chatFiles(tabId).catch(() => null);
   if (listed) setFolders(tabId, listed);
+  // What the chat's file links point to may have changed too (the agent made or deleted files).
+  for (const key of lookups.keys()) if (key.startsWith(`${tabId}\n`)) lookups.delete(key);
 }
 
 /** A file of the tab's chat folder that `text` names (its path in the folder, or its absolute path). */
@@ -70,4 +72,75 @@ export function chatFileNamed(tabId: string, text: string): ChatFile | undefined
     ? wanted.slice(folder.dir.length + 1).replace(/\\/g, "/")
     : wanted.replace(/^file:\/\//, "");
   return folder.files.find((f) => f.name === relative || f.path === wanted);
+}
+
+// --- Paths the agent links ([name](<path>)) --------------------------------------------------
+// Looked up on the server, which only says what a path is inside the tab's
+// chat folders and its app's project (POST /api/apps/:id/files/lookup). The
+// chips of one reply are looked up together, and remembered until the chat's
+// files change.
+
+const lookups = new Map<string, Promise<PathInfo>>();
+let queued: { tabId: string; path: string; resolve: (info: PathInfo) => void }[] = [];
+
+const unknownPath = (path: string): PathInfo => ({ input: path, kind: "outside", path: null, name: fileNameOf(path) });
+
+function flushLookups() {
+  const batch = queued;
+  queued = [];
+  const byTab = new Map<string, typeof batch>();
+  for (const q of batch) byTab.set(q.tabId, [...(byTab.get(q.tabId) ?? []), q]);
+  for (const [tabId, list] of byTab) {
+    const paths = [...new Set(list.map((q) => q.path))];
+    for (let i = 0; i < paths.length; i += 100) {
+      const chunk = paths.slice(i, i + 100);
+      void api
+        .lookupPaths(tabId, chunk)
+        .catch(() => chunk.map(unknownPath))
+        .then((infos) => {
+          for (const q of list)
+            if (chunk.includes(q.path)) q.resolve(infos[chunk.indexOf(q.path)] ?? unknownPath(q.path));
+        });
+    }
+  }
+}
+
+/** What a path the agent linked in the tab's chat is: a file, a folder, missing, or outside what the chat may show. */
+export function lookupPath(tabId: string, path: string): Promise<PathInfo> {
+  const key = `${tabId}\n${path}`;
+  let found = lookups.get(key);
+  if (!found) {
+    found = new Promise((resolve) => {
+      if (!queued.length) queueMicrotask(flushLookups);
+      queued.push({ tabId, path, resolve });
+    });
+    lookups.set(key, found);
+  }
+  return found;
+}
+
+/**
+ * Opens a file or folder from the chat: a file Rune Browser can show in a tab, anything else (and folders) in the
+ * system's app. Programs and scripts are only shown in their folder. Returns a message when it couldn't open it
+ * as asked.
+ */
+export async function openLocal(
+  target: { path: string; kind: "file" | "folder"; mime?: string },
+  options: { background?: boolean; withSystemApp?: boolean } = {},
+): Promise<string | null> {
+  if (target.kind === "file" && !options.withSystemApp && isViewableFile(fileNameOf(target.path), target.mime)) {
+    await openFile(target.path, { mime: target.mime, background: options.background });
+    return null;
+  }
+  const result = await window.rune.openPath(target.path, "open");
+  if (result === "opened") return null;
+  if (result === "revealed")
+    return `${fileNameOf(target.path)} is a program or script: it's shown in its folder instead of run.`;
+  return `Couldn't open ${fileNameOf(target.path)}: ${result}`;
+}
+
+/** Shows a file or folder in the system's file manager. */
+export async function revealLocal(path: string): Promise<string | null> {
+  const result = await window.rune.openPath(path, "reveal");
+  return result === "revealed" || result === "opened" ? null : `Couldn't show ${fileNameOf(path)}: ${result}`;
 }

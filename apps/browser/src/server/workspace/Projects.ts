@@ -22,6 +22,7 @@ import { AppData } from "./AppData";
 import { Runtime } from "./Runtime";
 import { Sources } from "./Sources";
 import { ChatFiles } from "../agent/ChatFiles";
+import { Jobs } from "../agent/Jobs";
 import { Workspace, type ImportProgress, type ImportSource, type WorkspaceError } from "./Workspace";
 
 export interface ProjectsShape {
@@ -74,6 +75,7 @@ export const make = Effect.gen(function* () {
   const runtime = yield* Runtime;
   const sources = yield* Sources;
   const chatFiles = yield* ChatFiles;
+  const jobs = yield* Jobs;
   const appData = yield* AppData;
   const history = yield* History;
   const secrets = yield* Secrets;
@@ -182,6 +184,7 @@ export const make = Effect.gen(function* () {
       Effect.gen(function* () {
         const tab = yield* apps.get(appId);
         if (!tab || tab.kind !== "app") return null;
+        yield* jobs.endTab(appId);
         yield* runtime.stop(appId);
         const closed = yield* apps.close(appId);
         yield* pruneSplits(tab.workspaceId);
@@ -222,6 +225,7 @@ export const make = Effect.gen(function* () {
     remove: (appId) =>
       Effect.gen(function* () {
         const tab = yield* apps.get(appId);
+        yield* jobs.endTab(appId);
         yield* runtime.forget(appId);
         yield* sources.forgetTab(appId);
         yield* chatFiles.forgetTab(appId);

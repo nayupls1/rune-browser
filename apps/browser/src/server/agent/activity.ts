@@ -41,6 +41,22 @@ const tools: Record<string, { kind: ToolKind; title: (args: Args) => string }> =
   fill_form: { kind: "browse", title: () => "Filled in a form" },
   confirm_action: { kind: "browse", title: () => "Asked to confirm an action" },
   upload_file: { kind: "browse", title: () => "Uploaded files to the page" },
+  // Background jobs.
+  start_script_job: { kind: "code", title: (a) => `Started a page script in the background${quoted(a.title)}` },
+  job_status: {
+    kind: "other",
+    title: (a) =>
+      `${typeof a.wait_seconds === "number" && a.wait_seconds > 0 ? "Waited for" : "Checked on"} ${str(a.id) ? `job ${clip(str(a.id)!, 20)}` : "the background jobs"}`,
+  },
+  cancel_job: {
+    kind: "other",
+    title: (a) => `Stopped ${str(a.id) ? `job ${clip(str(a.id)!, 20)}` : "the background jobs"}`,
+  },
+  wait: {
+    kind: "other",
+    title: (a) =>
+      `Waited${typeof a.seconds === "number" ? ` ${Math.round(Math.min(Math.max(a.seconds, 0), 300))} s` : ""}`,
+  },
   // Headless tabs.
   open_headless_tab: { kind: "web", title: (a) => `Opened${plain(a.url, 70) || " a page"} in a headless tab` },
   navigate_headless_tab: { kind: "web", title: (a) => `Opened${plain(a.url, 70) || " a page"} in a headless tab` },
@@ -70,8 +86,6 @@ const tools: Record<string, { kind: ToolKind; title: (args: Args) => string }> =
     kind: "network",
     title: (a) => `Sent a batch of ${Array.isArray(a.items) ? `${a.items.length} ` : ""}requests`,
   },
-  wait_for_batch: { kind: "network", title: () => "Waited for a batch of requests" },
-  cancel_batch: { kind: "network", title: () => "Canceled a batch of requests" },
   cancel_requests: { kind: "network", title: () => "Canceled the page's pending requests" },
   saved_requests: { kind: "network", title: () => "Listed the saved requests" },
   save_request: { kind: "network", title: (a) => `Saved a request${quoted(a.name)}` },
