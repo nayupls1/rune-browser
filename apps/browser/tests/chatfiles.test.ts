@@ -14,7 +14,7 @@ import { readConfig } from "../src/server/Config";
 import { Apps } from "../src/server/db/Apps";
 import { core } from "../src/server/services";
 import type { ChatFile, PathInfo } from "../src/shared/api";
-import { opensAsProgram } from "../src/shared/web";
+import { systemOpenAction } from "../src/shared/web";
 import { startServer } from "./lib/server";
 
 const textOf = (r: ToolResult) => r.content.map((c) => (c.type === "text" ? c.text : `[${c.type}]`)).join("\n");
@@ -185,12 +185,74 @@ describe("file links in the chat", () => {
     }
   });
 
-  test("programs and scripts are only shown in their folder, never opened from the chat", () => {
-    for (const name of ["setup.exe", "run.sh", "x.desktop", "Install.command", "a.AppImage", "evil.lnk", "s.ps1"])
-      expect(opensAsProgram(name)).toBe(true);
-    expect(opensAsProgram("tool", 0o755)).toBe(true);
-    for (const name of ["report.pdf", "data.csv", "photo.png", "notes.md", "archive.zip"])
-      expect(opensAsProgram(name, 0o644)).toBe(false);
+  test("only known documents, media and archives open with their app; anything else is shown in its folder", () => {
+    const file = (name: string, mode = 0o644) => systemOpenAction(name, { directory: false, mode });
+    const folder = (name: string, bundle = false) => systemOpenAction(name, { directory: true, bundle });
+    for (const name of [
+      "report.pdf",
+      "photo.JPG",
+      "clip.mp4",
+      "song.flac",
+      "data.csv",
+      "notes.md",
+      "letter.docx",
+      "sheet.xlsx",
+      "slides.pptx",
+      "doc.odt",
+      "archive.zip",
+      "backup.tar.gz",
+    ])
+      expect(file(name)).toBe("open");
+    // An allowlist: anything not on it, known to be dangerous or not, is only shown.
+    for (const name of [
+      "setup.exe",
+      "run.sh",
+      "x.desktop",
+      "Install.command",
+      "evil.terminal",
+      "link.webloc",
+      "link.inetloc",
+      "link.fileloc",
+      "do.applescript",
+      "macro.docm",
+      "macro.xlsm",
+      "macro.pptm",
+      "old.doc",
+      "disk.iso",
+      "disk.img",
+      "disk.vhd",
+      "disk.vhdx",
+      "console.msc",
+      "help.chm",
+      "app.jnlp",
+      "app.application",
+      "app.appref-ms",
+      "x.settingcontent-ms",
+      "driver.inf",
+      "script.ws",
+      "w.gadget",
+      "m.mjs",
+      "c.cjs",
+      "page.html",
+      "image.svg",
+      "a.AppImage",
+      "evil.lnk",
+      "s.ps1",
+      "unknown.qqq",
+      "no-extension",
+    ])
+      expect(file(name)).toBe("reveal");
+    // Marked executable: shown, whatever its name.
+    expect(file("report.pdf", 0o755)).toBe("reveal");
+    // macOS bundles are folders that launch: shown, by their extension or their Contents/Info.plist.
+    for (const name of ["Foo.app", "Foo.app/", "x.workflow", "x.action", "x.prefPane", "x.bundle", "x.plugin"])
+      expect(folder(name)).toBe("reveal");
+    for (const name of ["x.appex", "x.xpc", "x.kext", "x.scptd", "Install.mpkg", "Install.pkg"])
+      expect(folder(name)).toBe("reveal");
+    expect(folder("Renamed", true)).toBe("reveal");
+    // Plain folders open in the file manager.
+    expect(folder("exports")).toBe("open");
+    expect(folder("My Files.2024")).toBe("open");
   });
 });
 

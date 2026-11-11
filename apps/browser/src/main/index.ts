@@ -1,9 +1,9 @@
 import { app, BrowserWindow, dialog, ipcMain, net, protocol, shell } from "electron";
-import { stat } from "node:fs/promises";
+import { access, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join, normalize, sep } from "node:path";
 import { pathToFileURL } from "node:url";
-import { opensAsProgram } from "../shared/web";
+import { systemOpenAction } from "../shared/web";
 import { apiMapReporter } from "./apiMap";
 import { describeExitCode, redactPaths } from "./crashReport";
 import { setupCrashReports } from "./crashes";
@@ -147,15 +147,26 @@ ipcMain.handle("rune:pick-files", async (event) => {
 });
 
 // A file or folder from the chat (a file link's chip; the server says which paths the chat may show) in the
-// system's app, or shown in its folder. Programs, scripts and executable files are only ever shown in their
-// folder: a click in the chat never runs anything. Offscreen (the e2e checks), nothing opens: it only answers.
+// system's app, or shown in its folder. Only known document, media and archive types open with their app, and
+// plain folders in the file manager; everything else (programs, scripts, macOS bundles, disk images, macro
+// documents…) is only shown in its folder: a click in the chat never runs anything. Offscreen (the e2e checks), nothing opens: it only answers.
 ipcMain.handle("rune:open-path", async (event, path: unknown, how: unknown) => {
   if (!windows.isUi(event.sender)) return "Not allowed";
   if (typeof path !== "string" || !isAbsolute(path) || path.includes("\0")) return "Not a path";
   const info = await stat(path).catch(() => null);
   if (!info) return "It was moved or deleted";
+  const directory = info.isDirectory();
+  if (!directory && !info.isFile()) return "Not a file or folder";
+  // A macOS bundle is a folder that launches when opened, whatever its name says.
+  const bundle =
+    directory &&
+    (await access(join(path, "Contents", "Info.plist")).then(
+      () => true,
+      () => false,
+    ));
   const reveal =
-    how === "reveal" || (info.isFile() && opensAsProgram(path, process.platform === "win32" ? 0 : info.mode));
+    how === "reveal" ||
+    systemOpenAction(path, { directory, bundle, mode: process.platform === "win32" ? 0 : info.mode }) === "reveal";
   if (process.env.RUNE_OFFSCREEN === "1") return reveal ? "revealed" : "opened";
   if (reveal) {
     shell.showItemInFolder(path);

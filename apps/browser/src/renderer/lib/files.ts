@@ -121,7 +121,7 @@ export function lookupPath(tabId: string, path: string): Promise<PathInfo> {
 
 /**
  * Opens a file or folder from the chat: a file Rune Browser can show in a tab, anything else (and folders) in the
- * system's app. Programs and scripts are only shown in their folder. Returns a message when it couldn't open it
+ * system's app. Only documents, media and archives open with their app; anything else is shown in its folder. Returns a message when it couldn't open it
  * as asked.
  */
 export async function openLocal(
@@ -135,7 +135,7 @@ export async function openLocal(
   const result = await window.rune.openPath(target.path, "open");
   if (result === "opened") return null;
   if (result === "revealed")
-    return `${fileNameOf(target.path)} is a program or script: it's shown in its folder instead of run.`;
+    return `${fileNameOf(target.path)} is shown in its folder: the chat only opens documents, media and archives with their app.`;
   return `Couldn't open ${fileNameOf(target.path)}: ${result}`;
 }
 

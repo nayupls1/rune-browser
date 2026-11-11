@@ -10,7 +10,7 @@
 import * as stylex from "@stylexjs/stylex";
 import { createResource, createSignal, For, Show } from "solid-js";
 import type { PathInfo } from "../../shared/api";
-import { fileNameOf, isViewableFile } from "../../shared/web";
+import { fileNameOf, isViewableFile, systemOpenAction } from "../../shared/web";
 import { chatFileUrl, lookupPath, openLocal, revealLocal } from "../lib/files";
 import { colors, font, radius, space } from "../theme.stylex";
 import { ContextMenu, type MenuItem, type MenuPosition } from "./ContextMenu";
@@ -66,23 +66,36 @@ const openTarget = (target: { path: string; kind: "file" | "folder"; mime?: stri
 };
 const open = (file: FileLike, e: MouseEvent) => openTarget({ path: file.path, kind: "file", mime: file.mime }, e);
 
+/** Whether the system's app may open it (the main process decides for good: rune:open-path). */
+const appOpens = (name: string, directory = false) => systemOpenAction(name, { directory }) === "open";
+
+/** What a click does: open it in a tab, open it with its app, or (anything that could run) show it in its folder. */
+const clickVerb = (name: string, mime?: string) =>
+  isViewableFile(name, mime) ? "Open" : appOpens(name) ? "Open with its app" : "Show in its folder";
+
 const tooltip = (file: FileLike) =>
-  `${isViewableFile(fileNameOf(file.name), file.mime) ? "Open" : "Open with its app"}: ${fileNameOf(file.name)}\n${file.path}\nRight-click for more`;
+  `${clickVerb(fileNameOf(file.name), file.mime)}: ${fileNameOf(file.name)}\n${file.path}\nRight-click for more`;
 
 /** What a file's right-click menu offers: open (also in the system's app), show in its folder, copy its path. */
 function menuItems(target: { path: string | null; kind: PathInfo["kind"]; mime?: string; copy: string }): MenuItem[] {
   const { path, kind } = target;
-  const viewable = kind === "file" && !!path && isViewableFile(fileNameOf(path), target.mime);
+  const name = path ? fileNameOf(path) : "";
+  const viewable = kind === "file" && !!path && isViewableFile(name, target.mime);
+  const opens = viewable || ((kind === "file" || kind === "folder") && appOpens(name, kind === "folder"));
   return [
     ...(path && (kind === "file" || kind === "folder")
       ? [
-          {
-            label: kind === "folder" ? "Open folder" : viewable ? "Open in a tab" : "Open",
-            icon: kind === "folder" ? "folder-open" : "square-arrow-out-up-right",
-            id: "open",
-            onSelect: () => report(openLocal({ path, kind, mime: target.mime })),
-          },
-          ...(viewable
+          ...(opens
+            ? [
+                {
+                  label: kind === "folder" ? "Open folder" : viewable ? "Open in a tab" : "Open with its app",
+                  icon: kind === "folder" ? "folder-open" : "square-arrow-out-up-right",
+                  id: "open",
+                  onSelect: () => report(openLocal({ path, kind, mime: target.mime })),
+                },
+              ]
+            : []),
+          ...(viewable && appOpens(name)
             ? [
                 {
                   label: "Open with its app",
@@ -224,11 +237,14 @@ function linkLook(info: PathInfo | undefined, target: string): { icon: string; t
   const where = info.path ?? info.input;
   switch (info.kind) {
     case "folder":
-      return { icon: "folder", title: `Open the folder ${info.name}\n${where}\nRight-click for more` };
+      return {
+        icon: "folder",
+        title: `${appOpens(info.name, true) ? "Open the folder" : "Show in its folder"} ${info.name}\n${where}\nRight-click for more`,
+      };
     case "file":
       return {
         icon: kindOf({ name: info.name, path: where, mime: info.mime ?? "" }).icon,
-        title: `${isViewableFile(info.name, info.mime) ? "Open" : "Open with its app"}: ${info.name}${
+        title: `${clickVerb(info.name, info.mime)}: ${info.name}${
           info.size !== undefined ? ` (${formatSize(info.size)})` : ""
         }\n${where}\nRight-click for more`,
       };

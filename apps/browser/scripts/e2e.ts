@@ -1901,11 +1901,14 @@ try {
       writeFileSync(join(dir, "notes.md"), "# Notes\n\nFound 3 items.");
       writeFileSync(join(dir, "exports", "items.zip"), "zip");
       writeFileSync(join(dir, "exports", "setup.exe"), "MZ");
+      // A macOS app bundle: a folder that launches when opened.
+      mkdirSync(join(dir, "Tool.app", "Contents"), { recursive: true });
+      writeFileSync(join(dir, "Tool.app", "Contents", "Info.plist"), "<plist/>");
       const outsideFile = join(profile, "data", "settings.json");
       const reply = [
         "Here's what I made:",
         "- [notes.md](notes.md) and [the exports](<exports/>)",
-        `- [items.zip](<${join(dir, "exports", "items.zip")}>) and [setup.exe](exports/setup.exe)`,
+        `- [items.zip](<${join(dir, "exports", "items.zip")}>), [setup.exe](exports/setup.exe) and [Tool.app](Tool.app)`,
         `- [old.csv](exports/old.csv), [settings](<${outsideFile}>) and [the docs](https://example.com/docs)`,
       ].join("\n");
       const { Database } = await import("bun:sqlite");
@@ -1940,7 +1943,7 @@ try {
       const kinds = await page!.waitFor<Record<string, string>>(
         `(() => {
         const chips = [...document.querySelectorAll('${panel} [data-file-link]')];
-        if (chips.length !== 6 || chips.some((c) => c.dataset.fileKind === "loading")) return null;
+        if (chips.length !== 7 || chips.some((c) => c.dataset.fileKind === "loading")) return null;
         return Object.fromEntries(chips.map((c) => [c.textContent.trim(), c.dataset.fileKind]));
       })()`,
         { label: "the file chips, looked up" },
@@ -1950,6 +1953,7 @@ try {
         "the exports": "folder",
         "items.zip": "file",
         "setup.exe": "file",
+        "Tool.app": "folder",
         "old.csv": "missing",
         settings: "outside",
       };
@@ -1988,8 +1992,14 @@ try {
       // A program is never run from the chat: it's shown in its folder.
       await click(chip("exports/setup.exe"));
       await page!.waitFor(
-        `[...document.querySelectorAll("[data-toast]")].some((t) => t.innerText.includes("setup.exe is a program or script"))`,
+        `[...document.querySelectorAll("[data-toast]")].some((t) => t.innerText.includes("setup.exe is shown in its folder"))`,
         { label: "the program shown in its folder, not run" },
+      );
+      // So is an app bundle, although it's a folder.
+      await click(chip("Tool.app"));
+      await page!.waitFor(
+        `[...document.querySelectorAll("[data-toast]")].some((t) => t.innerText.includes("Tool.app is shown in its folder"))`,
+        { label: "the app bundle shown in its folder, not launched" },
       );
       // A file a tab can't show opens in its app (offscreen: nothing opens), the folder too; no complaint.
       await click(chip(join(dir, "exports", "items.zip")));
