@@ -6214,6 +6214,12 @@ try {
         timeoutMs: 20_000,
         label: "the sad tab",
       });
+      // The crashed page's load can be reported as failed after the crash (on Linux CI it is): the sad tab stays.
+      await page!.eval(
+        `document.querySelector('${tab} webview').dispatchEvent(Object.assign(new Event("did-fail-load"), { errorCode: -2, errorDescription: "ERR_FAILED", validatedURL: "chrome://crash/", isMainFrame: true })), true`,
+      );
+      if ((await page!.eval(`document.querySelector('${tab} [data-load-error]')?.dataset.loadError`)) !== "crash")
+        throw new Error("a failed load reported after the crash replaced the sad tab");
       const text = await page!.eval<string>(`document.querySelector('${tab} [data-load-error]').innerText`);
       for (const words of ["Aw, Snap!", "Something went wrong while displaying this webpage.", "Error code: "])
         if (!text.includes(words)) throw new Error(`the sad tab says: ${text}`);

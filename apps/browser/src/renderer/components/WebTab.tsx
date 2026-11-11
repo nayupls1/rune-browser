@@ -787,6 +787,8 @@ export function WebTab(props: { appId: string; active: boolean }) {
       loaded();
     });
     view.addEventListener("did-fail-load", (e: DidFailLoadEvent) => {
+      // The page that crashed failing to load (it can be reported after the crash): the sad tab stays.
+      if (crash()) return loaded();
       // The HTTPS version of an http:// page didn't load: the page has none (or a broken one).
       if (e.isMainFrame && upgrading && e.errorCode !== -3) return warn(upgrading.from, upgrading.to);
       // -3 is an aborted load (e.g. a new navigation replaced it): no error.
