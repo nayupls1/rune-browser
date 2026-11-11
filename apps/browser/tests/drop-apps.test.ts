@@ -11,6 +11,7 @@ import { Effect, ManagedRuntime } from "effect";
 import { DEFAULT_WORKSPACE } from "../src/shared/api";
 import { readConfig } from "../src/server/Config";
 import { Apps } from "../src/server/db/Apps";
+import { removeChild } from "../src/server/db/Db";
 import { core } from "../src/server/services";
 
 const dir = mkdtempSync(join(tmpdir(), "rune-drop-apps-"));
@@ -118,4 +119,18 @@ test("an app tab and what only apps used go; web tabs stay, and so do new tabs",
   const made = await start(Effect.flatMap(Apps, (apps) => apps.create(DEFAULT_WORKSPACE, null)));
   const again = await start(Effect.flatMap(Apps, (apps) => apps.list()));
   expect(again.map((t) => t.id).sort()).toEqual([made.id, "web-tab"].sort());
+});
+
+test("only a direct child of its folder is ever removed", () => {
+  const parent = join(dir, "guarded");
+  for (const name of ["a", "b"]) mkdirSync(join(parent, name), { recursive: true });
+  writeFileSync(join(dir, "outside.txt"), "keep");
+  // Names that sanitize to nothing, or would lead elsewhere, remove nothing.
+  for (const name of ["", "..", "../", "/", "./.", "../outside.txt", "%%"]) removeChild(parent, name);
+  expect(existsSync(join(parent, "a")) && existsSync(join(parent, "b"))).toBe(true);
+  expect(existsSync(join(dir, "outside.txt"))).toBe(true);
+  // "../a" sanitizes to "a": still a child of the folder.
+  removeChild(parent, "../a");
+  expect(existsSync(join(parent, "a"))).toBe(false);
+  expect(existsSync(join(parent, "b"))).toBe(true);
 });

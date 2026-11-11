@@ -1,7 +1,7 @@
 // The host database (rune.sqlite): workspaces, tabs, chat history, settings,
 // browsing history, site customizations, permissions and the audit log.
 import { rmSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { SqliteClient } from "@effect/sql-sqlite-bun";
 import { Effect, Layer } from "effect";
 import { SqlClient } from "effect/sql";
@@ -26,6 +26,19 @@ export const orDieAll = <T extends Record<string, Fn>>(repo: T) =>
   ) as OrDie<T>;
 
 /**
+ * Deletes `parent/<name>` (name sanitized like a tab id), and only that: nothing when the name sanitizes to
+ * nothing, or when the path doesn't resolve to a direct child of `parent`.
+ */
+export function removeChild(parent: string, name: string) {
+  const safe = name.replace(/[^\w-]/g, "");
+  if (!safe) return;
+  const root = resolve(parent);
+  const path = resolve(root, safe);
+  if (dirname(path) !== root) return;
+  rmSync(path, { recursive: true, force: true });
+}
+
+/**
  * Rune Browser used to build apps, in tabs of their own: those tabs go with their chats, chat folders,
  * attached code, snapshots and permissions, and so do the tables and columns only they used. Their
  * project folders stay on disk (`apps/` and `appdata/` in the data folder): they're the user's work.
@@ -37,9 +50,9 @@ const dropApps = (dataDir: string) =>
     if (columns.has("kind")) {
       const tabs = yield* sql<{ id: string }>`SELECT id FROM apps WHERE kind = 'app'`;
       for (const { id } of tabs) {
-        rmSync(join(dataDir, "chats", id.replace(/[^\w-]/g, "")), { recursive: true, force: true });
+        removeChild(join(dataDir, "chats"), id);
         const clones = yield* sql<{ id: string }>`SELECT id FROM sources WHERE tab_id = ${id} AND kind = 'git'`;
-        for (const clone of clones) rmSync(join(dataDir, "sources", clone.id), { recursive: true, force: true });
+        for (const clone of clones) removeChild(join(dataDir, "sources"), clone.id);
         yield* sql`DELETE FROM permissions WHERE subject = ${id}`;
         yield* sql`DELETE FROM apps WHERE id = ${id}`;
       }
