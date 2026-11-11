@@ -139,7 +139,13 @@ export function setupTaskManager(options: {
       }
     });
     if (!all.length || !all.every((c) => c.getType() === "webview" && taskOf(c).kind === "tab")) return false;
-    all[0]!.forcefullyCrashRenderer();
+    // Killed, like Chrome's End process (not forcefullyCrashRenderer: on Linux that makes the page crash as
+    // hung and wait for its crash dump, which can take seconds).
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {
+      return false;
+    }
     return true;
   });
 }
