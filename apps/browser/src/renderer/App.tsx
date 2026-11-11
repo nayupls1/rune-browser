@@ -29,6 +29,7 @@ import { isBookmarksBarShown } from "./lib/bookmarks";
 import { BookmarkEditor, BookmarksBar } from "./components/Bookmarks";
 import "./lib/updates";
 import { startUnloading } from "./lib/unload";
+import { startCleanup } from "./lib/cleanup";
 import { startWindowChrome } from "./lib/windowChrome";
 import { startShortcuts } from "./lib/shortcuts";
 import { loadSettings } from "./lib/settings";
@@ -55,6 +56,7 @@ import { colors, font, radius, space } from "./theme.stylex";
 export default function App() {
   onMount(async () => {
     startUnloading();
+    startCleanup();
     startWindowChrome();
     startShortcuts();
     await loadSettings().catch((err) => console.error("Loading settings failed:", err));

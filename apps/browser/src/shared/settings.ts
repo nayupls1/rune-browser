@@ -42,6 +42,11 @@ const ProviderSettings = Schema.Struct({
 });
 export type ProviderSettings = typeof ProviderSettings.Type;
 
+/** Hours a tab may go unused before tab cleanup closes it (0: never). */
+const CloseAfterHours = Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 24 * 365 }));
+/** What Settings offer (other values, set by hand, are shown as they are). */
+export const CLOSE_AFTER_CHOICES = [0, 12, 24, 72, 168] as const;
+
 const Instructions = Schema.String.check(Schema.isMaxLength(10_000)).pipe(withDefault(""));
 
 export const Settings = Schema.Struct({
@@ -92,6 +97,8 @@ export const Settings = Schema.Struct({
     layout: Schema.Literals(["horizontal", "vertical"]).pipe(withDefault("horizontal")),
     /** Tabs not used for this many minutes are unloaded (their page closes, its state is kept); 0 = never. */
     unloadAfterMinutes: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 24 * 60 })).pipe(withDefault(30)),
+    /** Tabs not used for this many hours are closed (tab cleanup: lib/cleanup.ts); 0 = never. Workspaces can set their own. */
+    closeAfterHours: CloseAfterHours.pipe(withDefault(0)),
   }).pipe(withDefault({})),
   /** Changed keyboard shortcuts, by action ("tab.close" → ["Ctrl+W"]); [] turns one off. The rest keep their defaults. */
   shortcuts: Schema.Record(
@@ -119,6 +126,8 @@ export const WorkspaceSettings = Schema.Struct({
       effort: Schema.NullOr(Schema.String),
     }),
   ).pipe(withDefault(null)),
+  /** Tab cleanup in this workspace: hours unused before a tab closes (0: never); null = the global setting. */
+  closeAfterHours: Schema.NullOr(CloseAfterHours).pipe(withDefault(null)),
   /** Added after the global instructions in the workspace's tabs. */
   webInstructions: Instructions,
 });

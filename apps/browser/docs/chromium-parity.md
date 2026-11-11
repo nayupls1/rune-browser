@@ -66,7 +66,7 @@ Chromium's settings, by its own sections. Browser settings get their own part of
 | Privacy and security           | Matched        | Clear browsing data, the insecure-site warning, third-party cookies, Do Not Track                                                              |
 | Clear browsing data            | Different      | History, downloads, cookies and cache by time range; cookies and cache for the sites visited in the range                                      |
 | Site settings                  | Matched        | Location, camera, microphone, notifications, MIDI, clipboard, JavaScript, images, sound; per site                                              |
-| Performance (Memory Saver)     | Matched        | Settings → General → Performance (tab unloading)                                                                                               |
+| Performance (Memory Saver)     | Matched        | Settings → General → Performance (tab unloading; tab cleanup closes tabs unused for long)                                                      |
 | Appearance                     | Different      | Fonts and page zoom in Settings → Appearance → Fonts and zoom; themes are Rune Browser's Appearance                                            |
 | Search engine                  | Matched        | Settings → General → Search engine, or your own URL                                                                                            |
 | Default browser                | Matched        | Settings → General → Default browser; links and web files from other apps open as tabs                                                         |

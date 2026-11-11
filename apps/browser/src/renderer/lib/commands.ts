@@ -25,6 +25,7 @@ import {
   newWebTab,
   renameApp,
   selectApp,
+  switchToTab,
   selectedId,
   setAgentCollapsed,
   setTabPinned,
@@ -194,9 +195,9 @@ function tabCommand(app: AppSummary): Command {
     // Its own icon (an image shows like a favicon), else the default.
     icon: app.icon && !isImageIcon(app.icon) ? app.icon : "globe",
     favicon: isImageIcon(app.icon) ? app.icon : !app.icon ? app.favicon : undefined,
-    group: "Web tab",
+    group: "Tab",
     keywords: app.url ?? "",
-    run: () => selectApp(app.id),
+    run: () => switchToTab(app.id),
   };
 }
 

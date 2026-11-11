@@ -102,6 +102,10 @@ export const api = {
   renameApp: (id: string, name: string) =>
     request<AppSummary>(`/api/apps/${id}`, { method: "PATCH", body: JSON.stringify({ name }) }),
   deleteApp: (id: string) => request<void>(`/api/apps/${id}`, { method: "DELETE" }),
+  /** Tab cleanup (lib/cleanup.ts): tabs on screen now, the idle ones, and closing one (409 if it's in use after all). */
+  tabsUsed: (ids: string[]) => request<void>("/api/apps/used", { method: "POST", body: JSON.stringify({ ids }) }),
+  idleTabs: () => request<string[]>("/api/apps/idle"),
+  cleanUpTab: (id: string) => request<{ closed: true }>(`/api/apps/${id}/clean-up`, { method: "POST" }),
   duplicateApp: (id: string) => post<AppSummary>(`/api/apps/${id}/duplicate`),
   updatePage: (id: string, page: { url?: string; title?: string; favicon?: string | null }) =>
     request<AppSummary>(`/api/apps/${id}/page`, { method: "PATCH", body: JSON.stringify(page) }),

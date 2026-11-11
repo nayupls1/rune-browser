@@ -34,7 +34,7 @@ describe("workspaces", () => {
   test("there's always one to start with, where tabs go by default", async () => {
     const list = await server.api<WorkspaceInfo[]>("/api/workspaces");
     expect(list.map((w) => [w.id, w.name])).toEqual([[DEFAULT_WORKSPACE, "Personal"]]);
-    expect(list[0]!.settings).toEqual({ agent: null, webInstructions: "" });
+    expect(list[0]!.settings).toEqual({ agent: null, closeAfterHours: null, webInstructions: "" });
     inPersonal = await newTab();
     expect(inPersonal.workspaceId).toBe(DEFAULT_WORKSPACE);
   });
@@ -53,6 +53,7 @@ describe("workspaces", () => {
   test("its own settings are saved and validated", async () => {
     const settings = {
       agent: { provider: "codex" as const, model: null, effort: "low" },
+      closeAfterHours: 24,
       webInstructions: "Answer in French.",
     };
     const saved = await server.api<WorkspaceInfo>(`/api/workspaces/${client.id}`, {

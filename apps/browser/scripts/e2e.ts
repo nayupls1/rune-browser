@@ -5733,6 +5733,42 @@ try {
       label: "switched by the suggestion",
     });
 
+    // From an empty new tab, switching to a tab closes the empty one (like Chrome), from the address bar…
+    const blankGone = async (blank: string, label: string) => {
+      await page!.waitFor(`document.querySelector('nav li[aria-current="page"]')?.dataset.appId === "${b.id}"`, {
+        label: `switched ${label}`,
+      });
+      await page!.waitFor(`!document.querySelector('nav li[data-app-id="${blank}"]')`, {
+        label: `the empty new tab closed ${label}`,
+      });
+    };
+    await click(`nav li[data-app-id="${a.id}"]`);
+    const blank = await newTab();
+    await page!.waitFor(`document.activeElement?.matches("[data-address]")`, { label: "the new tab's address bar" });
+    await page!.eval(`(() => {
+      const input = document.activeElement;
+      input.value = "/act";
+      input.dispatchEvent(new InputEvent("input", { bubbles: true }));
+      return true;
+    })()`);
+    await page!.waitFor(`!!document.querySelector('[data-suggestions] [data-suggestion="tab:${b.id}"]')`, {
+      label: "tab suggested in the new tab",
+    });
+    await page!.eval(`document.activeElement.form.requestSubmit(), true`);
+    await blankGone(blank, "from the address bar");
+    // …and from the command bar.
+    const blank2 = await newTab();
+    await runCommand("Act page", `tab:${b.id}`);
+    await blankGone(blank2, "from the command bar");
+    // A tab with something in it stays.
+    await click(`nav li[data-app-id="${a.id}"]`);
+    await runCommand("Act page", `tab:${b.id}`);
+    await page!.waitFor(`document.querySelector('nav li[aria-current="page"]')?.dataset.appId === "${b.id}"`, {
+      label: "switched from a tab with a page",
+    });
+    if (!(await page!.eval<boolean>(`!!document.querySelector('nav li[data-app-id="${a.id}"]')`)))
+      throw new Error("switching closed a tab that had a page");
+
     // Pinned: a tile above the list.
     await apiCall(`/api/apps/${a.id}/pinned`, { method: "PUT", body: { pinned: true } });
     await page!.waitFor(`!!document.querySelector('[data-pinned-tiles] li[data-app-id="${a.id}"]')`, {
@@ -5755,8 +5791,112 @@ try {
     await apiCall(`/api/apps/${a.id}`, { method: "DELETE" });
     for (const t of await apiCall<{ id: string; name: string }[]>("/api/apps"))
       if (t.name === "Act page") await apiCall(`/api/apps/${t.id}`, { method: "DELETE" });
-    return "suggested and switched, tile, closed and reopened a tab";
+    return "suggested and switched (closing an empty new tab), tile, closed and reopened a tab";
   });
+
+  await check(
+    "tab cleanup: tabs unused for long close after they sleep; ones in use stay; History and Ctrl+Shift+T bring them back",
+    async () => {
+      const setCloseAfter = async (hours: number) => {
+        const settings = await apiCall<{ tabs: object }>("/api/settings");
+        await apiCall("/api/settings", {
+          method: "PUT",
+          body: { ...settings, tabs: { ...settings.tabs, closeAfterHours: hours } },
+        });
+      };
+      // The setting, off by default, under Performance next to sleeping tabs.
+      await openSettingsAt("browser-performance");
+      await page!.waitFor(`document.querySelector("[data-close-after]")?.value === "0"`, { label: "the setting, off" });
+      await page!.eval(`(() => {
+      const select = document.querySelector("[data-close-after]");
+      select.value = "24";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+      return true;
+    })()`);
+      await waitForValue(async () =>
+        (await apiCall<{ tabs: { closeAfterHours: number } }>("/api/settings")).tabs.closeAfterHours === 24
+          ? true
+          : undefined,
+      );
+      await page!.eval(`document.querySelector("[data-close-after]").scrollIntoView({ block: "center" }), true`);
+      // Each select shows its value (its options aren't made again when it changes).
+      const labels = await page!.eval<string[]>(
+        `["[data-unload-after]", "[data-close-after]"].map((s) => { const el = document.querySelector(s); return el.options[el.selectedIndex]?.text; })`,
+      );
+      if (JSON.stringify(labels) !== JSON.stringify(["After 30 minutes", "After a day"]))
+        throw new Error(`the selects show ${JSON.stringify(labels)}`);
+      await shot("settings-tab-cleanup.png");
+
+      const make = async (path: string) => {
+        const tab = await apiCall<{ id: string }>("/api/apps", {
+          method: "POST",
+          body: { url: `${site.url.origin}${path}` },
+        });
+        await page!.waitFor(`!!document.querySelector('nav li[data-app-id="${tab.id}"]')`, {
+          label: `the ${path} tab`,
+        });
+        await click(`nav li[data-app-id="${tab.id}"]`);
+        await page!.waitFor(`!!document.querySelector('[data-web-tab="${tab.id}"] webview')`, {
+          label: `${path} loaded`,
+        });
+        await page!.waitFor(
+          `document.querySelector('[data-web-tab="${tab.id}"] webview').executeJavaScript("document.readyState === 'complete' && !!document.title")`,
+          { label: `${path} ready`, timeoutMs: 20_000 },
+        );
+        return tab.id;
+      };
+      const unused = await make("/second?cleanup");
+      const typed = await make("/form?cleanup");
+      // Something typed into the page and not sent: it stays.
+      await page!.eval(
+        `document.querySelector('[data-web-tab="${typed}"] webview').executeJavaScript("(() => { const el = document.getElementById('note'); el.value = 'half a note'; el.dispatchEvent(new Event('input', { bubbles: true })); return true; })()")`,
+      );
+      const pinned = await make("/act?cleanup");
+      await apiCall(`/api/apps/${pinned}/pinned`, { method: "PUT", body: { pinned: true } });
+      const shown = await make("/?cleanup");
+      // Tabs sleep first (the typed text is kept with the sleeping page)…
+      const slept = await page!.eval<string[]>(`window.__runeTabs.sweep(2 * 3600_000)`);
+      for (const id of [unused, typed]) if (!slept.includes(id)) throw new Error(`${id} didn't sleep first: ${slept}`);
+      // …and close when they haven't been used for longer than the setting.
+      const { Database } = await import("bun:sqlite");
+      const db = new Database(join(profile, "data", "rune.sqlite"));
+      db.run("PRAGMA busy_timeout = 5000");
+      for (const id of [unused, typed, pinned, shown])
+        db.run("UPDATE apps SET last_used_at = ? WHERE id = ?", [
+          new Date(Date.now() - 48 * 3_600_000).toISOString(),
+          id,
+        ]);
+      db.close();
+      const closed = await page!.eval<string[]>(`window.__runeCleanup()`);
+      if (JSON.stringify(closed) !== JSON.stringify([unused]))
+        throw new Error(`closed ${JSON.stringify(closed)}, expected only the unused tab ${unused}`);
+      await page!.waitFor(`!document.querySelector('nav li[data-app-id="${unused}"]')`, {
+        label: "the unused tab gone",
+      });
+      for (const id of [typed, pinned, shown])
+        if (!(await page!.eval<boolean>(`!!document.querySelector('nav li[data-app-id="${id}"]')`)))
+          throw new Error(`tab ${id} was closed`);
+      const audit = await apiCall<{ action: string }[]>("/api/audit");
+      if (!audit.some((e) => e.action === "tab.cleanup")) throw new Error("not in Activity");
+      // In History…
+      const visits = await apiCall<{ url: string }[]>(`/api/visits?search=${encodeURIComponent("cleanup")}`);
+      if (!visits.some((v) => v.url.endsWith("/second?cleanup"))) throw new Error("not in History");
+      // …and Ctrl+Shift+T opens it again.
+      await page!.eval(
+        `window.dispatchEvent(new KeyboardEvent("keydown", { key: "T", ${mod}: true, shiftKey: true, bubbles: true })), true`,
+      );
+      const reopened = await waitForValue(
+        async () =>
+          (await apiCall<{ id: string; url: string | null }[]>("/api/apps")).find((t) =>
+            t.url?.endsWith("/second?cleanup"),
+          ),
+        20_000,
+      );
+      await setCloseAfter(0);
+      for (const id of [reopened.id, typed, pinned, shown]) await apiCall(`/api/apps/${id}`, { method: "DELETE" });
+      return "the unused tab closed (in History, reopened); pinned, on screen and typed-in stayed";
+    },
+  );
 
   await check("default browser: links and files from other apps open as tabs in the running window", async () => {
     // Settings says whether Rune Browser is the default (runs from source can't be).

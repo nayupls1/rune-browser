@@ -14,6 +14,8 @@ import { PopoverMenu, type PopoverItem } from "./PopoverMenu";
 
 /** Unsent text per tab. */
 const drafts = new Map<string, string>();
+/** Whether a tab's composer holds text the user hasn't sent (tab cleanup leaves such a tab alone). */
+export const hasDraft = (appId: string) => !!drafts.get(appId)?.trim();
 
 const [filled, setFilled] = createSignal<{ appId: string; text: string }>();
 /** Puts text in a tab's composer (a suggestion), ready to send or edit. */
