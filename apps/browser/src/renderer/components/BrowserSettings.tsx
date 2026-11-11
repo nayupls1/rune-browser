@@ -52,7 +52,10 @@ import {
   Section,
   Segmented,
   Toggle,
+  closeChoices,
+  closeLabel,
   unloadChoices,
+  unloadLabel,
 } from "./SettingsPage";
 import { toast } from "./Toast";
 import { Button, Checkbox, Input, Select } from "./ui";
@@ -972,7 +975,24 @@ export function PerformanceSection() {
           data-unload-after
         >
           <For each={unloadChoices(settings().tabs.unloadAfterMinutes)}>
-            {([minutes, label]) => <option value={minutes}>{label}</option>}
+            {(minutes) => <option value={minutes}>{unloadLabel(minutes)}</option>}
+          </For>
+        </Select>
+      </Row>
+      <Row
+        label="Close unused tabs"
+        description="Tabs nobody has used for this long close by themselves, after they were put to sleep. Pinned tabs, tabs playing sound or with something typed, and tabs the agent or a scheduled task uses stay. Closed tabs are in History and Ctrl+Shift+T. Workspaces can set their own."
+      >
+        <Select
+          value={String(settings().tabs.closeAfterHours)}
+          onChange={(e) =>
+            updateSettings((s) => ({ ...s, tabs: { ...s.tabs, closeAfterHours: Number(e.currentTarget.value) } }))
+          }
+          xstyle={styles.select}
+          data-close-after
+        >
+          <For each={closeChoices(settings().tabs.closeAfterHours)}>
+            {(hours) => <option value={hours}>{closeLabel(hours)}</option>}
           </For>
         </Select>
       </Row>

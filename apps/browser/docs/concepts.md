@@ -12,7 +12,7 @@ before it reaches beyond its tab.
 Workspaces keep projects and contexts apart, like Zen Browser's: each is a collection of tabs, shown as icons at the bottom of the tab sidebar. Click one to switch (or Ctrl+Alt+1…9, also from inside web pages), "+" makes a new one, dragging an icon reorders them (`PUT /api/workspaces/order`), dropping a tab on one moves the tab there, and an icon's menu renames it, changes its icon, moves it or deletes it. Its name and icon are edited together in one popover next to its icon (`components/WorkspaceEditor.tsx`): it opens right after "+" (the name ready to type), from Rename or Change icon… in its menu, on a double-click, or from the icon in Settings → Workspace. A picked icon applies at once; the name on Enter, Done or a click elsewhere, and Escape leaves it as it was. The current workspace's icon is the highlighted one (its name is in the tooltip). Each has:
 
 - its own tabs. Tabs can be moved between workspaces (tab menu → Move to);
-- its own default agent and instructions, added after the global ones (Settings → Workspace);
+- its own default agent and instructions, added after the global ones (Settings → Workspace), and its own tab cleanup setting (see [Interface](interface.md#tab-cleanup));
 - remembered permissions: an answer can be remembered for one tab or for every tab in the workspace (the tab's own choice wins);
 - its own web session, so cookies and logins don't cross workspaces. The first workspace keeps the original session;
 - its own view of the Activity page (plus what belongs to no workspace, like settings).

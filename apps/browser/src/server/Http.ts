@@ -439,6 +439,62 @@ const dropTabOverrides = (tabId: string) =>
     if (yield* (yield* ResponseOverrides).removeTab(tabId)) yield* publishNetwork("overrides");
   });
 
+/** Tab cleanup's idle tabs (Tabs.idle), without the ones whose agent is working. */
+const idleTabs = Effect.gen(function* () {
+  const agent = yield* Agent;
+  const out: string[] = [];
+  for (const id of yield* (yield* Tabs).idle()) if (!(yield* agent.isRunning(id))) out.push(id);
+  return out;
+});
+
+// Tab cleanup (renderer: lib/cleanup.ts). The server knows when tabs were last used (also across restarts),
+// their agents, jobs and schedules; the window knows what's on screen, playing sound or holds typed input.
+const cleanupRoutes = HttpRouter.addAll([
+  // The tabs on screen in a window, now (it says so while they are, and when they leave the screen).
+  HttpRouter.route(
+    "POST",
+    "/api/apps/used",
+    handle(
+      Effect.gen(function* () {
+        const { ids } = yield* decodeBody(Schema.Struct({ ids: Schema.Array(str(100)).check(Schema.isMaxLength(50)) }));
+        yield* (yield* Apps).markUsed(ids);
+        return noContent;
+      }),
+    ),
+  ),
+  HttpRouter.route(
+    "GET",
+    "/api/apps/idle",
+    Effect.gen(function* () {
+      return json(yield* idleTabs);
+    }),
+  ),
+  // Closes an idle tab, checked again: it may have been used, or its agent started, meanwhile.
+  HttpRouter.route(
+    "POST",
+    "/api/apps/:id/clean-up",
+    handle(
+      Effect.gen(function* () {
+        const id = yield* param("id");
+        const tab = yield* (yield* Apps).get(id);
+        if (!tab) return yield* fail(404, "Not found");
+        if (!(yield* idleTabs).includes(id)) return yield* fail(409, "The tab is in use");
+        yield* removeApp(id);
+        yield* (yield* Audit).record({
+          actor: "rune",
+          actorLabel: "Tab cleanup",
+          tabId: null,
+          workspaceId: tab.workspaceId,
+          action: "tab.cleanup",
+          target: tab.name,
+          detail: tab.url,
+        });
+        return json({ closed: true });
+      }),
+    ),
+  ),
+]);
+
 const appRoutes = HttpRouter.addAll([
   HttpRouter.route(
     "GET",
@@ -2156,6 +2212,7 @@ export const routes = Layer.mergeAll(
   settingsRoutes,
   sourceRoutes,
   attachmentRoutes,
+  cleanupRoutes,
   appRoutes,
   windowRoutes,
   workspaceRoutes,

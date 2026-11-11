@@ -1,11 +1,12 @@
 // The life of a tab beyond its row in the database: telling the renderer about
-// changes, moving it between workspaces and windows, and deleting it with
-// everything that belongs to it. Routes, the agent and the scheduler call these
+// changes, moving it between workspaces and windows, deleting it with
+// everything that belongs to it, and which tabs tab cleanup may close. Routes, the agent and the scheduler call these
 // instead of stringing the steps together themselves.
 import { Context, Effect, Layer } from "effect";
 import type { AppSummary } from "../shared/api";
 import { topics } from "../shared/hub";
 import { Apps } from "./db/Apps";
+import { Settings } from "./db/Settings";
 import { Workspaces } from "./db/Workspaces";
 import { Hub } from "./Hub";
 import { Scheduler } from "./scheduler/Scheduler";
@@ -27,12 +28,20 @@ export interface TabsShape {
   readonly remove: (tabId: string) => Effect.Effect<void>;
   /** Drops tabs that left a workspace from its splits. */
   readonly pruneSplits: (workspaceId: string) => Effect.Effect<void>;
+  /**
+   * Tab cleanup: the tabs unused for longer than their workspace allows (Settings: tabs.closeAfterHours,
+   * or the workspace's own), at `now`. Never pinned or private tabs, tabs with a running background job,
+   * or tabs a scheduled task runs in. The renderer leaves out what only it knows (on screen, playing
+   * sound, typed input) and the routes the tabs whose agent is working (cleanUp in Http.ts).
+   */
+  readonly idle: (now?: number) => Effect.Effect<string[]>;
 }
 
 export class Tabs extends Context.Service<Tabs, TabsShape>()("rune/Tabs") {}
 
 export const make = Effect.gen(function* () {
   const apps = yield* Apps;
+  const settings = yield* Settings;
   const workspaces = yield* Workspaces;
   const sources = yield* Sources;
   const chatFiles = yield* ChatFiles;
@@ -67,10 +76,27 @@ export const make = Effect.gen(function* () {
       yield* hub.publish({ type: "app-deleted", topic: topics.apps, appId: tabId });
     });
 
+  const idle = (now = Date.now()) =>
+    Effect.gen(function* () {
+      const global = (yield* settings.get()).tabs.closeAfterHours;
+      const spaces = new Map((yield* workspaces.list()).map((w) => [w.id, w.settings.closeAfterHours]));
+      const scheduled = new Set((yield* scheduler.list()).map((s) => s.target.tabId).filter(Boolean));
+      const out: string[] = [];
+      for (const tab of yield* apps.usage()) {
+        const hours = spaces.get(tab.workspaceId) ?? global;
+        if (hours <= 0 || tab.pinned || tab.private || scheduled.has(tab.id)) continue;
+        if (now - tab.lastUsed < hours * 3_600_000) continue;
+        if ((yield* jobs.list(tab.id)).some((j) => j.state === "running")) continue;
+        out.push(tab.id);
+      }
+      return out;
+    });
+
   return {
     publish,
     pruneSplits,
     remove,
+    idle,
 
     copy: (tabId) =>
       Effect.gen(function* () {

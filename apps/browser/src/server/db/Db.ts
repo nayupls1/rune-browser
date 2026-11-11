@@ -265,10 +265,14 @@ const migrate = (dataDir: string) =>
       ["chat_folder", "TEXT"],
       // The window it's in (shared/windows.ts; "private-…" for private windows).
       ["window_id", "TEXT"],
+      // When the user last had it on screen (tab cleanup closes tabs unused for long; null: since it was made).
+      ["last_used_at", "TEXT"],
     ];
     for (const [name, type] of added) {
       if (!columns.has(name)) yield* sql.unsafe(`ALTER TABLE apps ADD COLUMN ${name} ${type}`);
     }
+    // Tabs from before it was known count as used now, not as unused since they were made.
+    if (!columns.has("last_used_at")) yield* sql.unsafe(`UPDATE apps SET last_used_at = ${now}`);
     // Earlier chats of a tab (its current one is the messages without a chat_id): kept when the
     // user starts a new chat, with the provider session to pick them up again.
     yield* sql.unsafe(`

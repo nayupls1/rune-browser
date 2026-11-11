@@ -22,6 +22,7 @@ import {
   newWebTab,
   openSettings,
   selectApp,
+  switchToTab,
   selectedId,
   states,
   toggleAgent,
@@ -395,7 +396,7 @@ export function AddressBar(props: { inline?: boolean }) {
       ]
         .filter(Boolean)
         .join(" · "),
-      run: () => void selectApp(tab.id),
+      run: () => void switchToTab(tab.id),
     };
   };
   /** Nothing typed yet: the pages visited most often and lately; a page open in a tab (a pinned one…) switches to it. */

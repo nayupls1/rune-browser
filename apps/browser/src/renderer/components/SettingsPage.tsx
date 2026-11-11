@@ -17,7 +17,7 @@ import {
 } from "solid-js";
 import { providerIds, type PermissionGrant, type ProviderId, type ProviderStatus } from "../../shared/api";
 import type { DefaultBrowserStatus } from "../../shared/defaultBrowser";
-import type { GlobalTheme, Settings } from "../../shared/settings";
+import { CLOSE_AFTER_CHOICES, type GlobalTheme, type Settings } from "../../shared/settings";
 import { api } from "../lib/api";
 import { topics } from "../../shared/hub";
 import type { ExtensionInfo, InstallResult } from "../../shared/extensions";
@@ -1132,6 +1132,22 @@ function WorkspaceSection() {
                 }
               />
             </Row>
+            <Row label="Close unused tabs" description="Tabs nobody has used for this long close by themselves.">
+              <Select
+                value={current().settings.closeAfterHours === null ? "" : String(current().settings.closeAfterHours)}
+                onChange={(e) =>
+                  edit({ closeAfterHours: e.currentTarget.value === "" ? null : Number(e.currentTarget.value) })
+                }
+                data-workspace-close-after
+              >
+                <option value="">
+                  Like all workspaces ({closeLabel(settings().tabs.closeAfterHours).toLowerCase()})
+                </option>
+                <For each={closeChoices(current().settings.closeAfterHours ?? 0)}>
+                  {(hours) => <option value={hours}>{closeLabel(hours)}</option>}
+                </For>
+              </Select>
+            </Row>
             <Row
               label="Instructions for the agent"
               description="Added after the global instructions in this workspace's tabs."
@@ -1845,17 +1861,38 @@ function SiteRows() {
   );
 }
 
-export const unloadChoices = (current: number): [number, string][] => {
-  const choices: [number, string][] = [
-    [5, "After 5 minutes"],
-    [15, "After 15 minutes"],
-    [30, "After 30 minutes"],
-    [60, "After an hour"],
-    [240, "After 4 hours"],
-    [0, "Never"],
-  ];
-  return choices.some(([m]) => m === current) ? choices : [[current, `After ${current} minutes`], ...choices];
+// Choices of a select are plain numbers (Solid keeps the <option>s when the value changes; new ones would
+// lose the select's value), with their labels apart.
+
+/** Memory saver's choices (minutes; 0: never), with the current value among them. */
+export const unloadChoices = (current: number): number[] => {
+  const choices = [5, 15, 30, 60, 240, 0];
+  return choices.includes(current) ? choices : [current, ...choices];
 };
+export const unloadLabel = (minutes: number) =>
+  minutes === 0
+    ? "Never"
+    : minutes === 60
+      ? "After an hour"
+      : minutes % 60 === 0
+        ? `After ${minutes / 60} hours`
+        : `After ${minutes} minutes`;
+
+/** Tab cleanup's choices (hours; 0: never; shared/settings.ts: CLOSE_AFTER_CHOICES), with the current value among them. */
+export const closeChoices = (current: number): number[] => {
+  const choices = [...CLOSE_AFTER_CHOICES.filter((h) => h > 0), 0];
+  return choices.includes(current) ? choices : [current, ...choices];
+};
+export const closeLabel = (hours: number) =>
+  hours === 0
+    ? "Never"
+    : hours === 168
+      ? "After a week"
+      : hours === 24
+        ? "After a day"
+        : hours % 24 === 0
+          ? `After ${hours / 24} days`
+          : `After ${hours} hours`;
 
 /** A group of settings: a quiet title (none when it's the page's), then a card of rows. */
 export function Section(props: {

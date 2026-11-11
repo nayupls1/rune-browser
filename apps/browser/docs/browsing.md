@@ -122,7 +122,7 @@ settings; cookies and site data stay per workspace. The renderer sends them to t
 - **Languages:** the preferred languages websites see (`Accept-Language`), spell check and its dictionaries (with
   suggestions and "Add to dictionary" in the context menu).
 - **Downloads:** the folder (files get a free name there, like Chrome's "file (1).pdf") or asking every time; see [Downloads](#downloads).
-- **Performance:** memory saver (unloading idle tabs, see Interface).
+- **Performance:** memory saver (unloading idle tabs) and closing unused tabs (tab cleanup), see Interface.
 - **Autofill and passwords:** Rune Browser has no password store of its own; a password manager extension does that.
 - **Import bookmarks and settings:** bookmarks through the bookmarks page's import (see [Bookmarks](#bookmarks)); settings
   from the Chromium-based browsers extension import finds, their Preferences: search

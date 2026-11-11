@@ -536,16 +536,49 @@ export async function restoreClosedTab(workspaceId: string, at: number | null) {
   return newWebTab(closed!.url, { workspaceId: closed!.workspaceId });
 }
 
+/** Remembers a closed tab for Ctrl+Shift+T. A private window doesn't remember what it closed: nothing of it is kept. */
+function rememberClosed(tab: AppSummary) {
+  if (tab.url && !isPrivate)
+    recentlyClosed.push({ url: tab.url, title: tab.name, workspaceId: tab.workspaceId, at: Date.now() });
+  if (recentlyClosed.length > 25) recentlyClosed.shift();
+}
+
 /** Closes a tab, like in a browser: Ctrl+Shift+T brings it back. */
 export async function closeTab(id: string) {
   const tab = appById(id);
   if (!tab) return;
-  // A private window doesn't remember what it closed: nothing of it is kept.
-  if (tab.url && !isPrivate)
-    recentlyClosed.push({ url: tab.url, title: tab.name, workspaceId: tab.workspaceId, at: Date.now() });
-  if (recentlyClosed.length > 25) recentlyClosed.shift();
+  rememberClosed(tab);
   await api.deleteApp(id);
   forgetApp(id);
+}
+
+/** Tab cleanup closes an idle tab (the server checks again that it's idle); like closeTab, Ctrl+Shift+T brings it back. */
+export async function closeIdleTab(id: string) {
+  const tab = appById(id);
+  if (
+    !tab ||
+    !(await api.cleanUpTab(id).then(
+      () => true,
+      () => false,
+    ))
+  )
+    return false;
+  rememberClosed(tab);
+  forgetApp(id);
+  return true;
+}
+
+/** A new tab nothing happened in yet: it never loaded a page and has no chat (nor an agent working in it). */
+export const isEmptyNewTab = (id: string | null) => {
+  const tab = appById(id);
+  return !!tab && !tab.url && !states[tab.id]?.messages.length && !states[tab.id]?.running;
+};
+
+/** Switches to another tab, like Chrome's "Switch to tab": an empty new tab it was picked from closes. */
+export async function switchToTab(id: string) {
+  const from = selectedId();
+  await selectApp(id);
+  if (from && from !== id && isEmptyNewTab(from)) await closeTab(from).catch(() => {});
 }
 
 /** What was closed last, opened again: a web tab of this window, or a window (with its tabs), like Chrome's Ctrl+Shift+T. */

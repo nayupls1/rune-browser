@@ -93,6 +93,11 @@ export async function startServer(options: { dataDir?: string; env?: Record<stri
         db.close();
       }
     },
+    /** Stops the server and keeps its data dir (to start another one on it). */
+    async kill() {
+      proc.kill();
+      await proc.exited;
+    },
     async stop() {
       proc.kill();
       await proc.exited;

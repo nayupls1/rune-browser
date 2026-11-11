@@ -200,6 +200,32 @@ export const make = Effect.gen(function* () {
         return yield* summary(id);
       }),
 
+    /** The user had these tabs on screen just now. */
+    markUsed: (ids: readonly string[]) =>
+      ids.length
+        ? sql`UPDATE apps SET last_used_at = ${sql.literal(now)} WHERE id IN ${sql.in(ids)}`.pipe(Effect.asVoid)
+        : Effect.void,
+
+    /** When each tab was last used (since it was made, if never), for tab cleanup. */
+    usage: () =>
+      sql<{
+        id: string;
+        workspace_id: string;
+        pinned: number;
+        window_id: string | null;
+        last_used: string;
+      }>`SELECT id, workspace_id, pinned, window_id, COALESCE(last_used_at, created_at) AS last_used FROM apps`.pipe(
+        Effect.map((rows) =>
+          rows.map((r) => ({
+            id: r.id,
+            workspaceId: r.workspace_id,
+            pinned: r.pinned === 1,
+            private: isPrivateWindow(r.window_id),
+            lastUsed: Date.parse(r.last_used),
+          })),
+        ),
+      ),
+
     /** Puts a workspace's tabs in this order (ids of other workspaces are ignored). */
     reorder: (workspaceId: string, ids: readonly string[]) =>
       sql
