@@ -2,7 +2,8 @@
 // agent, extensions, downloads, back, forward, reload and a ⋯ menu (bookmarks, history…),
 // then the address of the tab on screen.
 // Focusing the address pops it out over the page, big, with suggestions from open tabs,
-// bookmarks and history (before anything's typed: the pages visited most). Pages get the whole
+// bookmarks and history (before anything's typed: the pages visited most), then the search
+// engine's own suggestions (main/searchSuggestions.ts). Pages get the whole
 // content area. Each tab provides what's shown here (lib/tabChrome.ts).
 import * as stylex from "@stylexjs/stylex";
 import { createEffect, createMemo, createSignal, For, Match, on, onCleanup, Show, Switch, type JSX } from "solid-js";
@@ -10,7 +11,9 @@ import { normalizeUrl } from "../../shared/web";
 import { isExtensionUrl } from "../../shared/extensions";
 import { displayUrl, type VisitSuggestion } from "../../shared/visits";
 import { api } from "../lib/api";
-import { searchEngine } from "../lib/settings";
+import { searchEngine, settings } from "../lib/settings";
+import { suggestUrlOf } from "../../shared/browser";
+import { maySuggestFor } from "../../shared/searchSuggestions";
 import {
   apps,
   currentWorkspace,
@@ -65,6 +68,8 @@ const HISTORY_SUGGESTIONS = 5;
 /** Pages from history shown when the address opens, before anything's typed. */
 const RECENT_SUGGESTIONS = 5;
 const BOOKMARK_SUGGESTIONS = 4;
+/** The pause in typing before the search engine is asked for suggestions. */
+const ENGINE_SUGGESTIONS_DELAY = 120;
 
 /**
  * The strip the window is dragged by, like Zen Browser's: the window's three buttons
@@ -284,7 +289,8 @@ export function MoreMenu() {
  * The address of the tab on screen, compact in the sidebar (without its scheme). Focused,
  * it pops out over the page like Zen's: big, centered near the top, with suggestions under
  * it: open tabs (all workspaces), bookmarks, pages from the workspace's history, the URL,
- * a search; before anything's typed, the pages visited most often and lately.
+ * a search, the search engine's suggestions; before anything's typed, the pages visited most
+ * often and lately.
  */
 export function AddressBar(props: { inline?: boolean }) {
   const chrome = () => chromeOf(selectedId());
@@ -371,6 +377,34 @@ export function AddressBar(props: { inline?: boolean }) {
     }),
   );
   onCleanup(() => clearTimeout(historyTimer));
+
+  // The search engine's suggestions for what's typed (Settings → Privacy and security can turn them off),
+  // asked for after a pause in typing; the main process fetches them, checks what may be sent and
+  // cancels the request before. The last ones stay while what's typed still starts with what they
+  // were for, so the list doesn't flicker.
+  const none = { query: "", from: "", items: [] as string[] };
+  const [engineSuggested, setEngineSuggested] = createSignal(none);
+  let engineTimer: ReturnType<typeof setTimeout> | undefined;
+  createEffect(
+    on([query, () => suggestUrlOf(settings().browser)], ([q, suggestUrl], before) => {
+      clearTimeout(engineTimer);
+      const last = engineSuggested();
+      if (!q || !suggestUrl || !maySuggestFor(q)) {
+        if (last.items.length) setEngineSuggested(none);
+        // Cancels a request in flight.
+        if (before?.[0]) void window.rune.web.searchSuggestions("").catch(() => {});
+        return;
+      }
+      if (last.from !== suggestUrl || !q.toLowerCase().startsWith(last.query.toLowerCase())) setEngineSuggested(none);
+      engineTimer = setTimeout(() => {
+        window.rune.web.searchSuggestions(q).then(
+          (items) => query() === q && setEngineSuggested({ query: q, from: suggestUrl, items }),
+          () => {},
+        );
+      }, ENGINE_SUGGESTIONS_DELAY);
+    }),
+  );
+  onCleanup(() => clearTimeout(engineTimer));
   const matches = (page: VisitSuggestion, words: string[]) =>
     words.every((w) => page.title.toLowerCase().includes(w) || page.url.toLowerCase().includes(w));
   const historySuggestion = (page: VisitSuggestion): Suggestion => ({
@@ -515,6 +549,21 @@ export function AddressBar(props: { inline?: boolean }) {
     // A bare path ("/act") is more likely part of an open tab's address than a local file: tabs first.
     if (!searching && tabs.length && /^file:/i.test(target) && !/^file:/i.test(q))
       out.splice(tabs.length, 0, out.shift()!);
+    // Last, the search engine's suggestions, like Chrome's: Enter on one searches for it.
+    if (maySuggestFor(q))
+      for (const words of engineSuggested().items) {
+        if (words.toLowerCase() === lower) continue;
+        const url = searchEngine().url.replace("%s", encodeURIComponent(words));
+        out.push({
+          key: `suggest:${words}`,
+          action: "Search",
+          icon: () => <Icon name="search" size={15} />,
+          title: words,
+          detail: "",
+          url,
+          run: () => open(url),
+        });
+      }
     return out;
   };
 
