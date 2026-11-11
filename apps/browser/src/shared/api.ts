@@ -975,20 +975,32 @@ export type ScheduleTrigger =
   { type: "once"; at: string } | { type: "cron"; cron: string } | { type: "event"; event: string };
 
 /**
- * What a schedule does: use one of an app's tools, run a command in its
- * sandbox, or ask a tab's agent something (each run is a new chat in the tab).
- * A prompt runs in an existing tab (`appId`), or in one it opens on its first
- * run (`newTab`; the schedule then keeps using that tab).
+ * Where a scheduled task runs: a tab of a workspace, or a new tab it opens on
+ * its next run (and then keeps). When its tab is closed or deleted, the task
+ * stays: `tabId` is cleared and the next run opens a new tab of the same kind
+ * (a web tab at the address the old one was on).
  */
-export type ScheduleTask =
-  | { type: "tool"; appId: string; tool: string; params?: Record<string, unknown>; input?: string }
-  | { type: "command"; appId: string; command: string }
-  | { type: "prompt"; prompt: string; appId?: string; newTab?: { kind: TabKind; workspaceId: string; url?: string } };
+export interface ScheduleTarget {
+  workspaceId: string;
+  /** The tab it runs in (null: it opens one on its next run). */
+  tabId: string | null;
+  /** The kind of tab it opens when it has none. */
+  kind: TabKind;
+  /** The website a new web tab opens (null: an empty tab). */
+  url: string | null;
+}
 
+/**
+ * A scheduled task: a prompt for an agent, sent on its own (each run is a new
+ * chat in its tab, as if the user had sent it).
+ */
 export interface ScheduleSpec {
   name: string;
   trigger: ScheduleTrigger;
-  task: ScheduleTask;
+  prompt: string;
+  target: ScheduleTarget;
+  /** Who answers: provider, model and effort (null: the workspace's default agent). */
+  agent: AgentChoice | null;
   /** When to tell the user about a finished run. */
   notify: "always" | "failure" | "never";
   /** A run is stopped after this long. */
@@ -997,7 +1009,7 @@ export interface ScheduleSpec {
 
 export interface Schedule extends ScheduleSpec {
   id: string;
-  /** The task's tab's workspace. */
+  /** The workspace it runs in: its tab's, else its target's. */
   workspaceId: string;
   paused: boolean;
   createdBy: "user" | "agent";
@@ -1020,8 +1032,10 @@ export interface ScheduleRun {
   finishedAt: string | null;
   /** What happened, short. */
   message: string;
-  /** The tool's result or the command's output (the end of it). */
+  /** The agent's reply (the end of it), kept when its tab is gone. */
   output: string | null;
+  /** The tab the run's chat is in (null: it didn't get that far). */
+  tabId: string | null;
 }
 
 // --- Secrets ----------------------------------------------------------------------

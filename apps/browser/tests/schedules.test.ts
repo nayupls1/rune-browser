@@ -1,12 +1,32 @@
-// The scheduler: cron expressions, checks, and real background runs against
-// the server (tools, commands, events, timeouts, overlap, pause). No model.
+// Scheduled tasks: repeats in words and as cron expressions, checks, where a
+// task runs once its tab is gone, and real background runs against the server
+// (times, events, pause, the model, tabs closed and deleted, workspaces
+// deleted). No model: the providers are turned off, so a run fails at the
+// agent, after everything around it.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { Database } from "bun:sqlite";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AppSummary, AuditEntry, Schedule, ScheduleRun, ScheduleSpec, WorkspaceInfo } from "../src/shared/api";
+import { Effect, ManagedRuntime } from "effect";
+import type { AppSummary, Schedule, ScheduleRun, ScheduleSpec, WorkspaceInfo } from "../src/shared/api";
 import type { Settings } from "../src/shared/settings";
-import { describeCron, nextCron, parseCron, shortestGapMinutes, type Cron } from "../src/shared/cron";
-import { scheduleProblem, specWithoutTab } from "../src/shared/schedule";
+import {
+  cronToRepeat,
+  describeCron,
+  nextCron,
+  parseCron,
+  repeatToCron,
+  shortestGapMinutes,
+  type Cron,
+  type Repeat,
+} from "../src/shared/cron";
+import { nextRun, scheduleProblem, targetWithoutTab } from "../src/shared/schedule";
+import { readConfig } from "../src/server/Config";
+import { Apps } from "../src/server/db/Apps";
+import { Workspaces } from "../src/server/db/Workspaces";
+import { Scheduler } from "../src/server/scheduler/Scheduler";
+import { core } from "../src/server/services";
 import { startServer } from "./lib/server";
 
 const cron = (text: string) => parseCron(text) as Cron;
@@ -28,29 +48,74 @@ describe("cron", () => {
     // Day of month or day of week, as in cron.
     expect(nextCron(cron("0 12 1 * 0"), at("2026-10-23T00:00:00"))).toEqual(at("2026-10-25T12:00:00"));
     expect(nextCron(cron("0 9 * * 7"), at("2026-10-23T00:00:00"))).toEqual(at("2026-10-25T09:00:00"));
-  });
-
-  test("gaps and words", () => {
     expect(shortestGapMinutes(cron("*/5 * * * *"))).toBe(5);
     expect(shortestGapMinutes(cron("0 8,9 * * *"))).toBe(60);
-    expect(describeCron("0 8 * * *")).toBe("Every day at 08:00");
-    expect(describeCron("30 7 * * 1-5")).toBe("Weekdays at 07:30");
+  });
+
+  test("schedules read back in plain words", () => {
+    expect(describeCron("0 8 * * *")).toBe("Every day at 8:00");
+    expect(describeCron("30 7 * * 1-5")).toBe("Every weekday at 7:30");
+    expect(describeCron("0 9 * * 1,2,3,4,5")).toBe("Every weekday at 9:00");
+    expect(describeCron("0 9 * * 1")).toBe("Every Monday at 9:00");
+    expect(describeCron("0 9 * * 5,1,3")).toBe("Every Monday, Wednesday and Friday at 9:00");
+    expect(describeCron("0 10 * * 0,6")).toBe("Every Saturday and Sunday at 10:00");
+    expect(describeCron("0 9 * * 7")).toBe("Every Sunday at 9:00");
     expect(describeCron("*/10 * * * *")).toBe("Every 10 minutes");
-    expect(describeCron("0 9 * * 1")).toBe("Every Monday at 09:00");
+    expect(describeCron("0 * * * *")).toBe("Every hour");
+    expect(describeCron("15 * * * *")).toBe("Every hour at :15");
+    expect(describeCron("0 */2 * * *")).toBe("Every 2 hours");
+    expect(describeCron("30 18 1 * *")).toBe("Every month on the 1st at 18:30");
+    expect(describeCron("0 8 22 * *")).toBe("Every month on the 22nd at 8:00");
+    expect(describeCron("0 8 13 * *")).toBe("Every month on the 13th at 8:00");
+    // Anything the picker doesn't offer, as it is.
     expect(describeCron("5 4 3 2 1")).toBe("5 4 3 2 1");
+    expect(describeCron("0 */5 * * *")).toBe("0 */5 * * *");
+  });
+
+  test("the picker's repeats are cron expressions and back", () => {
+    const repeats: Repeat[] = [
+      { every: "minutes", n: 15 },
+      { every: "hours", n: 1, minute: 0 },
+      { every: "hours", n: 6, minute: 30 },
+      { every: "day", time: "9:00" },
+      { every: "weekdays", time: "7:45" },
+      { every: "week", days: [1, 3, 5], time: "18:00" },
+      { every: "week", days: [0], time: "10:00" },
+      { every: "month", day: 15, time: "8:05" },
+    ];
+    for (const repeat of repeats) {
+      expect(typeof parseCron(repeatToCron(repeat))).toBe("object");
+      expect(cronToRepeat(repeatToCron(repeat))).toEqual(repeat);
+    }
+    expect(repeatToCron({ every: "weekdays", time: "9:00" })).toBe("0 9 * * 1-5");
+    expect(repeatToCron({ every: "week", days: [5, 1, 1], time: "9:30" })).toBe("30 9 * * 1,5");
+    // Every day of the week is every day; Monday to Friday, weekdays.
+    expect(cronToRepeat("0 9 * * 0-6")).toEqual({ every: "day", time: "9:00" });
+    expect(cronToRepeat("0 9 * * 1,2,3,4,5")).toEqual({ every: "weekdays", time: "9:00" });
+    expect(cronToRepeat("0 9 1 1 *")).toBeNull();
+  });
+
+  test("the next run", () => {
+    const from = new Date("2026-11-11T10:00:00");
+    expect(nextRun({ type: "cron", cron: "0 9 * * 1-5" }, from)).toBe(new Date("2026-11-12T09:00:00").toISOString());
+    expect(nextRun({ type: "once", at: "2026-11-11T12:00:00Z" }, from, true)).toBeNull();
+    expect(nextRun({ type: "event", event: "rune.started" }, from)).toBeNull();
   });
 });
 
 describe("checks", () => {
   const spec: ScheduleSpec = {
-    name: "Sync",
+    name: "News",
     trigger: { type: "cron", cron: "0 * * * *" },
-    task: { type: "command", appId: "a", command: "true" },
+    prompt: "Summarize the news",
+    target: { workspaceId: "w", tabId: null, kind: "web", url: null },
+    agent: null,
     notify: "failure",
     timeoutSec: 60,
   };
   test("limits and fields", () => {
     expect(scheduleProblem(spec)).toBeNull();
+    expect(scheduleProblem({ ...spec, prompt: " " })).toBe("What should the agent do?");
     expect(scheduleProblem({ ...spec, trigger: { type: "cron", cron: "* * * * *" } })).toContain(
       "at most every 5 minutes",
     );
@@ -59,69 +124,123 @@ describe("checks", () => {
     );
     expect(scheduleProblem({ ...spec, trigger: { type: "event", event: "app:abc:done" } })).toBeNull();
     expect(scheduleProblem({ ...spec, trigger: { type: "event", event: "whenever" } })).toContain("Events are");
-    expect(scheduleProblem({ ...spec, timeoutSec: 99_999 })).toContain("timeout");
-    expect(scheduleProblem({ ...spec, task: { type: "tool", appId: "a", tool: "" } })).toBe("Which tool?");
+    expect(scheduleProblem({ ...spec, timeoutSec: 99_999 })).toContain("time limit");
   });
 
-  test("prompts: in a tab, or in a new one", () => {
-    expect(scheduleProblem({ ...spec, task: { type: "prompt", prompt: "Summarize the news", appId: "a" } })).toBeNull();
-    expect(
-      scheduleProblem({ ...spec, task: { type: "prompt", prompt: "Hi", newTab: { kind: "app", workspaceId: "w" } } }),
-    ).toBeNull();
-    expect(scheduleProblem({ ...spec, task: { type: "prompt", prompt: " ", appId: "a" } })).toBe(
-      "What should the agent do?",
+  test("where: a tab, or a new (web or app) tab, at a website or not", () => {
+    expect(scheduleProblem({ ...spec, target: { ...spec.target, tabId: "a" } })).toBeNull();
+    expect(scheduleProblem({ ...spec, target: { ...spec.target, kind: "app" } })).toBeNull();
+    expect(scheduleProblem({ ...spec, target: { ...spec.target, url: "https://example.com" } })).toBeNull();
+    expect(scheduleProblem({ ...spec, target: { ...spec.target, url: "example.com" } })).toContain("http(s)");
+    expect(scheduleProblem({ ...spec, target: { ...spec.target, kind: "app", url: "https://a.example" } })).toContain(
+      "http(s)",
     );
-    expect(scheduleProblem({ ...spec, task: { type: "prompt", prompt: "Hi" } })).toBe("Which tab?");
-    expect(
-      scheduleProblem({
-        ...spec,
-        task: { type: "prompt", prompt: "Hi", newTab: { kind: "web", workspaceId: "w", url: "example.com" } },
-      }),
-    ).toContain("http(s)");
+    expect(scheduleProblem({ ...spec, target: { ...spec.target, workspaceId: "" } })).toBe("Which workspace?");
   });
 
-  test("a deleted web tab's prompts open a new tab at its address; everything else goes", () => {
-    const daily = { ...spec, task: { type: "prompt", prompt: "Summarize", appId: "a" } } satisfies ScheduleSpec;
-    const web = { kind: "web", workspaceId: "w", url: "https://news.example/today", private: false } as const;
-    expect(specWithoutTab(daily, "a", web)).toEqual({
-      ...daily,
-      task: {
-        type: "prompt",
-        prompt: "Summarize",
-        newTab: { kind: "web", workspaceId: "w", url: "https://news.example/today" },
-      },
-    });
-    // Deleting an app is on purpose (with all its data); private tabs leave nothing; no website, no address.
-    expect(specWithoutTab(daily, "a", { kind: "app", workspaceId: "w", url: null, private: false })).toBeNull();
-    expect(specWithoutTab(daily, "a", { ...web, private: true })).toBeNull();
-    expect(specWithoutTab(daily, "a", { ...web, url: "file:///home/me/notes.html" })).toBeNull();
-    expect(specWithoutTab(daily, "a", { ...web, url: null })).toBeNull();
-    expect(specWithoutTab(daily, "a", null)).toBeNull();
-    // A prompt waiting for an app's event needs a tab that exists; Rune Browser starting doesn't.
-    for (const event of ["app.started:a", "app.crashed:a", "app:a:done", "app:b:done"])
-      expect(specWithoutTab({ ...daily, trigger: { type: "event", event } }, "a", web)).toBeNull();
-    expect(specWithoutTab({ ...daily, trigger: { type: "event", event: "rune.started" } }, "a", web)).not.toBeNull();
-    expect(specWithoutTab({ ...spec, task: { type: "command", appId: "a", command: "true" } }, "a", web)).toBeNull();
-    expect(specWithoutTab({ ...spec, task: { type: "tool", appId: "a", tool: "digest" } }, "a", web)).toBeNull();
+  test("the model and effort, or the default", () => {
+    expect(scheduleProblem({ ...spec, agent: { provider: "codex", model: "gpt-5", effort: "high" } })).toBeNull();
+    expect(scheduleProblem({ ...spec, agent: { provider: "claude", model: null, effort: null } })).toBeNull();
+    expect(
+      scheduleProblem({ ...spec, agent: { provider: "gemini" as "claude", model: null, effort: null } }),
+    ).toContain("agent.provider");
+    expect(scheduleProblem({ ...spec, agent: { provider: "claude", model: "", effort: null } })).toBe("Which model?");
   });
+
+  test("a task outlives its tab: the next run opens a new one like it", () => {
+    const inTab = { workspaceId: "w", tabId: "a", kind: "web", url: null } as const;
+    const web = { kind: "web", workspaceId: "w", url: "https://news.example/today" } as const;
+    expect(targetWithoutTab(inTab, web)).toEqual({
+      workspaceId: "w",
+      tabId: null,
+      kind: "web",
+      url: "https://news.example/today",
+    });
+    // An app tab: a new app tab. A web tab that wasn't on a website: an empty one (or the address it had).
+    expect(targetWithoutTab(inTab, { kind: "app", workspaceId: "w", url: null })).toEqual({
+      workspaceId: "w",
+      tabId: null,
+      kind: "app",
+      url: null,
+    });
+    expect(targetWithoutTab(inTab, { ...web, url: "file:///home/me/notes.html" }).url).toBeNull();
+    expect(targetWithoutTab({ ...inTab, url: "https://kept.example" }, { ...web, url: "rune://settings" }).url).toBe(
+      "https://kept.example",
+    );
+    // It moved to another workspace meanwhile: there.
+    expect(targetWithoutTab(inTab, { ...web, workspaceId: "v" }).workspaceId).toBe("v");
+    expect(targetWithoutTab(inTab, null)).toEqual({ ...inTab, tabId: null });
+  });
+});
+
+describe("tasks from before they were prompts only", () => {
+  const dir = mkdtempSync(join(tmpdir(), "rune-schedules-"));
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+  const run = <A>(effect: Effect.Effect<A, unknown, Apps | Workspaces | Scheduler>) => {
+    const runtime = ManagedRuntime.make(core(readConfig({ RUNE_DATA_DIR: dir, PORT: "1" })));
+    return runtime.runPromise(effect as Effect.Effect<A>).finally(() => runtime.dispose());
+  };
+
+  test("tab-bound and new-tab prompts keep working; tools and commands go", async () => {
+    const { tab, workspace } = await run(
+      Effect.gen(function* () {
+        const workspace = (yield* (yield* Workspaces).first()).id;
+        const tab = yield* (yield* Apps).create(workspace, "web", "https://example.com/");
+        return { tab: tab.id, workspace };
+      }),
+    );
+    const db = new Database(join(dir, "rune.sqlite"));
+    db.run("ALTER TABLE schedule_runs DROP COLUMN tab_id");
+    const old = (id: string, task: object) =>
+      db.run("INSERT INTO schedules (id, spec, created_by) VALUES (?, ?, 'user')", [
+        id,
+        JSON.stringify({
+          name: id,
+          trigger: { type: "cron", cron: "0 8 * * *" },
+          task,
+          notify: "never",
+          timeoutSec: 60,
+        }),
+      ]);
+    old("in-tab", { type: "prompt", prompt: "Summarize", appId: tab });
+    old("new-tab", {
+      type: "prompt",
+      prompt: "Hi",
+      newTab: { kind: "web", workspaceId: workspace, url: "https://a.example" },
+    });
+    old("tool", { type: "tool", appId: tab, tool: "digest" });
+    old("command", { type: "command", appId: tab, command: "true" });
+    db.close();
+
+    const list = await run(
+      Effect.gen(function* () {
+        return yield* (yield* Scheduler).list();
+      }),
+    );
+    expect(list.map((s) => [s.id, s.prompt, s.target, s.agent])).toEqual([
+      ["in-tab", "Summarize", { workspaceId: workspace, tabId: tab, kind: "web", url: null }, null],
+      ["new-tab", "Hi", { workspaceId: workspace, tabId: null, kind: "web", url: "https://a.example" }, null],
+    ]);
+  }, 30_000);
 });
 
 describe("scheduler", () => {
   let server: Awaited<ReturnType<typeof startServer>>;
-  let app: AppSummary;
-  let token: string;
-  const dir = () => join(server.dataDir, "apps", app.id);
-  const base = (fields: Partial<ScheduleSpec>): ScheduleSpec => ({
+  let space: WorkspaceInfo;
+  const base = (fields: Partial<ScheduleSpec> = {}): ScheduleSpec => ({
     name: "Job",
     trigger: { type: "cron", cron: "0 3 * * *" },
-    task: { type: "command", appId: app.id, command: "echo hello" },
-    notify: "failure",
+    prompt: "Summarize the news",
+    target: { workspaceId: space.id, tabId: null, kind: "web", url: null },
+    agent: null,
+    notify: "never",
     timeoutSec: 60,
     ...fields,
   });
-  const create = (fields: Partial<ScheduleSpec>) =>
+  const create = (fields: Partial<ScheduleSpec> = {}) =>
     server.api<Schedule>("/api/schedules", { method: "POST", json: base(fields) });
   const runsOf = (id: string) => server.api<ScheduleRun[]>(`/api/schedules/runs?schedule=${id}`);
+  const scheduleOf = async (id: string) => (await server.api<Schedule[]>("/api/schedules")).find((s) => s.id === id);
   const finished = async (id: string, count = 1, ms = 20_000) => {
     const deadline = Date.now() + ms;
     for (;;) {
@@ -131,89 +250,80 @@ describe("scheduler", () => {
       await Bun.sleep(100);
     }
   };
+  const runNow = async (id: string) => {
+    const run = await server.api<ScheduleRun>(`/api/schedules/${id}/run`, { method: "POST" });
+    for (let i = 0; i < 200; i++) {
+      const done = (await runsOf(id)).find((r) => r.id === run.id && r.status !== "running");
+      if (done) return done;
+      await Bun.sleep(100);
+    }
+    throw new Error(`the run of ${id} didn't finish`);
+  };
+  const tabs = () => server.api<AppSummary[]>("/api/apps");
 
   beforeAll(async () => {
     server = await startServer();
-    app = await server.api<AppSummary>("/api/apps", { method: "POST" });
-    await server.api(`/api/apps/${app.id}/project`, { method: "POST", json: { preset: "api" } });
-    await server.api(`/api/apps/${app.id}/runtime`, { method: "POST", json: { action: "stop" } });
-    writeFileSync(
-      join(dir(), "action.ts"),
-      `await Bun.write("token.txt", process.env.RUNE_API_TOKEN ?? "");
-Bun.serve({
-  hostname: "127.0.0.1",
-  port: Number(process.env.PORT),
-  async fetch(req) {
-    if (req.method === "POST" && new URL(req.url).pathname === "/api/digest") return Response.json({ message: "Sent the digest", sent: 3 });
-    return new Response("ok");
-  },
-});`,
-    );
-    writeFileSync(
-      join(dir(), "rune.json"),
-      JSON.stringify({
-        install: "true",
-        dev: "bun action.ts",
-        start: "bun action.ts",
-        actions: [{ id: "digest", title: "Send digest", endpoint: "/api/digest" }],
-      }),
-    );
-  });
+    [space] = (await server.api<WorkspaceInfo[]>("/api/workspaces")) as [WorkspaceInfo];
+    // No provider can run: the run fails at the agent, after everything around it.
+    const settings = await server.api<Settings>("/api/settings");
+    const off = { enabled: false };
+    await server.api("/api/settings", {
+      method: "PUT",
+      json: {
+        ...settings,
+        providers: {
+          claude: { ...settings.providers.claude, ...off },
+          codex: { ...settings.providers.codex, ...off },
+          opencode: { ...settings.providers.opencode, ...off },
+        },
+      },
+    });
+    // A refresh joins the startup check if it's still going: again until they're off.
+    for (let i = 0; i < 20; i++) {
+      const providers = await server.api<{ state: string }[]>("/api/providers/refresh", { method: "POST", json: {} });
+      if (providers.every((p) => p.state === "disabled")) break;
+    }
+  }, 60_000);
   afterAll(() => server.stop());
 
-  test("a one-off schedule runs at its time, without a tab, using an app's tool", async () => {
+  test("a one-off task runs at its time, in a new tab it opens and keeps, with the default agent", async () => {
+    const before = (await tabs()).length;
     const schedule = await create({
-      name: "Digest",
+      name: "Morning",
       trigger: { type: "once", at: new Date(Date.now() + 1500).toISOString() },
-      task: { type: "tool", appId: app.id, tool: "digest" },
     });
     expect(schedule.nextRunAt).not.toBeNull();
-    const [run] = await finished(schedule.id, 1, 60_000);
-    expect(run).toMatchObject({ status: "ok", trigger: "time", message: "Sent the digest", scheduleName: "Digest" });
-    expect(JSON.parse(run!.output!)).toMatchObject({ sent: 3 });
-    const after = (await server.api<Schedule[]>("/api/schedules")).find((s) => s.id === schedule.id)!;
+    expect(schedule.workspaceId).toBe(space.id);
+    const [run] = await finished(schedule.id, 1, 30_000);
+    // The workspace's default agent (Claude Code), turned off here.
+    expect(run).toMatchObject({ status: "error", trigger: "time", scheduleName: "Morning" });
+    expect(run!.message).toContain("Claude Code can't run");
+    const opened = await tabs();
+    expect(opened.length).toBe(before + 1);
+    const tab = opened.at(-1)!;
+    expect(tab.kind).toBe("web");
+    // The run links to its chat's tab, and the task keeps that tab.
+    expect(run!.tabId).toBe(tab.id);
+    const after = (await scheduleOf(schedule.id))!;
+    expect(after.target).toEqual({ workspaceId: space.id, tabId: tab.id, kind: "web", url: null });
     expect(after.nextRunAt).toBeNull();
     expect(after.lastRun?.id).toBe(run!.id);
-    const file = join(dir(), "token.txt");
-    token = existsSync(file) ? readFileSync(file, "utf8") : "";
-  }, 90_000);
+    await server.api(`/api/schedules/${schedule.id}`, { method: "DELETE" });
+  }, 60_000);
 
-  test("commands run in the app's sandbox; failures and timeouts are results too", async () => {
-    const ok = await create({
-      name: "Hello",
-      task: { type: "command", appId: app.id, command: "echo hello from $RUNE_MODE" },
-    });
-    expect(ok.nextRunAt).not.toBeNull();
-    await server.api(`/api/schedules/${ok.id}/run`, { method: "POST" });
-    const [done] = await finished(ok.id);
-    expect(done).toMatchObject({ status: "ok", trigger: "manual", message: "Done" });
-    expect(done!.output).toContain("hello from");
-
-    const failing = await create({
-      name: "Broken",
-      task: { type: "command", appId: app.id, command: "echo nope 1>&2; exit 3" },
-    });
-    await server.api(`/api/schedules/${failing.id}/run`, { method: "POST" });
-    expect((await finished(failing.id))[0]).toMatchObject({ status: "error", message: "Exited with code 3" });
-
-    const slow = await create({
-      name: "Slow",
-      timeoutSec: 5,
-      task: { type: "command", appId: app.id, command: 'bun -e "await Bun.sleep(30000)"' },
-    });
-    await server.api(`/api/schedules/${slow.id}/run`, { method: "POST" });
-    // It never runs twice at once.
-    const second = await server.api<ScheduleRun>(`/api/schedules/${slow.id}/run`, { method: "POST" });
-    expect(second).toMatchObject({ status: "skipped", message: "The previous run was still going" });
-    const runs = await finished(slow.id, 2, 15_000);
-    expect(runs.map((r) => r.status).sort()).toEqual(["skipped", "timeout"]);
-
-    const audit = await server.api<AuditEntry[]>(`/api/audit?tab=${app.id}`);
-    expect(audit.filter((e) => e.action === "schedule.run").map((e) => [e.target, e.outcome])).toContainEqual([
-      "Broken",
-      "error",
-    ]);
-  }, 90_000);
+  test("a task's model is used on every run", async () => {
+    const schedule = await create({ name: "With Codex", agent: { provider: "codex", model: null, effort: "high" } });
+    expect(schedule.agent).toEqual({ provider: "codex", model: null, effort: "high" });
+    const first = await runNow(schedule.id);
+    expect(first.message).toContain("Codex can't run");
+    expect((await runNow(schedule.id)).message).toContain("Codex can't run");
+    // Back to the default.
+    await server.api(`/api/schedules/${schedule.id}`, { method: "PATCH", json: { spec: base({ name: "Default" }) } });
+    expect((await runNow(schedule.id)).message).toContain("Claude Code can't run");
+    await expect(create({ agent: { provider: "gemini" as "claude", model: null, effort: null } })).rejects.toThrow(
+      "400",
+    );
+  }, 60_000);
 
   test("pause, resume, edit and delete", async () => {
     const schedule = await create({ name: "Nightly" });
@@ -242,12 +352,112 @@ Bun.serve({
     const upcoming = await server.api<{ scheduleId: string; at: string }[]>("/api/schedules/upcoming");
     expect(upcoming.filter((u) => u.scheduleId === schedule.id).length).toBeGreaterThan(1);
     await server.api(`/api/schedules/${schedule.id}`, { method: "DELETE" });
-    expect((await server.api<Schedule[]>("/api/schedules")).some((s) => s.id === schedule.id)).toBe(false);
+    expect(await scheduleOf(schedule.id)).toBeUndefined();
   });
 
-  test("events: one the app sends, and the app starting", async () => {
-    const onPing = await create({ name: "On ping", trigger: { type: "event", event: `app:${app.id}:ping` } });
-    expect(onPing.nextRunAt).toBeNull();
+  test("closing its web tab keeps the task: it opens a new tab at that address, and its runs stay", async () => {
+    const news = await server.api<WorkspaceInfo>("/api/workspaces", { method: "POST", json: { name: "News" } });
+    const tab = await server.api<AppSummary>("/api/apps", {
+      method: "POST",
+      json: { kind: "web", url: "https://example.com/news", workspaceId: news.id },
+    });
+    const task = await create({
+      name: "News",
+      target: { workspaceId: news.id, tabId: tab.id, kind: "web", url: null },
+    });
+    const first = await runNow(task.id);
+    expect(first.tabId).toBe(tab.id);
+
+    // Closing a web tab deletes it.
+    await server.api(`/api/apps/${tab.id}`, { method: "DELETE" });
+    const kept = await scheduleOf(task.id);
+    expect(kept?.target).toEqual({ workspaceId: news.id, tabId: null, kind: "web", url: "https://example.com/news" });
+    expect(kept?.workspaceId).toBe(news.id);
+    expect((await runsOf(task.id)).map((r) => r.id)).toEqual([first.id]);
+
+    // The next run opens the new tab, and the task keeps it.
+    const second = await runNow(task.id);
+    const opened = (await tabs()).filter((t) => t.workspaceId === news.id && t.url === "https://example.com/news");
+    expect(opened.length).toBe(1);
+    expect(second.tabId).toBe(opened[0]!.id);
+    expect((await scheduleOf(task.id))?.target.tabId).toBe(opened[0]!.id);
+    await server.api(`/api/schedules/${task.id}`, { method: "DELETE" });
+    await server.api(`/api/workspaces/${news.id}`, { method: "DELETE" });
+  }, 60_000);
+
+  test("deleting an app keeps its tasks (they open a new app tab); deleting a workspace moves them, paused", async () => {
+    const scratch = await server.api<WorkspaceInfo>("/api/workspaces", { method: "POST", json: { name: "Scratch" } });
+    const app = await server.api<AppSummary>("/api/apps", { method: "POST", json: { workspaceId: scratch.id } });
+    const web = await server.api<AppSummary>("/api/apps", {
+      method: "POST",
+      json: { kind: "web", url: "https://example.com/", workspaceId: scratch.id },
+    });
+    const inApp = await create({
+      name: "In the app",
+      target: { workspaceId: scratch.id, tabId: app.id, kind: "app", url: null },
+    });
+    await server.api(`/api/apps/${app.id}`, { method: "DELETE" });
+    expect((await scheduleOf(inApp.id))?.target).toEqual({
+      workspaceId: scratch.id,
+      tabId: null,
+      kind: "app",
+      url: null,
+    });
+
+    const inWeb = await create({
+      name: "In the web tab",
+      target: { workspaceId: scratch.id, tabId: web.id, kind: "web", url: null },
+    });
+    const before = (await tabs()).length;
+    await server.api(`/api/workspaces/${scratch.id}`, { method: "DELETE" });
+    expect((await tabs()).length).toBe(before - 1);
+    for (const [id, target] of [
+      [inApp.id, { workspaceId: space.id, tabId: null, kind: "app", url: null }],
+      [inWeb.id, { workspaceId: space.id, tabId: null, kind: "web", url: "https://example.com/" }],
+    ] as const) {
+      const moved = await scheduleOf(id);
+      expect(moved).toMatchObject({ target, workspaceId: space.id, paused: true, nextRunAt: null });
+      await server.api(`/api/schedules/${id}`, { method: "DELETE" });
+    }
+  });
+
+  test("a tab or workspace that doesn't exist is refused", async () => {
+    await expect(create({ target: { workspaceId: space.id, tabId: "nope", kind: "web", url: null } })).rejects.toThrow(
+      "404",
+    );
+    await expect(create({ target: { workspaceId: "nope", tabId: null, kind: "web", url: null } })).rejects.toThrow(
+      "404",
+    );
+  });
+
+  test("events: one an app sends, and the app starting", async () => {
+    const app = await server.api<AppSummary>("/api/apps", { method: "POST" });
+    const dir = join(server.dataDir, "apps", app.id);
+    await server.api(`/api/apps/${app.id}/project`, { method: "POST", json: { preset: "api" } });
+    await server.api(`/api/apps/${app.id}/runtime`, { method: "POST", json: { action: "stop" } });
+    writeFileSync(
+      join(dir, "server.ts"),
+      `await Bun.write("token.txt", process.env.RUNE_API_TOKEN ?? "");
+Bun.serve({ hostname: "127.0.0.1", port: Number(process.env.PORT), fetch: () => new Response("ok") });`,
+    );
+    writeFileSync(
+      join(dir, "rune.json"),
+      JSON.stringify({ install: "true", dev: "bun server.ts", start: "bun server.ts" }),
+    );
+    const target = { workspaceId: app.workspaceId, tabId: app.id, kind: "app", url: null } as const;
+    const onStart = await create({
+      name: "On start",
+      target,
+      trigger: { type: "event", event: `app.started:${app.id}` },
+    });
+    expect(onStart.nextRunAt).toBeNull();
+    await server.api(`/api/apps/${app.id}/runtime`, { method: "POST", json: { action: "restart" } });
+    expect((await finished(onStart.id, 1, 60_000))[0]).toMatchObject({ trigger: "event", tabId: app.id });
+
+    const onPing = await create({ name: "On ping", target, trigger: { type: "event", event: `app:${app.id}:ping` } });
+    const file = join(dir, "token.txt");
+    for (let i = 0; i < 100 && !existsSync(file); i++) await Bun.sleep(100);
+    const token = readFileSync(file, "utf8");
     expect(token).toMatch(/^nai_/);
     const res = await fetch(`${server.url}/app-api/v1/events`, {
       method: "POST",
@@ -255,173 +465,6 @@ Bun.serve({
       body: JSON.stringify({ name: "ping" }),
     });
     expect(res.status).toBe(200);
-    expect((await finished(onPing.id))[0]).toMatchObject({ status: "ok", trigger: "event" });
-
-    const onStart = await create({ name: "On start", trigger: { type: "event", event: `app.started:${app.id}` } });
-    await server.api(`/api/apps/${app.id}/runtime`, { method: "POST", json: { action: "restart" } });
-    expect((await finished(onStart.id, 1, 60_000))[0]).toMatchObject({ status: "ok", trigger: "event" });
+    expect((await finished(onPing.id))[0]).toMatchObject({ trigger: "event" });
   }, 90_000);
-
-  test("unknown apps and tools are refused; a deleted app's schedules go with it", async () => {
-    await expect(create({ task: { type: "tool", appId: app.id, tool: "nope" } })).rejects.toThrow("404");
-    await expect(create({ task: { type: "command", appId: "nope", command: "true" } })).rejects.toThrow("404");
-    await server.api(`/api/apps/${app.id}`, { method: "DELETE" });
-    expect(await server.api<Schedule[]>("/api/schedules")).toEqual([]);
-  });
-});
-
-describe("scheduled prompts", () => {
-  let server: Awaited<ReturnType<typeof startServer>>;
-  beforeAll(async () => {
-    server = await startServer();
-    // No provider can run: the run fails at the agent, after everything around it.
-    const settings = await server.api<Settings>("/api/settings");
-    const off = { enabled: false };
-    await server.api("/api/settings", {
-      method: "PUT",
-      json: {
-        ...settings,
-        providers: {
-          claude: { ...settings.providers.claude, ...off },
-          codex: { ...settings.providers.codex, ...off },
-          opencode: { ...settings.providers.opencode, ...off },
-        },
-      },
-    });
-    // A refresh joins the startup check if it's still going: again until they're off.
-    for (let i = 0; i < 20; i++) {
-      const providers = await server.api<{ state: string }[]>("/api/providers/refresh", { method: "POST", json: {} });
-      if (providers.every((p) => p.state === "disabled")) break;
-    }
-  }, 60_000);
-  afterAll(() => server.stop());
-
-  test("a new tab is opened on the first run and kept", async () => {
-    const [space] = await server.api<WorkspaceInfo[]>("/api/workspaces");
-    const before = (await server.api<AppSummary[]>("/api/apps")).length;
-    const schedule = await server.api<Schedule>("/api/schedules", {
-      method: "POST",
-      json: {
-        name: "Morning",
-        trigger: { type: "cron", cron: "0 8 * * *" },
-        task: { type: "prompt", prompt: "Summarize", newTab: { kind: "app", workspaceId: space!.id } },
-        notify: "never",
-        timeoutSec: 60,
-      },
-    });
-    expect(schedule.workspaceId).toBe(space!.id);
-    const runOnce = async () => {
-      const run = await server.api<ScheduleRun>(`/api/schedules/${schedule.id}/run`, { method: "POST" });
-      for (let i = 0; i < 100; i++) {
-        const runs = await server.api<ScheduleRun[]>(`/api/schedules/runs?schedule=${schedule.id}`);
-        const done = runs.find((r) => r.id === run.id && r.status !== "running");
-        if (done) return done;
-        await Bun.sleep(100);
-      }
-      throw new Error("the run didn't finish");
-    };
-    const first = await runOnce();
-    expect(first.status).toBe("error");
-    expect(first.message).toContain("turned off in Settings");
-    const tabs = await server.api<AppSummary[]>("/api/apps");
-    expect(tabs.length).toBe(before + 1);
-    const updated = (await server.api<Schedule[]>("/api/schedules")).find((s) => s.id === schedule.id)!;
-    expect(updated.task).toEqual({ type: "prompt", prompt: "Summarize", appId: tabs.at(-1)!.id });
-
-    // The next run uses that tab.
-    await runOnce();
-    expect((await server.api<AppSummary[]>("/api/apps")).length).toBe(before + 1);
-  });
-
-  const prompt = (task: ScheduleSpec["task"], name: string) =>
-    server.api<Schedule>("/api/schedules", {
-      method: "POST",
-      json: { name, trigger: { type: "cron", cron: "0 8 * * *" }, task, notify: "never", timeoutSec: 60 },
-    });
-  const runNow = async (id: string) => {
-    const run = await server.api<ScheduleRun>(`/api/schedules/${id}/run`, { method: "POST" });
-    for (let i = 0; i < 100; i++) {
-      const runs = await server.api<ScheduleRun[]>(`/api/schedules/runs?schedule=${id}`);
-      const done = runs.find((r) => r.id === run.id && r.status !== "running");
-      if (done) return done;
-      await Bun.sleep(100);
-    }
-    throw new Error(`the run of ${id} didn't finish`);
-  };
-  const scheduleOf = async (id: string) => (await server.api<Schedule[]>("/api/schedules")).find((s) => s.id === id);
-
-  test("closing its web tab keeps the schedule: it opens a new tab at that address", async () => {
-    const space = await server.api<WorkspaceInfo>("/api/workspaces", { method: "POST", json: { name: "News" } });
-    const tab = await server.api<AppSummary>("/api/apps", {
-      method: "POST",
-      json: { kind: "web", url: "https://example.com/news", workspaceId: space.id },
-    });
-    const news = await prompt({ type: "prompt", prompt: "Summarize the news", appId: tab.id }, "News");
-    await runNow(news.id);
-
-    // Closing a web tab deletes it.
-    await server.api(`/api/apps/${tab.id}`, { method: "DELETE" });
-    const kept = await scheduleOf(news.id);
-    expect(kept?.task).toEqual({
-      type: "prompt",
-      prompt: "Summarize the news",
-      newTab: { kind: "web", workspaceId: space.id, url: "https://example.com/news" },
-    });
-    expect(kept?.workspaceId).toBe(space.id);
-    // Its past runs stay with it.
-    expect((await server.api<ScheduleRun[]>(`/api/schedules/runs?schedule=${news.id}`)).length).toBe(1);
-
-    // The next run opens the new tab, and the schedule keeps it.
-    await runNow(news.id);
-    const opened = (await server.api<AppSummary[]>("/api/apps")).filter(
-      (t) => t.workspaceId === space.id && t.url === "https://example.com/news",
-    );
-    expect(opened.length).toBe(1);
-    expect((await scheduleOf(news.id))?.task).toEqual({
-      type: "prompt",
-      prompt: "Summarize the news",
-      appId: opened[0]!.id,
-    });
-    await server.api(`/api/workspaces/${space.id}`, { method: "DELETE" });
-  });
-
-  test("deleting an app, or a workspace, takes their schedules", async () => {
-    const space = await server.api<WorkspaceInfo>("/api/workspaces", { method: "POST", json: { name: "Scratch" } });
-    const app = await server.api<AppSummary>("/api/apps", { method: "POST", json: { workspaceId: space.id } });
-    const web = await server.api<AppSummary>("/api/apps", {
-      method: "POST",
-      json: { kind: "web", url: "https://example.com/", workspaceId: space.id },
-    });
-    const inApp = await prompt({ type: "prompt", prompt: "Refresh", appId: app.id }, "In the app");
-    await server.api(`/api/apps/${app.id}`, { method: "DELETE" });
-    expect(await scheduleOf(inApp.id)).toBeUndefined();
-
-    // A workspace goes with its tabs' schedules (none of them reopens a tab there) and the ones that would open one.
-    const inWeb = await prompt({ type: "prompt", prompt: "Check", appId: web.id }, "In the web tab");
-    const opens = await prompt(
-      { type: "prompt", prompt: "Hi", newTab: { kind: "app", workspaceId: space.id } },
-      "Opens a tab",
-    );
-    const before = (await server.api<AppSummary[]>("/api/apps")).length;
-    await server.api(`/api/workspaces/${space.id}`, { method: "DELETE" });
-    const left = (await server.api<Schedule[]>("/api/schedules")).map((s) => s.id);
-    expect(left).not.toContain(inWeb.id);
-    expect(left).not.toContain(opens.id);
-    expect((await server.api<AppSummary[]>("/api/apps")).length).toBe(before - 1);
-  });
-
-  test("a prompt for a tab that doesn't exist is refused", async () => {
-    await expect(
-      server.api("/api/schedules", {
-        method: "POST",
-        json: {
-          name: "X",
-          trigger: { type: "cron", cron: "0 8 * * *" },
-          task: { type: "prompt", prompt: "Hi", appId: "nope" },
-          notify: "never",
-          timeoutSec: 60,
-        },
-      }),
-    ).rejects.toThrow("404");
-  });
 });

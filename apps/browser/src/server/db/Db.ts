@@ -86,7 +86,6 @@ const migrate = Effect.gen(function* () {
       spec        TEXT NOT NULL,
       paused      INTEGER NOT NULL DEFAULT 0,
       created_by  TEXT NOT NULL,
-      creator_tab TEXT,
       next_run_at TEXT,
       created_at  TEXT NOT NULL DEFAULT (${now}),
       updated_at  TEXT NOT NULL DEFAULT (${now})
@@ -101,7 +100,8 @@ const migrate = Effect.gen(function* () {
       started_at    TEXT NOT NULL,
       finished_at   TEXT,
       message       TEXT NOT NULL DEFAULT '',
-      output        TEXT
+      output        TEXT,
+      tab_id        TEXT
     )`);
   yield* sql.unsafe("CREATE INDEX IF NOT EXISTS schedule_runs_schedule ON schedule_runs (schedule_id, id)");
 
@@ -284,6 +284,29 @@ const migrate = Effect.gen(function* () {
     );
   }
   yield* sql.unsafe("CREATE INDEX IF NOT EXISTS audit_workspace ON audit (workspace_id, id)");
+  // Scheduled tasks became prompts only, each with a target (a tab, or the new tab it opens): tool and
+  // command tasks go, prompts keep working.
+  if (!(yield* sql.unsafe<{ name: string }>("PRAGMA table_info(schedule_runs)")).some((c) => c.name === "tab_id")) {
+    yield* sql.unsafe("ALTER TABLE schedule_runs ADD COLUMN tab_id TEXT");
+    const rows = yield* sql.unsafe<{ id: string; spec: string; workspace_id: string | null }>(
+      "SELECT s.id, s.spec, a.workspace_id FROM schedules s LEFT JOIN apps a ON a.id = json_extract(s.spec, '$.task.appId')",
+    );
+    for (const row of rows) {
+      const { task, ...spec } = JSON.parse(row.spec);
+      const workspaceId = row.workspace_id ?? task?.newTab?.workspaceId;
+      if (task?.type !== "prompt" || !workspaceId) {
+        yield* sql`DELETE FROM schedules WHERE id = ${row.id}`;
+        continue;
+      }
+      const target = {
+        workspaceId,
+        tabId: task.appId ?? null,
+        kind: task.newTab?.kind ?? "web",
+        url: task.newTab?.url ?? null,
+      };
+      yield* sql`UPDATE schedules SET spec = ${JSON.stringify({ ...spec, prompt: task.prompt, target, agent: null })} WHERE id = ${row.id}`;
+    }
+  }
   // Code attached to a tab for its agent: a folder of the user's, or a repository Rune Browser cloned (workspace/Sources.ts).
   yield* sql.unsafe(`
     CREATE TABLE IF NOT EXISTS sources (

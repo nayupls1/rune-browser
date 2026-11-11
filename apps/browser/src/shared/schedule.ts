@@ -1,6 +1,6 @@
-// Schedules: checking them and describing them, for the server and the UI.
-import type { AppSummary, ScheduleSpec, ScheduleTask, ScheduleTrigger } from "./api";
-import { describeCron, parseCron, shortestGapMinutes } from "./cron";
+// Scheduled tasks: checking them, describing them and when they run next, for the server and the UI.
+import { providerIds, type AppSummary, type ScheduleSpec, type ScheduleTarget, type ScheduleTrigger } from "./api";
+import { describeCron, nextCron, parseCron, shortestGapMinutes } from "./cron";
 
 /** Recurring schedules run at most this often. */
 export const MIN_INTERVAL_MINUTES = 5;
@@ -8,38 +8,28 @@ export const MAX_TIMEOUT_SEC = 1800;
 export const DEFAULT_TIMEOUT_SEC = 300;
 export const MAX_PROMPT = 20_000;
 
-/** The tab a schedule's task runs in (null: a prompt that opens one on its first run). */
-export const taskTab = (task: ScheduleTask): string | null => task.appId ?? null;
-
-/** An app's event ("app.started:<id>", "app.crashed:<id>", "app:<id>:<name>"): every event but "rune.started". */
-const isAppEvent = (trigger: ScheduleTrigger) => trigger.type === "event" && trigger.event.startsWith("app");
+const WEBSITE = /^https?:\/\/\S+$/i;
 
 /**
- * A schedule once the tab its task runs in is deleted (null: the schedule goes
- * too). A prompt in a web tab doesn't need that tab: closing a web tab deletes
- * it, so the prompt opens a new tab at the same address on its next run and
- * keeps that one. Everything else goes: tools and commands need their app, an
- * app is only deleted on purpose ("and all its data"), private tabs leave
- * nothing behind, a web tab that wasn't on a website has no address to open,
- * and a prompt waiting for an app's event needs an existing tab (SchedulesPage:
- * the event is its tab's).
+ * Where a task runs once its tab is closed or deleted: a new tab of the same
+ * kind, in the same workspace, opened on its next run (a web tab at the
+ * address the old one was on, if it was on a website).
  */
-export function specWithoutTab(
-  spec: ScheduleSpec,
-  appId: string,
-  tab: Pick<AppSummary, "kind" | "workspaceId" | "url" | "private"> | null,
-): ScheduleSpec | null {
-  const task = spec.task;
-  if (task.type !== "prompt" || !tab || tab.kind !== "web" || tab.private || isAppEvent(spec.trigger)) return null;
-  if (!tab.url || !/^https?:\/\/\S+$/i.test(tab.url)) return null;
-  const { appId: _, newTab: __, ...rest } = task;
-  return { ...spec, task: { ...rest, newTab: { kind: "web", workspaceId: tab.workspaceId, url: tab.url } } };
+export function targetWithoutTab(
+  target: ScheduleTarget,
+  tab: Pick<AppSummary, "kind" | "workspaceId" | "url"> | null,
+): ScheduleTarget {
+  if (!tab) return { ...target, tabId: null };
+  const url = tab.kind === "web" ? (tab.url && WEBSITE.test(tab.url) ? tab.url : target.url) : null;
+  return { workspaceId: tab.workspaceId, tabId: null, kind: tab.kind, url };
 }
 
 const EVENT = /^(rune\.started|app\.(started|crashed):[\w-]+|app:[\w-]+:[\w.-]{1,64})$/;
 
-/** What's wrong with a schedule, if anything. */
+/** What's wrong with a scheduled task, if anything. */
 export function scheduleProblem(spec: ScheduleSpec, now = new Date()): string | null {
+  if (!spec.prompt?.trim()) return "What should the agent do?";
+  if (spec.prompt.length > MAX_PROMPT) return "The prompt is too long";
   if (!spec.name?.trim()) return "Give it a name";
   if (spec.name.length > 100) return "The name is too long";
   const t = spec.trigger;
@@ -56,32 +46,43 @@ export function scheduleProblem(spec: ScheduleSpec, now = new Date()): string | 
     if (!EVENT.test(t.event ?? ""))
       return 'Events are "rune.started", "app.started:<app>", "app.crashed:<app>" or "app:<app>:<name>"';
   } else return "trigger.type must be once, cron or event";
-  const task = spec.task;
-  if (task?.type === "prompt") {
-    if (!task.prompt?.trim()) return "What should the agent do?";
-    if (task.prompt.length > MAX_PROMPT) return "The prompt is too long";
-    if (!task.appId && !task.newTab) return "Which tab?";
-    if (task.appId && task.newTab) return "Either a tab or a new tab, not both";
-    if (task.newTab) {
-      if (task.newTab.kind !== "app" && task.newTab.kind !== "web") return "newTab.kind must be app or web";
-      if (!task.newTab.workspaceId) return "Which workspace?";
-      if (task.newTab.kind === "web" && !/^https?:\/\/\S+$/i.test(task.newTab.url ?? ""))
-        return "Which website? Give an http(s) address";
-    }
-  } else if (!task?.appId) return "Which app?";
-  else if (task.type === "tool") {
-    if (!task.tool?.trim()) return "Which tool?";
-  } else if (task.type === "command") {
-    if (!task.command?.trim()) return "Which command?";
-    if (task.command.length > 2000) return "The command is too long";
-  } else return "task.type must be tool, command or prompt";
+  const target = spec.target;
+  if (!target?.workspaceId) return "Which workspace?";
+  if (target.kind !== "app" && target.kind !== "web") return "target.kind must be app or web";
+  if (target.url !== null && (target.kind !== "web" || !WEBSITE.test(target.url ?? "")))
+    return "Which website? Give an http(s) address";
+  const agent = spec.agent;
+  if (agent !== null) {
+    if (!agent || !providerIds.includes(agent.provider)) return `agent.provider must be ${providerIds.join(", ")}`;
+    if (agent.model !== null && (typeof agent.model !== "string" || !agent.model || agent.model.length > 200))
+      return "Which model?";
+    if (agent.effort !== null && (typeof agent.effort !== "string" || !agent.effort || agent.effort.length > 40))
+      return "Which reasoning effort?";
+  }
   if (!["always", "failure", "never"].includes(spec.notify)) return "notify must be always, failure or never";
   if (!Number.isInteger(spec.timeoutSec) || spec.timeoutSec < 5 || spec.timeoutSec > MAX_TIMEOUT_SEC)
-    return `The timeout must be 5 to ${MAX_TIMEOUT_SEC} seconds`;
+    return `The time limit must be 5 to ${MAX_TIMEOUT_SEC} seconds`;
   return null;
 }
 
-/** "Every day at 08:00", "Once on …", "When Rune Browser starts"… */
+/** When a task runs next, after `from` (null: on events only, or a one-off that's due no more). */
+export function nextRun(trigger: ScheduleTrigger, from: Date, ran = false): string | null {
+  if (trigger.type === "once")
+    return ran || Date.parse(trigger.at) < from.getTime() - 60_000 ? null : new Date(trigger.at).toISOString();
+  if (trigger.type === "cron") {
+    const cron = parseCron(trigger.cron);
+    return typeof cron === "string" ? null : (nextCron(cron, from)?.toISOString() ?? null);
+  }
+  return null;
+}
+
+/** A short name for a prompt: its first few words. */
+export const nameFromPrompt = (prompt: string) => {
+  const words = prompt.trim().split(/\s+/).slice(0, 6).join(" ");
+  return words.length > 60 ? `${words.slice(0, 59)}…` : words;
+};
+
+/** "Every weekday at 9:00", "Once, Nov 12, 2026, 9:00 AM", "When Rune Browser starts"… */
 export function describeTrigger(trigger: ScheduleTrigger, appName: (id: string) => string = (id) => id) {
   if (trigger.type === "cron") return describeCron(trigger.cron);
   if (trigger.type === "once")

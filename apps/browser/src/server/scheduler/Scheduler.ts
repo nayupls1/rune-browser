@@ -1,9 +1,9 @@
-// The scheduler: runs things in the background, without a tab open. A
-// schedule uses one of an app's tools (the tool registry, so permissions and
-// the audit log apply as for any call), runs a command in the app's sandbox,
-// or asks a tab's agent something (a new chat in the tab each run; the agent
-// runs it as if the user had sent it, see setPromptRunner), once at a time, on a cron expression, or on an event (Rune Browser started, an
-// app started or crashed, or an event an app sends through the app API).
+// The scheduler: sends scheduled prompts to agents in the background (a new
+// chat in the task's tab each run; the agent runs it as if the user had sent
+// it, see setPromptRunner), once at a time, on a cron expression, or on an
+// event (Rune Browser started, an app started or crashed, or an event an app
+// sends through the app API). Tasks belong to the user, not to a tab: one
+// whose tab is closed or deleted opens a new tab on its next run.
 //
 // Limits: recurring schedules run at most every few minutes, two runs at a
 // time (the rest wait), a schedule never overlaps itself, every run has a
@@ -13,16 +13,13 @@
 // recorded in the audit log.
 import { Cause, Context, Data, Effect, Layer, Semaphore } from "effect";
 import { SqlClient } from "effect/sql";
-import type { AppSummary, Schedule, ScheduleRun, ScheduleSpec, ScheduleTask, ToolResult } from "../../shared/api";
-import { nextCron, parseCron } from "../../shared/cron";
+import type { AppSummary, Schedule, ScheduleRun, ScheduleSpec } from "../../shared/api";
 import { topics } from "../../shared/hub";
-import { scheduleProblem, specWithoutTab, taskTab } from "../../shared/schedule";
+import { nextRun, scheduleProblem, targetWithoutTab } from "../../shared/schedule";
 import { Apps } from "../db/Apps";
 import { Workspaces } from "../db/Workspaces";
 import { Hub } from "../Hub";
 import { Audit } from "../security/Audit";
-import { AppTools, type ToolCaller } from "../workspace/AppTools";
-import { Runtime } from "../workspace/Runtime";
 
 export class ScheduleError extends Data.TaggedError("ScheduleError")<{
   readonly status: 400 | 404 | 409;
@@ -31,8 +28,6 @@ export class ScheduleError extends Data.TaggedError("ScheduleError")<{
 
 export interface ScheduleCreator {
   readonly by: "user" | "agent";
-  /** The tab whose agent made it (its tool calls are made as that agent). */
-  readonly tabId?: string;
 }
 
 /** How a run went. */
@@ -42,11 +37,14 @@ export interface Outcome {
   readonly output: string | null;
 }
 
-/** A scheduled prompt to run: in its tab, or in a new one (`opened` is told which, so the schedule keeps it). */
+/**
+ * A scheduled prompt to run: in its tab, or in a new one. `inTab` is told
+ * which before the chat starts (the run links to it, and the task keeps a
+ * tab it opened).
+ */
 export interface PromptRun {
-  readonly scheduleName: string;
-  readonly task: Extract<ScheduleTask, { type: "prompt" }>;
-  readonly opened: (tabId: string) => Effect.Effect<void>;
+  readonly spec: ScheduleSpec;
+  readonly inTab: (tabId: string, opened: boolean) => Effect.Effect<void>;
 }
 
 export interface SchedulerShape {
@@ -75,18 +73,18 @@ export interface SchedulerShape {
   /** Something happened: runs the schedules waiting for it. */
   readonly emit: (event: string) => Effect.Effect<void>;
   /**
-   * A tab was deleted (`tab`: what it was, read before it went). A web tab's
-   * prompts open a new tab at its address on their next run; its other
-   * schedules go (shared/schedule.ts: specWithoutTab).
+   * A tab was deleted (`tab`: what it was, read before it went). Its tasks
+   * stay: they open a new tab of the same kind on their next run (a web tab at
+   * its address; shared/schedule.ts: targetWithoutTab).
    */
   readonly forgetApp: (
     appId: string,
     tab: Pick<AppSummary, "kind" | "workspaceId" | "url" | "private"> | null,
   ) => Effect.Effect<void>;
   /**
-   * A workspace is being deleted, with these tabs: their schedules and the
-   * prompts that would open a tab in it go, before the tabs do (so none is
-   * rewritten to open a tab there while they're being removed).
+   * A workspace is being deleted, with these tabs: its tasks move to another
+   * workspace, paused (its logins and secrets aren't that one's, so the user
+   * says when they run again), before the tabs go.
    */
   readonly forgetWorkspace: (workspaceId: string, appIds: readonly string[]) => Effect.Effect<void>;
   /** Runs scheduled prompts (the agents sit above the scheduler, so they register it: Agent.make). Interrupted on timeout. */
@@ -106,7 +104,6 @@ interface ScheduleRow {
   spec: string;
   paused: number;
   created_by: "user" | "agent";
-  creator_tab: string | null;
   next_run_at: string | null;
   created_at: string;
   updated_at: string;
@@ -122,6 +119,7 @@ interface RunRow {
   finished_at: string | null;
   message: string;
   output: string | null;
+  tab_id: string | null;
 }
 
 const toRun = (r: RunRow): ScheduleRun => ({
@@ -134,20 +132,8 @@ const toRun = (r: RunRow): ScheduleRun => ({
   finishedAt: r.finished_at,
   message: r.message,
   output: r.output,
+  tabId: r.tab_id,
 });
-
-/** When a schedule runs next, after `from` (null: on events only, or a one-off that's due no more). */
-export function nextRun(spec: ScheduleSpec, from: Date, ran = false): string | null {
-  if (spec.trigger.type === "once")
-    return ran || Date.parse(spec.trigger.at) < from.getTime() - 60_000
-      ? null
-      : new Date(spec.trigger.at).toISOString();
-  if (spec.trigger.type === "cron") {
-    const cron = parseCron(spec.trigger.cron);
-    return typeof cron === "string" ? null : (nextCron(cron, from)?.toISOString() ?? null);
-  }
-  return null;
-}
 
 const clip = (text: string) => (text.length > MAX_OUTPUT ? `…${text.slice(-MAX_OUTPUT)}` : text);
 
@@ -157,8 +143,6 @@ export const make = Effect.gen(function* () {
   const workspaces = yield* Workspaces;
   const hub = yield* Hub;
   const audit = yield* Audit;
-  const appTools = yield* AppTools;
-  const runtime = yield* Runtime;
   const slots = yield* Semaphore.make(CONCURRENT_RUNS);
   const running = new Set<string>();
   const lastEventRun = new Map<string, number>();
@@ -181,13 +165,11 @@ export const make = Effect.gen(function* () {
       const out: Schedule[] = [];
       for (const r of rows) {
         const spec = JSON.parse(r.spec) as ScheduleSpec;
-        const tab = taskTab(spec.task);
-        const app = tab ? yield* apps.get(tab) : null;
+        const tab = spec.target.tabId ? yield* apps.get(spec.target.tabId) : null;
         out.push({
           ...spec,
           id: r.id,
-          workspaceId:
-            app?.workspaceId ?? (spec.task.type === "prompt" && spec.task.newTab ? spec.task.newTab.workspaceId : ""),
+          workspaceId: tab?.workspaceId ?? spec.target.workspaceId,
           paused: r.paused === 1,
           createdBy: r.created_by,
           nextRunAt: r.paused ? null : r.next_run_at,
@@ -221,83 +203,45 @@ export const make = Effect.gen(function* () {
     Effect.gen(function* () {
       const problem = scheduleProblem(spec);
       if (problem) return yield* new ScheduleError({ status: 400, message: problem });
-      if (spec.task.type === "prompt") {
-        // Any tab can be asked (app or web).
-        if (spec.task.appId && !(yield* apps.get(spec.task.appId)))
-          return yield* new ScheduleError({ status: 404, message: "No such tab" });
-        if (spec.task.newTab && !(yield* workspaces.get(spec.task.newTab.workspaceId)))
-          return yield* new ScheduleError({ status: 404, message: "No such workspace" });
-        return null;
+      if (!(yield* workspaces.get(spec.target.workspaceId)))
+        return yield* new ScheduleError({ status: 404, message: "No such workspace" });
+      if (spec.target.tabId) {
+        // Any tab can be asked (app or web), but private ones leave nothing behind.
+        const tab = yield* apps.get(spec.target.tabId);
+        if (!tab) return yield* new ScheduleError({ status: 404, message: "No such tab" });
+        if (tab.private)
+          return yield* new ScheduleError({ status: 400, message: "Private tabs can't have scheduled tasks" });
       }
-      const app = yield* apps.get(spec.task.appId);
-      if (!app || app.kind !== "app") return yield* new ScheduleError({ status: 404, message: "No such app" });
-      if (spec.task.type === "tool") {
-        const tool = (yield* appTools.list(app.id)).find((t) => spec.task.type === "tool" && t.id === spec.task.tool);
-        if (!tool)
-          return yield* new ScheduleError({ status: 404, message: `${app.name} has no tool "${spec.task.tool}"` });
-        if (tool.path)
-          return yield* new ScheduleError({
-            status: 400,
-            message: `"${tool.title}" opens a page; it can't run in the background`,
-          });
-      }
-      return app;
     });
 
   // --- Running --------------------------------------------------------------------------
 
-  const perform = (row: ScheduleRow, spec: ScheduleSpec): Effect.Effect<Outcome> => {
-    const task = spec.task;
-    if (task.type === "prompt") {
-      if (!promptRunner)
-        return Effect.succeed<Outcome>({ status: "error", message: "Agents aren't available", output: null });
-      // A new tab is opened once; the schedule then runs in it.
-      const opened = (tabId: string) =>
-        Effect.gen(function* () {
-          const current = yield* rowOf(row.id);
-          if (!current) return;
-          const now = JSON.parse(current.spec) as ScheduleSpec;
-          if (now.task.type !== "prompt") return;
-          const { newTab: _, ...rest } = now.task;
-          // Not if the tab is gone already (deleted before it was recorded here), checked in the same statement.
-          yield* sql`UPDATE schedules SET spec = ${JSON.stringify({ ...now, task: { ...rest, appId: tabId } })},
-            updated_at = ${new Date().toISOString()}
-            WHERE id = ${row.id} AND EXISTS (SELECT 1 FROM apps WHERE id = ${tabId})`;
-          yield* changed;
-        }).pipe(Effect.orDie);
-      return promptRunner({ scheduleName: spec.name, task, opened });
-    }
-    if (task.type === "command") {
-      return runtime.exec(task.appId, task.command, spec.timeoutSec * 1000).pipe(
-        Effect.map(({ code, output, timedOut }) => ({
-          status: timedOut ? "timeout" : code === 0 ? "ok" : "error",
-          message: timedOut ? `Stopped after ${spec.timeoutSec} s` : code === 0 ? "Done" : `Exited with code ${code}`,
-          output: output.trim() ? clip(output) : null,
-        })),
-      );
-    }
-    const caller: ToolCaller =
-      row.created_by === "agent" && row.creator_tab
-        ? { kind: "agent", tabId: row.creator_tab, label: `Schedule “${spec.name}”` }
-        : { kind: "user" };
-    return appTools.call(caller, task.appId, task.tool, { params: task.params, input: task.input }).pipe(
-      Effect.map((result: ToolResult): Outcome => ({
-        status: result.ok ? "ok" : "error",
-        message: result.message || (result.ok ? "Done" : `Failed (${result.status})`),
-        output: result.data === undefined ? null : clip(JSON.stringify(result.data, null, 1)),
-      })),
-      Effect.catchTag("AppToolError", (e) =>
-        Effect.succeed<Outcome>({ status: "error", message: e.message, output: null }),
-      ),
-    );
+  const perform = (row: ScheduleRow, spec: ScheduleSpec, runId: number): Effect.Effect<Outcome> => {
+    if (!promptRunner)
+      return Effect.succeed<Outcome>({ status: "error", message: "Agents aren't available", output: null });
+    const inTab = (tabId: string, opened: boolean) =>
+      Effect.gen(function* () {
+        yield* sql`UPDATE schedule_runs SET tab_id = ${tabId} WHERE id = ${runId}`;
+        if (!opened) return;
+        // A new tab: the task runs in it from now on.
+        const current = yield* rowOf(row.id);
+        if (!current) return;
+        const now = JSON.parse(current.spec) as ScheduleSpec;
+        // Not if the tab is gone already (deleted before it was recorded here), checked in the same statement.
+        yield* sql`UPDATE schedules SET spec = ${JSON.stringify({ ...now, target: { ...now.target, tabId } })},
+          updated_at = ${new Date().toISOString()}
+          WHERE id = ${row.id} AND EXISTS (SELECT 1 FROM apps WHERE id = ${tabId})`;
+        yield* changed;
+      }).pipe(Effect.orDie);
+    return promptRunner({ spec, inTab });
   };
 
   const insertRun = (row: ScheduleRow, spec: ScheduleSpec, trigger: ScheduleRun["trigger"], outcome?: Outcome) =>
     Effect.gen(function* () {
       const at = new Date().toISOString();
       const [inserted] = yield* sql<RunRow>`
-        INSERT INTO schedule_runs (schedule_id, schedule_name, trigger, status, started_at, finished_at, message, output)
-        VALUES (${row.id}, ${spec.name}, ${trigger}, ${outcome?.status ?? "running"}, ${at}, ${outcome ? at : null}, ${outcome?.message ?? ""}, ${outcome?.output ?? null})
+        INSERT INTO schedule_runs (schedule_id, schedule_name, trigger, status, started_at, finished_at, message, output, tab_id)
+        VALUES (${row.id}, ${spec.name}, ${trigger}, ${outcome?.status ?? "running"}, ${at}, ${outcome ? at : null}, ${outcome?.message ?? ""}, ${outcome?.output ?? null}, ${null})
         RETURNING *`;
       return toRun(inserted!);
     });
@@ -318,14 +262,14 @@ export const make = Effect.gen(function* () {
       running.add(row.id);
       const run = yield* insertRun(row, spec, trigger);
       yield* hub.publish({ type: "schedule-run", topic: topics.schedules, run, notify: false });
-      // The schedule as it is when the run starts: its tab may have changed while it waited for a slot (a deleted
-      // web tab's prompt opens a new one), and so may its other fields.
+      // The task as it is when the run starts: its tab may have changed while it waited for a slot (a deleted
+      // tab's task opens a new one), and so may its other fields.
       let now = spec;
       const finish = (outcome: Outcome) =>
         Effect.gen(function* () {
           running.delete(row.id);
           const [done] = yield* sql<RunRow>`
-            UPDATE schedule_runs SET status = ${outcome.status}, message = ${outcome.message.slice(0, 2000)}, output = ${outcome.output},
+            UPDATE schedule_runs SET status = ${outcome.status}, message = ${outcome.message.slice(0, 2000)}, output = ${outcome.output && clip(outcome.output)},
               finished_at = ${new Date().toISOString()}
             WHERE id = ${run.id} RETURNING *`;
           // Deleted with its schedule meanwhile.
@@ -336,7 +280,7 @@ export const make = Effect.gen(function* () {
           yield* audit.record({
             actor: "rune",
             actorLabel: "Scheduler",
-            tabId: taskTab(now.task) ?? undefined,
+            tabId: finished.tabId ?? undefined,
             action: "schedule.run",
             target: now.name,
             outcome: finished.status === "ok" ? "ok" : "error",
@@ -361,7 +305,7 @@ export const make = Effect.gen(function* () {
                     output: null,
                   });
                 now = JSON.parse(current.spec) as ScheduleSpec;
-                return perform(current, now).pipe(
+                return perform(current, now, run.id).pipe(
                   Effect.timeoutOrElse({
                     duration: now.timeoutSec * 1000,
                     orElse: () =>
@@ -396,7 +340,7 @@ export const make = Effect.gen(function* () {
       yield* sql<ScheduleRow>`SELECT * FROM schedules WHERE paused = 0 AND next_run_at IS NOT NULL AND next_run_at <= ${now.toISOString()}`;
     for (const row of due) {
       const spec = JSON.parse(row.spec) as ScheduleSpec;
-      yield* sql`UPDATE schedules SET next_run_at = ${nextRun(spec, now, true)} WHERE id = ${row.id}`;
+      yield* sql`UPDATE schedules SET next_run_at = ${nextRun(spec.trigger, now, true)} WHERE id = ${row.id}`;
       yield* execute(row, "time");
     }
     if (due.length) yield* changed;
@@ -442,7 +386,7 @@ export const make = Effect.gen(function* () {
           list.filter(
             (s) =>
               (!filter.workspaceId || s.workspaceId === filter.workspaceId) &&
-              (!filter.appId || s.task.appId === filter.appId),
+              (!filter.appId || s.target.tabId === filter.appId),
           ),
         ),
         Effect.orDie,
@@ -456,8 +400,8 @@ export const make = Effect.gen(function* () {
         if (n >= MAX_SCHEDULES)
           return yield* new ScheduleError({ status: 409, message: `There are already ${MAX_SCHEDULES} schedules` });
         const id = crypto.randomUUID().slice(0, 8);
-        yield* sql`INSERT INTO schedules (id, spec, created_by, creator_tab, next_run_at)
-          VALUES (${id}, ${JSON.stringify(spec)}, ${creator.by}, ${creator.tabId ?? null}, ${nextRun(spec, new Date())})`;
+        yield* sql`INSERT INTO schedules (id, spec, created_by, next_run_at)
+          VALUES (${id}, ${JSON.stringify(spec)}, ${creator.by}, ${nextRun(spec.trigger, new Date())})`;
         yield* changed;
         return (yield* get(id))!;
       }).pipe(Effect.catchTag("SqlError", Effect.die)),
@@ -470,7 +414,7 @@ export const make = Effect.gen(function* () {
         if (fields.spec) yield* check(spec);
         const paused = fields.paused ?? row.paused === 1;
         // A new trigger, or resuming: the next time counts from now.
-        const next = fields.spec || (row.paused === 1 && !paused) ? nextRun(spec, new Date()) : row.next_run_at;
+        const next = fields.spec || (row.paused === 1 && !paused) ? nextRun(spec.trigger, new Date()) : row.next_run_at;
         yield* sql`UPDATE schedules SET spec = ${JSON.stringify(spec)}, paused = ${paused ? 1 : 0}, next_run_at = ${next},
           updated_at = ${new Date().toISOString()} WHERE id = ${id}`;
         yield* changed;
@@ -522,7 +466,7 @@ export const make = Effect.gen(function* () {
           // A few more of a recurring one.
           let at = new Date(s.nextRunAt);
           for (let i = 0; i < 4 && s.trigger.type === "cron"; i++) {
-            const next = nextRun(s, at);
+            const next = nextRun(s.trigger, at);
             if (!next) break;
             out.push({ scheduleId: s.id, name: s.name, at: next });
             at = new Date(next);
@@ -539,38 +483,37 @@ export const make = Effect.gen(function* () {
 
     forgetApp: (appId, tab) =>
       Effect.gen(function* () {
-        const rows = yield* sql<ScheduleRow>`SELECT * FROM schedules`;
-        const gone: string[] = [];
         let kept = false;
-        for (const row of rows) {
+        for (const row of yield* sql<ScheduleRow>`SELECT * FROM schedules`) {
           const spec = JSON.parse(row.spec) as ScheduleSpec;
-          if (spec.task.appId !== appId) continue;
-          const next = specWithoutTab(spec, appId, tab);
-          if (!next) {
-            gone.push(row.id);
-            continue;
-          }
+          if (spec.target.tabId !== appId) continue;
+          const next: ScheduleSpec = { ...spec, target: targetWithoutTab(spec.target, tab) };
           yield* sql`UPDATE schedules SET spec = ${JSON.stringify(next)}, updated_at = ${new Date().toISOString()}
             WHERE id = ${row.id}`;
           kept = true;
         }
-        yield* dropSchedules(gone);
-        if (kept && !gone.length) yield* changed;
+        if (kept) yield* changed;
       }).pipe(Effect.orDie),
     forgetWorkspace: (workspaceId, appIds) =>
       Effect.gen(function* () {
-        const rows = yield* sql<ScheduleRow>`SELECT * FROM schedules`;
-        yield* dropSchedules(
-          rows
-            .filter((r) => {
-              const task = (JSON.parse(r.spec) as ScheduleSpec).task;
-              return (
-                (!!task.appId && appIds.includes(task.appId)) ||
-                (task.type === "prompt" && task.newTab?.workspaceId === workspaceId)
-              );
-            })
-            .map((r) => r.id),
-        );
+        const elsewhere = (yield* workspaces.list()).find((w) => w.id !== workspaceId);
+        let moved = false;
+        for (const row of yield* sql<ScheduleRow>`SELECT * FROM schedules`) {
+          const spec = JSON.parse(row.spec) as ScheduleSpec;
+          const tabId = spec.target.tabId;
+          const inIt = tabId ? appIds.includes(tabId) : spec.target.workspaceId === workspaceId;
+          if (!inIt) continue;
+          if (!elsewhere) {
+            yield* dropSchedules([row.id]);
+            continue;
+          }
+          const tab = tabId ? yield* apps.get(tabId) : null;
+          const target = { ...targetWithoutTab(spec.target, tab), workspaceId: elsewhere.id };
+          yield* sql`UPDATE schedules SET spec = ${JSON.stringify({ ...spec, target })}, paused = 1, next_run_at = NULL,
+            updated_at = ${new Date().toISOString()} WHERE id = ${row.id}`;
+          moved = true;
+        }
+        if (moved) yield* changed;
       }).pipe(Effect.orDie),
   } satisfies SchedulerShape;
 });

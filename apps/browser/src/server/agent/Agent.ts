@@ -409,30 +409,32 @@ export const make = Effect.gen(function* () {
 
   /**
    * A scheduled prompt: a new chat in its tab (the current one goes to the
-   * tab's earlier chats), the turn as if the user had sent it, and its reply
-   * as the run's output. Stopped if the run times out.
+   * tab's earlier chats; a new tab if it has none, or its tab is gone), the
+   * turn as if the user had sent it, with the task's agent (else the
+   * workspace's default), and its reply as the run's output. Stopped if the
+   * run times out.
    */
-  const runPrompt = ({ task, opened }: PromptRun) =>
+  const runPrompt = ({ spec, inTab }: PromptRun) =>
     Effect.gen(function* () {
       const failed = (message: string): Outcome => ({ status: "error", message, output: null });
-      let tabId = task.appId ?? null;
+      const { target } = spec;
+      const existing = target.tabId ? yield* apps.get(target.tabId) : null;
+      let tabId = existing?.id ?? null;
       if (!tabId) {
-        const space = task.newTab ? yield* workspaces.get(task.newTab.workspaceId) : null;
-        if (!space || !task.newTab) return failed("The workspace is gone");
-        const app = yield* apps.create(
-          space.id,
-          task.newTab.kind,
-          task.newTab.kind === "web" ? (task.newTab.url ?? null) : null,
-        );
+        const space = yield* workspaces.get(target.workspaceId);
+        if (!space) return failed("The workspace is gone");
+        const app = yield* apps.create(space.id, target.kind, target.kind === "web" ? target.url : null);
         yield* projects.publish(app);
-        yield* opened(app.id);
         tabId = app.id;
       }
       const id = tabId;
+      yield* inTab(id, !existing);
       if (yield* FiberMap.has(running, id)) return failed("The agent was busy in this tab");
+      const defaults = (yield* workspaces.ofApp(id))?.settings.agent ?? (yield* settings.get()).agent;
+      const agent = spec.agent ?? { provider: defaults.provider, model: defaults.model, effort: defaults.effort };
       yield* apps.newChat(id);
       yield* emit(id, { type: "new-chat" });
-      const started = yield* start(id, { prompt: task.prompt }).pipe(Effect.result);
+      const started = yield* start(id, { prompt: spec.prompt, agent }).pipe(Effect.result);
       if (started._tag === "Failure") return failed(started.failure.message);
       const fiber = yield* FiberMap.get(running, id);
       if (Option.isSome(fiber))

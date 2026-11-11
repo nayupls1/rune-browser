@@ -1,6 +1,7 @@
 import * as stylex from "@stylexjs/stylex";
 import { createEffect, createSignal, For, on, Show, type JSX } from "solid-js";
 import { addAttachments, attachmentsOf, attachmentUrl, removeAttachment, uploadingCount } from "../lib/attachments";
+import { schedulableRequest, scheduleChat } from "../lib/schedules";
 import { addShare, refusal, removeShare, sharesOf, type ShareRef } from "../lib/sharing";
 import { appById, apps, setAgentChoice, states } from "../lib/store";
 import { colors, font, radius, space } from "../theme.stylex";
@@ -113,7 +114,19 @@ export function Composer(props: {
   const canSend = () => (!!value().trim() || attachmentsOf(props.appId).length > 0) && !busyUploading();
   const hasFiles = () => attachmentsOf(props.appId).length > 0 || busyUploading();
 
+  // Slash commands: /schedule turns a chat with one request and one reply into a scheduled task.
+  const slashTyped = () => /^\/[a-z]*$/i.test(value()) && "/schedule".startsWith(value().toLowerCase());
+  const canSchedule = () => schedulableRequest(props.appId) !== null;
+  const cannotSchedule = () => !canSchedule();
+  const runSlash = () => {
+    if (!scheduleChat(props.appId))
+      return void toast({ message: "/schedule works in a chat with one request and one reply", kind: "error" });
+    setValue("");
+    queueMicrotask(resize);
+  };
+
   const send = () => {
+    if (value().trim().toLowerCase() === "/schedule" && !attachmentsOf(props.appId).length) return runSlash();
     const prompt = value().trim() || (attachmentsOf(props.appId).length ? "Look at the attached files." : "");
     if (!prompt || props.running || busyUploading()) return;
     props.onSend(prompt);
@@ -241,6 +254,27 @@ export function Composer(props: {
             </For>
           </div>
         </Show>
+        <Show when={slashTyped() && !mention()}>
+          <div role="listbox" {...stylex.attrs(styles.mentions)} data-slash-commands>
+            <div {...stylex.attrs(styles.mentionsTitle)}>Commands</div>
+            <button
+              type="button"
+              role="option"
+              aria-selected="true"
+              aria-disabled={cannotSchedule()}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={runSlash}
+              {...stylex.attrs(styles.mention, styles.mentionActive, cannotSchedule() && styles.mentionOff)}
+              data-slash-command="schedule"
+            >
+              <Icon name="calendar-clock" size={14} />
+              <span {...stylex.attrs(styles.shareLabel)}>/schedule</span>
+              <span {...stylex.attrs(styles.mentionKind)}>
+                {canSchedule() ? "Repeat this request on a schedule" : "In a chat with one request and one reply"}
+              </span>
+            </button>
+          </div>
+        </Show>
         <textarea
           ref={(el) => {
             textarea = el;
@@ -278,6 +312,17 @@ export function Composer(props: {
               if (e.key === "Escape") {
                 e.preventDefault();
                 setMention(null);
+                return;
+              }
+            }
+            if (slashTyped() && !e.isComposing) {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                return runSlash();
+              }
+              if (e.key === "Tab") {
+                e.preventDefault();
+                setValue("/schedule");
                 return;
               }
             }
