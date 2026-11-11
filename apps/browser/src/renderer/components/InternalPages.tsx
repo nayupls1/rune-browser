@@ -2,19 +2,31 @@
 // rune://flags and rune://rune-urls (the list of them all, with Chromium's pages
 // and how each fares here). Shown in Settings (components/SettingsPage.tsx).
 import * as stylex from "@stylexjs/stylex";
-import { createMemo, createResource, createSignal, For, Show, type JSX } from "solid-js";
+import { createMemo, createResource, createSignal, For, onCleanup, Show, type JSX } from "solid-js";
+import { PRIVATE_WORKSPACE } from "../../shared/api";
 import { flagsFor, type FlagsInfo } from "../../shared/flags";
 import {
   chromiumPages,
   flattenGpuInfo,
+  formatCpu,
+  formatMemory,
   gpuFeatureRows,
   internalPages,
+  sortProcesses,
+  taskLabel,
   type ParityStatus,
+  type ProcessInfo,
+  type TaskInfo,
+  type TaskKind,
+  type TaskSortKey,
 } from "../../shared/internalPages";
 import { api } from "../lib/api";
 import { openInternalPage } from "../lib/internalPages";
+import { appById, workspaces } from "../lib/store";
+import { tabOfContents } from "../lib/webtabs";
 import { colors, font, radius, space } from "../theme.stylex";
 import { Icon } from "./Icon";
+import { TabIcon } from "./TabIcon";
 import { toast } from "./Toast";
 import { Button, Input, Select } from "./ui";
 
@@ -260,6 +272,171 @@ export function FlagsPage() {
   );
 }
 
+/** How often rune://task-manager asks again, like Chrome's task manager. */
+const TASK_MANAGER_REFRESH_MS = 1500;
+
+const kindIcons: Record<TaskKind, string> = {
+  browser: "app-window",
+  gpu: "cpu",
+  utility: "cog",
+  window: "panels-top-left",
+  tab: "globe",
+  extension: "puzzle",
+  devtools: "square-terminal",
+  page: "file",
+  other: "box",
+};
+
+const sortColumns: { key: TaskSortKey; label: string }[] = [
+  { key: "task", label: "Task" },
+  { key: "memory", label: "Memory footprint" },
+  { key: "cpu", label: "CPU" },
+  { key: "pid", label: "Process ID" },
+];
+
+/** rune://task-manager (Shift+Esc) */
+export function TaskManagerPage() {
+  const [list, setList] = createSignal<ProcessInfo[] | null>(null);
+  const [sort, setSort] = createSignal<{ key: TaskSortKey; descending: boolean }>({ key: "task", descending: false });
+  const [selected, setSelected] = createSignal<number | null>(null);
+  const refresh = () =>
+    void window.rune.internals
+      .processes()
+      .then((next) => setList(next ?? []))
+      .catch(() => {});
+  refresh();
+  const timer = setInterval(refresh, TASK_MANAGER_REFRESH_MS);
+  onCleanup(() => clearInterval(timer));
+
+  const rows = createMemo(() => sortProcesses(list() ?? [], sort().key, sort().descending));
+  const picked = () => rows().find((p) => p.pid === selected());
+  const canEnd = () => !!picked()?.canEnd;
+  const sortBy = (key: TaskSortKey) =>
+    setSort((s) => ({ key, descending: s.key === key ? !s.descending : key !== "task" && key !== "pid" }));
+  const end = async () => {
+    const target = picked();
+    if (!target?.canEnd) return;
+    const ok = await window.rune.internals.endProcess(target.pid).catch(() => false);
+    if (!ok) toast({ message: "Couldn't end that process", kind: "error" });
+    setSelected(null);
+    refresh();
+  };
+  const total = () => (list() ?? []).reduce((sum, p) => sum + p.memory, 0);
+
+  return (
+    <Page
+      id="task-manager"
+      title="Task manager"
+      url="rune://task-manager"
+      actions={
+        <Button variant="danger" disabled={!canEnd()} onClick={() => void end()} data-task-end>
+          End process
+        </Button>
+      }
+    >
+      <Show when={list()} fallback={<p {...stylex.attrs(styles.muted)}>Loading…</p>}>
+        <div {...stylex.attrs(styles.tasks)} role="grid" aria-label="Processes">
+          <div {...stylex.attrs(styles.taskRow, styles.taskHead)} role="row">
+            <For each={sortColumns}>
+              {(column) => {
+                const active = () => sort().key === column.key;
+                const numeric = () => column.key !== "task";
+                return (
+                  <button
+                    type="button"
+                    role="columnheader"
+                    aria-sort={active() ? (sort().descending ? "descending" : "ascending") : "none"}
+                    {...stylex.attrs(styles.sortButton, numeric() && styles.numeric, active() && styles.sortActive)}
+                    onClick={() => sortBy(column.key)}
+                    data-task-sort={column.key}
+                  >
+                    {column.label}
+                    <Show when={active()}>
+                      <Icon name={sort().descending ? "chevron-down" : "chevron-up"} size={12} />
+                    </Show>
+                  </button>
+                );
+              }}
+            </For>
+          </div>
+          <For each={rows()}>
+            {(proc) => {
+              const isSelected = () => selected() === proc.pid;
+              return (
+                <div
+                  role="row"
+                  aria-selected={isSelected()}
+                  tabIndex={0}
+                  {...stylex.attrs(styles.taskRow, styles.taskBody, isSelected() && styles.taskSelected)}
+                  onClick={() => setSelected(isSelected() ? null : proc.pid)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setSelected(isSelected() ? null : proc.pid);
+                    }
+                  }}
+                  data-task-pid={proc.pid}
+                  data-task-kind={proc.kind}
+                  data-task-can-end={proc.canEnd ? "" : undefined}
+                >
+                  <div {...stylex.attrs(styles.taskNames)} role="gridcell">
+                    <For each={proc.tasks}>{(task) => <TaskName task={task} />}</For>
+                  </div>
+                  <span {...stylex.attrs(styles.numeric, styles.mono)} role="gridcell" data-task-memory>
+                    {formatMemory(proc.memory)}
+                  </span>
+                  <span {...stylex.attrs(styles.numeric, styles.mono)} role="gridcell" data-task-cpu>
+                    {formatCpu(proc.cpu)}
+                  </span>
+                  <span {...stylex.attrs(styles.numeric, styles.mono)} role="gridcell">
+                    {proc.pid}
+                  </span>
+                </div>
+              );
+            }}
+          </For>
+        </div>
+        <p {...stylex.attrs(styles.muted)}>
+          {rows().length} processes, {formatMemory(total())} in all. Ending a tab's process closes every tab it runs:
+          they show that they crashed, and come back when reloaded.
+        </p>
+      </Show>
+    </Page>
+  );
+}
+
+/** A task's icon and name: a web tab as the sidebar shows it (if it's in this window), with its workspace. */
+function TaskName(props: { task: TaskInfo }) {
+  const tab = () => {
+    const id = props.task.contentsId === undefined ? undefined : tabOfContents(props.task.contentsId);
+    return id ? appById(id) : undefined;
+  };
+  const label = () =>
+    tab() ? taskLabel({ ...props.task, title: tab()!.name || props.task.title }) : taskLabel(props.task);
+  const workspace = () => {
+    const id = props.task.workspaceId;
+    if (!id) return "";
+    if (id === PRIVATE_WORKSPACE) return "Private";
+    return workspaces.find((w) => w.id === id)?.name ?? "";
+  };
+  return (
+    <span {...stylex.attrs(styles.taskName)} data-task-title={props.task.title}>
+      <Show
+        when={props.task.kind === "tab"}
+        fallback={<Icon name={kindIcons[props.task.kind]} size={14} {...stylex.attrs(styles.taskIcon)} />}
+      >
+        <TabIcon tab={tab() ?? { icon: null, favicon: props.task.favicon ?? null, url: props.task.url }} size={14} />
+      </Show>
+      <span {...stylex.attrs(styles.taskLabel)}>{label()}</span>
+      <Show when={workspace()}>
+        <span {...stylex.attrs(styles.muted, styles.taskWorkspace)} data-task-workspace>
+          {workspace()}
+        </span>
+      </Show>
+    </span>
+  );
+}
+
 const platformNames: Record<string, string> = { linux: "Linux", darwin: "Mac", win32: "Windows" };
 
 const statusLabels: Record<ParityStatus, string> = {
@@ -322,6 +499,56 @@ export function RuneUrlsPage() {
 }
 
 const styles = stylex.create({
+  tasks: {
+    display: "flex",
+    flexDirection: "column",
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    overflow: "hidden",
+    fontSize: font.sm,
+  },
+  taskRow: {
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 1fr) 150px 70px 90px",
+    alignItems: "center",
+    columnGap: space.md,
+    paddingInline: space.lg,
+    borderBottomWidth: 1,
+    borderBottomStyle: "solid",
+    borderBottomColor: { default: colors.border, ":last-child": "transparent" },
+  },
+  taskHead: { paddingBlock: space.xs, color: colors.muted, fontWeight: 600 },
+  taskBody: {
+    paddingBlock: space.sm,
+    cursor: "default",
+    outline: "none",
+    backgroundColor: { default: "transparent", ":hover": colors.surfaceHover, ":focus-visible": colors.surfaceHover },
+  },
+  taskSelected: { backgroundColor: { default: colors.accentSoft, ":hover": colors.accentSoft } },
+  sortButton: {
+    display: "flex",
+    alignItems: "center",
+    gap: 4,
+    paddingBlock: space.xs,
+    paddingInline: 0,
+    borderWidth: 0,
+    backgroundColor: "transparent",
+    color: "inherit",
+    fontFamily: "inherit",
+    fontSize: "inherit",
+    fontWeight: "inherit",
+    cursor: "pointer",
+  },
+  sortActive: { color: colors.text },
+  numeric: { justifyContent: "flex-end", textAlign: "right" },
+  taskNames: { display: "flex", flexDirection: "column", gap: 4, minWidth: 0 },
+  taskName: { display: "flex", alignItems: "center", gap: space.sm, minWidth: 0 },
+  taskIcon: { color: colors.muted, flexShrink: 0 },
+  taskLabel: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 },
+  taskWorkspace: { flexShrink: 0 },
   page: {
     maxWidth: 900,
     marginInline: "auto",

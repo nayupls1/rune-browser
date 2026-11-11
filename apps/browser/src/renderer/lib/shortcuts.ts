@@ -35,6 +35,7 @@ import {
   selectedId,
   setTabPinned,
   showWorkspace,
+  TASK_MANAGER_VIEW,
   toggleAgent,
   workspaces,
   workspaceTabs,
@@ -220,6 +221,7 @@ const actions: Record<string, Action> = {
   "open.settings": { run: () => openSettings() },
   "open.extensions": { run: () => openSettings("extensions") },
   "open.shortcuts": { run: () => openSettings("shortcuts") },
+  "open.task-manager": { run: () => selectApp(TASK_MANAGER_VIEW) },
 
   "app.command-bar": { run: () => openCommandBar() },
   // Private windows have no agents or workspaces.

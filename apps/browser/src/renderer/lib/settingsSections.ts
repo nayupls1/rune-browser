@@ -14,6 +14,7 @@ import {
   MODS_VIEW,
   SCHEDULES_VIEW,
   SNAPSHOTS_VIEW,
+  TASK_MANAGER_VIEW,
   URLS_VIEW,
   VERSION_VIEW,
 } from "./store";
@@ -249,6 +250,14 @@ export const settingsSections: SettingsSection[] = [
     view: FLAGS_VIEW,
     group: "internal",
     keywords: "rune://flags experiments chromium",
+  },
+  {
+    id: "task-manager",
+    label: "Task manager",
+    icon: "activity",
+    view: TASK_MANAGER_VIEW,
+    group: "internal",
+    keywords: "rune://task-manager processes memory cpu end process",
   },
   {
     id: "rune-urls",

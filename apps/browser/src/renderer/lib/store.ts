@@ -20,7 +20,7 @@ import type {
 } from "../../shared/api";
 import type { WorkspaceSettings } from "../../shared/settings";
 import { topics } from "../../shared/hub";
-import { FLAGS_VIEW, GPU_VIEW, URLS_VIEW, VERSION_VIEW } from "../../shared/internalPages";
+import { FLAGS_VIEW, GPU_VIEW, TASK_MANAGER_VIEW, URLS_VIEW, VERSION_VIEW } from "../../shared/internalPages";
 import { PRIVATE_WORKSPACE } from "../../shared/api";
 import { api } from "./api";
 import { attachmentsOf, clearAttachments } from "./attachments";
@@ -51,8 +51,8 @@ export const SNAPSHOTS_VIEW = "snapshots";
 export const SCHEDULES_VIEW = "schedules";
 export const MODS_VIEW = "mods";
 export const BOOKMARKS_VIEW = "bookmarks";
-/** rune://version, rune://gpu, rune://flags and rune://rune-urls (shared/internalPages.ts). */
-export { FLAGS_VIEW, GPU_VIEW, URLS_VIEW, VERSION_VIEW };
+/** rune://version, rune://gpu, rune://flags, rune://task-manager and rune://rune-urls (shared/internalPages.ts). */
+export { FLAGS_VIEW, GPU_VIEW, TASK_MANAGER_VIEW, URLS_VIEW, VERSION_VIEW };
 export const DOWNLOADS_VIEW = "downloads";
 const settingsViews = [
   SETTINGS_VIEW,
@@ -65,6 +65,7 @@ const settingsViews = [
   VERSION_VIEW,
   GPU_VIEW,
   FLAGS_VIEW,
+  TASK_MANAGER_VIEW,
   URLS_VIEW,
   DOWNLOADS_VIEW,
 ];
@@ -374,6 +375,11 @@ export async function loadApps() {
   // A new window (Ctrl+N) starts with a new tab; the first one at launch does what On startup says (App.tsx).
   const intent = await window.rune.window.takeIntent().catch(() => null);
   if (intent === "new-tab") await newWebTab();
+  // "Open link in new window": the link's tab, in the workspace of the page it was on (if this window has it).
+  else if (intent && typeof intent === "object")
+    await newWebTab(intent.url, {
+      workspaceId: workspaces.some((w) => w.id === intent.workspaceId) ? intent.workspaceId : undefined,
+    });
   return intent;
 }
 

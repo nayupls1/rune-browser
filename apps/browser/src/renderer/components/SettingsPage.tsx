@@ -33,6 +33,7 @@ import {
   BOOKMARKS_VIEW,
   FLAGS_VIEW,
   GPU_VIEW,
+  TASK_MANAGER_VIEW,
   URLS_VIEW,
   VERSION_VIEW,
   appById,
@@ -56,7 +57,7 @@ import {
 } from "../lib/store";
 import { settingsSections, type SettingsSection } from "../lib/settingsSections";
 import { ActivityPage } from "./ActivityPage";
-import { FlagsPage, GpuPage, RuneUrlsPage, VersionPage } from "./InternalPages";
+import { FlagsPage, GpuPage, RuneUrlsPage, TaskManagerPage, VersionPage } from "./InternalPages";
 import { internalUrlOfView, openInternalPage } from "../lib/internalPages";
 import { registerChrome, type TabChrome } from "../lib/tabChrome";
 import { ShortcutSettings } from "./ShortcutSettings";
@@ -353,6 +354,9 @@ export function SettingsShell(props: { view: string }) {
             </Match>
             <Match when={props.view === FLAGS_VIEW}>
               <FlagsPage />
+            </Match>
+            <Match when={props.view === TASK_MANAGER_VIEW}>
+              <TaskManagerPage />
             </Match>
             <Match when={props.view === URLS_VIEW}>
               <RuneUrlsPage />
@@ -869,7 +873,7 @@ function AboutSection() {
           </dd>
           <dt {...stylex.attrs(styles.dt)}>Internal pages</dt>
           <dd {...stylex.attrs(styles.dd, styles.internalLinks)}>
-            <For each={["rune://version", "rune://gpu", "rune://flags", "rune://rune-urls"]}>
+            <For each={["rune://version", "rune://gpu", "rune://flags", "rune://task-manager", "rune://rune-urls"]}>
               {(url) => (
                 <button
                   type="button"

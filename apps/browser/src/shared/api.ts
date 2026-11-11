@@ -15,7 +15,7 @@ import type {
   InstallResult,
 } from "./extensions";
 import type { FlagsInfo } from "./flags";
-import type { GpuReport, VersionInfo } from "./internalPages";
+import type { GpuReport, ProcessInfo, VersionInfo } from "./internalPages";
 import type { WorkspaceSettings } from "./settings";
 import type { TabHistory } from "./tabHistory";
 import type {
@@ -27,6 +27,7 @@ import type {
   SystemPermissionNotice,
 } from "./sitePermissions";
 import type { UpdateChannel, UpdateInfo } from "./updates";
+import type { WindowIntent } from "./windows";
 import type { DownloadAction, DownloadInfo, DownloadsChange } from "./downloads";
 
 export interface HealthResponse {
@@ -81,7 +82,7 @@ export interface RuneBridge {
     id: string;
     private: boolean;
     /** What this window was opened for, asked once when it starts: a new tab (Ctrl+N), or nothing (its tabs are there). */
-    takeIntent: () => Promise<"new-tab" | "startup" | null>;
+    takeIntent: () => Promise<WindowIntent>;
     /** Opens a window: with these tabs moved into it (dragged out, "Move to new window"), else with a new tab. */
     open: (options?: { private?: boolean; tabIds?: string[]; at?: { x: number; y: number } }) => Promise<string | null>;
     /** The other open windows (not private ones from a normal window, nor the other way around), to move tabs to. */
@@ -129,6 +130,10 @@ export interface RuneBridge {
     /** Sets a flag ("default" resets it); takes effect after a relaunch. */
     setFlag: (id: string, value: string) => Promise<FlagsInfo>;
     resetFlags: () => Promise<FlagsInfo>;
+    /** rune://task-manager: every process with its memory and CPU (main/taskManager.ts). */
+    processes: () => Promise<ProcessInfo[]>;
+    /** Ends a process that runs web tabs; false if it isn't one. */
+    endProcess: (pid: number) => Promise<boolean>;
   };
   /** Updates of Rune Browser itself (main/updates.ts). */
   updates: {
@@ -277,6 +282,11 @@ export interface RuneBridge {
      * none when they're off or it mustn't be sent. A newer call cancels the one before it ([]).
      */
     searchSuggestions: (query: string) => Promise<string[]>;
+    /**
+     * The e2e checks only (offscreen, where a page's right-click menu isn't shown): the last menu's items, or
+     * clicks the one with this label (null if it is disabled). Rejects when not offscreen.
+     */
+    testContextMenu: (click?: string) => Promise<{ label: string; enabled: boolean; checked?: boolean }[] | null>;
     /** Headless tabs: pages the website agent loads in the background (main/headless.ts). */
     headless: {
       open: (request: HeadlessOpenRequest) => Promise<HeadlessPage>;

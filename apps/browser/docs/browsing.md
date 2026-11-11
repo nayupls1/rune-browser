@@ -94,11 +94,21 @@ title of its last 50 pages around the current one (`shared/tabHistory.ts`, saved
 forms) beyond what tab unloading keeps. Private windows save none.
 
 **The page's menu** (right click, `main/contextMenu.ts`) has Chromium's items for what was clicked: a link (open in a new
-tab, save, copy its address or text), an image, video or audio (open, save, copy it or its address), a field (spelling
+tab, a new window or a private window, save, copy its address or text), an image (open, save, copy it or its address),
+a video or audio (Loop and Show controls, checked as the element is; open, save, copy its address; a video's frame and
+Picture in picture), a field (spelling
 suggestions and Add to dictionary, undo, redo, cut, copy, paste, paste as plain text, emoji where the system has a
 picker), selected text (copy, search for it with the search engine from Settings, or go to it when it's an address,
 print) or else the page (back, forward, reload, save, print, view source). Extensions' items come after, and Inspect
-last.
+last. Loop, Show controls and Picture in picture run a fixed script in the frame that was clicked, on the element at the
+click (in a subframe, on the one playing the clicked address, or the frame's only one): nothing in it comes from the page
+but the address, quoted.
+
+**The task manager** (Shift+Esc, rune://task-manager, `main/taskManager.ts`) lists Rune Browser's processes like Chrome's:
+the browser, the GPU, utilities (the network service…), each window, each tab (its icon, title and workspace), extension
+pages and, on Linux, service workers (an extension's by its name), with their memory footprint (private memory on
+Windows, the working set elsewhere), CPU and process ID. It refreshes every 1.5 seconds and sorts by any column. "End
+process" ends a process that runs only web tabs; they show that they crashed. Only Rune Browser's window can ask.
 
 **Internal pages** have rune:// addresses (chrome:// ones open them): see [Chromium parity](chromium-parity.md).
 
@@ -442,7 +452,8 @@ The rest of Chromium (settings, internal pages, everyday behavior) is in [Chromi
 | New window (Ctrl+N), private window (Ctrl+Shift+N)                                                 | Same (see [Windows](interface.md#windows))                                   |
 | Open file (Ctrl+O)                                                                                 | Same: the files open in new tabs (what can't be shown is downloaded)         |
 | Clear browsing data (Ctrl+Shift+Delete, macOS Cmd+Shift+Backspace)                                 | Same: Settings → Privacy and security → Clear browsing data                  |
-| Task manager (Shift+Esc), caret browsing (F7)                                                      | Not yet                                                                      |
+| Task manager (Shift+Esc; macOS has no keys for it)                                                 | Same: rune://task-manager                                                    |
+| Caret browsing (F7)                                                                                | Not yet: Electron has no way to turn it on in a running tab                  |
 | Home (Alt+Home), menu (Alt+F, F10), focus toolbar (Alt+Shift+T)                                    | Not applicable: no home page; the ⋯ menu has no shortcut                     |
 
 Rune Browser's own: the command bar (Ctrl+K), the agent (Ctrl+I; Ctrl+J is Chromium's downloads), the sidebar (Ctrl+Shift+B), workspaces 1–9
