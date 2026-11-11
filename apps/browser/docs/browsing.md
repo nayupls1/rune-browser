@@ -115,7 +115,9 @@ Browser's own settings (`components/BrowserSettings.tsx`, `shared/browser.ts`). 
 settings; cookies and site data stay per workspace. The renderer sends them to the main process whenever they change
 (`main/browser.ts`), which puts them into effect in web tabs:
 
-- **Privacy and security:** the warning before insecure sites; block third-party cookies; send Do Not Track.
+- **Privacy and security:** the warning before insecure sites; the search engine's suggestions in the address bar
+  (on by default, like Chrome's "Autocomplete searches and URLs"; see [Search suggestions](#search-suggestions)); block
+  third-party cookies; send Do Not Track.
 - **Clear browsing data** (Ctrl+Shift+Delete, macOS Cmd+Shift+Backspace; rune://settings/clearBrowserData): browsing
   history, download history (the files stay), cookies and other site data, and the cache, for the last hour, 24
   hours, 7 days, 4 weeks or all time, of this workspace or all of them. Extensions keep their data, like in Chrome.
@@ -128,7 +130,8 @@ settings; cookies and site data stay per workspace. The renderer sends them to t
   host without `www.` and covers its subdomains; the most specific one wins. "All sites" lists the sites with their own
   settings, zoom or cookies, and each site's page has its settings, zoom and a button that deletes its cookies and data.
   The icon at the start of a web tab's address (its lock or globe) has the same for the site on screen.
-- **Search engine:** DuckDuckGo, Google, Bing, Brave Search, Kagi, Ecosia, Startpage, or your own URL with `%s`.
+- **Search engine:** DuckDuckGo, Google, Bing, Brave Search, Kagi, Ecosia, Startpage, or your own URL with `%s` (and,
+  if you like, its suggestions URL).
 - **Default browser:** see above.
 - **On startup:** continue where you left off, a new tab, or specific pages (a tab already showing one is reused).
 - **Fonts and zoom:** font size, the four font families, the minimum size; the default page zoom (what Ctrl+0 goes
@@ -196,6 +199,32 @@ Sites can ask for the permissions above, and you decide, like in Chrome (`shared
 - **Limits:** device pickers (USB, HID, serial, Bluetooth) aren't supported, and those requests are refused. Uses in
   frames of other sites, which the script can't reach, show as in use until the page goes away; stopping one reloads
   the page.
+
+## Search suggestions
+
+As you type in the address bar, it shows the search engine's own suggestions too, like Chrome's: after the open tabs,
+bookmarks and pages from history that match, each with a magnifier; Enter (or a click) on one searches for it, and the
+arrow keys reach them like the other rows. Every engine Settings offers has its suggestions URL (all of them answer
+with OpenSearch JSON, `[query, [suggestion…]]`; `searchEngines` in `shared/browser.ts`); a custom engine has an
+optional suggestions URL with `%s`. Settings → Privacy and security → Address bar turns them off.
+
+- **Fetched by the main process** (`main/searchSuggestions.ts`), never by the renderer or a page: only Rune Browser's
+  own windows may ask (`rune:search-suggestions`, checked with `windows.isUi`), and the engine is the one in the
+  settings, not one the asker names. The address bar asks after a short pause in typing, a newer request from the
+  window cancels the one before it, each one gives up after 1.5 seconds, and at most five suggestions are shown.
+- **Without your logins:** requests go through a session of their own, in memory, that sends and keeps no cookies, no
+  `Authorization` and no cache, with a plain Chrome user agent and no referrer.
+- **Read defensively:** the answer, untrusted, is read up to 64 KB and parsed by `parseSuggestions`
+  (`shared/searchSuggestions.ts`): only strings, on one line, without control or bidi override characters, none
+  twice nor what's typed. Anything else is no suggestions.
+- **What's never sent** (`maySuggestFor`, checked in the renderer and again in the main process): anything with a scheme
+  (`https://…` too, like an address with a token in it, and `rune://`, `file://`, `chrome://`, `javascript:`…),
+  credentials (`user:pass@host`, pasted with or without a scheme) and email addresses, file paths, local and intranet
+  addresses (localhost, IP addresses, `.local`, `.internal`, `.corp`…, a name with a port), an address with a path,
+  query or fragment, and one long word that could be a key or a token. Words and plain site names ("example.com") are
+  sent. That's stricter than Chrome, which sends http:// addresses.
+- **Private windows** get them too, like Chrome's incognito windows: the session they go through has nothing that ties
+  them to you, and what's typed would go to the same engine on Enter anyway.
 
 ## Browsing history
 
