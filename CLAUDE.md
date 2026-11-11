@@ -1,6 +1,6 @@
 # Rune Browser
 
-Electron + SolidJS (StyleX) desktop app; Bun server written with Effect v4 (SQLite; Claude Code, Codex, OpenCode as agents). See [apps/browser/docs/](apps/browser/docs/) for the architecture and concepts, [releasing.md](apps/browser/docs/releasing.md) for releases.
+Electron + SolidJS (StyleX) desktop browser with an agent; Bun server written with Effect v4 (SQLite; Claude Code, Codex, OpenCode as the agent's providers). See [apps/browser/docs/](apps/browser/docs/) for the architecture and concepts, [releasing.md](apps/browser/docs/releasing.md) for releases.
 
 ## The repository
 
@@ -26,9 +26,9 @@ Run commands from the repo's root: `bun run check`, `typecheck`, `test` and `bui
 
 - Auth is always the user's own logins (Claude subscription, Codex/ChatGPT, OpenCode). Never add an API-key path; `ANTHROPIC_API_KEY` is stripped from Claude's environment on purpose.
 - Don't show the user's account email anywhere in the UI. The plan type ("Claude Pro") is fine.
-- Secret values never reach agents, prompts, logs, process arguments or the API's responses (see apps/browser/docs/concepts.md: Secrets). Agent processes get the environment via `agentEnv()` (no `RUNE_*`); app processes get exactly what the Runtime/Sandbox give them.
-- New capabilities that let an app or agent reach beyond its sandbox go through `Permissions.ask` and are recorded with `Audit.record`.
-- Untrusted input never reaches a provider that has tools of its own. This covers web pages (the website agent) and apps' AI requests: they run with `access: "none"`, where every provider has its file, shell, web and connector tools switched off.
+- Agent processes get the environment via `agentEnv()` (no `RUNE_*`), so they can't call Rune Browser's API around its checks. Credentials an agent works with (cookies, tokens in captured requests) stay redacted or sealed in the main process.
+- New capabilities that let the agent reach beyond its tab go through `Permissions.ask` and are recorded with `Audit.record`.
+- Web pages are untrusted input, so the agent never gets a provider's own tools: every provider runs with its file, shell, web and connector tools switched off, and only Rune Browser's MCP tools (`src/server/agent/tools.ts` and its neighbours) are there.
 
 ## Development
 
@@ -50,6 +50,5 @@ Run commands from the repo's root: `bun run check`, `typecheck`, `test` and `bui
 - Server code is Effect v4 (`effect@4`, `effect/http`, `effect/sql`):
   - Services are `Context.Service` + `Layer`, wired in `src/server/services.ts`.
   - v4 names differ from v3 (e.g. `Effect.catch`, `Effect.forkDetach`, `Schema.optionalKey`); check `node_modules/effect` when unsure.
-- Naming: a _workspace_ (`db/Workspaces.ts`, `WorkspaceInfo`) groups tabs; `workspace/Workspace.ts` is an app's project folder. New per-tab features should consider which workspace they belong to (secrets, permissions and the audit log are scoped by it).
-- Presets live in `src/server/workspace/presets.ts`, with their files in `templates/` (`*.tpl`, imported as text so they're bundled into the compiled server).
-- Rune Browser's agent tools are in `src/server/agent/tools.ts`. They're served over MCP, and their input schemas must be object schemas: one bad schema makes clients drop every tool.
+- Naming: a _workspace_ (`db/Workspaces.ts`, `WorkspaceInfo`) groups tabs. New per-tab features should consider which workspace they belong to (web sessions, permissions and the audit log are scoped by it). Tabs are still stored in the `apps` table (`db/Apps.ts`, `AppSummary`), from when tabs could be apps.
+- Rune Browser's agent tools are in `src/server/agent/` (`tools.ts` and the `*Tools.ts` next to it). They're served over MCP, and their input schemas must be object schemas: one bad schema makes clients drop every tool.

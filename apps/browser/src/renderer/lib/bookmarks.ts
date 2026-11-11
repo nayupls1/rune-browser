@@ -109,7 +109,7 @@ export function faviconFor(url: string | undefined) {
       return false;
     }
   };
-  return apps.find((a) => a.kind === "web" && a.favicon && same(a.url))?.favicon ?? null;
+  return apps.find((a) => a.favicon && same(a.url))?.favicon ?? null;
 }
 
 // --- Changes -----------------------------------------------------------------------------
@@ -193,7 +193,7 @@ async function bookmarkTabNow(tabId: string) {
 export const bookmarkAllTabs = () => bookmarkAllTabsNow().catch(failed);
 
 async function bookmarkAllTabsNow() {
-  const tabs = workspaceTabs().filter((t) => t.kind === "web" && canBookmark(t.url));
+  const tabs = workspaceTabs().filter((t) => canBookmark(t.url));
   if (!tabs.length) return;
   const date = new Date().toLocaleDateString(undefined, { month: "short", day: "numeric" });
   const made = await addBookmark({ title: `${currentWorkspace()?.name ?? "Tabs"} · ${date}`, parentId: lastFolder() });

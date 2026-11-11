@@ -34,7 +34,6 @@ import { colors, font, radius, space } from "../theme.stylex";
 import { ContextMenu, type MenuItem, type MenuPosition } from "./ContextMenu";
 import { FileCards, FileLink, FileMention } from "./FileChip";
 import { Icon } from "./Icon";
-import { SecretRequestCard } from "./Secrets";
 import { toast } from "./Toast";
 
 const timeOf = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -57,15 +56,15 @@ const kindIcons: Record<ToolKind, string> = {
   network: "network",
   plan: "list-todo",
   agent: "bot",
-  app: "app-window",
   customize: "paintbrush",
-  schedule: "calendar-clock",
   snapshot: "rotate-ccw-clock",
-  secret: "key-round",
   source: "folder-git-2",
   tab: "layers",
   other: "wrench",
 };
+
+/** Kinds older chats may have that are gone (they show as other tools). */
+const kindIcon = (kind: ToolKind) => kindIcons[kind] ?? kindIcons.other;
 
 /** A title with its `code` spans set in monospace. */
 function InlineCode(props: { text: string }) {
@@ -227,7 +226,7 @@ function WorkGroup(props: { appId: string; entries: WorkEntry[]; live: boolean }
   const failed = () => props.entries.filter((e) => e.activity.failed).length;
   const icon = () => {
     const kinds = new Set(props.entries.map((e) => e.activity.kind));
-    return kinds.size === 1 ? kindIcons[props.entries[0]!.activity.kind] : "layers";
+    return kinds.size === 1 ? kindIcon(props.entries[0]!.activity.kind) : "layers";
   };
   const single = () => props.entries.length === 1;
   return (
@@ -298,7 +297,7 @@ function WorkRow(props: { appId: string; activity: ToolActivity; latest?: boolea
         <span {...stylex.attrs(styles.rowIcon, failed() && styles.rowIconFailed)}>
           <Show
             when={latest()}
-            fallback={<Icon name={failed() ? "circle-alert" : kindIcons[props.activity.kind]} size={14} />}
+            fallback={<Icon name={failed() ? "circle-alert" : kindIcon(props.activity.kind)} size={14} />}
           >
             <span {...stylex.attrs(styles.latestDot)} data-latest-step />
           </Show>
@@ -356,9 +355,6 @@ function Message(props: { appId: string; message: ChatMessage }) {
       </Match>
       <Match when={props.message.role === "files"}>
         <ShownFiles appId={props.appId} content={props.message.content} />
-      </Match>
-      <Match when={props.message.role === "secret"}>
-        <SecretRequestCard appId={props.appId} content={props.message.content} />
       </Match>
     </Switch>
   );
@@ -431,8 +427,8 @@ function Reply(props: { appId: string; message: ChatMessage }) {
         // Asked the other way round: may this tab's reply go to t?
         const why = refusal(t.id, self.id);
         return {
-          label: why ? `${t.name} (not for app builders)` : t.name,
-          icon: t.kind === "web" ? "globe" : "app-window",
+          label: why ? `${t.name} (can't be shared)` : t.name,
+          icon: "globe",
           disabled: !!why,
           onSelect: () =>
             void handOver(self.id, props.message.id, t.id).then((err) => err && toast({ message: err, kind: "error" })),
@@ -565,7 +561,7 @@ function PickedContext(props: { content: string }) {
     try {
       return JSON.parse(props.content) as {
         selection?: { selector: string; tag: string; text: string }[];
-        shared?: { tabId: string; name: string; kind: string; what: string }[];
+        shared?: { tabId: string; name: string; what: string }[];
       };
     } catch {
       return {};
@@ -578,13 +574,7 @@ function PickedContext(props: { content: string }) {
         {(tab) => (
           <span
             {...stylex.attrs(styles.chip)}
-            title={
-              tab.what === "reply"
-                ? "A reply of its agent"
-                : tab.kind === "web"
-                  ? "What the page showed"
-                  : "What the app can do and how its data is laid out"
-            }
+            title={tab.what === "reply" ? "A reply of its agent" : "What the page showed"}
             data-shared-context
           >
             <Icon name={tab.what === "reply" ? "reply" : "at-sign"} size={12} />

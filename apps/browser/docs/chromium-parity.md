@@ -10,7 +10,7 @@ settings, shortcuts, internal pages and everyday behavior. This is the checklist
 - **Not yet:** missing for now (often being worked on).
 - **Not applicable:** a Chromium feature that has no place in Rune Browser (Google account sync, enterprise policies).
 
-Rune Browser's own settings (agents, apps, secrets…) stay apart from the browser's.
+Rune Browser's own settings (agents, workspaces, permissions…) stay apart from the browser's.
 
 ## Internal pages
 

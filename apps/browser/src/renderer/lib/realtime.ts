@@ -1,5 +1,5 @@
-// The renderer's connection to the hub: agent output, app status and logs,
-// tab list changes, and requests from the server (the agents' page tools).
+// The renderer's connection to the hub: agent output, tab list changes, and
+// requests from the server (the agents' page tools).
 import { createSignal } from "solid-js";
 import { Socket, type TopicMessage } from "../../shared/hub";
 import { serverReady } from "./api";

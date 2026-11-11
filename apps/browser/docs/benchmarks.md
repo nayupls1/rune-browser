@@ -84,7 +84,7 @@ The benchmarks aren't part of CI: they're run by hand, on your own machine.
 ### What it costs the computer
 
 Every scenario records, for the browser's whole process tree (for Rune:
-Electron's processes, its server and the apps it runs):
+Electron's processes and its server):
 
 - **CPU time** of all processes, and of the GPU process alone. Without a GPU,
   drawing shows up there. Idle and the busy-page scenario split CPU by process:

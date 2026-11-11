@@ -1,7 +1,6 @@
 import * as stylex from "@stylexjs/stylex";
 import { createEffect, For, Match, on, onMount, Show, Switch } from "solid-js";
 import { AgentSidebar } from "./components/AgentSidebar";
-import { AppTab } from "./components/AppTab";
 import { CommandBar } from "./components/CommandBar";
 import { AuthHost } from "./components/AuthDialog";
 import { ScreenPickHost } from "./components/SitePermissions";
@@ -45,7 +44,6 @@ import {
   loadApps,
   openTab,
   loadProviders,
-  newApp,
   newWebTab,
   openTabs,
   selectedId,
@@ -102,7 +100,7 @@ export default function App() {
   // blank web tab, the first opens there. Fields and the composer handle their own drops.
   const blankTab = () => {
     const tab = appById(selectedId());
-    return tab?.kind === "web" && !tab.url ? tab.id : undefined;
+    return tab && !tab.url ? tab.id : undefined;
   };
   const onDragOver = (e: DragEvent) => {
     if (e.defaultPrevented || !hasFiles(e.dataTransfer)) return;
@@ -196,12 +194,9 @@ export default function App() {
                       : `Nothing in ${currentWorkspace()?.name ?? "this workspace"} yet`}
                   </p>
                   <div {...stylex.attrs(styles.emptyActions)}>
-                    <Show when={!isPrivate}>
-                      <Button variant="primary" onClick={() => newApp()}>
-                        + New app
-                      </Button>
-                    </Show>
-                    <Button onClick={() => newWebTab()}>+ New web tab</Button>
+                    <Button variant="primary" onClick={() => newWebTab()}>
+                      + New tab
+                    </Button>
                   </div>
                 </div>
               }
@@ -212,7 +207,7 @@ export default function App() {
               <Match when={openTabs().some((t) => t.id === selectedId())}>{null}</Match>
             </Switch>
           </div>
-          {/* Tabs stay mounted (hidden) so pages and previews keep their state between visits.
+          {/* Tabs stay mounted (hidden) so pages keep their state between visits.
               In a split view, its tabs' layers are placed side by side. */}
           <For each={openTabs()}>
             {(tab) => {
@@ -238,9 +233,7 @@ export default function App() {
                   data-tab-layer={tab.id}
                 >
                   <div {...stylex.attrs(styles.clip)}>
-                    <Show when={tab.kind === "web"} fallback={<AppTab appId={tab.id} active={isSelected(tab.id)} />}>
-                      <WebTab appId={tab.id} active={isSelected(tab.id)} />
-                    </Show>
+                    <WebTab appId={tab.id} active={isSelected(tab.id)} />
                     <PageCorners />
                   </div>
                 </div>

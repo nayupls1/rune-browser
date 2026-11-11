@@ -155,10 +155,7 @@ export function BrowsingHistoryPage() {
                           {...stylex.attrs(styles.link)}
                           data-visit-link
                         >
-                          <TabIcon
-                            tab={{ kind: "web", icon: null, favicon: visit.favicon, url: visit.url }}
-                            size={16}
-                          />
+                          <TabIcon tab={{ icon: null, favicon: visit.favicon, url: visit.url }} size={16} />
                           <span {...stylex.attrs(styles.visitTitle)}>{visit.title || displayUrl(visit.url)}</span>
                           <span {...stylex.attrs(styles.host)}>{hostOf(visit.url)}</span>
                         </a>

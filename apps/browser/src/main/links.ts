@@ -84,7 +84,7 @@ export function appImageDesktopEntry(options: { appImage: string; icon: string; 
     "Type=Application",
     "Name=Rune Browser",
     "GenericName=Web Browser",
-    "Comment=A browser where coding agents build your own small apps",
+    "Comment=A browser with an agent that customizes and uses websites for you",
     `Exec=${desktopExecArg(options.appImage)} %U`,
     `Icon=${options.icon}`,
     "Terminal=false",

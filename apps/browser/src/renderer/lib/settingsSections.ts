@@ -173,15 +173,13 @@ export const settingsSections: SettingsSection[] = [
     group: "agents",
     keywords: "default model instructions full access providers",
   },
-  { id: "apps", label: "Apps", icon: "box", group: "agents", keywords: "sandbox shell bubblewrap toolchains ai" },
-  { id: "workspace", label: "Workspace", icon: "layers", group: "agents", keywords: "secrets instructions agent" },
-  { id: "secrets", label: "Secrets", icon: "lock-keyhole", group: "agents", keywords: "api keys tokens" },
+  { id: "workspace", label: "Workspace", icon: "layers", group: "agents", keywords: "instructions agent" },
   {
     id: "permissions",
     label: "Agent permissions",
     icon: "hand",
     group: "agents",
-    keywords: "agents apps allowed remembered decisions",
+    keywords: "agents allowed remembered decisions",
   },
   {
     id: "web",

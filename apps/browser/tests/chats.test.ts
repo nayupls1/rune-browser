@@ -21,7 +21,7 @@ test("new chat, earlier chats, reopening and deleting", async () => {
   const result = await runtime.runPromise(
     Effect.gen(function* () {
       const apps = yield* Apps;
-      const tab = yield* apps.create(DEFAULT_WORKSPACE, "app", null);
+      const tab = yield* apps.create(DEFAULT_WORKSPACE, null);
       const texts = (list: readonly { content: string }[]) => list.map((m) => m.content);
       // Nothing to keep: a new chat changes nothing.
       yield* apps.newChat(tab.id);

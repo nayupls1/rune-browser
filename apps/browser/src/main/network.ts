@@ -34,7 +34,7 @@ import {
 } from "../shared/network";
 import { observe, type Observation } from "../shared/endpoints";
 import * as cdp from "./cdp";
-import { loadSecretsKey } from "./secretsKey";
+import { loadSealKey } from "./sealKey";
 
 const MAX_REQUEST_BODY = 64 * 1024;
 const MAX_REPLAY_BODY = 512 * 1024;
@@ -305,8 +305,8 @@ export function setupNetwork(options: NetworkOptions) {
   let sealKey: Buffer | null | undefined;
   const key = () => {
     if (sealKey === undefined) {
-      const secrets = loadSecretsKey();
-      sealKey = secrets ? createHash("sha256").update(`rune-network-seal-v1:${secrets.key}`).digest() : null;
+      const stored = loadSealKey();
+      sealKey = stored ? createHash("sha256").update(`rune-network-seal-v1:${stored.key}`).digest() : null;
     }
     return sealKey;
   };

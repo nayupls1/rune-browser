@@ -311,10 +311,7 @@ describe("network rules and saved requests (server)", () => {
   });
 
   test("the website agent's permission to send requests is labeled", async () => {
-    await server.api("/api/permissions", {
-      method: "PUT",
-      json: { subject: "website-agent", action: "agent.network", resource: "example.com", decision: "allow" },
-    });
+    server.remember("website-agent", "agent.network", "example.com", "allow");
     const grant = (await server.api<PermissionGrant[]>("/api/permissions")).find((g) => g.action === "agent.network");
     expect(grant).toMatchObject({ resource: "example.com", decision: "allow" });
   });

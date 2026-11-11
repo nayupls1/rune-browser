@@ -25,7 +25,7 @@ useChromeUserAgent();
 // Chromium finds the keyring only on desktops it knows (GNOME, KDE…). Elsewhere
 // (Hyprland, Sway…) it would keep the keys of cookies and safeStorage under a
 // hardcoded password. Without a Secret Service, encryption is reported as
-// unavailable (see secretsKey.ts). KDE's KWallet is found on its own.
+// unavailable (see sealKey.ts). KDE's KWallet is found on its own.
 if (
   process.platform === "linux" &&
   !app.commandLine.hasSwitch("password-store") &&

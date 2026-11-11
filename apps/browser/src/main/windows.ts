@@ -35,7 +35,7 @@ import type { ServerHandle } from "./server";
 export interface AppWindows {
   /** Every open window. */
   all(): BrowserWindow[];
-  /** The window a page is in: a window's own page, or a web tab or app preview (a webview) in it. */
+  /** The window a page is in: a window's own page, or a web tab (a webview) in it. */
   of(contents: WebContents | null | undefined): BrowserWindow | undefined;
   /** The focused window, else the one focused last (only private ones, or only normal ones, if asked). */
   current(kind?: "private" | "normal"): BrowserWindow | undefined;

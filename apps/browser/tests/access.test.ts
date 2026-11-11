@@ -1,5 +1,5 @@
 // Full access (Settings → Agent): an agent's requests are allowed without
-// asking, and logged; apps' requests still ask.
+// asking, and logged; requests that don't come from an agent's tab still ask.
 import { afterAll, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -32,23 +32,23 @@ const ask = (agentTab?: string) =>
     });
   });
 
-test("asks by default; with full access an agent's request is allowed and logged, an app's still asks", async () => {
+test("asks by default; with full access an agent's request is allowed and logged, others still ask", async () => {
   const result = await runtime.runPromise(
     Effect.gen(function* () {
       const settings = yield* Settings;
       const asking = yield* ask("tab-1");
       yield* settings.save(decodeSettings({ agent: { permissions: "full" } }));
       const agent = yield* ask("tab-1");
-      const app = yield* ask();
+      const other = yield* ask();
       const entries = yield* (yield* Audit).list({ limit: 20 });
       return {
         asking,
         agent,
-        app,
+        other,
         auto: entries.filter((e) => e.action === "permission.auto").map((e) => [e.tabId, e.target]),
       };
     }),
   );
   // Nobody answers in these tests: asking means a no after the timeout.
-  expect(result).toEqual({ asking: false, agent: true, app: false, auto: [["tab-1", "agent.browse shop.example"]] });
+  expect(result).toEqual({ asking: false, agent: true, other: false, auto: [["tab-1", "agent.browse shop.example"]] });
 });

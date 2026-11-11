@@ -2,8 +2,8 @@
 // agent, by mentioning them (@name in the composer) or by handing over an
 // agent's reply ("Send to…" on a reply). Shown as chips above the composer
 // until the message is sent. The server decides what the agent gets
-// (agent/sharedTabs.ts); a web page's text is read here, and only for website
-// agents (app builders never get web content: shareRefusal).
+// (agent/sharedTabs.ts) and whether a tab may be shared (shareRefusal); a page's
+// text is read here.
 import { createStore, produce } from "solid-js/store";
 import { shareRefusal, type PageContext, type SharedTab } from "../../shared/api";
 import { appById, selectApp, sendPrompt, setAgentCollapsed } from "./store";
@@ -61,9 +61,8 @@ export async function readPage(tabId: string) {
   return ((await handle.eval(readPageScript)) as SharedTab["page"] | null) ?? null;
 }
 
-/** What's shared with a message to `recipientId`: pages are read now, for website agents only. */
+/** What's shared with a message to `recipientId`: pages are read now. */
 async function gather(recipientId: string): Promise<SharedTab[]> {
-  const recipient = appById(recipientId);
   const out: SharedTab[] = [];
   for (const ref of sharesOf(recipientId)) {
     const shared: SharedTab = {
@@ -71,7 +70,7 @@ async function gather(recipientId: string): Promise<SharedTab[]> {
       ...(ref.messageId !== undefined ? { messageId: ref.messageId } : {}),
     };
     // A handed-over reply is what was asked for; a mentioned tab brings its page.
-    if (recipient?.kind === "web" && ref.messageId === undefined) {
+    if (ref.messageId === undefined) {
       const page = await readPage(ref.tabId).catch(() => null);
       if (page) shared.page = page;
     }

@@ -1,4 +1,4 @@
-// The code attached to a tab for its agent (server: workspace/Sources.ts), in
+// The code attached to a tab for its agent (server: sources/Sources.ts), in
 // the agent sidebar: "Add a folder" in the composer's + menu attaches one,
 // and each source is a small chip under the composer, with a repository's
 // clone progress, pull and remove.

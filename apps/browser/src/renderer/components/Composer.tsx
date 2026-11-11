@@ -4,6 +4,7 @@ import { addAttachments, attachmentsOf, attachmentUrl, removeAttachment, uploadi
 import { schedulableRequest, scheduleChat } from "../lib/schedules";
 import { addShare, refusal, removeShare, sharesOf, type ShareRef } from "../lib/sharing";
 import { appById, apps, setAgentChoice, states } from "../lib/store";
+import { hostOf } from "../../shared/web";
 import { colors, font, radius, space } from "../theme.stylex";
 import { AgentPicker } from "./AgentPicker";
 import { Icon } from "./Icon";
@@ -246,7 +247,7 @@ export function Composer(props: {
                     <TabIcon tab={tab} size={14} />
                     <span {...stylex.attrs(styles.shareLabel)}>{tab.name}</span>
                     <span {...stylex.attrs(styles.mentionKind)}>
-                      {why() ? "can't be shared here" : tab.kind === "web" ? "web page" : "app"}
+                      {why() ? "can't be shared here" : hostOf(tab.url)}
                     </span>
                   </button>
                 );

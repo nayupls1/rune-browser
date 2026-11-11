@@ -1,7 +1,7 @@
 // The API map for agents: the shapes of the APIs the sites in this tab's
 // workspace call, learned from its web tabs (shared/endpoints.ts). It has no
 // values, so it's safe to read; to get data, the website agent sends requests
-// with replay_request, and an app calls the API from its server.
+// with replay_request.
 import { Effect, Schema } from "effect";
 import { describeEndpoint } from "../../shared/endpoints";
 import { Apps } from "../db/Apps";

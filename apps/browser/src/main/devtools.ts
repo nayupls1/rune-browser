@@ -1,5 +1,5 @@
 // DevTools for the agents: what Chrome's DevTools shows about a page, over the
-// DevTools protocol (cdp.ts), for app previews and web tabs. Console messages
+// DevTools protocol (cdp.ts), for web tabs. Console messages
 // and errors, metrics and web vitals, performance traces (analyzed here, the
 // trace saved for Chrome DevTools), the accessibility tree, an element's CSS
 // rules and box model, cookies and storage, code coverage, and emulating
@@ -8,8 +8,8 @@
 // The Rune Browser window asks over IPC (the server's agent tools → the hub → the
 // renderer → here). Web tabs are the user's own pages, with their logins:
 // cookie values never leave this process, and storage values, console text
-// and URLs are shown with tokens redacted. Console capture starts on web tabs
-// only once an agent asks for it (pages can notice it).
+// and URLs are shown with tokens redacted. Console capture starts only once an
+// agent asks for it (pages can notice it).
 import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { app, ipcMain, webContents, type WebContents } from "electron";
@@ -121,8 +121,6 @@ function remoteText(arg: any): string {
 
 export interface DevtoolsOptions {
   windows: AppWindows;
-  /** Web tabs, as opposed to app previews. */
-  isWebTab: (contents: WebContents) => boolean;
 }
 
 export function setupDevtools(options: DevtoolsOptions) {
@@ -130,10 +128,6 @@ export function setupDevtools(options: DevtoolsOptions) {
   const emulated = new Map<number, Record<string, unknown>>();
   const tracing = new Set<number>();
   const tracesDir = join(app.getPath("userData"), "data", "traces");
-
-  /** Text from a web tab with tokens taken out. App previews are the agent's own app. */
-  const safe = (contents: WebContents, text: string) => (options.isWebTab(contents) ? redactTokens(text) : text);
-  const safeUrl = (contents: WebContents, url: string) => (options.isWebTab(contents) ? redactUrl(url) : url);
 
   /** Starts keeping a page's console messages and uncaught errors (from now on). */
   function captureConsole(contents: WebContents) {
@@ -143,8 +137,8 @@ export function setupDevtools(options: DevtoolsOptions) {
     const add = (entry: ConsoleEntry) => {
       log.entries.push({
         ...entry,
-        text: clip(safe(contents, entry.text)),
-        ...(entry.source ? { source: safeUrl(contents, entry.source) } : {}),
+        text: clip(redactTokens(entry.text)),
+        ...(entry.source ? { source: redactUrl(entry.source) } : {}),
       });
       if (log.entries.length > MAX_CONSOLE) log.entries.splice(0, log.entries.length - MAX_CONSOLE);
     };
@@ -317,7 +311,7 @@ export function setupDevtools(options: DevtoolsOptions) {
           };
         })()`,
       );
-      return { ...page, url: typeof page.url === "string" ? safeUrl(contents, page.url) : page.url, runtime };
+      return { ...page, url: typeof page.url === "string" ? redactUrl(page.url) : page.url, runtime };
     },
 
     async trace(contents, params: { seconds?: number; reload?: boolean; interaction?: string }) {
@@ -347,7 +341,7 @@ export function setupDevtools(options: DevtoolsOptions) {
         // What the agent wants to measure: it runs inside the recording, as the user's action would.
         if (params.interaction) {
           await evaluate(contents, `(async () => {\n${params.interaction}\n})()`).catch(
-            (err: Error) => void (interactionError = clip(safe(contents, err.message), 500)),
+            (err: Error) => void (interactionError = clip(redactTokens(err.message), 500)),
           );
         }
         await sleep(seconds * 1000);
@@ -359,7 +353,7 @@ export function setupDevtools(options: DevtoolsOptions) {
       }
       const url = contents.getURL();
       const analysis = analyzeTrace(events, { url });
-      analysis.url = safeUrl(contents, url);
+      analysis.url = redactUrl(url);
       // The trace itself, for Chrome DevTools' Performance panel (Load profile…). The newest ones are kept.
       mkdirSync(tracesDir, { recursive: true });
       let host = "page";
@@ -425,12 +419,10 @@ export function setupDevtools(options: DevtoolsOptions) {
             ]
               .map((p) => [p, prop(n, p)] as const)
               .filter(([, v]) => v !== undefined && v !== false && v !== "false")
-              .map(([p, v]) =>
-                v === true || v === "true" ? p : `${p}=${p === "url" ? safeUrl(contents, String(v)) : v}`,
-              );
+              .map(([p, v]) => (v === true || v === "true" ? p : `${p}=${p === "url" ? redactUrl(String(v)) : v}`));
             const value = n.value?.value;
             lines.push(
-              `${"  ".repeat(depth)}${role}${name ? ` "${clip(safe(contents, String(name)), 200)}"` : ""}${value !== undefined && value !== "" ? ` value="${clip(safe(contents, String(value)), 100)}"` : ""}${flags.length ? ` [${flags.join(", ")}]` : ""}`,
+              `${"  ".repeat(depth)}${role}${name ? ` "${clip(redactTokens(String(name)), 200)}"` : ""}${value !== undefined && value !== "" ? ` value="${clip(redactTokens(String(value)), 100)}"` : ""}${flags.length ? ` [${flags.join(", ")}]` : ""}`,
             );
           }
           for (const id of n.childIds ?? []) {
@@ -489,7 +481,7 @@ export function setupDevtools(options: DevtoolsOptions) {
               origin: m.rule.origin,
               media: (m.rule.media ?? []).map((q: any) => q.text).join(", "),
               source: sheet?.url
-                ? `${safeUrl(contents, sheet.url)}${line ? `:${line}` : ""}`
+                ? `${redactUrl(sheet.url)}${line ? `:${line}` : ""}`
                 : m.rule.origin === "user-agent"
                   ? "browser default"
                   : "",
@@ -564,11 +556,10 @@ export function setupDevtools(options: DevtoolsOptions) {
     },
 
     async storage(contents) {
-      const web = options.isWebTab(contents);
       const url = contents.getURL();
       const { cookies } = await cdp.send<{ cookies: any[] }>(contents, "Network.getCookies", { urls: [url] });
       const value = (name: string, v: string) =>
-        web && (isSensitiveName(name, true) || v.length > 40) ? REDACTED : clip(safe(contents, v), 200);
+        isSensitiveName(name, true) || v.length > 40 ? REDACTED : clip(redactTokens(v), 200);
       const stores = await evaluate<{
         local: [string, string][];
         session: [string, string][];
@@ -611,11 +602,11 @@ export function setupDevtools(options: DevtoolsOptions) {
       const storage = (list: [string, string][]) =>
         list.map(([k, v]) => ({ key: k, size: v.length, value: value(k, v) }));
       return {
-        url: safeUrl(contents, url),
-        valuesHidden: web,
+        url: redactUrl(url),
+        valuesHidden: true,
         cookies: cookies.map((c) => ({
           name: c.name,
-          value: web ? REDACTED : clip(c.value, 200),
+          value: REDACTED,
           domain: c.domain,
           path: c.path,
           expires: c.expires > 0 ? new Date(c.expires * 1000).toISOString() : "session",
@@ -628,7 +619,7 @@ export function setupDevtools(options: DevtoolsOptions) {
         sessionStorage: storage(stores.session),
         indexedDB: stores.indexedDB,
         cacheStorage: stores.caches,
-        serviceWorkers: stores.serviceWorkers.map((s) => safeUrl(contents, s)),
+        serviceWorkers: stores.serviceWorkers.map((s) => redactUrl(s)),
       };
     },
 
@@ -669,7 +660,7 @@ export function setupDevtools(options: DevtoolsOptions) {
           if (!total) return;
           const unused = Math.max(0, total - used);
           files.push({
-            url: safeUrl(contents, url),
+            url: redactUrl(url),
             type,
             totalKb: Math.round(total / 102.4) / 10,
             unusedKb: Math.round(unused / 102.4) / 10,
@@ -921,11 +912,4 @@ export function setupDevtools(options: DevtoolsOptions) {
       throw new Error("Unknown page");
     return run(target, String(command), params);
   });
-
-  return {
-    /** A new page: app previews keep their console from the start (web tabs once an agent asks). */
-    track(contents: WebContents) {
-      if (!options.isWebTab(contents)) captureConsole(contents);
-    },
-  };
 }

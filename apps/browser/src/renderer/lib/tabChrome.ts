@@ -1,9 +1,8 @@
 // What the sidebar's top bar shows for the tab on screen (components/TopBar.tsx):
-// its address, back, forward and reload, its extensions and its own items in the ⋯ menu. Pages get the whole
-// content area, like in Zen Browser; each tab (WebTab, AppTab) registers its
-// chrome here while it's mounted.
+// its address, back, forward and reload, and its extensions. Pages get the whole
+// content area, like in Zen Browser; each tab (WebTab, the Settings page)
+// registers its chrome here while it's mounted.
 import { createEffect, createSignal, onCleanup, type JSX } from "solid-js";
-import type { MenuItem } from "../components/ContextMenu";
 
 /** How long a page loads before the address bar shows a spinner. */
 const SPINNER_DELAY_MS = 500;
@@ -25,7 +24,7 @@ export function spinnerFor(loading: () => boolean) {
 }
 
 export interface TabChrome {
-  /** What the address field shows (an app's preview: its localhost URL). */
+  /** What the address field shows. */
   url: () => string;
   /** No page yet (a new web tab): the address field takes the focus. */
   blank?: () => boolean;
@@ -47,12 +46,10 @@ export interface TabChrome {
    * settings, behind its lock or globe (like Zen's and Firefox's identity button).
    */
   identity?: () => JSX.Element;
-  /** Inside the address field, at its end (a web tab's bookmark star and page changes, an app's state). */
+  /** Inside the address field, at its end (a web tab's bookmark star and page changes). */
   addressExtras?: () => JSX.Element;
   /** Its extensions button, in the top row (a web tab's). */
   extensions?: () => JSX.Element;
-  /** The tab's own items in the top row's ⋯ menu (an app's logs, data, tools…). */
-  menu?: () => (MenuItem | "separator")[];
 }
 
 /** The pointer is over the address field: its quieter buttons (the bookmark star) show. */

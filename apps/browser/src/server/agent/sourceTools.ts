@@ -1,4 +1,4 @@
-// The code attached to the tab (workspace/Sources.ts), for its agent: list,
+// The code attached to the tab (sources/Sources.ts), for its agent: list,
 // read and search it, look at its Git history, and change it. Every change
 // asks the user first with its diff (permission agent.source, which can be
 // remembered per folder), so an agent can go from a problem it found in a page
@@ -7,7 +7,7 @@ import { Effect, Schema } from "effect";
 import type { ContextSource } from "../../shared/api";
 import { Audit } from "../security/Audit";
 import { Permissions } from "../security/Permissions";
-import { Sources, unifiedDiff } from "../workspace/Sources";
+import { Sources, unifiedDiff } from "../sources/Sources";
 import { NoArgs, text, tool } from "./Mcp";
 import type { ToolEnv } from "./tools";
 

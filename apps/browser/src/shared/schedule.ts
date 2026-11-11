@@ -11,20 +11,21 @@ export const MAX_PROMPT = 20_000;
 const WEBSITE = /^https?:\/\/\S+$/i;
 
 /**
- * Where a task runs once its tab is closed or deleted: a new tab of the same
- * kind, in the same workspace, opened on its next run (a web tab at the
- * address the old one was on, if it was on a website).
+ * Where a task runs once its tab is closed: a new tab in the same workspace,
+ * opened on its next run (at the address the old one was on, if it was on a
+ * website).
  */
 export function targetWithoutTab(
   target: ScheduleTarget,
-  tab: Pick<AppSummary, "kind" | "workspaceId" | "url"> | null,
+  tab: Pick<AppSummary, "workspaceId" | "url"> | null,
 ): ScheduleTarget {
   if (!tab) return { ...target, tabId: null };
-  const url = tab.kind === "web" ? (tab.url && WEBSITE.test(tab.url) ? tab.url : target.url) : null;
-  return { workspaceId: tab.workspaceId, tabId: null, kind: tab.kind, url };
+  const url = tab.url && WEBSITE.test(tab.url) ? tab.url : target.url;
+  return { workspaceId: tab.workspaceId, tabId: null, url };
 }
 
-const EVENT = /^(rune\.started|app\.(started|crashed):[\w-]+|app:[\w-]+:[\w.-]{1,64})$/;
+/** The events a task can run on. */
+export const SCHEDULE_EVENTS = ["rune.started"] as const;
 
 /** What's wrong with a scheduled task, if anything. */
 export function scheduleProblem(spec: ScheduleSpec, now = new Date()): string | null {
@@ -43,14 +44,12 @@ export function scheduleProblem(spec: ScheduleSpec, now = new Date()): string | 
     if (shortestGapMinutes(cron, now) < MIN_INTERVAL_MINUTES)
       return `Recurring schedules run at most every ${MIN_INTERVAL_MINUTES} minutes`;
   } else if (t?.type === "event") {
-    if (!EVENT.test(t.event ?? ""))
-      return 'Events are "rune.started", "app.started:<app>", "app.crashed:<app>" or "app:<app>:<name>"';
+    if (!(SCHEDULE_EVENTS as readonly string[]).includes(t.event ?? ""))
+      return `Events are ${SCHEDULE_EVENTS.map((e) => `"${e}"`).join(", ")}`;
   } else return "trigger.type must be once, cron or event";
   const target = spec.target;
   if (!target?.workspaceId) return "Which workspace?";
-  if (target.kind !== "app" && target.kind !== "web") return "target.kind must be app or web";
-  if (target.url !== null && (target.kind !== "web" || !WEBSITE.test(target.url ?? "")))
-    return "Which website? Give an http(s) address";
+  if (target.url !== null && !WEBSITE.test(target.url ?? "")) return "Which website? Give an http(s) address";
   const agent = spec.agent;
   if (agent !== null) {
     if (!agent || !providerIds.includes(agent.provider)) return `agent.provider must be ${providerIds.join(", ")}`;
@@ -83,15 +82,9 @@ export const nameFromPrompt = (prompt: string) => {
 };
 
 /** "Every weekday at 9:00", "Once, Nov 12, 2026, 9:00 AM", "When Rune Browser starts"… */
-export function describeTrigger(trigger: ScheduleTrigger, appName: (id: string) => string = (id) => id) {
+export function describeTrigger(trigger: ScheduleTrigger) {
   if (trigger.type === "cron") return describeCron(trigger.cron);
   if (trigger.type === "once")
     return `Once, ${new Date(trigger.at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`;
-  const e = trigger.event;
-  if (e === "rune.started") return "When Rune Browser starts";
-  const [kind, rest] = [e.slice(0, e.indexOf(":")), e.slice(e.indexOf(":") + 1)];
-  if (kind === "app.started") return `When ${appName(rest)} starts`;
-  if (kind === "app.crashed") return `When ${appName(rest)} crashes`;
-  const [app, ...name] = rest.split(":");
-  return `When ${appName(app!)} sends “${name.join(":")}”`;
+  return trigger.event === "rune.started" ? "When Rune Browser starts" : `On “${trigger.event}”`;
 }

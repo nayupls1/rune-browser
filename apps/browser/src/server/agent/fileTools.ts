@@ -1,14 +1,13 @@
-// The agent's own workspace: its chat's folder (ChatFiles.ts). Every agent,
-// the website agent too, can list, read, write, edit and delete files there
+// The agent's own workspace: its chat's folder (ChatFiles.ts). The agent can
+// list, read, write, edit and delete files there
 // without asking (notes, lists of what it did, temporary files during a long
 // task, what it saved from pages), and show files to the user in the chat.
 // Nothing beyond the folder is reachable. Files cost no context until the
 // agent reads one, and then only the part it asks for.
-import { copyFile, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
 import { Effect, Schema } from "effect";
 import type { ChatFile } from "../../shared/api";
-import { Workspace } from "../workspace/Workspace";
 import { ChatFiles, freeName, type ChatFilesShape } from "./ChatFiles";
 import { text, tool } from "./Mcp";
 import type { ToolEnv } from "./tools";
@@ -55,9 +54,8 @@ export const saveOutput = (
     return file;
   });
 
-export const fileTools = Effect.fn(function* (env: ToolEnv, options: { project?: boolean } = {}) {
+export const fileTools = Effect.fn(function* (env: ToolEnv) {
   const files = yield* ChatFiles;
-  const workspace = yield* Workspace;
   const known = yield* files.dir(env.tabId).pipe(Effect.orElseSucceed(() => null));
   const where = known ? `this chat's folder (${known})` : "this chat's folder";
 
@@ -193,41 +191,5 @@ export const fileTools = Effect.fn(function* (env: ToolEnv, options: { project?:
           return `Showed ${shown.map((f) => f.name).join(", ")} to the user.`;
         }),
     ),
-    ...(options.project
-      ? [
-          tool(
-            "copy_to_project",
-            `Copy a file from ${where} into the app's project (an image the user attached or a screenshot, for the app to use), e.g. to public/hero.png.`,
-            Schema.Struct({
-              path: Schema.String.annotate({ description: "The file in the chat's folder" }),
-              to: Schema.String.annotate({ description: "Where in the project, relative to it" }),
-            }),
-            ({ path, to }) =>
-              Effect.gen(function* () {
-                const source = yield* files.resolve(env.tabId, path);
-                if (!(yield* files.describe(yield* files.dir(env.tabId), source)))
-                  return text(`${path} doesn't exist. list_files shows what's there.`, true);
-                const root = yield* workspace.ensureDir(env.tabId);
-                const target = resolve(root, to);
-                const rel = relative(root, target);
-                if (!rel || rel.startsWith("..") || isAbsolute(rel))
-                  return text(`${to} isn't inside the project.`, true);
-                yield* Effect.tryPromise({
-                  try: async () => {
-                    await mkdir(dirname(target), { recursive: true });
-                    // Symlinks in the project can't lead the copy out of it.
-                    const [realRoot, realDir] = await Promise.all([realpath(root), realpath(dirname(target))]);
-                    const inside = relative(realRoot, realDir);
-                    if (inside.startsWith("..") || isAbsolute(inside))
-                      throw new Error(`${to} isn't inside the project.`);
-                    await copyFile(source, target);
-                  },
-                  catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-                });
-                return `Copied ${path} to ${rel.split("\\").join("/")} in the project.`;
-              }),
-          ),
-        ]
-      : []),
   ];
 });

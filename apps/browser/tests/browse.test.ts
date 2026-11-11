@@ -177,7 +177,7 @@ describe("the website agent's navigate", () => {
     } as unknown as HubShape;
     const context = Context.make(Hub, hub).pipe(Context.add(ChatFiles, {} as unknown as ChatFilesShape));
     const env = { tabId: "tab", log: () => Effect.void, message: () => Effect.void, label: "Website agent" };
-    const tools = Effect.runSync(Effect.provide(pageTools(env, { site: true }), context));
+    const tools = Effect.runSync(Effect.provide(pageTools(env), context));
     const navigate = (url: string) =>
       Effect.runPromise(tools.find((t) => t.name === "navigate")!.run({ url })).then((r) => !r.isError);
     for (const url of ["https://example.com", "example.com/docs", "localhost:5173", "about:blank"])

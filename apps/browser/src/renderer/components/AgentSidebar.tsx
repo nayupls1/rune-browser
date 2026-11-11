@@ -1,7 +1,7 @@
 // The agent sidebar: one panel, right of the tabs, that looks and works the
-// same for every kind of tab (web pages, apps, extension pages). It shows the
+// same for every tab (web pages, extension pages, local files). It shows the
 // agent of the tab that has the focus (in a split view, the focused pane's):
-// editing an app, customizing a site and using it all happen here. Open or
+// asking about a page, customizing a site and using it all happen here. Open or
 // closed per tab (store: isAgentCollapsed), one width for all tabs, resized by
 // dragging its left edge like the tab sidebar.
 import * as stylex from "@stylexjs/stylex";
@@ -101,7 +101,7 @@ function Resizer(props: { tabId: string }) {
         {...stylex.attrs(styles.handle, dragging() && styles.handleActive)}
         data-agent-resizer
       />
-      {/* Over everything (web pages and previews too), so they don't swallow the drag. */}
+      {/* Over everything (web pages too), so they don't swallow the drag. */}
       <Show when={dragging()}>
         <div {...stylex.attrs(styles.shield)} />
       </Show>

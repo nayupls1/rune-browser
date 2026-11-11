@@ -1,5 +1,5 @@
-// The audit log: what agents, apps and the user did, with who, what and when.
-// Entries never contain secret values or file contents, only names, targets
+// The audit log: what agents and the user did, with who, what and when.
+// Entries never contain file contents, only names, targets
 // and short summaries. Old entries are pruned to keep the log bounded.
 import { Context, Effect, Layer } from "effect";
 import { SqlClient } from "effect/sql";
@@ -43,7 +43,7 @@ const toEntry = (r: AuditRow): AuditEntry => ({
 
 export interface AuditShape {
   readonly record: (entry: AuditInput) => Effect.Effect<void>;
-  /** Newest first. A workspace filter includes entries that belong to no workspace (global secrets, the website agent). */
+  /** Newest first. A workspace filter includes entries that belong to no workspace (settings, site permissions). */
   readonly list: (filter: {
     tabId?: string;
     workspaceId?: string;

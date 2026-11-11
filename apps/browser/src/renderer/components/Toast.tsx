@@ -1,4 +1,4 @@
-// Small notices in the corner (an app action's result, "Saved a snapshot").
+// Small notices in the corner ("Saved a snapshot", a failed action).
 import * as stylex from "@stylexjs/stylex";
 import { For, Show } from "solid-js";
 import { createStore, produce } from "solid-js/store";

@@ -298,9 +298,9 @@ describe("web tab routes", () => {
   test("web tabs are named after the page until renamed", async () => {
     const tab = await server.api<AppSummary>("/api/apps", {
       method: "POST",
-      json: { kind: "web", url: "https://example.com/" },
+      json: { url: "https://example.com/" },
     });
-    expect(tab).toMatchObject({ kind: "web", name: "example.com", url: "https://example.com/" });
+    expect(tab).toMatchObject({ name: "example.com", url: "https://example.com/" });
 
     const titled = await server.api<AppSummary>(`/api/apps/${tab.id}/page`, {
       method: "PATCH",
@@ -319,19 +319,15 @@ describe("web tab routes", () => {
     });
     expect(after.name).toBe("Mine");
 
-    const app = await server.api<AppSummary>("/api/apps", { method: "POST" });
-    expect(app.kind).toBe("app");
-    await expect(server.api(`/api/apps/${app.id}/page`, { method: "PATCH", json: { title: "x" } })).rejects.toThrow(
-      "404",
-    );
+    await expect(server.api(`/api/apps/nope/page`, { method: "PATCH", json: { title: "x" } })).rejects.toThrow("404");
     // Local files the user opens (dropped on Rune Browser, from a chat) are web tabs; other schemes aren't.
     const file = await server.api<AppSummary>("/api/apps", {
       method: "POST",
-      json: { kind: "web", url: "file:///tmp/report.pdf" },
+      json: { url: "file:///tmp/report.pdf" },
     });
     expect(file.url).toBe("file:///tmp/report.pdf");
     for (const url of ["javascript:alert(1)", "data:text/html,hi", "file://host/share"])
-      await expect(server.api("/api/apps", { method: "POST", json: { kind: "web", url } })).rejects.toThrow("400");
+      await expect(server.api("/api/apps", { method: "POST", json: { url } })).rejects.toThrow("400");
   });
 
   test("site customizations are stored per host and broadcast", async () => {

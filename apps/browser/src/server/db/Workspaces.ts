@@ -1,7 +1,6 @@
 // Workspaces: groups of tabs, each with its own agent defaults and
-// instructions, secrets shared by its apps, remembered permissions and web
-// session. (Not to be confused with workspace/Workspace.ts, an app's project
-// folder.) There is always at least one.
+// instructions, remembered permissions and web session. There is always at
+// least one.
 import { Context, Effect, Layer } from "effect";
 import { SqlClient } from "effect/sql";
 import { normalizeSplits, type TabSplit, type WorkspaceInfo } from "../../shared/api";
@@ -128,7 +127,7 @@ export const make = Effect.gen(function* () {
 
     count: () => sql<{ n: number }>`SELECT COUNT(*) AS n FROM workspaces`.pipe(Effect.map((rows) => rows[0]!.n)),
 
-    /** Only the row: its tabs, secrets and permissions are removed by the caller first. */
+    /** Only the row: its tabs and permissions are removed by the caller first. */
     remove: (id: string) => sql`DELETE FROM workspaces WHERE id = ${id}`.pipe(Effect.asVoid),
   };
 });

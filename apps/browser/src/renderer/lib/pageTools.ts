@@ -93,7 +93,7 @@ export const zoomOf = (tabId: string) => zooms[tabId] ?? 1;
 export const zoomKnown = (tabId: string) => zooms[tabId] !== undefined;
 
 /** Reads the page's zoom again (after a navigation: another site may have another). */
-export function syncZoom(tabId: string) {
+function syncZoom(tabId: string) {
   try {
     const view = viewOf(tabId);
     if (view) setZooms(tabId, view.getZoomFactor());
@@ -123,7 +123,7 @@ createRoot(() =>
       () => {
         for (const id of Object.keys(zooms)) {
           const page = pageOf(id);
-          if (!page?.act) continue;
+          if (!page) continue;
           try {
             applySiteZoom(id, page.view()?.getURL() ?? "");
           } catch {
@@ -136,16 +136,14 @@ createRoot(() =>
   ),
 );
 
-/** Zooms in (1), out (-1) or back to the default size (0). Web pages' sites remember it. */
+/** Zooms in (1), out (-1) or back to the default size (0). Sites remember it. */
 export function zoom(tabId: string, direction: 1 | -1 | 0) {
   const view = viewOf(tabId);
   if (!view) return false;
-  // Only web tabs act for the website agent; app previews keep their zoom to themselves.
-  const web = !!pageOf(tabId)?.act;
-  const factor = direction === 0 ? (web ? defaultZoom() : 1) : nextZoom(view.getZoomFactor(), direction);
+  const factor = direction === 0 ? defaultZoom() : nextZoom(view.getZoomFactor(), direction);
   view.setZoomFactor(factor);
   setZooms(tabId, factor);
-  if (web) rememberZoom(view.getURL(), factor);
+  rememberZoom(view.getURL(), factor);
   // The site's other tabs zoom with it.
   setTimeout(() => {
     for (const id of Object.keys(zooms)) if (id !== tabId) syncZoom(id);

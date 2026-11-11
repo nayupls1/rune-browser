@@ -1,5 +1,5 @@
 // The hub: WebSocket clients subscribe to topics and the server pushes chat
-// events, runtime status, logs and other changes on them. The renderer also
+// events and other changes on them. The renderer also
 // answers RPC requests, which is how agents reach pages open in its tabs. Each
 // window's renderer says which tabs it has, so a request about a tab goes to
 // the window it's in.
@@ -29,8 +29,6 @@ export interface HubShape {
   /** Serves one WebSocket connection until it closes. */
   readonly serve: (socket: Socket.Socket, options: { renderer: boolean; window?: string }) => Effect.Effect<void>;
   readonly rendererConnected: Effect.Effect<boolean>;
-  /** Server-side listeners get every published message (the scheduler reacts to apps starting). Returns a remover. */
-  readonly listen: (fn: (msg: TopicMessage) => void) => () => void;
 }
 
 export class Hub extends Context.Service<Hub, HubShape>()("rune/Hub") {}
@@ -40,17 +38,9 @@ export const make = Effect.sync((): HubShape => {
   const pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
   let nextRpcId = 0;
 
-  const listeners = new Set<(msg: TopicMessage) => void>();
   const publishUnsafe = (msg: TopicMessage) => {
     const text = JSON.stringify(msg);
     for (const client of clients) if (client.topics.has(msg.topic)) client.send(text);
-    for (const fn of listeners) {
-      try {
-        fn(msg);
-      } catch (err) {
-        console.error("hub listener failed:", err);
-      }
-    }
   };
 
   /** The window a request goes to: the one with the tab it's about, else the newest normal window. */
@@ -98,10 +88,6 @@ export const make = Effect.sync((): HubShape => {
     publish: (msg) => Effect.sync(() => publishUnsafe(msg)),
     publishUnsafe,
     rendererConnected: Effect.sync(() => !!renderer()),
-    listen: (fn) => {
-      listeners.add(fn);
-      return () => listeners.delete(fn);
-    },
 
     rpc: <T>(method: string, params: unknown, timeoutMs = 30_000) =>
       Effect.callback<T, RpcError>((resume) => {

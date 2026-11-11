@@ -98,13 +98,13 @@ export const internalPages: InternalPage[] = [
   {
     host: "activity",
     title: "Activity",
-    description: "The activity log: what agents, apps and you did, and what was allowed.",
+    description: "The activity log: what agents and you did, and what was allowed.",
     target: { view: "activity" },
   },
   {
     host: "snapshots",
     title: "Snapshots",
-    description: "The snapshots of apps and site changes, to undo a change or go back to a version.",
+    description: "The snapshots of site changes and settings, to undo a change or go back to a version.",
     target: { view: "snapshots" },
   },
   {

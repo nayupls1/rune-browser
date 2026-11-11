@@ -1,5 +1,5 @@
 // The Rune Browser hub: one WebSocket between the renderer and the server. The server
-// pushes chat events, app runtime status and logs, site customization changes
+// pushes chat events, site customization changes
 // and provider status on topics; the renderer answers RPC requests (the agents
 // use them to reach pages open in tabs).
 import type {
@@ -8,10 +8,8 @@ import type {
   ChatEvent,
   ContextSource,
   HistoryEntry,
-  LogLine,
   PermissionRequest,
   ProviderStatus,
-  RuntimeStatus,
   ScheduleRun,
   WorkspaceInfo,
 } from "./api";
@@ -19,10 +17,8 @@ import type { BookmarkChange } from "./bookmarks";
 import type { Settings } from "./settings";
 
 export const topics = {
-  /** Chat events and runtime status of an app or web tab. */
+  /** A tab's chat events and attached code. */
   app: (appId: string) => `app:${appId}`,
-  /** Output of an app's dev server / start command. */
-  logs: (appId: string) => `logs:${appId}`,
   /** Site customizations for web tabs changed. */
   sites: "sites",
   /** Provider status (installed, signed in, models) changed. */
@@ -33,7 +29,7 @@ export const topics = {
   workspaces: "workspaces",
   /** Permission requests waiting for the user, and answers. */
   permissions: "permissions",
-  /** New audit log entries; secrets and permissions changed. */
+  /** New audit log entries; remembered permissions changed. */
   activity: "activity",
   /** New snapshots, restores. */
   history: "history",
@@ -54,7 +50,7 @@ export const topics = {
 export const isValidTopic = (topic: unknown): topic is string =>
   typeof topic === "string" &&
   topic.length < 200 &&
-  (/^(app|logs):[\w-]+$/.test(topic) || (Object.values(topics) as unknown[]).includes(topic));
+  (/^app:[\w-]+$/.test(topic) || (Object.values(topics) as unknown[]).includes(topic));
 
 export type ClientMessage =
   | { type: "subscribe"; topic: string }
@@ -65,13 +61,9 @@ export type ClientMessage =
 
 export type ServerMessage =
   | { type: "chat"; topic: string; appId: string; event: ChatEvent }
-  | { type: "runtime"; topic: string; appId: string; status: RuntimeStatus }
-  | { type: "log"; topic: string; appId: string; lines: LogLine[] }
   /** The code attached to a tab for its agent changed; progress of cloning or pulling one. */
   | { type: "sources"; topic: string; appId: string; sources: ContextSource[] }
   | { type: "source-progress"; topic: string; appId: string; sourceId: string; phase: string; percent: number | null }
-  /** Cloning or copying a project into a new app tab: what's happening (percent when git says). */
-  | { type: "import-progress"; topic: string; appId: string; phase: string; percent: number | null }
   | { type: "site"; topic: string; host: string }
   /** Page changes were added, changed or removed (refetch). */
   | { type: "page-changes"; topic: string }
@@ -87,8 +79,7 @@ export type ServerMessage =
   | { type: "permission-request"; topic: string; request: PermissionRequest }
   | { type: "permission-resolved"; topic: string; id: string }
   | { type: "audit"; topic: string; entry: AuditEntry }
-  /** Secrets or remembered permissions changed (refetch). */
-  | { type: "secrets-changed"; topic: string; scope: string }
+  /** Remembered permissions changed (refetch). */
   | { type: "permissions-changed"; topic: string }
   | { type: "snapshot"; topic: string; entry: HistoryEntry }
   /** Snapshots were restored or removed (refetch). */

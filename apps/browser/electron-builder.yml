@@ -39,7 +39,7 @@ linux:
     - rpm
     - pacman
   category: Network;WebBrowser
-  synopsis: A browser where coding agents build your own small apps
+  synopsis: A browser with an agent that customizes and uses websites for you
   maintainer: nayupls1 <316469236+nathanpls@users.noreply.github.com>
   # The window's Wayland app id / WM_CLASS matches the .desktop file (its icon, pinning).
   syncDesktopName: true
@@ -52,13 +52,8 @@ linux:
     - image/webp
     - x-scheme-handler/http
     - x-scheme-handler/https
-deb:
-  # Apps are sandboxed with bubblewrap.
-  recommends:
-    - bubblewrap
 pacman:
-  # Electron's libraries as Arch names them (electron-builder's defaults name packages Arch no longer has),
-  # and bubblewrap, which sandboxes apps.
+  # Electron's libraries as Arch names them (electron-builder's defaults name packages Arch no longer has).
   depends:
     - gtk3
     - nss
@@ -68,7 +63,6 @@ pacman:
     - libnotify
     - libsecret
     - mesa
-    - bubblewrap
 win:
   target: nsis
   icon: build/icon.ico

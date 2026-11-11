@@ -23,8 +23,8 @@ const opensTurn = (m: ChatMessage) => m.role === "user" || m.role === "context" 
 
 const STOPPED = "Stopped.";
 
-/** What isn't folded into a finished turn's steps: requests for a secret, and files the agent showed. */
-const staysInView = (r: Row) => r.type === "message" && (r.message.role === "secret" || r.message.role === "files");
+/** What isn't folded into a finished turn's steps: files the agent showed. */
+const staysInView = (r: Row) => r.type === "message" && r.message.role === "files";
 
 /** Messages as rows, consecutive tool calls grouped. */
 function plainRows(messages: readonly ChatMessage[], showTools: boolean): Row[] {
@@ -123,11 +123,8 @@ const kindPhrases: Record<ToolKind, (n: number) => string> = {
   network: (n) => `checked the network ${times(n)}`,
   plan: () => "updated the plan",
   agent: (n) => `ran ${plural(n, "subagent", "subagents")}`,
-  app: (n) => `worked on the app ${times(n)}`,
   customize: (n) => `customized ${times(n)}`,
-  schedule: (n) => `changed schedules ${times(n)}`,
   snapshot: (n) => `used snapshots ${times(n)}`,
-  secret: (n) => `handled ${plural(n, "secret", "secrets")}`,
   source: (n) => `used the attached code ${times(n)}`,
   tab: (n) => `looked at tabs ${times(n)}`,
   other: (n) => `used ${plural(n, "tool", "tools")}`,
@@ -148,7 +145,8 @@ export function summarize(entries: readonly WorkEntry[]): string {
   const sorted = [...counts]
     .sort(([a], [b]) => order(a) - order(b))
     .map(([kind, n]) => [kind, typeof n === "number" ? n : n.size] as const);
-  const parts = sorted.map(([kind, n]) => kindPhrases[kind](n));
+  // Kinds older chats may have that are gone read as other tools.
+  const parts = sorted.map(([kind, n]) => (kindPhrases[kind] ?? kindPhrases.other)(n));
   const rest = sorted.slice(2).reduce((sum, [, n]) => sum + n, 0);
   const shown = parts.length > 3 ? [...parts.slice(0, 2), plural(rest, "more step", "more steps")] : parts;
   const text = shown.length > 1 ? `${shown.slice(0, -1).join(", ")} and ${shown.at(-1)}` : shown[0]!;

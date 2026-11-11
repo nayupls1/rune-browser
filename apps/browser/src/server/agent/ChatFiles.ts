@@ -73,8 +73,7 @@ export interface ChatFilesShape {
 /**
  * What a path the agent linked in the chat is, for its chip (`[name](<path>)`):
  * a file, a folder, missing, or outside the places the chat may show (`roots`:
- * the tab's chat folders and, for an app, its project; relative paths are
- * taken from the first root that has them, else the first). Nothing is said
+ * the tab's chat folders; relative paths are taken from the first root that has them, else the first). Nothing is said
  * about a path outside them, not even whether it exists, and Rune Browser's
  * own `.rune` folders count as outside.
  */

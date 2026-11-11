@@ -91,7 +91,7 @@ createRoot(() => {
     const current = isPrivate ? PRIVATE_WORKSPACE : (currentWorkspace()?.id ?? null);
     const tabs: ExtensionTabs = { workspaces: {}, current, showing: null };
     for (const app of apps) {
-      if (app.kind !== "web" || !opened.has(app.id)) continue;
+      if (!opened.has(app.id)) continue;
       const id = contentsOf(app.id);
       if (id === null) continue;
       // A private window's tabs are all in the private session's extensions' view.

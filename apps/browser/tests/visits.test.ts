@@ -86,7 +86,7 @@ describe("browsing history", () => {
   afterAll(() => server.stop());
 
   const newTab = (url?: string, workspaceId = workspace) =>
-    server.api<{ id: string }>("/api/apps", { method: "POST", json: { kind: "web", url, workspaceId } });
+    server.api<{ id: string }>("/api/apps", { method: "POST", json: { url, workspaceId } });
   const report = (id: string, page: { url?: string; title?: string; favicon?: string | null }) =>
     server.api(`/api/apps/${id}/page`, { method: "PATCH", json: page });
   const visits = (query = `workspace=${workspace}`) => server.api<Visit[]>(`/api/visits?${query}`);
@@ -213,7 +213,7 @@ describe("browsing history", () => {
   test("private windows record no history", async () => {
     const tab = await server.api<{ id: string; private: boolean }>("/api/apps", {
       method: "POST",
-      json: { kind: "web", url: "https://private.example.com/", workspaceId: workspace, windowId: "private-test1" },
+      json: { url: "https://private.example.com/", workspaceId: workspace, windowId: "private-test1" },
     });
     expect(tab.private).toBe(true);
     await report(tab.id, { url: "https://private.example.com/next", title: "Secret" });

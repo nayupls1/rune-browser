@@ -1,11 +1,9 @@
 // The command bar (Ctrl+K): what it offers and how a query ranks it. Tabs,
-// workspaces, Rune Browser's own commands and the actions apps declare in their
-// rune.json, plus routing for free text: a URL opens, a sentence goes to
-// the agent (or a new app), anything else can be searched for.
+// workspaces and Rune Browser's own commands, plus routing for free text: a
+// URL opens, a sentence goes to the agent, anything else can be searched for.
 import { createSignal } from "solid-js";
-import { isImageIcon, type AppActionInfo, type AppSummary } from "../../shared/api";
+import { isImageIcon, type AppSummary } from "../../shared/api";
 import { normalizeUrl } from "../../shared/web";
-import { api } from "./api";
 import { searchEngine, settings, updateSettings } from "./settings";
 import {
   ACTIVITY_VIEW,
@@ -24,13 +22,11 @@ import {
   MODS_VIEW,
   isTab,
   moveApp,
-  newApp,
   newWebTab,
   renameApp,
   selectApp,
   selectedId,
   setAgentCollapsed,
-  setRuntime,
   setTabPinned,
   openSettings,
   showWorkspace,
@@ -39,7 +35,6 @@ import {
   workspaceById,
   workspaces,
   closeTab,
-  reopenApp,
   reopenClosedTab,
   isPrivate,
 } from "./store";
@@ -76,7 +71,7 @@ import { toast } from "../components/Toast";
 export interface Command {
   id: string;
   title: string;
-  /** Shown after the title, muted (the app an action belongs to, a tab's workspace…). */
+  /** Shown after the title, muted (a tab's site and workspace…). */
   subtitle?: string;
   /** Lucide icon name; a web tab shows its favicon instead. */
   icon: string;
@@ -95,18 +90,10 @@ export interface Command {
 }
 
 const [open, setOpen] = createSignal(false);
-const [appActions, setAppActions] = createSignal<AppActionInfo[]>([]);
-export { open as commandBarOpen, appActions };
-
-/** Closed apps, to open again from the bar (fetched when it opens). */
-const [library, setLibrary] = createSignal<AppSummary[]>([]);
+export { open as commandBarOpen };
 
 export function openCommandBar() {
-  void api.library().then(setLibrary, () => {});
-  if (open()) return setOpen(false);
-  setOpen(true);
-  // Apps may have changed their rune.json since: fetched each time.
-  void api.actions().then(setAppActions, () => {});
+  setOpen(!open());
 }
 
 export const closeCommandBar = () => setOpen(false);
@@ -158,7 +145,11 @@ const isSentence = (text: string) => text.split(/\s+/).length >= 3;
 export function results(query: string, commands: Command[], limit = 50): Command[] {
   const q = query.trim().toLowerCase();
   if (!q) return commands.slice(0, limit);
-  const scored = commands.map((command, i) => ({ command, i, score: command.rank ?? scoreOf(q, command) }));
+  const scored = commands.map((command, i) => ({
+    command,
+    i,
+    score: command.rank ?? scoreOf(q, command),
+  }));
   // "Add expense lunch 12" runs "Add expense" with "lunch 12".
   for (const command of commands) {
     const prefix = `${command.title.toLowerCase()} `;
@@ -195,62 +186,17 @@ const hostLabel = (url: string | null) => {
 
 function tabCommand(app: AppSummary): Command {
   const workspace = workspaces.length > 1 ? workspaceById(app.workspaceId)?.name : undefined;
-  const where = [app.kind === "web" ? hostLabel(app.url) : "", workspace].filter(Boolean).join(" · ");
+  const where = [hostLabel(app.url), workspace].filter(Boolean).join(" · ");
   return {
     id: `tab:${app.id}`,
     title: app.name,
     subtitle: where || undefined,
     // Its own icon (an image shows like a favicon), else the default.
-    icon: app.icon && !isImageIcon(app.icon) ? app.icon : app.kind === "web" ? "globe" : "app-window",
-    favicon: isImageIcon(app.icon) ? app.icon : app.kind === "web" && !app.icon ? app.favicon : undefined,
-    group: app.kind === "web" ? "Web tab" : "App",
-    keywords: app.kind === "web" ? (app.url ?? "") : undefined,
+    icon: app.icon && !isImageIcon(app.icon) ? app.icon : "globe",
+    favicon: isImageIcon(app.icon) ? app.icon : !app.icon ? app.favicon : undefined,
+    group: "Web tab",
+    keywords: app.url ?? "",
     run: () => selectApp(app.id),
-  };
-}
-
-/** Opens an app at one of its pages, once its preview is up. */
-export async function openInApp(appId: string, path: string) {
-  await selectApp(appId);
-  const deadline = Date.now() + 90_000;
-  for (;;) {
-    try {
-      const page = pageOf(appId);
-      if (page) return void (await page.navigate(path));
-    } catch (err) {
-      if (Date.now() > deadline) throw err;
-    }
-    if (Date.now() > deadline) throw new Error("The app didn't start in time");
-    await new Promise((r) => setTimeout(r, 300));
-  }
-}
-
-async function runAppAction(info: AppActionInfo, input?: string) {
-  const { action } = info;
-  if (action.path) return openInApp(info.appId, action.path);
-  const pending = toast({ title: action.title, message: `Running in ${info.appName}…`, kind: "info", sticky: true });
-  try {
-    const result = await api.runAction(info.appId, action.id, input);
-    pending.update({
-      message: result.message || (result.ok ? "Done" : `Failed (HTTP ${result.status})`),
-      kind: result.ok ? "success" : "error",
-    });
-  } catch (err) {
-    pending.update({ message: err instanceof Error ? err.message : String(err), kind: "error" });
-  }
-}
-
-function actionCommand(info: AppActionInfo): Command {
-  const { action } = info;
-  return {
-    id: `action:${info.appId}:${action.id}`,
-    title: action.title,
-    subtitle: info.appName,
-    icon: info.appIcon ?? "zap",
-    group: action.path ? "Open in app" : "App action",
-    keywords: action.description,
-    input: action.input,
-    run: (input) => runAppAction(info, input),
   };
 }
 
@@ -291,36 +237,15 @@ function currentTabCommands(id: string): Command[] {
       group: "Tab",
       run: () => duplicateApp(id),
     },
-    // For an app, the agent panel is its mode: open while editing, hidden when done.
-    app.kind === "app" && state?.project
-      ? isAgentCollapsed(id)
-        ? {
-            id: "tab.agent",
-            title: "Edit the app",
-            keys: "agent.toggle",
-            icon: "pencil-ruler",
-            group: "App",
-            keywords: "show agent panel chat dev mode editing",
-            run: () => setAgentCollapsed(id, false),
-          }
-        : {
-            id: "tab.agent",
-            title: "Done editing",
-            keys: "agent.toggle",
-            icon: "check",
-            group: "App",
-            keywords: "hide agent panel chat mark as done live build publish",
-            run: () => setAgentCollapsed(id, true),
-          }
-      : {
-          id: "tab.agent",
-          title: isAgentCollapsed(id) ? "Show the agent" : "Hide the agent",
-          keys: "agent.toggle",
-          icon: "panel-right",
-          group: "Tab",
-          keywords: "toggle panel chat",
-          run: () => setAgentCollapsed(id, !isAgentCollapsed(id)),
-        },
+    {
+      id: "tab.agent",
+      title: isAgentCollapsed(id) ? "Show the agent" : "Hide the agent",
+      keys: "agent.toggle",
+      icon: "panel-right",
+      group: "Tab",
+      keywords: "toggle panel chat",
+      run: () => setAgentCollapsed(id, !isAgentCollapsed(id)),
+    },
   ];
   list.push(
     app.pinned
@@ -354,7 +279,7 @@ function currentTabCommands(id: string): Command[] {
     });
   list.push({
     id: "tab.close",
-    title: app.kind === "app" ? "Close tab (the app is kept)" : "Close tab",
+    title: "Close tab",
     keys: "tab.close",
     icon: "x",
     group: "Tab",
@@ -384,16 +309,16 @@ function currentTabCommands(id: string): Command[] {
         run: () => runShortcut(shortcut, { tabId: id, source: "window" }),
       })),
     );
-  if (app.kind === "web") {
-    list.push({
+  list.push(
+    {
       id: "tab.reload",
       title: "Reload page",
       keys: "nav.reload",
       icon: "rotate-cw",
       group: "Tab",
       run: () => pageOf(id)?.reload(),
-    });
-    list.push({
+    },
+    {
       id: "tab.network",
       title: networkTab() === id ? "Hide network requests" : "Network requests",
       subtitle: app.name,
@@ -401,34 +326,8 @@ function currentTabCommands(id: string): Command[] {
       group: "Tab",
       keywords: "traffic api requests responses devtools",
       run: () => setNetworkTab(networkTab() === id ? null : id),
-    });
-  } else if (state?.project) {
-    list.push(
-      {
-        id: "app.restart",
-        title: "Restart app",
-        subtitle: app.name,
-        icon: "rotate-cw",
-        group: "App",
-        run: async () => setRuntime(id, await api.controlRuntime(id, "restart")),
-      },
-      {
-        id: "app.snapshot",
-        title: "Save a snapshot",
-        subtitle: app.name,
-        icon: "rotate-ccw-clock",
-        group: "App",
-        keywords: "history version checkpoint",
-        run: async () => {
-          const entry = await api.saveSnapshot(`app:${id}`);
-          toast({
-            message: entry ? "Saved a snapshot" : "Nothing changed since the last snapshot",
-            kind: entry ? "success" : "info",
-          });
-        },
-      },
-    );
-  }
+    },
+  );
   if (state?.messages.length && !state.running) {
     list.push({
       id: "tab.newChat",
@@ -458,7 +357,12 @@ function currentTabCommands(id: string): Command[] {
     icon: "trash",
     group: "Tab",
     run: async () => {
-      if (await confirmDialog(`Delete ${name} and all its data?`, { confirmLabel: "Delete", danger: true }))
+      if (
+        await confirmDialog(`Delete ${name} and its chats?`, {
+          confirmLabel: "Delete",
+          danger: true,
+        })
+      )
         await deleteApp(id);
     },
   });
@@ -475,14 +379,6 @@ function runeCommands(): Command[] {
     run: () => updateSettings((s) => ({ ...s, theme: { ...s.theme, mode } })),
   });
   return [
-    {
-      id: "new.app",
-      title: "New app",
-      icon: "plus",
-      group: "Rune Browser",
-      keywords: "create build",
-      run: () => newApp(),
-    },
     {
       id: "new.web",
       title: "New web tab",
@@ -566,7 +462,7 @@ function runeCommands(): Command[] {
       keywords: "tab bar sidebar layout horizontal vertical top side",
       run: () => setTabLayout(isHorizontal() ? "vertical" : "horizontal"),
     },
-    // Every category of Settings, by name ("Settings: Apps").
+    // Every category of Settings, by name ("Settings: Agents").
     ...settingsSections
       .filter((section) => !section.view)
       .map((section): Command => ({
@@ -652,7 +548,7 @@ function runeCommands(): Command[] {
       subtitle: currentWorkspace()?.name,
       icon: "layers",
       group: "Rune Browser",
-      keywords: "secrets instructions agent",
+      keywords: "instructions agent default model",
       run: scrollToWorkspaceSettings,
     },
     theme("system", "Theme: match the system", "monitor"),
@@ -820,7 +716,10 @@ function routed(query: string, best: number): Command[] {
         rank: 1000,
         run: () =>
           reviewMod({ code: text }).catch((err) =>
-            toast({ message: err instanceof Error ? err.message : String(err), kind: "error" }),
+            toast({
+              message: err instanceof Error ? err.message : String(err),
+              kind: "error",
+            }),
           ),
       },
     ];
@@ -850,7 +749,7 @@ function routed(query: string, best: number): Command[] {
       rank: 1000,
       run: () => newWebTab(url),
     });
-    if (tab?.kind === "web") {
+    if (tab) {
       list.push({
         id: "route.here",
         title: `Open ${text}`,
@@ -877,13 +776,13 @@ function routed(query: string, best: number): Command[] {
     });
   }
   list.push({
-    id: "route.build",
+    id: "route.ask-new",
     title: text,
-    subtitle: "Build a new app",
+    subtitle: "Ask the agent in a new tab",
     icon: "sparkles",
     group: "Agent",
     rank: forAgent ? 850 : 2,
-    run: async () => askAgent((await newApp()).id, text),
+    run: async () => askAgent((await newWebTab()).id, text),
   });
   list.push({
     id: "route.search",
@@ -897,9 +796,9 @@ function routed(query: string, best: number): Command[] {
   return list;
 }
 
-/** What a private window leaves out: agents, apps (theirs are built by agents) and workspaces. */
+/** What a private window leaves out: agents and workspaces. */
 const notInPrivate =
-  /^(tab\.agent|tab\.newChat|tab\.move:|tab\.delete|new\.app|new\.workspace|workspace:|route\.(ask|build)|library:|action:|app\.|open\.workspace-settings)/;
+  /^(tab\.agent|tab\.newChat|tab\.move:|tab\.delete|new\.workspace|workspace:|route\.ask|open\.workspace-settings)/;
 
 /** Everything the bar can do right now, in the order it shows them without a query. */
 export function commands(query: string): Command[] {
@@ -907,12 +806,8 @@ export function commands(query: string): Command[] {
   const id = selectedId();
   const inWorkspace = (workspaceId: string) => workspaceId === current;
   const tabs = [...apps].sort((a, b) => Number(inWorkspace(b.workspaceId)) - Number(inWorkspace(a.workspaceId)));
-  const actions = [...appActions()].sort(
-    (a, b) => Number(inWorkspace(b.workspaceId)) - Number(inWorkspace(a.workspaceId)),
-  );
   const list: Command[] = [
     ...tabs.filter((a) => a.id !== id).map(tabCommand),
-    ...actions.map(actionCommand),
     ...(isTab(id) ? currentTabCommands(id) : []),
     ...(isTab(id) ? splitCommands(id, !!query.trim()) : []),
     ...workspaces
@@ -936,15 +831,6 @@ export function commands(query: string): Command[] {
       keywords: "restore undo close",
       run: () => reopenClosedTab(),
     },
-    ...library().map((app): Command => ({
-      id: `library:${app.id}`,
-      title: `Open ${app.name}`,
-      subtitle: "Saved app",
-      icon: app.icon ?? "box",
-      group: "Saved apps",
-      keywords: "reopen closed library",
-      run: () => reopenApp(app.id),
-    })),
   ];
   const q = query.trim().toLowerCase();
   const best = q ? Math.max(0, ...list.map((c) => scoreOf(q, c))) : 0;

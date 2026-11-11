@@ -116,7 +116,7 @@ export const usedRequest = Effect.fn(function* (env: ToolEnv, id: string) {
   return "entry" in used ? used.entry : text(`Request #${id.replace(/^#/, "")} isn't in the log. ${used.gone}`, true);
 });
 
-/** Reading the page's traffic (also for app builders, on their app's preview). */
+/** Reading the page's traffic (nothing is sent: no permission needed). */
 export const networkReadTools = Effect.fn(function* (env: ToolEnv) {
   const hub = yield* Hub;
   const files = yield* ChatFiles;

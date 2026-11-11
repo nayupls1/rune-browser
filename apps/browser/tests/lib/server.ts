@@ -1,4 +1,5 @@
 // Starts the real Bun server on a free port with a throwaway data dir.
+import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -78,11 +79,24 @@ export async function startServer(options: { dataDir?: string; env?: Record<stri
     wsUrl: `${url.replace("http", "ws")}/api/ws?token=${token}`,
     dataDir,
     api,
+    /** A remembered permission decision, as if the user had answered with "remember" (straight into the database). */
+    remember(subject: string, action: string, resource: string, decision: "allow" | "deny") {
+      const db = new Database(join(dataDir, "rune.sqlite"));
+      try {
+        db.run("PRAGMA busy_timeout = 5000");
+        db.run(
+          `INSERT INTO permissions (subject, action, resource, decision) VALUES (?, ?, ?, ?)
+           ON CONFLICT (subject, action, resource) DO UPDATE SET decision = excluded.decision`,
+          [subject, action, resource, decision],
+        );
+      } finally {
+        db.close();
+      }
+    },
     async stop() {
       proc.kill();
       await proc.exited;
-      // Windows keeps files locked a moment after their processes end (or, for app
-      // processes the killed server couldn't stop, longer): best effort there.
+      // Windows keeps files locked a moment after their processes end: best effort there.
       try {
         rmSync(dataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
       } catch (err) {

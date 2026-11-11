@@ -4,17 +4,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { builtInMods } from "../src/server/mods/gallery";
-import {
-  base,
-  brand,
-  contrast,
-  palette,
-  readableOn,
-  themePresets,
-  tokensCss,
-  type Mode,
-  type Palette,
-} from "../src/shared/theme";
+import { base, brand, contrast, palette, readableOn, themePresets, type Mode, type Palette } from "../src/shared/theme";
 
 // --- color-mix(in oklab, …) → hex, to measure the derived colors ---------------------------
 
@@ -164,17 +154,5 @@ describe("Rune's palette", () => {
     const keys = Object.keys(light).filter((k) => !/^(radius|font)/.test(k)) as (keyof Palette)[];
     expect([...vars.keys()].sort()).toEqual([...keys].sort());
     for (const key of keys) expect(vars.get(key)).toEqual([light[key], dark[key]]);
-  });
-
-  test("new apps start with the palette as design tokens", () => {
-    const css = tokensCss({ mode: "system" });
-    for (const mode of modes) {
-      const p = palette({}, mode);
-      expect(css).toContain(`--color-accent: ${p.accent};`);
-      expect(css).toContain(`--color-bg: ${p.bg};`);
-      expect(css).toContain(`--color-accent-gradient: ${p.accentGradient};`);
-      expect(css).toContain(`--color-success: ${p.success};`);
-    }
-    expect(css).toContain("@media (prefers-color-scheme: dark)");
   });
 });

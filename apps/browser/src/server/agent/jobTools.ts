@@ -100,11 +100,11 @@ interface ScriptState {
   result?: string | null;
 }
 
-export const jobTools = Effect.fn(function* (env: ToolEnv, options: { site: boolean }) {
+export const jobTools = Effect.fn(function* (env: ToolEnv) {
   const hub = yield* Hub;
   const jobs = yield* Jobs;
   const evalIn = <T>(code: string) => hub.rpc<T>("page.eval", { tabId: env.tabId, code });
-  const where = options.site ? "the page in the user's tab" : "the app's preview";
+  const where = "the page in the user's tab";
 
   return [
     tool(
@@ -113,12 +113,8 @@ export const jobTools = Effect.fn(function* (env: ToolEnv, options: { site: bool
         `Start JavaScript in ${where} as a background job, for work that takes longer than run_js allows (30 s): going through many pages of results, a long series of fetch calls, waiting for something slow.`,
         "`code` is the body of an async function, like run_js: `return` the result (JSON-serializable). It also gets progress(done, total) or progress('a short note') to say how far it got, and signal, an AbortSignal that fires when the job is stopped (check signal.aborted in loops).",
         "It returns right away with the job's id; the job keeps running after your reply until it ends, is stopped, or the chat or tab is closed (a reload or navigation ends it too). job_status checks on it or waits for it, cancel_job stops it. The result goes into a file in the chat's folder (save_as, by default jobs/<job id>.json).",
-        options.site
-          ? "Like run_js, it's for reading and collecting data, not for acting on the site: use click, fill_form and batch_requests for that."
-          : "",
-      ]
-        .filter(Boolean)
-        .join(" "),
+        "Like run_js, it's for reading and collecting data, not for acting on the site: use click, fill_form and batch_requests for that.",
+      ].join(" "),
       Schema.Struct({
         code: Schema.String,
         title: Schema.optionalKey(

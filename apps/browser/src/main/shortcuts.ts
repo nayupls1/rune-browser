@@ -1,4 +1,4 @@
-// Keyboard shortcuts pressed while a page (web tab, app preview) has the
+// Keyboard shortcuts pressed while a page (a web tab) has the
 // focus. Keys the browser reserves go straight to the Rune Browser window; the
 // rest go to the page first, like in Chromium: it's given the key, and only
 // when it doesn't use it (preventDefault) does the window run the shortcut.

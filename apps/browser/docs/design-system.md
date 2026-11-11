@@ -2,14 +2,13 @@
 
 [README](../../../README.md) · [Architecture](architecture.md) · [Concepts](concepts.md) · [Interface](interface.md) · [Browsing](browsing.md) · [Design system](design-system.md) · [Development](development.md) · [Benchmarks](benchmarks.md) · [Releasing](releasing.md)
 
-Rune Browser's look comes from its icon (`build/icon.svg`): a burnt orange rune on warm cream. The same palette is the browser's own UI, its internal pages (Settings, History, Mods…) and the apps it builds, so the icon, the app and what it makes look like one product.
+Rune Browser's look comes from its icon (`build/icon.svg`): a burnt orange rune on warm cream. The same palette is the browser's own UI and its internal pages (Settings, History, Mods…), so the icon and the app look like one product.
 
 ## Palette
 
 The colors live in `src/shared/theme.ts` (`brand`, `base` and `palette()`); everything else uses them:
 
 - **The browser's UI** uses the StyleX variables in `src/renderer/theme.stylex.ts` (`colors.accent`, `colors.bg`…). Their defaults are the default theme, so the app looks right before settings load and in safe mode; `lib/theme.ts` sets them from the user's theme at runtime.
-- **Apps** start with `src/tokens.css`, the same colors as CSS custom properties (`--color-accent`, `--color-bg`…; `tokensCss()`), following the OS between light and dark when the mode is System (the default).
 - **Web pages** only see the light accent, on what Rune Browser draws in them (the element picker, page-change buttons).
 
 `tests/theme.test.ts` checks that the default theme is the icon's colors, that the StyleX defaults match it, and that text stays readable.
@@ -40,7 +39,7 @@ The colors live in `src/shared/theme.ts` (`brand`, `base` and `palette()`); ever
 | `warning` / `--color-warning`                | `#9a5800`            | `#eaa63f`            | Starting, needs attention                              |
 | `danger` / `--color-danger`                  | `#b42346`            | `#f06b85`            | Errors, crashes, destructive actions, removed lines    |
 
-The window's background is the cream's top stop; the full cream gradient is only in the icon. The accent gradient is for decoration (marks, illustrations, apps' brand moments): its lighter top stop doesn't hold white text at 4.5:1, so text goes on the flat accent. A custom accent gets a gradient of its own, from 14% lighter to 18% darker.
+The window's background is the cream's top stop; the full cream gradient is only in the icon. The accent gradient is for decoration (marks, illustrations, brand moments): its lighter top stop doesn't hold white text at 4.5:1, so text goes on the flat accent. A custom accent gets a gradient of its own, from 14% lighter to 18% darker.
 
 Mixed colors are `color-mix(in oklab, …)`, so they follow a custom theme too. The light accent sits between the rune's two stops, dark enough for white text; the dark accent is lighter, for dark backgrounds, and takes black text. Danger leans to crimson so errors aren't mistaken for the accent.
 

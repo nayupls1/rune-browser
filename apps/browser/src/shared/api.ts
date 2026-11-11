@@ -196,7 +196,7 @@ export interface RuneBridge {
     openDevTools: (webContentsId: number, panel: "elements" | "console" | "sources" | "inspect") => void;
     /** Saves a page to a file the user picks (Ctrl+S). */
     savePage: (webContentsId: number) => Promise<void>;
-    /** Screenshot of a page (web tab or app preview) as base64 JPEG. */
+    /** Screenshot of a web tab's page as base64 JPEG. */
     capture: (webContentsId: number) => Promise<string>;
     /** Opens a URL in the system browser. */
     openExternal: (url: string) => void;
@@ -204,9 +204,9 @@ export interface RuneBridge {
     pathForFile: (file: File) => string;
     /** Downloads a URL (a local file the browser can't show) in a workspace's session, like Chrome does. */
     download: (workspaceId: string, url: string) => void;
-    /** DevTools for the agents on a page (web tab or app preview): see main/devtools.ts. */
+    /** DevTools for the agents on a web tab's page: see main/devtools.ts. */
     devtools: (webContentsId: number, command: DevtoolsCommand, params?: object) => Promise<unknown>;
-    /** The traffic of web tabs and app previews (see main/network.ts). Agents only ever get it with reveal off. */
+    /** The traffic of web tabs (see main/network.ts). Agents only ever get it with reveal off. */
     network: {
       list: (webContentsId: number, filter?: NetworkFilter) => Promise<NetworkEntrySummary[]>;
       /** reveal: with credentials (only for the user's own eyes). */
@@ -337,10 +337,6 @@ export const WEB_PARTITION_PATTERN = /^persist:(web(-[\w-]+)?|private-web)$/;
  */
 export const PRIVATE_WORKSPACE = "private";
 export const PRIVATE_PARTITION = "persist:private-web";
-/** Each app's preview gets its own session: apps all live on 127.0.0.1, and cookies don't separate ports. */
-export const appPartition = (appId: string) => `persist:app-${appId}`;
-export const APP_PARTITION_PATTERN = /^persist:app-[\w-]+$/;
-
 /** A shortcut (shared/shortcuts.ts) pressed in a page: which one, and in which page. */
 export interface ShortcutEvent {
   id: string;
@@ -395,15 +391,6 @@ export interface ProviderStatus {
   defaultModel: string | null;
 }
 
-/**
- * The model apps' AI requests use unless Settings pick one: a fast, cheap one
- * where the provider has it (app requests are many and small), else the
- * provider's default.
- */
-export const defaultAppModel = (status: Pick<ProviderStatus, "models" | "defaultModel">): string | null =>
-  (status.models.find((m) => m.id === "haiku") ?? status.models.find((m) => /haiku/i.test(m.id)))?.id ??
-  status.defaultModel;
-
 export interface AgentChoice {
   provider: ProviderId;
   /** null: the provider's default model. */
@@ -417,8 +404,8 @@ export interface AgentChoice {
 export const DEFAULT_WORKSPACE = "default";
 
 /**
- * A group of tabs with its own agent defaults and instructions, secrets shared
- * by its apps, and its own web session (logins).
+ * A group of tabs with its own agent defaults and instructions, and its own
+ * web session (logins).
  */
 export interface WorkspaceInfo {
   id: string;
@@ -473,19 +460,15 @@ export function normalizeSplits(splits: readonly TabSplit[], tabIds: readonly st
   return result;
 }
 
-// --- Apps and web tabs (one per sidebar tab) ------------------------------------
-
-export type TabKind = "app" | "web";
+// --- Tabs ---------------------------------------------------------------------------
 
 export interface AppSummary {
   id: string;
   workspaceId: string;
-  /** "app": a project built by the agent; "web": a browser tab. */
-  kind: TabKind;
   name: string;
   /** Its own icon (see TabIcon): a Lucide icon name, an emoji or an image (data URL). Null: the default (web tabs: the site's favicon). */
   icon: string | null;
-  /** Web tabs: current URL and favicon. */
+  /** The current URL and favicon. */
   url: string | null;
   favicon: string | null;
   /** Kept loaded: not unloaded when it hasn't been used for a while. */
@@ -494,11 +477,9 @@ export interface AppSummary {
   position: number;
   createdAt: string;
   updatedAt: string;
-  /** Closed apps (the library): when the tab was closed. Open tabs don't have it. */
-  closedAt?: string;
   /** The window it's in (shared/windows.ts); null until it's given one. */
   windowId: string | null;
-  /** In a private window: a web tab whose pages keep nothing, which agents don't see. */
+  /** In a private window: a tab whose pages keep nothing, which agents don't see. */
   private: boolean;
 }
 
@@ -520,177 +501,11 @@ export interface AppDetail extends AppSummary {
   jobs: JobInfo[];
   /** Last provider/model/effort used for this tab (null = the defaults from Settings). */
   agent: AgentChoice | null;
-  /** Apps only. */
-  project: ProjectInfo | null;
-  runtime: RuntimeStatus | null;
 }
-
-/** An app's project: its folder and rune.json. Null until the agent set one up. */
-export interface ProjectInfo {
-  dir: string;
-  manifest: Manifest;
-}
-
-// --- Managed app data -----------------------------------------------------------
-
-export interface DataColumn {
-  name: string;
-  /** SQLite's declared type ("" when none). */
-  type: string;
-  primaryKey: boolean;
-}
-
-export interface DataTable {
-  name: string;
-  rows: number;
-  columns: DataColumn[];
-}
-
-/** What an app has stored (its database and files), for the Data panel. */
-export interface DataOverview {
-  tables: DataTable[];
-  /** The database file (with its write-ahead log). */
-  databaseBytes: number;
-  files: { count: number; bytes: number };
-  /** Set when the database exists but can't be read. */
-  error: string | null;
-}
-
-/** A page of a table's rows. Blobs show as "<n bytes>", big integers as text. */
-export interface DataRows {
-  table: string;
-  columns: DataColumn[];
-  rows: Record<string, unknown>[];
-  /** Rows matching the filters. */
-  total: number;
-  offset: number;
-  limit: number;
-}
-
-/** rune.json at the root of an app's project. */
-export interface Manifest {
-  /** The preset the project started from. */
-  preset?: string;
-  /** Install dependencies (run when package.json/lockfile changed). Default: "bun install" if there is a package.json. */
-  install?: string;
-  /** Dev server with live reload, listening on $PORT. */
-  dev: string;
-  /** Production build (optional). */
-  build?: string;
-  /** Serve the built app on $PORT. */
-  start: string;
-  /** What the app offers in Rune Browser's command bar and tool registry. */
-  actions?: AppAction[];
-  /** Which tools Rune Browser derives from the app's data: all (default), read (list/get) or none. */
-  dataTools?: "all" | "read" | "none";
-}
-
-/**
- * A command an app offers in the command bar (rune.json "actions"). Either
- * opens the app at `path`, or has Rune Browser POST `{ input }` (JSON) to the
- * app's `endpoint`, whose JSON `{ message }` is shown as the result.
- */
-export interface AppAction {
-  /** Stable, e.g. "add-expense". */
-  id: string;
-  title: string;
-  description?: string;
-  path?: string;
-  endpoint?: string;
-  /** Asks for text first (this is the placeholder), sent as `input`. */
-  input?: string;
-  /** Named, typed arguments (for agents and other apps), sent as `params`. */
-  params?: Record<string, ToolParam>;
-}
-
-export interface ToolParam {
-  type: "string" | "number" | "integer" | "boolean" | "object";
-  description?: string;
-  required?: boolean;
-}
-
-/**
- * Something an app can do, in Rune Browser's tool registry: the app's own actions
- * (rune.json) and the basic ones Rune Browser derives from its data (list, get,
- * add, update, delete per table). An action with a data tool's id replaces it.
- */
-export interface AppTool {
-  /** Stable, e.g. "add-expense" or "list-notes". */
-  id: string;
-  title: string;
-  description?: string;
-  /** "data": derived from a table; "action": declared by the app. */
-  source: "data" | "action";
-  /** Only reads (data list/get). */
-  readOnly: boolean;
-  params: Record<string, ToolParam>;
-  /** Actions: asks for text first (placeholder). */
-  input?: string;
-  /** Actions that open the app at a page (only the user can). */
-  path?: string;
-  /** Data tools: the table and what is done with it. */
-  table?: string;
-  op?: "list" | "get" | "add" | "update" | "delete";
-}
-
-/** An app's tools, with the app. */
-export interface AppToolsInfo {
-  appId: string;
-  appName: string;
-  appIcon: string | null;
-  workspaceId: string;
-  tools: AppTool[];
-}
-
-export interface ToolResult {
-  ok: boolean;
-  /** The app's HTTP status (actions), or Rune Browser's. */
-  status: number;
-  /** What happened, short (shown as a notice). */
-  message: string;
-  /** The result itself (rows, the app's JSON reply). */
-  data?: unknown;
-}
-
-/** An app action with the app it belongs to (for the command bar). */
-export interface AppActionInfo {
-  appId: string;
-  workspaceId: string;
-  appName: string;
-  appIcon: string | null;
-  action: AppAction;
-}
-
-export interface AppActionResult {
-  ok: boolean;
-  /** The app's HTTP status. */
-  status: number;
-  /** The app's `message`, or the start of its response. */
-  message: string;
-}
-
-/** dev: the agent is working on it (dev server, live reload). live: done (built, start command). */
-export type AppMode = "dev" | "live";
-
-export interface RuntimeStatus {
-  mode: AppMode;
-  state: "stopped" | "installing" | "building" | "starting" | "running" | "crashed";
-  /** Where the preview is served (127.0.0.1:port) once running. */
-  url: string | null;
-  port: number | null;
-  exitCode: number | null;
-  /** Why it isn't running (crash, failed build…). */
-  error: string | null;
-  startedAt: string | null;
-  /** How the app's processes are isolated. */
-  sandbox: SandboxKind;
-}
-
-export type SandboxKind = "bwrap" | "none";
 
 /**
  * Code attached to a tab for its agent: a folder of yours, used in place, or
- * a Git repository Rune Browser cloned (server: workspace/Sources.ts).
+ * a Git repository Rune Browser cloned (server: sources/Sources.ts).
  */
 export interface ContextSource {
   id: string;
@@ -722,48 +537,12 @@ export type DevtoolsCommand =
   | "screenshot"
   | "upload";
 
-/** A shell app commands can run in (Settings → Apps). path: null for Bun's built-in shell. */
-export interface ShellInfo {
-  id: string;
-  label: string;
-  path: string | null;
-}
-
-/** What app processes run with on this machine (Settings → Apps). */
-export interface SandboxInfo {
-  platform: string;
-  /** Whether bubblewrap works here, and what the settings resolve to. */
-  bwrapAvailable: boolean;
-  kind: SandboxKind;
-  shells: ShellInfo[];
-  /** The shell commands run in now: an id from `shells`, or "custom". */
-  shell: { id: string; path: string | null };
-  /** Folders the sandbox shows read-only besides the system (toolchains, your additions), and the PATH it gets. */
-  readOnly: string[];
-  path: string[];
-}
-
-export interface LogLine {
-  /** Milliseconds since the epoch. */
-  at: number;
-  stream: "out" | "err" | "system";
-  text: string;
-}
-
-export interface PresetInfo {
-  id: string;
-  name: string;
-  description: string;
-  /** Frontend / backend summary, e.g. "React · Bun API · SQLite". */
-  stack: string;
-}
-
 // --- Chat ----------------------------------------------------------------------
 
 export interface ChatRequest {
   prompt: string;
   agent?: Partial<AgentChoice>;
-  /** Web tabs and app previews: the page and the elements the user picked. */
+  /** The page and the elements the user picked. */
   page?: PageContext;
   /** Other tabs shared with the message (server: agent/sharedTabs.ts). */
   shared?: SharedTab[];
@@ -794,8 +573,8 @@ export interface ChatFile {
 
 /**
  * A path the agent linked in the chat (`[name](<path>)`), looked up for its chip
- * (POST /api/apps/:id/files/lookup): only inside the tab's chat folders and its
- * app's project; anything else is "outside", without saying whether it exists.
+ * (POST /api/apps/:id/files/lookup): only inside the tab's chat folders; anything
+ * else is "outside", without saying whether it exists.
  */
 export interface PathInfo {
   /** The path as the agent wrote it. */
@@ -819,20 +598,16 @@ export interface SharedTab {
 
 /**
  * Why `source` can't be shared with the agent of `recipient`, or null if it can.
- * Web pages and website agents' replies are untrusted: they only go to website
- * agents, never to an app builder (it has file and shell tools).
+ * Only tabs of the same workspace can be shared, and never private ones.
  */
 export function shareRefusal(
-  recipient: Pick<AppSummary, "id" | "kind" | "workspaceId">,
-  source: Pick<AppSummary, "id" | "kind" | "workspaceId" | "name" | "private"> | null | undefined,
+  recipient: Pick<AppSummary, "id" | "workspaceId">,
+  source: Pick<AppSummary, "id" | "workspaceId" | "name" | "private"> | null | undefined,
 ) {
   // Agents don't see private windows at all, not even their tabs' names.
   if (!source || source.private) return "That tab doesn't exist anymore.";
   if (source.id === recipient.id) return "That's this tab itself.";
   if (source.workspaceId !== recipient.workspaceId) return `“${source.name}” is in another workspace.`;
-  if (recipient.kind === "app" && source.kind === "web") {
-    return `“${source.name}” is a web page. Web pages (and what a website agent made of them) can't be shared with the app builder, which has file and shell tools: describe what you need from it in your own words instead.`;
-  }
   return null;
 }
 
@@ -868,11 +643,10 @@ export interface ChatMessage {
   /**
    * tool: one tool call of the agent (JSON: ToolActivity).
    * context: what the user pointed at (picked elements) with their message.
-   * secret: the agent asks the user for a secret (JSON: { name, description }).
    * attachments: files sent with the next message (JSON: Attachment[]).
    * files: files of the chat's folder the agent shows the user (JSON: ChatFile[]).
    */
-  role: "user" | "assistant" | "tool" | "error" | "context" | "secret" | "attachments" | "files";
+  role: "user" | "assistant" | "tool" | "error" | "context" | "attachments" | "files";
   content: string;
   createdAt: string;
 }
@@ -894,11 +668,8 @@ export type ToolKind =
   | "network"
   | "plan"
   | "agent"
-  | "app"
   | "customize"
-  | "schedule"
   | "snapshot"
-  | "secret"
   | "source"
   | "tab"
   | "other";
@@ -906,7 +677,7 @@ export type ToolKind =
 /** A tool call of the agent: the content of a `tool` chat message. */
 export interface ToolActivity {
   kind: ToolKind;
-  /** One line: "Edited src/App.tsx". */
+  /** One line: "Customized example.com". */
   title: string;
   /** More, shown when the row is opened: the whole command, the arguments. */
   detail?: string;
@@ -1017,25 +788,22 @@ export interface PageChange extends PageChangeSpec {
 
 /**
  * When a schedule runs: once at a time, on a cron expression (local time),
- * or on an event: "rune.started", "app.started:<appId>",
- * "app.crashed:<appId>", or one an app sends ("app:<appId>:<name>").
+ * or on an event ("rune.started": when Rune Browser starts).
  */
 export type ScheduleTrigger =
   { type: "once"; at: string } | { type: "cron"; cron: string } | { type: "event"; event: string };
 
 /**
  * Where a scheduled task runs: a tab of a workspace, or a new tab it opens on
- * its next run (and then keeps). When its tab is closed or deleted, the task
- * stays: `tabId` is cleared and the next run opens a new tab of the same kind
- * (a web tab at the address the old one was on).
+ * its next run (and then keeps). When its tab is closed, the task stays:
+ * `tabId` is cleared and the next run opens a new tab at the address the old
+ * one was on.
  */
 export interface ScheduleTarget {
   workspaceId: string;
   /** The tab it runs in (null: it opens one on its next run). */
   tabId: string | null;
-  /** The kind of tab it opens when it has none. */
-  kind: TabKind;
-  /** The website a new web tab opens (null: an empty tab). */
+  /** The website a new tab opens (null: an empty tab). */
   url: string | null;
 }
 
@@ -1061,7 +829,6 @@ export interface Schedule extends ScheduleSpec {
   /** The workspace it runs in: its tab's, else its target's. */
   workspaceId: string;
   paused: boolean;
-  createdBy: "user" | "agent";
   /** The next time it runs (null: paused, an event, or a one-off that ran). */
   nextRunAt: string | null;
   running: boolean;
@@ -1086,57 +853,6 @@ export interface ScheduleRun {
   /** The tab the run's chat is in (null: it didn't get that far). */
   tabId: string | null;
 }
-
-// --- Secrets ----------------------------------------------------------------------
-
-/** "global", "workspace:<id>" (shared by the workspace's apps), or the id of the app tab the secret belongs to. */
-export type SecretScope = "global" | `workspace:${string}` | (string & {});
-
-export const workspaceScope = (workspaceId: string) => `workspace:${workspaceId}` as const;
-export const workspaceOfScope = (scope: string) =>
-  scope.startsWith("workspace:") ? scope.slice("workspace:".length) : null;
-
-/** A secret without its value: values never leave the server once saved. */
-export interface SecretInfo {
-  id: string;
-  scope: SecretScope;
-  /** Environment variable name, e.g. STRIPE_KEY. */
-  name: string;
-  createdAt: string;
-  updatedAt: string;
-  /** Last time an app was started with it. */
-  lastUsedAt: string | null;
-}
-
-export interface SecretsOverview {
-  /**
-   * keychain: the encryption key is protected by the OS keychain.
-   * file: by file permissions only (no keychain available).
-   * locked: the key can't be unlocked, secrets can't be used.
-   */
-  protection: "keychain" | "file" | "locked";
-  secrets: SecretInfo[];
-}
-
-export const SECRET_NAME_PATTERN = /^[A-Z][A-Z0-9_]{0,63}$/;
-
-/** Names Rune Browser sets itself (or that would break app processes). */
-export const isReservedSecretName = (name: string) =>
-  /^(RUNE_|BUN_|NODE_|NPM_|LD_|DYLD_)/.test(name) ||
-  [
-    "PORT",
-    "HOST",
-    "APP_URL",
-    "DATABASE_PATH",
-    "DATABASE_URL",
-    "PATH",
-    "HOME",
-    "TMPDIR",
-    "LANG",
-    "NO_COLOR",
-    "SHELL",
-    "USER",
-  ].includes(name);
 
 // --- Network (web tabs' traffic) ---------------------------------------------------
 
@@ -1337,33 +1053,32 @@ export interface HeadlessInfo {
 // --- Permissions and audit log ----------------------------------------------------
 
 /**
- * app.ai: an app's server uses AI (resource: "").
- * app.secret: an app uses a global secret (resource: its name).
  * agent.site: the website agent customizes a site (subject "website-agent", resource: the host).
  * agent.network: the website agent sends requests to a site with the user's session (resource: the host).
  * agent.override: the website agent changes what a site's requests return (resource: the host of the tab's page).
  * agent.headless: the website agent loads a site in a headless tab with the user's logins (resource: the host).
- * app.data: an app reads another app's data (resource: that app's id).
+ * agent.browse / agent.confirm: the website agent uses a site for the user, and each action with consequences.
+ * agent.tab: an agent reads another tab (subject: its tab, resource: the other tab).
+ * agent.source: an agent changes code attached to its tab (subject: its tab, resource: the source).
  */
 export type PermissionAction =
-  | "app.ai"
-  | "app.secret"
   | "agent.site"
   | "agent.network"
   | "agent.override"
-  | "app.data"
-  | "app.endpoints"
-  | "app.tool"
-  | "agent.schedule"
   | "agent.tab"
   | "agent.browse"
   | "agent.headless"
   | "agent.confirm"
   | "agent.source";
 
+/** A permission subject standing for every tab of a workspace: an answer remembered for all of them. */
+export const workspaceScope = (workspaceId: string) => `workspace:${workspaceId}` as const;
+export const workspaceOfScope = (scope: string) =>
+  scope.startsWith("workspace:") ? scope.slice("workspace:".length) : null;
+
 export interface PermissionGrant {
   id: number;
-  /** An app id, "workspace:<id>" (every app in it), or "website-agent". */
+  /** A tab id, "workspace:<id>" (every tab in it), or "website-agent". */
   subject: string;
   subjectName: string;
   /** The workspace the subject is in (or is); null for the website agent. */
@@ -1379,7 +1094,7 @@ export interface PermissionRequest {
   id: string;
   subject: string;
   subjectName: string;
-  /** The app's workspace (its answer can be remembered for the whole workspace); null for the website agent. */
+  /** The tab's workspace (its answer can be remembered for the whole workspace); null for the website agent. */
   workspace: { id: string; name: string } | null;
   action: PermissionAction;
   resource: string;
@@ -1396,16 +1111,16 @@ export interface AuditEntry {
   id: number;
   at: string;
   /** Who did it. */
-  actor: "user" | "agent" | "app" | "rune";
-  /** e.g. "Claude Code (haiku)", the app's name, "You". */
+  actor: "user" | "agent" | "rune";
+  /** e.g. "Website agent · Claude Code (haiku)", "You". */
   actorLabel: string;
   /** The tab it happened in, if any. */
   tabId: string | null;
-  /** The workspace of that tab (or of the workspace secret), if any. */
+  /** The workspace of that tab, if any. */
   workspaceId: string | null;
-  /** e.g. "tool.run_command", "secret.create", "ai.request", "permission.allow". */
+  /** e.g. "tool.get_page", "site.save", "permission.allow". */
   action: string;
-  /** What was affected (file, secret name, host…). Never secret values. */
+  /** What was affected (file, host…). */
   target: string | null;
   detail: string | null;
   outcome: "ok" | "denied" | "error";
@@ -1414,24 +1129,14 @@ export interface AuditEntry {
 // --- History (snapshots) ------------------------------------------------------------
 
 /**
- * What a snapshot covers. app:<id>: the app's project files and its data
- * (SQLite databases). sites: the website agent's site customizations.
+ * What a snapshot covers. sites: the site customizations and page changes.
  * settings: Rune Browser's settings and the workspaces' settings.
  */
-export type HistoryTarget = `app:${string}` | "sites" | "settings";
-
-export const appTarget = (appId: string) => `app:${appId}` as const;
-export const appOfTarget = (target: string) => (target.startsWith("app:") ? target.slice(4) : null);
-
-/** Row counts of a database's tables, before and after (null: the table didn't exist). */
-export type TableChanges = Record<string, [number | null, number | null]>;
+export type HistoryTarget = "sites" | "settings";
 
 export interface HistoryEntry {
   id: number;
   target: HistoryTarget;
-  /** App targets: the tab and its workspace. */
-  tabId: string | null;
-  workspaceId: string | null;
   at: string;
   /** Who made the change. */
   actor: AuditEntry["actor"];
@@ -1442,8 +1147,6 @@ export interface HistoryEntry {
   added: string[];
   modified: string[];
   removed: string[];
-  /** Databases whose tables changed: path → table → row counts. */
-  data: Record<string, TableChanges>;
   /** The first snapshot of its target (nothing to undo). */
   first: boolean;
 }
@@ -1451,13 +1154,12 @@ export interface HistoryEntry {
 export interface HistoryFile {
   path: string;
   status: "added" | "modified" | "removed";
-  /** text: hunks below. data: a database (tables). binary / large: no line diff. */
-  kind: "text" | "binary" | "data" | "large";
+  /** text: hunks below. binary / large: no line diff. */
+  kind: "text" | "binary" | "large";
   hunks?: Hunk[];
   /** Lines added and removed (text). */
   linesAdded?: number;
   linesRemoved?: number;
-  tables?: TableChanges;
 }
 
 export interface HistoryDetail {

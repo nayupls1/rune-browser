@@ -31,7 +31,7 @@ export interface DownloadInfo {
   /** Discarded as risky (cancelled, its file deleted). */
   discarded: boolean;
   error: string | null;
-  /** The web tabs' workspace it came from (null: an app preview or Rune Browser itself). */
+  /** The web tabs' workspace it came from (null: Rune Browser itself). */
   workspaceId: string | null;
   /** The session's partition, to retry in the same session ("" is Rune Browser's own). */
   partition: string;

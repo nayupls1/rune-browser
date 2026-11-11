@@ -26,7 +26,7 @@ describe("attachments over the API", () => {
   test("an image is uploaded and served inline; other files only as downloads", async () => {
     const tab = await server.api<{ id: string }>("/api/apps", {
       method: "POST",
-      json: { kind: "web", url: "https://example.com" },
+      json: { url: "https://example.com" },
     });
     const image = await server.api<{ id: string; name: string; mime: string; size: number }>(
       `/api/apps/${tab.id}/attachments`,
@@ -48,7 +48,7 @@ describe("attachments over the API", () => {
     expect(download.headers.get("content-type")).toBe("application/octet-stream");
     expect(download.headers.get("content-disposition")).toContain("attachment");
     // Another tab can't reach it, and without the token nothing is served.
-    const other = await server.api<{ id: string }>("/api/apps", { method: "POST", json: { kind: "app" } });
+    const other = await server.api<{ id: string }>("/api/apps", { method: "POST", json: {} });
     expect(
       (await fetch(`${server.url}/api/apps/${other.id}/attachments/${image.id}?token=${server.token}`)).status,
     ).toBe(404);
@@ -75,8 +75,8 @@ describe("what the provider gets", () => {
       Effect.gen(function* () {
         const attachments = yield* Attachments;
         const apps = yield* Apps;
-        const tab = (yield* apps.create("default", "app", null)).id;
-        const other = (yield* apps.create("default", "app", null)).id;
+        const tab = (yield* apps.create("default", null)).id;
+        const other = (yield* apps.create("default", null)).id;
         const save = (name: string, mime: string, data: Uint8Array) => attachments.save(tab, { name, mime, data });
         const ids = [
           (yield* save("notes.md", "text/markdown", new TextEncoder().encode("# Ideas\nDark mode"))).id,

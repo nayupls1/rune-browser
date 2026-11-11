@@ -1,7 +1,7 @@
-// Tabs (apps and web tabs) and their chat history.
+// Tabs and their chat history. (The table is still called apps, from when tabs could be apps.)
 import { Context, Effect, Layer } from "effect";
 import { SqlClient } from "effect/sql";
-import type { AgentChoice, AppMode, AppSummary, ChatMessage, ChatSummary, ProviderId, TabKind } from "../../shared/api";
+import type { AgentChoice, AppSummary, ChatMessage, ChatSummary, ProviderId } from "../../shared/api";
 import { hostOf } from "../../shared/web";
 import { isPrivateWindow } from "../../shared/windows";
 import { now, orDieAll, type OrDie } from "./Db";
@@ -9,11 +9,9 @@ import { now, orDieAll, type OrDie } from "./Db";
 interface AppRow {
   id: string;
   workspace_id: string;
-  kind: TabKind;
   name: string;
   name_locked: number;
   icon: string | null;
-  icon_locked: number;
   pinned: number;
   url: string | null;
   favicon: string | null;
@@ -22,11 +20,9 @@ interface AppRow {
   effort: string | null;
   session_id: string | null;
   session_provider: string | null;
-  mode: string;
   position: number;
   created_at: string;
   updated_at: string;
-  closed_at: string | null;
   chat_folder: string | null;
   window_id: string | null;
 }
@@ -36,13 +32,11 @@ export interface AppRecord extends AppSummary {
   agent: AgentChoice | null;
   /** The provider session to resume, if it belongs to that provider. */
   session: { provider: ProviderId; id: string } | null;
-  mode: AppMode;
 }
 
 const toSummary = (r: AppRow): AppSummary => ({
   id: r.id,
   workspaceId: r.workspace_id,
-  kind: r.kind,
   name: r.name,
   icon: r.icon,
   url: r.url,
@@ -51,7 +45,6 @@ const toSummary = (r: AppRow): AppSummary => ({
   position: r.position,
   createdAt: r.created_at,
   updatedAt: r.updated_at,
-  ...(r.closed_at ? { closedAt: r.closed_at } : {}),
   windowId: r.window_id,
   private: isPrivateWindow(r.window_id),
 });
@@ -61,7 +54,6 @@ const toRecord = (r: AppRow): AppRecord => ({
   nameLocked: r.name_locked === 1,
   agent: r.provider ? { provider: r.provider as ProviderId, model: r.model, effort: r.effort } : null,
   session: r.session_id && r.session_provider ? { provider: r.session_provider as ProviderId, id: r.session_id } : null,
-  mode: r.mode === "live" ? "live" : "dev",
 });
 
 interface MessageRow {
@@ -135,43 +127,27 @@ export const make = Effect.gen(function* () {
     /** Writes the write-ahead log into the database and empties it (after private tabs were deleted: nothing of them stays there). */
     checkpoint: () => sql.unsafe("PRAGMA wal_checkpoint(TRUNCATE)").pipe(Effect.asVoid),
 
-    /** The open tabs. */
     list: () =>
-      sql<AppRow>`SELECT * FROM apps WHERE closed_at IS NULL ORDER BY position, created_at, rowid`.pipe(
+      sql<AppRow>`SELECT * FROM apps ORDER BY position, created_at, rowid`.pipe(
         Effect.map((rows) => rows.map(toSummary)),
-      ),
-
-    /** Closed app tabs, kept to be opened again: the most recently closed first. */
-    closed: () =>
-      sql<AppRow>`SELECT * FROM apps WHERE closed_at IS NOT NULL ORDER BY closed_at DESC`.pipe(
-        Effect.map((rows) => rows.map(toSummary)),
-      ),
-
-    close: (id: string) =>
-      sql`UPDATE apps SET closed_at = ${sql.literal(now)} WHERE id = ${id}`.pipe(Effect.andThen(summary(id))),
-
-    /** Opens a closed app again, last in a workspace (in a window, if given). */
-    reopen: (id: string, workspaceId: string, windowId: string | null = null) =>
-      sql`UPDATE apps SET closed_at = NULL, workspace_id = ${workspaceId}, window_id = ${windowId ?? homeWindow}, position = ${lastPosition(workspaceId)}, updated_at = ${sql.literal(now)} WHERE id = ${id}`.pipe(
-        Effect.andThen(summary(id)),
       ),
 
     get: (id: string) => row(id).pipe(Effect.map((r) => (r ? toRecord(r) : null))),
 
-    create: (workspaceId: string, kind: TabKind, url: string | null, windowId: string | null = null) =>
+    create: (workspaceId: string, url: string | null, windowId: string | null = null) =>
       Effect.gen(function* () {
         const id = crypto.randomUUID();
-        const name = kind === "web" ? hostOf(url) || "New tab" : "New app";
-        yield* sql`INSERT INTO apps (id, workspace_id, kind, name, url, position, window_id)
-          VALUES (${id}, ${workspaceId}, ${kind}, ${name}, ${url}, ${lastPosition(workspaceId)}, ${windowId ?? homeWindow})`;
+        const name = hostOf(url) || "New tab";
+        yield* sql`INSERT INTO apps (id, workspace_id, name, url, position, window_id)
+          VALUES (${id}, ${workspaceId}, ${name}, ${url}, ${lastPosition(workspaceId)}, ${windowId ?? homeWindow})`;
         return (yield* summary(id))!;
       }),
 
-    /** Web tab navigation: remembers the URL, favicon and (unless renamed) the page title. */
-    updateWebTab: (id: string, fields: { url?: string; title?: string; favicon?: string | null }) =>
+    /** Navigation: remembers the URL, favicon and (unless renamed) the page title. */
+    updatePage: (id: string, fields: { url?: string; title?: string; favicon?: string | null }) =>
       Effect.gen(function* () {
         const r = yield* row(id);
-        if (!r || r.kind !== "web") return null;
+        if (!r) return null;
         const title = fields.title?.trim();
         yield* sql`UPDATE apps SET
           url = ${fields.url ?? r.url},
@@ -182,26 +158,15 @@ export const make = Effect.gen(function* () {
         return yield* summary(id);
       }),
 
-    /** A rename by the user: page titles and the agent leave the name alone from now on. */
+    /** A rename by the user: page titles leave the name alone from now on. */
     rename: (id: string, name: string) =>
       sql`UPDATE apps SET name = ${name}, name_locked = 1, updated_at = ${sql.literal(now)} WHERE id = ${id}`.pipe(
         Effect.andThen(summary(id)),
       ),
 
-    /** Name and icon chosen by the agent (not over the user's). */
-    setInfo: (id: string, info: { name?: string; icon?: string | null }) =>
-      Effect.gen(function* () {
-        const r = yield* row(id);
-        if (!r) return null;
-        const name = info.name && !r.name_locked ? info.name.slice(0, 80) : r.name;
-        const icon = info.icon !== undefined && !r.icon_locked ? info.icon : r.icon;
-        yield* sql`UPDATE apps SET name = ${name}, icon = ${icon}, updated_at = ${sql.literal(now)} WHERE id = ${id}`;
-        return yield* summary(id);
-      }),
-
-    /** An icon the user chose (the agent leaves it alone from now on), or null for the default again. */
+    /** An icon the user chose, or null for the default (the site's favicon) again. */
     setIcon: (id: string, icon: string | null) =>
-      sql`UPDATE apps SET icon = ${icon}, icon_locked = ${icon === null ? 0 : 1}, updated_at = ${sql.literal(now)} WHERE id = ${id}`.pipe(
+      sql`UPDATE apps SET icon = ${icon}, updated_at = ${sql.literal(now)} WHERE id = ${id}`.pipe(
         Effect.andThen(summary(id)),
       ),
 
@@ -221,15 +186,9 @@ export const make = Effect.gen(function* () {
 
     /** Moves a tab to another workspace. */
     move: (id: string, workspaceId: string) =>
-      sql
-        .withTransaction(
-          Effect.all([
-            sql`UPDATE apps SET workspace_id = ${workspaceId}, position = ${lastPosition(workspaceId)}, updated_at = ${sql.literal(now)} WHERE id = ${id}`,
-            // Its history goes along.
-            sql`UPDATE snapshots SET workspace_id = ${workspaceId} WHERE tab_id = ${id}`,
-          ]),
-        )
-        .pipe(Effect.andThen(summary(id))),
+      sql`UPDATE apps SET workspace_id = ${workspaceId}, position = ${lastPosition(workspaceId)}, updated_at = ${sql.literal(now)} WHERE id = ${id}`.pipe(
+        Effect.andThen(summary(id)),
+      ),
 
     /** Moves a tab to another window: last in its workspace there, or where it was (tabs a window takes in). */
     setWindow: (id: string, windowId: string, place: "last" | "same" = "last") =>
@@ -258,11 +217,6 @@ export const make = Effect.gen(function* () {
           Effect.map((rows) => rows.map(toSummary)),
         ),
 
-    setMode: (id: string, mode: AppMode) => sql`UPDATE apps SET mode = ${mode} WHERE id = ${id}`.pipe(Effect.asVoid),
-
-    /** When Rune Browser starts, apps left being edited are done: no agent is working on them anymore. */
-    finishEditing: () => sql`UPDATE apps SET mode = 'live' WHERE kind = 'app' AND mode = 'dev'`.pipe(Effect.asVoid),
-
     touch: (id: string) => touch(id).pipe(Effect.asVoid),
 
     /** Copies a tab's name, icon, URL and agent settings (not its chat) to a new tab. */
@@ -271,8 +225,8 @@ export const make = Effect.gen(function* () {
         const r = yield* row(id);
         if (!r) return null;
         const copyId = crypto.randomUUID();
-        yield* sql`INSERT INTO apps (id, workspace_id, kind, name, icon, icon_locked, url, favicon, provider, model, effort, mode, position, window_id)
-          VALUES (${copyId}, ${r.workspace_id}, ${r.kind}, ${`${r.name} copy`}, ${r.icon}, ${r.icon_locked}, ${r.url}, ${r.favicon}, ${r.provider}, ${r.model}, ${r.effort}, ${r.mode}, ${lastPosition(r.workspace_id)}, ${r.window_id})`;
+        yield* sql`INSERT INTO apps (id, workspace_id, name, icon, url, favicon, provider, model, effort, position, window_id)
+          VALUES (${copyId}, ${r.workspace_id}, ${`${r.name} copy`}, ${r.icon}, ${r.url}, ${r.favicon}, ${r.provider}, ${r.model}, ${r.effort}, ${lastPosition(r.workspace_id)}, ${r.window_id})`;
         return (yield* summary(copyId))!;
       }),
 

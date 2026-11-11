@@ -3,7 +3,7 @@
 // scroll position, form input: lib/pagestate.ts) is kept and put back when the
 // tab is opened again. Never unloaded: tabs on screen, pinned tabs, tabs whose
 // agent is working or runs a background job, and pages playing sound. The chat
-// and the app's server aren't affected, and agents wake a tab up when they
+// isn't affected, and agents wake a tab up when they
 // need its page (wakePage).
 import { createEffect, createRoot, on } from "solid-js";
 import { forgetSavedPage, savePage } from "./pagestate";

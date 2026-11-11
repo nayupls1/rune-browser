@@ -71,7 +71,7 @@ export async function runStartup() {
   else if (mode === "pages") {
     let first: string | undefined;
     for (const url of pages) {
-      const open = apps.find((a) => a.kind === "web" && a.url === url);
+      const open = apps.find((a) => a.url === url);
       const id = open?.id ?? (await newWebTab(url, { background: true })).id;
       first ??= id;
     }

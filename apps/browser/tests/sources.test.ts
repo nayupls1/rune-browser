@@ -1,4 +1,4 @@
-// Code attached to a tab for its agent (workspace/Sources.ts): folders are
+// Code attached to a tab for its agent (sources/Sources.ts): folders are
 // used in place, paths can't leave them, credential files are never read or
 // written, and changes come as diffs for the user.
 import { afterAll, describe, expect, test } from "bun:test";
@@ -9,7 +9,7 @@ import { Effect, ManagedRuntime } from "effect";
 import { readConfig } from "../src/server/Config";
 import { Apps } from "../src/server/db/Apps";
 import { core } from "../src/server/services";
-import { isSecretPath, Sources, unifiedDiff } from "../src/server/workspace/Sources";
+import { isSecretPath, Sources, unifiedDiff } from "../src/server/sources/Sources";
 import { sourceTools } from "../src/server/agent/sourceTools";
 import type { Tool } from "../src/server/agent/Mcp";
 import { Permissions } from "../src/server/security/Permissions";
@@ -41,7 +41,7 @@ symlinkSync(outside, join(folder, "escape"));
 
 describe("sources", () => {
   test("a folder is attached once, used in place, and listed without dependencies or credentials", async () => {
-    const tab = await run(Effect.flatMap(Apps, (apps) => apps.create(DEFAULT_WORKSPACE, "web", "https://shop.test")));
+    const tab = await run(Effect.flatMap(Apps, (apps) => apps.create(DEFAULT_WORKSPACE, "https://shop.test")));
     const result = await run(
       Effect.gen(function* () {
         const sources = yield* Sources;
@@ -83,7 +83,7 @@ describe("sources", () => {
   });
 
   test("Rune Browser's own data, a whole disk or home, and links that aren't repositories are refused", async () => {
-    const tab = await run(Effect.flatMap(Apps, (apps) => apps.create(DEFAULT_WORKSPACE, "app", null)));
+    const tab = await run(Effect.flatMap(Apps, (apps) => apps.create(DEFAULT_WORKSPACE, null)));
     const errors = await run(
       Effect.gen(function* () {
         const sources = yield* Sources;
@@ -105,7 +105,7 @@ describe("sources", () => {
   });
 
   test("writes stay inside, and a change is shown as a diff", async () => {
-    const tab = await run(Effect.flatMap(Apps, (apps) => apps.create(DEFAULT_WORKSPACE, "app", null)));
+    const tab = await run(Effect.flatMap(Apps, (apps) => apps.create(DEFAULT_WORKSPACE, null)));
     await run(
       Effect.gen(function* () {
         const sources = yield* Sources;
@@ -123,7 +123,7 @@ describe("sources", () => {
   });
 
   test("the agent's tools read, search and change the code; a change needs the user's OK", async () => {
-    const tab = await run(Effect.flatMap(Apps, (apps) => apps.create(DEFAULT_WORKSPACE, "app", null)));
+    const tab = await run(Effect.flatMap(Apps, (apps) => apps.create(DEFAULT_WORKSPACE, null)));
     const logged: string[] = [];
     const env = {
       tabId: tab.id,

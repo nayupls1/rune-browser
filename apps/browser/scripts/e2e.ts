@@ -1,9 +1,8 @@
 // End-to-end check of the built app: launches Electron against a throwaway
 // profile and drives the real UI over the DevTools protocol.
 //
-//   bun run e2e                 UI checks (providers, app previews, dev/live, web tabs, settings)
-//   bun run e2e --agent         also has the agents build an app and customize a site (uses your Claude plan)
-//   bun run e2e --agent "..."   ...with a custom prompt
+//   bun run e2e                 UI checks (providers, tabs, the agent sidebar, web pages, settings)
+//   bun run e2e --agent         also has the website agent customize a site (uses your Claude plan)
 //   bun run e2e --visible       show the window while testing (default: offscreen)
 //   bun run e2e --only <text>   only the checks whose name contains it ("a|b": either; and the boot check)
 //   bun run e2e --retries <n>   if any check fails, run everything again (up to n times, on a fresh profile);
@@ -34,11 +33,7 @@ import { base, type Mode } from "../src/shared/theme";
 import { fileUrl } from "../src/shared/web";
 
 const args = process.argv.slice(2);
-const agentIndex = args.indexOf("--agent");
-const agentPrompt =
-  agentIndex === -1
-    ? undefined
-    : (args[agentIndex + 1] ?? "A tiny reading list: book title, author, and whether I've finished it.");
+const withAgent = args.includes("--agent");
 
 if (!existsSync("dist/electron/main.cjs")) {
   console.error("No build found — run `bun run build` first.");
@@ -47,8 +42,8 @@ if (!existsSync("dist/electron/main.cjs")) {
 
 const outDir = "test-results";
 mkdirSync(outDir, { recursive: true });
-// The long form of the path: Windows' temp folder can be an 8.3 name (C:\Users\RUNNER~1\…), which file
-// watchers there (Bun's --hot in app previews) don't match with the changes they're told about.
+// The long form of the path: Windows' temp folder can be an 8.3 name (C:\Users\RUNNER~1\…), which some
+// comparisons of paths (file links in the chat, chat folders) don't match.
 const tempDir = realpathSync.native(tmpdir());
 const profile = mkdtempSync(join(tempDir, "rune-e2e-"));
 // The checks drive the vertical sidebar; horizontal tabs (what a new profile starts with) have checks of their own.
@@ -109,7 +104,7 @@ const electron = await launchElectron(
   },
   [
     ...(visible ? [] : ["--ozone-platform=headless", "--ozone-override-screen-size=1920,1080"]),
-    // No OS keychain (it could ask to be unlocked): the secrets key falls back to a file.
+    // No OS keychain (it could ask to be unlocked): the key for saved requests falls back to a file.
     "--password-store=basic",
     // A fake camera and microphone for the site permission checks (no real device is touched).
     "--use-fake-device-for-media-stream",
@@ -362,31 +357,30 @@ async function waitForValue<T>(fn: () => Promise<T | undefined>, timeoutMs = 10_
   }
 }
 
-/** Opens the sidebar's "New tab" menu, picks an entry, and waits for the new tab in the sidebar. */
-async function newTab(label: "New app" | "New web tab") {
-  const count = await page!.eval<number>(`document.querySelectorAll("nav li[data-app-id]").length`);
-  // Menus close on resize and blur, which CI's offscreen window can still send right after it starts: click again if it closed.
-  const menuOpen = `!!document.querySelector("[data-context-menu]")`;
-  for (let attempt = 1; ; attempt++) {
-    await click("[data-new-tab]");
-    try {
-      await page!.waitFor(menuOpen, { label: "new tab menu", timeoutMs: attempt < 3 ? 2_000 : 10_000 });
-      break;
-    } catch (err) {
-      if (attempt >= 3) throw err;
-    }
-  }
-  await click("[data-context-menu] button", label);
+/** Makes a new tab from the sidebar's New tab button and waits for it in the sidebar; resolves with its id. */
+async function newTab() {
+  const ids = () =>
+    page!.eval<string[]>(`[...document.querySelectorAll("nav li[data-app-id]")].map((li) => li.dataset.appId)`);
+  const before = await ids();
+  await click("[data-new-tab]");
+  // If the button offers a menu (more than one way to make a tab), the plain new tab.
+  const menu = await page!
+    .waitFor(`!!document.querySelector("[data-context-menu]")`, { label: "new tab menu", timeoutMs: 1_000 })
+    .then(
+      () => true,
+      () => false,
+    );
+  if (menu) await click("[data-context-menu] button", "New");
   // Creating the first tab on a cold CI machine can take a while. If it never shows, say whether the server made it.
   try {
-    await page!.waitFor(`document.querySelectorAll("nav li[data-app-id]").length > ${count}`, {
-      label: `the ${label === "New app" ? "new app" : "new web tab"} in the sidebar`,
-      timeoutMs: 60_000,
-    });
+    return await page!.waitFor<string>(
+      `[...document.querySelectorAll("nav li[data-app-id]")].map((li) => li.dataset.appId).find((id) => !${JSON.stringify(before)}.includes(id))`,
+      { label: "the new tab in the sidebar", timeoutMs: 60_000 },
+    );
   } catch (err) {
     const apps = await apiCall<unknown[]>("/api/apps").catch(() => null);
     throw new Error(
-      `${(err as Error).message} (the server has ${apps ? `${apps.length} tabs; the sidebar ${count}` : "no answer"})`,
+      `${(err as Error).message} (the server has ${apps ? `${apps.length} tabs; the sidebar ${before.length}` : "no answer"})`,
     );
   }
 }
@@ -398,24 +392,6 @@ const apiCall = <T>(path: string, init: { method?: string; body?: unknown } = {}
     headers: { "Content-Type": "application/json", Authorization: "Bearer " + window.rune.token },
     ${init.body !== undefined ? `body: ${JSON.stringify(JSON.stringify(init.body))},` : ""}
   }).then(async (r) => { if (!r.ok) throw new Error(r.status + " " + (await r.text())); return r.status === 204 ? null : r.json(); }))`);
-
-/** Waits for an app to be running; if it doesn't get there, the error has its status and last log lines. */
-async function waitForAppRunning(root: string, appId: string, label: string, timeoutMs = 60_000) {
-  try {
-    await page!.waitFor(`!!document.querySelector('${root}[data-runtime-state="running"]')`, { timeoutMs, label });
-  } catch (err) {
-    const runtime = await apiCall<{
-      status: { state: string; mode: string };
-      logs: { stream: string; text: string }[];
-    }>(`/api/apps/${appId}/runtime`).catch(() => null);
-    if (!runtime) throw err;
-    const logs = runtime.logs
-      .slice(-30)
-      .map((l) => `    [${l.stream}] ${l.text.trimEnd()}`)
-      .join("\n");
-    throw new Error(`${(err as Error).message} (${runtime.status.mode}, ${runtime.status.state}); logs:\n${logs}`);
-  }
-}
 
 /** Picks provider, model and effort in the agent picker inside `root`. */
 async function chooseAgent(root: string, provider: string, model: string, effort?: string) {
@@ -462,7 +438,7 @@ async function agentDone(panel: string) {
   return page!.eval<string>(`document.querySelector(${JSON.stringify(panel)}).innerText`);
 }
 
-/** Runs code in the webview inside `root` (an app preview or web tab). */
+/** Runs code in the webview inside `root` (a web tab). */
 const inView = <T>(root: string, code: string, gesture = false) =>
   page!.eval<T>(
     `document.querySelector(${JSON.stringify(`${root} webview`)}).executeJavaScript(${JSON.stringify(code)}, ${gesture})`,
@@ -540,8 +516,8 @@ const unevenAddressButtons = (root: string) =>
   })()`);
 
 /** Where the sidebar shows a tab's navigation, address and tools (when it's the tab on screen). */
-const chromeFor = (tabSelector: string) => tabSelector.replace(/^\[data-(?:web|app)-tab=/, "[data-tab-chrome=");
-/** Picks an item of the top row's ⋯ menu (the browser's pages, the tab's tools: an app's logs, data…). */
+const chromeFor = (tabSelector: string) => tabSelector.replace(/^\[data-web-tab=/, "[data-tab-chrome=");
+/** Picks an item of the top row's ⋯ menu (the browser's pages, the tab's tools). */
 const fromMenu = async (chrome: string, id: string) => {
   await click(`${chrome} [data-more-menu]`.trim());
   await page!.waitFor(`!!document.querySelector('[data-context-menu] [data-menu-item="${id}"]:not(:disabled)')`, {
@@ -591,6 +567,14 @@ const runCommand = async (text: string, id: string) => {
   await page!.eval(
     `document.querySelector("[data-command-bar] input").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })), true`,
   );
+};
+/** Closes the address bar if a new tab left it open (it floats over the top bars, which then don't drag the window). */
+const closeAddress = async () => {
+  if (!(await page!.eval<boolean>(`!!document.querySelector("[data-address-open]")`))) return;
+  await page!.eval(
+    `document.querySelector("[data-address]")?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })), true`,
+  );
+  await page!.waitFor(`!document.querySelector("[data-address-open]")`, { label: "address closed" });
 };
 /** Starts picking an element for the tab's agent: the crosshair is in its composer, so the agent sidebar opens first. */
 const startPicking = async (tabId: string) => {
@@ -644,22 +628,30 @@ try {
     return providers.map((p) => `${p.id} ${p.state} (${p.models.length})`).join(", ");
   });
 
-  let appId = "";
-  const appTab = () => `[data-app-tab="${appId}"]`;
+  // A tab the next checks share (its agent, chats, schedules).
+  let firstTabId = "";
 
-  await check("new app screen with the agent picker", async () => {
-    const count = await page!.eval<number>(`document.querySelectorAll("nav li").length`);
-    await newTab("New app");
-    await page!.waitFor(`document.body.innerText.includes("What do you want to build?")`);
-    appId = await page!.waitFor<string>(
-      `document.querySelectorAll("nav li").length === ${count + 1} && document.querySelector("nav li:last-of-type").dataset.appId`,
-      { label: "new app in the sidebar" },
+  await check("a new tab, and the agent picker in its agent sidebar", async () => {
+    firstTabId = await newTab();
+    // On a page, like the tabs people use (a blank tab keeps its address bar open over the top bars).
+    await page!.eval(`(() => {
+      const input = document.querySelector('[data-tab-chrome="${firstTabId}"] [data-address]');
+      input.value = "${site.url.origin}/";
+      input.dispatchEvent(new InputEvent("input", { bubbles: true }));
+      input.form.requestSubmit();
+      return true;
+    })()`);
+    await page!.waitFor(
+      `document.querySelector('nav li[data-app-id="${firstTabId}"]')?.innerText.includes("Test site")`,
+      {
+        timeoutMs: 20_000,
+        label: "the first tab on a page",
+      },
     );
-    // A new app tab opens with the agent sidebar, ready to describe the app.
-    await page!.waitFor(`!!document.querySelector('[data-agent-for="${appId}"] textarea')`, {
-      label: "agent sidebar open on a new app",
-    });
-    await click("[data-agent-picker]");
+    // The agent sidebar is closed on a new tab until it's opened.
+    await click(`[data-tab-chrome="${firstTabId}"] [data-agent-show]`);
+    await page!.waitFor(`!!document.querySelector('${agentOf(firstTabId)} textarea')`, { label: "agent sidebar" });
+    await click(`${agentOf(firstTabId)} [data-agent-picker]`);
     await page!.waitFor(`!!document.querySelector("[data-agent-popover]")`, { label: "picker popover" });
     const rail = await page!.eval<number>(`document.querySelectorAll("[data-agent-popover] [data-provider]").length`);
     const countModels = `document.querySelectorAll("[data-agent-popover] [data-model]").length`;
@@ -672,173 +664,37 @@ try {
       `document.querySelector("[data-agent-popover]").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })), true`,
     );
     await page!.waitFor(`!document.querySelector("[data-agent-popover]")`, { label: "Escape to close" });
-    await shot("new-app.png");
     return `${rail} providers, ${models} Claude models`;
   });
 
-  await check("a template runs in the preview (dev server)", async () => {
-    await click('[data-template="vanilla"]');
-    await page!.waitFor(`!!document.querySelector('${appTab()}[data-runtime-state="running"]')`, {
-      timeoutMs: 120_000,
-      label: "app running",
+  await check("snapshots: a site's change with its diff, undone, and everything put back to a moment", async () => {
+    await apiCall("/api/sites/snapshots.example", {
+      method: "PUT",
+      body: { css: "body {\n  color: rebeccapurple;\n}", js: "" },
     });
-    await page!.waitFor(`!!document.querySelector('${appTab()} webview')`, { label: "preview" });
-    const heading = await waitForValue(
-      async () =>
-        (await inView<string>(appTab(), `document.querySelector("h1")?.textContent || undefined`)) ?? undefined,
-      20_000,
-    );
-    await shot("app-dev.png");
-    return `"${heading}"`;
-  });
-
-  await check("edits show up live in dev mode", async () => {
-    const file = join(profile, "data", "apps", appId, "src", "main.ts");
-    const source = await Bun.file(file).text();
-    if (!source.includes("A starting point:")) throw new Error("template changed; update this check");
-    await Bun.write(file, source.replace("A starting point:", "Edited live:"));
-    await waitForValue(
-      async () =>
-        (await inView<string>(appTab(), `document.body.innerText`)).includes("Edited live:") ? true : undefined,
-      20_000,
-    );
-  });
-
-  await check("element picker in the preview", async () => {
-    await startPicking(appId);
-    await waitForValue(async () => ((await inView<boolean>(appTab(), `!!window.__runePicker`)) ? true : undefined));
-    await inView(appTab(), `document.querySelector("h1").click(), true`);
-    await page!.waitFor(`!!document.querySelector('${agentOf(appId)} [data-picked-chip]')`, { label: "picked chip" });
-  });
-
-  await check("done: hiding the agent builds the app and serves it with its start command", async () => {
-    await click(`${agentOf(appId)} [data-agent-hide]`);
-    await page!.waitFor(`!document.querySelector('${agentOf(appId)}')`, { label: "agent hidden" });
-    await page!
-      .waitFor(`!document.querySelector('${appTab()}[data-runtime-state="running"]')`, {
-        label: "restart",
-        timeoutMs: 10_000,
-      })
-      .catch(() => {});
-    await page!.waitFor(`!!document.querySelector('${appTab()}[data-runtime-state="running"]')`, {
-      timeoutMs: 120_000,
-      label: "live app running",
-    });
-    const status = await apiCall<{ status: { mode: string; state: string } }>(`/api/apps/${appId}/runtime`);
-    if (status.status.mode !== "live") throw new Error(`mode is ${status.status.mode}`);
-    await waitForValue(
-      async () =>
-        (await inView<string>(appTab(), `document.body.innerText`)).includes("Edited live:") ? true : undefined,
-      20_000,
-    );
-    await fromMenu(chromeFor(appTab()), "logs");
-    await page!.waitFor(
-      `document.querySelector('${appTab()} [data-logs-panel]')?.innerText.includes("bun run start")`,
-      { label: "logs" },
-    );
-    await shot("app-live.png");
-    await fromMenu(chromeFor(appTab()), "logs");
-    // Showing the agent again goes back to editing: the dev server.
-    await click(`${chromeFor(appTab())} [data-agent-show]`);
-    await page!.waitFor(`!!document.querySelector('${agentOf(appId)}')`, { label: "agent shown" });
-    await page!.waitFor(`!!document.querySelector('${appTab()}[data-runtime-state="running"][data-mode="dev"]')`, {
-      timeoutMs: 120_000,
-      label: "dev server running",
-    });
-    const back = await apiCall<{ status: { mode: string } }>(`/api/apps/${appId}/runtime`);
-    if (back.status.mode !== "dev") throw new Error(`mode is ${back.status.mode} after showing the agent`);
-  });
-
-  await check("history: a snapshot shows the change, and undoing it reverts the app", async () => {
-    await fromMenu(chromeFor(appTab()), "snapshots");
-    const panel = `${appTab()} [data-history-panel]`;
-    await page!.waitFor(`!!document.querySelector('${panel} [data-snapshot]')`, { label: "template snapshot" });
-    await click(`${panel} [data-save-snapshot]`);
-    await page!.waitFor(`document.querySelectorAll('${panel} [data-snapshot]').length >= 2`, { label: "new snapshot" });
-    await click(`${panel} [data-snapshot] button`);
-    const line = `[...document.querySelectorAll('${panel} [data-history-file="src/main.ts"] div')].some((d) => d.textContent.includes("Edited live:"))`;
-    await page!.waitFor(line, { label: "diff of src/main.ts" });
-    await shot("history.png");
-    await click(`${panel} [data-undo]`);
+    await openSettingsAt("snapshots");
+    const pageSel = "[data-history-page]";
+    const entry = `[...document.querySelectorAll('${pageSel} [data-snapshot]')].find((e) => e.innerText.includes("snapshots.example"))`;
+    await page!.waitFor(`!!${entry}`, { label: "the site's snapshot" });
+    await page!.eval(`${entry}.querySelector("button").click(), true`);
+    const line = `[...document.querySelectorAll('${pageSel} [data-history-file="snapshots.example/style.css"] div')].some((d) => d.textContent.includes("rebeccapurple"))`;
+    await page!.waitFor(line, { label: "diff of the site's CSS" });
+    // An entry opened on the page offers putting everything back to that moment.
+    await page!.waitFor(`!!document.querySelector("${pageSel} [data-restore-all]")`, { label: "restore everything" });
+    await shot("history-page.png");
+    await click(`${pageSel} [data-undo]`);
     await page!.waitFor(`!!document.querySelector("[data-confirm-dialog]")`, { label: "confirm dialog" });
     await click("[data-confirm-dialog] [data-confirm]");
-    const file = join(profile, "data", "apps", appId, "src", "main.ts");
-    await waitForValue(
-      async () => ((await Bun.file(file).text()).includes("A starting point:") ? true : undefined),
-      15_000,
-    );
-    await waitForAppRunning(appTab(), appId, "app running again");
-    await waitForValue(
-      async () =>
-        (await inView<string>(appTab(), `document.body.innerText`)).includes("A starting point:") ? true : undefined,
-      30_000,
+    await waitForValue(async () =>
+      (await apiCall<unknown>("/api/sites/snapshots.example")) === null ? true : undefined,
     );
     await page!.waitFor(
-      `[...document.querySelectorAll('${panel} [data-snapshot]')].some((e) => e.innerText.includes("Undid:"))`,
+      `[...document.querySelectorAll('${pageSel} [data-snapshot]')].some((e) => e.innerText.includes("Undid:"))`,
       { label: "undo in the timeline" },
     );
-    await fromMenu(chromeFor(appTab()), "snapshots");
-
-    // The Snapshots page has everything in the workspace.
-    await openSettingsAt("snapshots");
-    await page!.waitFor(`document.querySelectorAll("[data-history-page] [data-snapshot]").length >= 3`, {
-      label: "history page",
-    });
-    // An entry opened on the page offers putting everything back to that moment.
-    await click("[data-history-page] [data-snapshot] button");
-    await page!.waitFor(`!!document.querySelector("[data-history-page] [data-restore-all]")`, {
-      label: "restore everything",
-    });
-    await shot("history-page.png");
-    const entries = await page!.eval<number>(`document.querySelectorAll("[data-history-page] [data-snapshot]").length`);
-    await click(`nav li[data-app-id="${appId}"]`);
+    const entries = await page!.eval<number>(`document.querySelectorAll("${pageSel} [data-snapshot]").length`);
+    await click(`nav li[data-app-id="${firstTabId}"]`);
     return `${entries} snapshots on the page`;
-  });
-
-  await check("app data: tables and rows in the data panel", async () => {
-    const { Database } = await import("bun:sqlite");
-    const db = new Database(join(profile, "data", "appdata", appId, "data.sqlite"));
-    db.run("CREATE TABLE IF NOT EXISTS expenses (id INTEGER PRIMARY KEY, label TEXT, amount REAL)");
-    for (const [label, amount] of [
-      ["Lunch", 12.5],
-      ["Train", 4.2],
-      ["Books", 31],
-    ] as const)
-      db.run("INSERT INTO expenses (label, amount) VALUES (?, ?)", [label, amount]);
-    db.close();
-    await fromMenu(chromeFor(appTab()), "data");
-    const panel = `${appTab()} [data-data-panel]`;
-    await page!.waitFor(`!!document.querySelector('${panel} [data-data-table="expenses"]')`, {
-      label: "expenses table",
-    });
-    await click(`${panel} [data-data-table="expenses"]`);
-    await page!.waitFor(`document.querySelectorAll('${panel} [data-data-rows] tbody tr').length === 3`, {
-      label: "rows",
-    });
-    await type(`${panel} [data-data-search]`, "train");
-    await page!.waitFor(`document.querySelectorAll('${panel} [data-data-rows] tbody tr').length === 1`, {
-      label: "search",
-    });
-    await shot("app-data.png");
-    await fromMenu(chromeFor(appTab()), "data");
-  });
-
-  await check("tool registry: the app's tools from its data, run from the tools panel", async () => {
-    await fromMenu(chromeFor(appTab()), "tools");
-    const panel = `${appTab()} [data-tools-panel]`;
-    await page!.waitFor(`!!document.querySelector('${panel} [data-tool="add-expenses"]')`, { label: "derived tools" });
-    await click(`${panel} [data-tool="add-expenses"] button`);
-    await type(`${panel} [data-tool="add-expenses"] [data-tool-param="label"]`, "Coffee");
-    await type(`${panel} [data-tool="add-expenses"] [data-tool-param="amount"]`, "3.5");
-    await click(`${panel} [data-tool="add-expenses"] [data-run-tool]`);
-    await page!.waitFor(
-      `document.querySelector('${panel} [data-tool="add-expenses"] [data-tool-result]')?.textContent.includes("Added a row")`,
-      { label: "tool result" },
-    );
-    await shot("app-tools.png");
-    await fromMenu(chromeFor(appTab()), "tools");
-    const tools = await apiCall<{ id: string }[]>(`/api/apps/${appId}/tools`);
-    return `${tools.length} tools`;
   });
 
   await check("scheduled tasks: a prompt with a schedule picked in words, paused, edited, deleted", async () => {
@@ -872,7 +728,7 @@ try {
     await page!.waitFor(`${summary}.startsWith("Every Monday, Wednesday and Friday at 9:30")`, {
       label: "days of the week",
     });
-    await choose("[data-schedule-target]", "new:web");
+    await choose("[data-schedule-target]", "new");
     await page!.waitFor(`!!document.querySelector("[data-schedule-url]")`, { label: "url field" });
     await type("[data-schedule-url]", "https://example.com");
     await page!.waitFor(`(document.querySelector("[data-schedule-agent]")?.innerText ?? "").includes("default")`, {
@@ -910,13 +766,13 @@ try {
     await page!.waitFor(`!!document.querySelector("[data-confirm-dialog]")`, { label: "confirm dialog" });
     await click("[data-confirm-dialog] [data-confirm]");
     await page!.waitFor(`!document.querySelector('${row}')`, { label: "deleted" });
-    await click(`nav li[data-app-id="${appId}"]`);
+    await click(`nav li[data-app-id="${firstTabId}"]`);
   });
 
   await check("/schedule turns a chat with one request and one reply into a scheduled task", async () => {
-    const panel = `[data-agent-for="${appId}"]`;
+    const panel = `[data-agent-for="${firstTabId}"]`;
     await page!.waitFor(`!!document.querySelector('${panel} textarea')`, { label: "agent sidebar" });
-    const before = new Set((await apiCall<{ id: number }[]>(`/api/apps/${appId}/chats`)).map((c) => c.id));
+    const before = new Set((await apiCall<{ id: number }[]>(`/api/apps/${firstTabId}/chats`)).map((c) => c.id));
     const typeInComposer = (text: string, key?: string) =>
       page!.eval(`(() => {
         const t = document.querySelector(${JSON.stringify(`${panel} textarea`)});
@@ -940,7 +796,7 @@ try {
     const chatId = Number(
       db
         .query("INSERT INTO chats (app_id, title, created_at, updated_at) VALUES (?, ?, ?, ?) RETURNING id")
-        .get(appId, "Front page", at, at)!["id" as never],
+        .get(firstTabId, "Front page", at, at)!["id" as never],
     );
     const request = "Check the front page of example.com and tell me what's new";
     for (const [role, content] of [
@@ -948,7 +804,7 @@ try {
       ["assistant", "Nothing new since yesterday."],
     ] as const)
       db.run("INSERT INTO messages (app_id, chat_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)", [
-        appId,
+        firstTabId,
         chatId,
         role,
         content,
@@ -973,7 +829,7 @@ try {
     await typeInComposer("/schedule", "Enter");
     // The editor, with the request as the prompt, this tab, and the chat's model.
     await page!.waitFor(
-      `document.querySelector("[data-schedule-prompt]")?.value === ${JSON.stringify(request)} && document.querySelector("[data-schedule-target]")?.value === ${JSON.stringify(appId)} && !!document.querySelector("[data-schedule-default-agent]")`,
+      `document.querySelector("[data-schedule-prompt]")?.value === ${JSON.stringify(request)} && document.querySelector("[data-schedule-target]")?.value === ${JSON.stringify(firstTabId)} && !!document.querySelector("[data-schedule-default-agent]")`,
       { label: "editor prefilled from the chat" },
     );
     await click("[data-save-schedule]");
@@ -984,10 +840,10 @@ try {
     );
     const [task] =
       await apiCall<{ id: string; prompt: string; target: { tabId: string }; agent: unknown }[]>("/api/schedules");
-    if (task?.prompt !== request || task.target.tabId !== appId || !task.agent)
+    if (task?.prompt !== request || task.target.tabId !== firstTabId || !task.agent)
       throw new Error(`unexpected task: ${JSON.stringify(task)}`);
     await apiCall(`/api/schedules/${task.id}`, { method: "DELETE" });
-    await click(`nav li[data-app-id="${appId}"]`);
+    await click(`nav li[data-app-id="${firstTabId}"]`);
     await click(`${panel} [data-new-chat]`);
     await page!.waitFor(
       `!(document.querySelector('${panel}')?.innerText ?? "").includes("Nothing new since yesterday")`,
@@ -995,167 +851,36 @@ try {
         label: "a new chat",
       },
     );
-    for (const chat of await apiCall<{ id: number }[]>(`/api/apps/${appId}/chats`))
-      if (!before.has(chat.id)) await apiCall(`/api/apps/${appId}/chats/${chat.id}`, { method: "DELETE" });
+    for (const chat of await apiCall<{ id: number }[]>(`/api/apps/${firstTabId}/chats`))
+      if (!before.has(chat.id)) await apiCall(`/api/apps/${firstTabId}/chats/${chat.id}`, { method: "DELETE" });
     return "prefilled from the chat";
-  });
-
-  await check("secrets: added in the app tab, never shown again", async () => {
-    const value = "e2e-secret-value-4711";
-    await waitForAppRunning(appTab(), appId, "app running");
-    await fromMenu(chromeFor(appTab()), "secrets");
-    await page!.waitFor(`!!document.querySelector('${appTab()} [data-secrets-panel] [data-secret-form]')`, {
-      label: "secrets panel",
-    });
-    await type(`${appTab()} [data-secrets-panel] [data-secret-name]`, "e2e_key");
-    await type(`${appTab()} [data-secrets-panel] [data-secret-value]`, value);
-    await page!.eval(
-      `document.querySelector('${appTab()} [data-secrets-panel] [data-secret-form]').requestSubmit(), true`,
-    );
-    await page!.waitFor(`!!document.querySelector('${appTab()} [data-secret="E2E_KEY"]')`, { label: "saved secret" });
-    const html = await page!.eval<string>(
-      `document.documentElement.outerHTML + [...document.querySelectorAll("input")].map((i) => i.value).join(" ")`,
-    );
-    if (html.includes(value)) throw new Error("the secret value is still in the page");
-    await shot("secrets.png");
-    await fromMenu(chromeFor(appTab()), "secrets");
-  });
-
-  await check("permissions: an app asking for AI waits for the user", async () => {
-    const file = join(profile, "data", "apps", appId, "src", "server.ts");
-    const source = await Bun.file(file).text();
-    await Bun.write(
-      file,
-      source
-        .replace(
-          'import { realtime } from "./realtime";',
-          'import { realtime } from "./realtime";\nimport { ai } from "./ai";',
-        )
-        .replace(
-          "  routes: {",
-          `  routes: {
-    "/api/ask-ai": async () => {
-      try {
-        return Response.json(await ai.chat("Say hi"));
-      } catch (e) {
-        return Response.json({ error: (e as Error).message }, { status: 403 });
-      }
-    },`,
-        ),
-    );
-    await fromMenu(chromeFor(appTab()), "restart");
-    await page!
-      .waitFor(`!document.querySelector('${appTab()}[data-runtime-state="running"]')`, { timeoutMs: 10_000 })
-      .catch(() => {});
-    await page!.waitFor(`!!document.querySelector('${appTab()}[data-runtime-state="running"]')`, {
-      timeoutMs: 60_000,
-      label: "app restarted",
-    });
-    const { status } = await apiCall<{ status: { url: string } }>(`/api/apps/${appId}/runtime`);
-    const answer = fetch(`${status.url}/api/ask-ai`).then(async (r) => ({ status: r.status, body: await r.text() }));
-    await page!.waitFor(`!!document.querySelector('[data-permission-request="app.ai"]')`, {
-      timeoutMs: 20_000,
-      label: "permission prompt",
-    });
-    await shot("permission.png");
-    await click("[data-permission-request] [data-deny]");
-    const result = await answer;
-    if (result.status !== 403 || !result.body.includes("didn't allow"))
-      throw new Error(`unexpected answer: ${result.status} ${result.body}`);
-    await page!.waitFor(`!document.querySelector("[data-permission-request]")`, { label: "prompt gone" });
   });
 
   await check("activity: the audit log shows what happened", async () => {
     await openSettingsAt("activity");
     await page!.waitFor(
-      `!!document.querySelector('[data-activity] [data-audit-action="secret.create"]') && !!document.querySelector('[data-activity] [data-audit-action="permission.deny"]')`,
-      {
-        label: "secret and permission entries",
-      },
+      `!!document.querySelector('[data-activity] [data-audit-action="schedule.create"]') && !!document.querySelector('[data-activity] [data-audit-action="history.undo"]')`,
+      { label: "schedule and snapshot entries" },
     );
     const count = await page!.eval<number>(`document.querySelectorAll("[data-activity] [data-audit-action]").length`);
     await shot("activity.png");
-    await click(`nav li[data-app-id="${appId}"]`);
+    await click(`nav li[data-app-id="${firstTabId}"]`);
     return `${count} entries`;
   });
 
   await check("agent panel collapses and comes back", async () => {
-    await click(`${agentOf(appId)} [data-agent-hide]`);
+    await click(`${agentOf(firstTabId)} [data-agent-hide]`);
     await page!.waitFor(
-      `!document.querySelector('${agentOf(appId)}') && !!document.querySelector('${chromeFor(appTab())} [data-agent-show]')`,
+      `!document.querySelector('${agentOf(firstTabId)}') && !!document.querySelector('[data-tab-chrome="${firstTabId}"] [data-agent-show]')`,
       {
         label: "agent panel hidden",
       },
     );
-    await click(`${chromeFor(appTab())} [data-agent-show]`);
-    await page!.waitFor(`!!document.querySelector('${agentOf(appId)}')`, { label: "agent panel shown" });
+    await click(`[data-tab-chrome="${firstTabId}"] [data-agent-show]`);
+    await page!.waitFor(`!!document.querySelector('${agentOf(firstTabId)}')`, { label: "agent panel shown" });
   });
 
-  if (agentPrompt) {
-    await check("agent builds an app", async () => {
-      const count = await page!.eval<number>(`document.querySelectorAll("nav li").length`);
-      await newTab("New app");
-      const id = await page!.waitFor<string>(
-        `document.querySelectorAll("nav li").length === ${count + 1} && document.querySelector("nav li:last-of-type").dataset.appId`,
-      );
-      const root = `[data-app-tab="${id}"]`;
-      // Fastest model keeps this cheap; any model exercises the same path.
-      await chooseAgent(agentOf(id), "claude", "haiku", "Low");
-      await sendPrompt(agentOf(id), agentPrompt);
-      const chat = await agentDone(agentOf(id));
-      await page!.waitFor(`!!document.querySelector('${root}[data-runtime-state="running"]')`, {
-        timeoutMs: 60_000,
-        label: `app running:\n${chat.slice(-600)}`,
-      });
-      const text = await waitForValue(
-        async () => (await inView<string>(root, `document.body.innerText`)) || undefined,
-        20_000,
-      );
-      await shot("agent-app.png");
-      const name = await page!.eval<string>(
-        `document.querySelector('nav li[data-app-id="${id}"]').innerText.split("\\n")[0].trim()`,
-      );
-      return `built "${name}": ${text.slice(0, 80).replace(/\s+/g, " ")}`;
-    });
-  }
-
-  await check("import: a folder of your own becomes an app tab, run like any other", async () => {
-    const folder = join(mkdtempSync(join(tempDir, "rune-e2e-import-")), "hello-import");
-    mkdirSync(folder);
-    writeFileSync(
-      join(folder, "package.json"),
-      JSON.stringify({ name: "hello-import", scripts: { dev: "bun server.ts", start: "bun server.ts" } }),
-    );
-    writeFileSync(
-      join(folder, "server.ts"),
-      `Bun.serve({ hostname: "127.0.0.1", port: Number(process.env.PORT), fetch: () => new Response("<h1>Imported and running</h1>", { headers: { "Content-Type": "text/html" } }) });`,
-    );
-    const tab = await apiCall<{ id: string }>("/api/apps", { method: "POST", body: { kind: "app" } });
-    await click(`nav li[data-app-id="${tab.id}"]`);
-    await page!.waitFor(`!!document.querySelector('[data-app-tab="${tab.id}"] [data-import-folder]')`, {
-      label: "import buttons",
-    });
-    await apiCall(`/api/apps/${tab.id}/import`, { method: "POST", body: { folder } });
-    const root = `[data-app-tab="${tab.id}"]`;
-    await page!.waitFor(
-      `document.querySelector('nav li[data-app-id="${tab.id}"]')?.innerText.includes("hello-import")`,
-      { label: "named after the folder" },
-    );
-    await page!.waitFor(`!!document.querySelector('${root}[data-runtime-state="running"]')`, {
-      timeoutMs: 60_000,
-      label: "running",
-    });
-    await waitForValue(
-      async () =>
-        (await inView<string>(root, `document.body.innerText`)).includes("Imported and running") ? true : undefined,
-      20_000,
-    );
-    await apiCall(`/api/apps/${tab.id}`, { method: "DELETE" });
-    rmSync(dirname(folder), { recursive: true, force: true });
-    return "named, manifest from package.json, running in the preview";
-  });
-
-  await check("sidebar context menu: rename, duplicate, delete", async () => {
+  await check("sidebar context menu: rename, duplicate, close", async () => {
     const appNames = () =>
       page!.eval<string[]>(`[...document.querySelectorAll("nav li")].map((li) => li.innerText.split("\\n")[0].trim())`);
     const openMenu = (index: number) =>
@@ -1172,7 +897,7 @@ try {
     };
 
     const before = await appNames();
-    if (!before.length) throw new Error("no apps in the sidebar");
+    if (!before.length) throw new Error("no tabs in the sidebar");
 
     await openMenu(0);
     await choose("Rename");
@@ -1197,13 +922,11 @@ try {
 
     const copyIndex = (await appNames()).indexOf("E2E renamed copy");
     await openMenu(copyIndex);
-    await choose("Delete");
-    await page!.waitFor(`!!document.querySelector("[data-confirm-dialog]")`, { label: "confirm dialog" });
-    await click("[data-confirm-dialog] [data-confirm]");
+    await choose("Close tab");
     await page!.waitFor(
       `![...document.querySelectorAll("nav li")].some((li) => li.innerText.includes("E2E renamed copy"))`,
       {
-        label: "delete",
+        label: "close",
       },
     );
 
@@ -1214,10 +937,11 @@ try {
     await page!.waitFor(`!document.querySelector("[data-context-menu]")`, { label: "Escape to close the menu" });
 
     const after = await appNames();
-    if (after.length !== before.length) throw new Error(`expected ${before.length} apps, got ${after.join(", ")}`);
+    if (after.length !== before.length) throw new Error(`expected ${before.length} tabs, got ${after.join(", ")}`);
   });
 
   await check("no title bar: window buttons in the sidebar's top row, which drags the window", async () => {
+    await closeAddress();
     const r = await page!.eval<{
       controls: { left: number; top: number; width: number } | null;
       inRow: boolean;
@@ -1395,6 +1119,7 @@ try {
   await check(
     "horizontal tabs: switched to from the tab area's menu without a reload, new tab, hover card, back from the bar's menu",
     async () => {
+      await closeAddress();
       const count = await page!.eval<number>(`document.querySelectorAll("nav li[data-app-id]").length`);
       // The pages stay where they are in the DOM: a webview that moves reloads.
       await page!.eval(
@@ -1427,10 +1152,10 @@ try {
       await shot("sidebar-tab-card.png");
       await page!.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 900, y: 500 });
       await page!.waitFor(`!document.querySelector("[data-tab-card]")`, { label: "the sidebar's card gone" });
-      // The empty space in the sidebar has the tab area's menu: new tab, new app, the layout.
+      // The empty space in the sidebar has the tab area's menu: new tab, the layout.
       await openTabAreaMenu();
       await page!.waitFor(
-        `["new-tab", "new-app", "tab-layout"].every((id) => document.querySelector(\`[data-context-menu] [data-menu-item="\${id}"]\`))`,
+        `["new-tab", "tab-layout"].every((id) => document.querySelector(\`[data-context-menu] [data-menu-item="\${id}"]\`))`,
         { label: "the tab area's menu in the sidebar" },
       );
       await shot("sidebar-tab-area-menu.png");
@@ -1530,7 +1255,7 @@ try {
       const make = (i: number) =>
         apiCall<{ id: string }>("/api/apps", {
           method: "POST",
-          body: { kind: "web", url: `${site.url.origin}/?tab=${i}` },
+          body: { url: `${site.url.origin}/?tab=${i}` },
         });
       const pinned: string[] = [];
       const plain: string[] = [];
@@ -1751,7 +1476,7 @@ try {
   await check("agent sidebar: resized by its edge, remembered, reset by double-click", async () => {
     const panel = "[data-agent-sidebar]";
     if (!(await page!.eval<boolean>(`!!document.querySelector('${panel}')`))) {
-      await click(`[data-tab-chrome="${appId}"] [data-agent-show]`);
+      await click(`[data-tab-chrome="${firstTabId}"] [data-agent-show]`);
       await page!.waitFor(`!!document.querySelector('${panel}')`, { label: "agent sidebar" });
     }
     const width = () =>
@@ -1775,7 +1500,7 @@ try {
     // Dragged far to the right: it closes (and comes back at its width).
     await drag(5000);
     await page!.waitFor(`!document.querySelector('${panel}')`, { label: "closed by dragging" });
-    await click(`[data-tab-chrome="${appId}"] [data-agent-show]`);
+    await click(`[data-tab-chrome="${firstTabId}"] [data-agent-show]`);
     await page!.waitFor(`!!document.querySelector('${panel}')`, { label: "shown again" });
     if ((await width()) !== wider) throw new Error(`came back at ${await width()}px`);
     await page!.eval(
@@ -1787,9 +1512,9 @@ try {
   });
 
   await check("chats: new chat button and the earlier chats list in the agent sidebar", async () => {
-    const panel = `[data-agent-for="${appId}"]`;
+    const panel = `[data-agent-for="${firstTabId}"]`;
     if (!(await page!.eval<boolean>(`!!document.querySelector('${panel}')`)))
-      await click(`[data-tab-chrome="${appId}"] [data-agent-show]`);
+      await click(`[data-tab-chrome="${firstTabId}"] [data-agent-show]`);
     await page!.waitFor(`!!document.querySelector('${panel} [data-chat-history-button]')`, { label: "chat buttons" });
     if (await page!.eval<boolean>(`!!document.querySelector('${panel} [data-new-chat]')`))
       throw new Error("New chat is offered for an empty chat");
@@ -1812,14 +1537,14 @@ try {
     await shot("chat-history-empty.png");
     await page!.eval(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })), true`);
     await page!.waitFor(`!document.querySelector("[data-chat-history]")`, { label: "closed" });
-    const chats = await apiCall<unknown[]>(`/api/apps/${appId}/chats`);
+    const chats = await apiCall<unknown[]>(`/api/apps/${firstTabId}/chats`);
     if (chats.length) throw new Error("unexpected chats");
   });
 
   await check("agent sidebar: a reply's buttons (copy, send to…) don't cover the tool calls under it", async () => {
-    const panel = `[data-agent-for="${appId}"]`;
+    const panel = `[data-agent-for="${firstTabId}"]`;
     // A chat with replies between tool calls, as an earlier chat, opened from the list.
-    const before = new Set((await apiCall<{ id: number }[]>(`/api/apps/${appId}/chats`)).map((c) => c.id));
+    const before = new Set((await apiCall<{ id: number }[]>(`/api/apps/${firstTabId}/chats`)).map((c) => c.id));
     const { Database } = await import("bun:sqlite");
     const db = new Database(join(profile, "data", "rune.sqlite"));
     db.run("PRAGMA busy_timeout = 5000");
@@ -1827,7 +1552,7 @@ try {
     const chatId = Number(
       db
         .query("INSERT INTO chats (app_id, title, created_at, updated_at) VALUES (?, ?, ?, ?) RETURNING id")
-        .get(appId, "Reading list", at(0), at(0))!["id" as never],
+        .get(firstTabId, "Reading list", at(0), at(0))!["id" as never],
     );
     const seeded: [string, unknown][] = [
       ["user", "A tiny reading list"],
@@ -1842,7 +1567,7 @@ try {
     ];
     seeded.forEach(([role, content], i) =>
       db.run("INSERT INTO messages (app_id, chat_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)", [
-        appId,
+        firstTabId,
         chatId,
         role,
         typeof content === "string" ? content : JSON.stringify(content),
@@ -1884,19 +1609,19 @@ try {
     // Back to an empty chat, without the seeded one.
     await click(`${panel} [data-new-chat]`);
     await page!.waitFor(`!document.querySelector('${panel} [data-reply]')`, { label: "a new chat" });
-    for (const chat of await apiCall<{ id: number }[]>(`/api/apps/${appId}/chats`))
-      if (!before.has(chat.id)) await apiCall(`/api/apps/${appId}/chats/${chat.id}`, { method: "DELETE" });
+    for (const chat of await apiCall<{ id: number }[]>(`/api/apps/${firstTabId}/chats`))
+      if (!before.has(chat.id)) await apiCall(`/api/apps/${firstTabId}/chats/${chat.id}`, { method: "DELETE" });
     return `${gaps.join(", ")}px between the buttons and the next row`;
   });
 
   await check(
     "chat: files and folders the agent links become chips that open them; gone or out of reach, unavailable",
     async () => {
-      const panel = `[data-agent-for="${appId}"]`;
-      const before = new Set((await apiCall<{ id: number }[]>(`/api/apps/${appId}/chats`)).map((c) => c.id));
+      const panel = `[data-agent-for="${firstTabId}"]`;
+      const before = new Set((await apiCall<{ id: number }[]>(`/api/apps/${firstTabId}/chats`)).map((c) => c.id));
       // An earlier chat with its own folder of files, and a reply linking to them.
       const folder = crypto.randomUUID();
-      const dir = join(profile, "data", "chats", appId.replace(/[^\w-]/g, ""), folder);
+      const dir = join(profile, "data", "chats", firstTabId.replace(/[^\w-]/g, ""), folder);
       mkdirSync(join(dir, "exports"), { recursive: true });
       writeFileSync(join(dir, "notes.md"), "# Notes\n\nFound 3 items.");
       writeFileSync(join(dir, "exports", "items.zip"), "zip");
@@ -1920,14 +1645,14 @@ try {
           .query(
             "INSERT INTO chats (app_id, title, folder, created_at, updated_at) VALUES (?, ?, ?, ?, ?) RETURNING id",
           )
-          .get(appId, "Linked files", folder, at, at)!["id" as never],
+          .get(firstTabId, "Linked files", folder, at, at)!["id" as never],
       );
       for (const [role, content] of [
         ["user", "Collect the items"],
         ["assistant", reply],
       ])
         db.run("INSERT INTO messages (app_id, chat_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)", [
-          appId,
+          firstTabId,
           chatId,
           role!,
           content!,
@@ -2025,13 +1750,13 @@ try {
       if (opened.length !== 1 || !opened[0]!.url?.endsWith("notes.md"))
         throw new Error(`opened: ${JSON.stringify(opened.map((t) => t.url))}`);
       await apiCall(`/api/apps/${opened[0]!.id}`, { method: "DELETE" });
-      await click(`nav li[data-app-id="${appId}"]`);
+      await click(`nav li[data-app-id="${firstTabId}"]`);
 
       // Back to an empty chat, without the seeded one.
       await click(`${panel} [data-new-chat]`);
       await page!.waitFor(`!document.querySelector('${panel} [data-file-link]')`, { label: "a new chat" });
-      for (const chat of await apiCall<{ id: number }[]>(`/api/apps/${appId}/chats`))
-        if (!before.has(chat.id)) await apiCall(`/api/apps/${appId}/chats/${chat.id}`, { method: "DELETE" });
+      for (const chat of await apiCall<{ id: number }[]>(`/api/apps/${firstTabId}/chats`))
+        if (!before.has(chat.id)) await apiCall(`/api/apps/${firstTabId}/chats/${chat.id}`, { method: "DELETE" });
       return Object.entries(kinds)
         .map(([k, v]) => `${k}: ${v}`)
         .join(", ");
@@ -2039,10 +1764,10 @@ try {
   );
 
   await check("chat: the agent's background jobs show above the composer, with how far they got and Stop", async () => {
-    const panel = `[data-agent-for="${appId}"]`;
+    const panel = `[data-agent-for="${firstTabId}"]`;
     // No jobs in a fresh chat; stopping one that isn't running is a 404.
-    if ((await apiCall<unknown[]>(`/api/apps/${appId}/jobs`)).length) throw new Error("unexpected jobs");
-    const stopMissing = await apiCall(`/api/apps/${appId}/jobs/j99/stop`, { method: "POST" }).then(
+    if ((await apiCall<unknown[]>(`/api/apps/${firstTabId}/jobs`)).length) throw new Error("unexpected jobs");
+    const stopMissing = await apiCall(`/api/apps/${firstTabId}/jobs/j99/stop`, { method: "POST" }).then(
       () => "ok",
       (err: Error) => err.message,
     );
@@ -2064,7 +1789,7 @@ try {
       ...more,
     });
     await page!.eval(
-      `window.__runeJobs.show(${JSON.stringify(appId)}, ${JSON.stringify([
+      `window.__runeJobs.show(${JSON.stringify(firstTabId)}, ${JSON.stringify([
         job("j1", {}),
         job("j2", { kind: "script", title: "Collect all reviews", done: null, total: null, note: "page 3" }),
         job("j3", { state: "done", done: 39 }),
@@ -2090,7 +1815,7 @@ try {
       `[...document.querySelectorAll('[data-toast="error"]')].some((t) => t.innerText.includes("Couldn't stop the job"))`,
       { label: "the stop request" },
     );
-    await page!.eval(`window.__runeJobs.show(${JSON.stringify(appId)}, []), true`);
+    await page!.eval(`window.__runeJobs.show(${JSON.stringify(firstTabId)}, []), true`);
     await page!.waitFor(`!document.querySelector('${panel} [data-jobs]')`, { label: "no jobs" });
     return progress.join(" | ");
   });
@@ -2151,11 +1876,11 @@ try {
       page!.eval<string[]>(`[...document.querySelectorAll("nav li[data-app-id]")].map((li) => li.dataset.appId)`);
     const first = await apiCall<{ id: string }>("/api/apps", {
       method: "POST",
-      body: { kind: "web", url: `${site.url.origin}/second` },
+      body: { url: `${site.url.origin}/second` },
     });
     const extra = await apiCall<{ id: string }>("/api/apps", {
       method: "POST",
-      body: { kind: "web", url: `${site.url.origin}/second` },
+      body: { url: `${site.url.origin}/second` },
     });
     await page!.waitFor(`!!document.querySelector('nav li[data-app-id="${extra.id}"]')`, {
       label: "new tab in the sidebar",
@@ -2196,7 +1921,7 @@ try {
   await check("tab icons: picked from Lucide, uploaded, reset", async () => {
     const tab = await apiCall<{ id: string }>("/api/apps", {
       method: "POST",
-      body: { kind: "web", url: `${site.url.origin}/second` },
+      body: { url: `${site.url.origin}/second` },
     });
     const li = `nav li[data-app-id="${tab.id}"]`;
     await page!.waitFor(`!!document.querySelector('${li}')`, { label: "tab in the sidebar" });
@@ -2274,7 +1999,7 @@ try {
     const make = (path: string) =>
       apiCall<{ id: string; workspaceId: string }>("/api/apps", {
         method: "POST",
-        body: { kind: "web", url: `${site.url.origin}${path}` },
+        body: { url: `${site.url.origin}${path}` },
       });
     // The sidebar has loaded its workspace (right after booting, it may not have yet).
     await page!.waitFor(`!!${currentWorkspaceName}`, { label: "workspace loaded" });
@@ -2402,7 +2127,7 @@ try {
 
   await check("web tab: browse, pick an element, site customization applies", async () => {
     const count = await page!.eval<number>(`document.querySelectorAll("nav li").length`);
-    await newTab("New web tab");
+    await newTab();
     const tabId = await page!.waitFor<string>(
       `document.querySelectorAll("nav li").length === ${count + 1} && document.querySelector("nav li:last-of-type").dataset.appId`,
       { label: "web tab in the sidebar" },
@@ -2662,7 +2387,7 @@ try {
 
   await check("keyboard shortcuts: pages keep their own keys, the browser's work everywhere", async () => {
     const count = await page!.eval<number>(`document.querySelectorAll("nav li").length`);
-    await newTab("New web tab");
+    await newTab();
     const tabId = await page!.waitFor<string>(
       `document.querySelectorAll("nav li").length === ${count + 1} && document.querySelector("nav li:last-of-type").dataset.appId`,
       { label: "web tab" },
@@ -2805,7 +2530,7 @@ try {
 
   await check("agent sidebar: closed on web tabs until opened (Ctrl+I), remembered per tab", async () => {
     const count = await page!.eval<number>(`document.querySelectorAll("nav li").length`);
-    await newTab("New web tab");
+    await newTab();
     const tabId = await page!.waitFor<string>(
       `document.querySelectorAll("nav li").length === ${count + 1} && document.querySelector("nav li:last-of-type").dataset.appId`,
       { label: "web tab in the sidebar" },
@@ -3100,7 +2825,7 @@ try {
 
   await check("tab unloading: idle tabs unload unless pinned, come back as they were, wake for agents", async () => {
     const count = await page!.eval<number>(`document.querySelectorAll("nav li").length`);
-    await newTab("New web tab");
+    await newTab();
     const tabId = await page!.waitFor<string>(
       `document.querySelectorAll("nav li").length === ${count + 1} && document.querySelector("nav li:last-of-type").dataset.appId`,
       { label: "web tab in the sidebar" },
@@ -3214,14 +2939,13 @@ try {
     return `restored scroll ${restored.y}px and 2 fields; pinned kept; woke on ${new URL(woken).pathname}`;
   });
 
-  await check("shared tab context: @ mentions another tab, web pages stay away from app builders", async () => {
+  await check("shared tab context: @ mentions another tab of the workspace", async () => {
     if (!webTabId) throw new Error("needs the web tab from the web tab check");
-    const tabs = await page!.eval<{ id: string; name: string; web: boolean }[]>(
-      `[...document.querySelectorAll("nav li[data-app-id]")].map((li) => ({ id: li.dataset.appId, name: li.innerText.split("\\n")[0].trim(), web: !!document.querySelector('[data-web-tab="' + li.dataset.appId + '"]') }))`,
+    const tabs = await page!.eval<{ id: string; name: string }[]>(
+      `[...document.querySelectorAll("nav li[data-app-id]")].map((li) => ({ id: li.dataset.appId, name: li.innerText.split("\\n")[0].trim() }))`,
     );
     const second = tabs.find((t) => t.name === "Second page");
-    const app = tabs.find((t) => t.name === "E2E renamed");
-    if (!second || !app) throw new Error(`tabs: ${tabs.map((t) => t.name).join(", ")}`);
+    if (!second) throw new Error(`tabs: ${tabs.map((t) => t.name).join(", ")}`);
     const type = (panel: string, text: string) =>
       page!.eval(`(() => {
         const t = document.querySelector(${JSON.stringify(`${panel} textarea`)});
@@ -3257,33 +2981,12 @@ try {
     await page!.waitFor(`!document.querySelector('${webAgent} [data-share-chip]')`, { label: "chip removed" });
     await type(webAgent, "");
 
-    // In an app tab, web pages are offered but can't be picked: the app builder has tools.
-    await click(`nav li[data-app-id="${app.id}"]`);
-    const appTab = `[data-app-tab="${app.id}"]`;
-    const appAgent = agentOf(app.id);
-    const wasHidden = !(await page!.eval<boolean>(`!!document.querySelector('${appAgent}')`));
-    if (wasHidden) await click(`${chromeFor(appTab)} [data-agent-show]`);
-    await page!.waitFor(`!!document.querySelector('${appAgent} textarea')`, { label: "app builder's composer" });
-    await type(appAgent, "@");
-    await page!.waitFor(`!!document.querySelector('${appAgent} [data-mentions] [data-mention="${webTabId}"]')`, {
-      label: "mention list in the app",
-    });
-    const disabled = await page!.eval<string | null>(
-      `document.querySelector('${appAgent} [data-mention="${webTabId}"]').getAttribute("aria-disabled")`,
-    );
-    if (disabled !== "true") throw new Error("a web page could be shared with the app builder");
-    await click(`${appAgent} [data-mention="${webTabId}"]`);
-    await Bun.sleep(200);
-    if (await page!.eval<boolean>(`!!document.querySelector('${appAgent} [data-share-chip]')`))
-      throw new Error("the web page was shared anyway");
-    await type(appAgent, "");
-    if (wasHidden) await click(`${appAgent} [data-agent-hide]`);
-    return "mentioned, shared, unshared; web page refused for the app builder";
+    return "mentioned, shared, unshared";
   });
 
   await check("browse: the website agent's clicks, typing and keys are real input in the tab", async () => {
     const count = await page!.eval<number>(`document.querySelectorAll("nav li").length`);
-    await newTab("New web tab");
+    await newTab();
     const tabId = await page!.waitFor<string>(
       `document.querySelectorAll("nav li").length === ${count + 1} && document.querySelector("nav li:last-of-type").dataset.appId`,
       { label: "web tab in the sidebar" },
@@ -3338,7 +3041,7 @@ try {
 
   await check("page changes wait for a framework (React) to hydrate the page before changing it", async () => {
     const count = await page!.eval<number>(`document.querySelectorAll("nav li").length`);
-    await newTab("New web tab");
+    await newTab();
     const tabId = await page!.waitFor<string>(
       `document.querySelectorAll("nav li").length === ${count + 1} && document.querySelector("nav li:last-of-type").dataset.appId`,
       { label: "web tab in the sidebar" },
@@ -3399,7 +3102,7 @@ try {
 
   await check("headless tabs: a page read in the background, listed in the agent's tab, closed again", async () => {
     const count = await page!.eval<number>(`document.querySelectorAll("nav li").length`);
-    await newTab("New web tab");
+    await newTab();
     const tabId = await page!.waitFor<string>(
       `document.querySelectorAll("nav li").length === ${count + 1} && document.querySelector("nav li:last-of-type").dataset.appId`,
       { label: "web tab in the sidebar" },
@@ -4027,7 +3730,7 @@ try {
     },
   );
 
-  if (agentPrompt && webTabId) {
+  if (withAgent && webTabId) {
     await check("website agent customizes a picked element", async () => {
       const tab = `[data-web-tab="${webTabId}"]`;
       const inPage = <T>(code: string) =>
@@ -4057,7 +3760,7 @@ try {
     });
   }
 
-  if (agentPrompt && webTabId) {
+  if (withAgent && webTabId) {
     await check("website agent saves a screenshot in the chat's folder; its card opens it in a tab", async () => {
       await click(`nav li[data-app-id="${webTabId}"]`);
       const panel = agentOf(webTabId!);
@@ -4112,7 +3815,7 @@ try {
       await inPage(`document.getElementById("clean").click(), true`);
       await waitForValue(async () => ((await url()).endsWith("/second") ? true : undefined), 15_000);
     }
-    // The app (and its server) are still there.
+    // Rune Browser (and its server) are still there.
     await apiCall("/api/apps");
     return "5 rounds of request, cache cleanup, new worker and navigation";
   });
@@ -4588,7 +4291,7 @@ try {
     const tabsBefore = await page!.eval<string[]>(
       `[...document.querySelectorAll("nav li")].map((li) => li.dataset.appId)`,
     );
-    await newTab("New web tab");
+    await newTab();
     const tabId = await page!.waitFor<string>(
       `(() => { const id = document.querySelector('nav li[aria-current="page"]')?.dataset.appId; return id && !${JSON.stringify(tabsBefore)}.includes(id) ? id : null; })()`,
       { label: "new web tab" },
@@ -4822,7 +4525,7 @@ try {
       // Its own page in a tab: the chrome.* APIs run there.
       const page_ = await apiCall<{ id: string }>("/api/apps", {
         method: "POST",
-        body: { kind: "web", url: `chrome-extension://${id}/options.html` },
+        body: { url: `chrome-extension://${id}/options.html` },
       });
       const ext = `[data-web-tab="${page_.id}"]`;
       await page!.waitFor(`!!document.querySelector('nav li[data-app-id="${page_.id}"]')`, { label: "its page's tab" });
@@ -4920,7 +4623,7 @@ try {
       `);
       const target = await apiCall<{ id: string }>("/api/apps", {
         method: "POST",
-        body: { kind: "web", url: `${origin}/` },
+        body: { url: `${origin}/` },
       });
       const targetTab = `[data-web-tab="${target.id}"]`;
       await page!.waitFor(`!!document.querySelector('nav li[data-app-id="${target.id}"]')`, { label: "site tab" });
@@ -5030,7 +4733,7 @@ try {
       // A web tab here gets its own session: cookies set in Personal's web tab aren't there.
       const tab = await apiCall<{ id: string }>("/api/apps", {
         method: "POST",
-        body: { kind: "web", url: `${site.url.origin}/`, workspaceId: client.id },
+        body: { url: `${site.url.origin}/`, workspaceId: client.id },
       });
       await page!.waitFor(`!!document.querySelector('nav li[data-app-id="${tab.id}"]')`, {
         label: "tab in the sidebar",
@@ -5159,7 +4862,7 @@ try {
     },
   );
 
-  await check("command bar: finds tabs and commands, runs app actions, routes free text", async () => {
+  await check("command bar: finds tabs and commands, routes free text", async () => {
     const bar = "[data-command-bar]";
     const openBar = async () => {
       await page!.eval(
@@ -5185,42 +4888,18 @@ try {
     const selected = () =>
       page!.eval<string | undefined>(`document.querySelector('nav li[aria-current="page"]')?.dataset.appId`);
 
-    // An app declares an action that opens one of its pages.
-    const manifestFile = join(profile, "data", "apps", appId, "rune.json");
-    const manifest = JSON.parse(await Bun.file(manifestFile).text());
-    await Bun.write(
-      manifestFile,
-      JSON.stringify({
-        ...manifest,
-        actions: [{ id: "second", title: "Open the second page", path: "/?from=command-bar" }],
-      }),
-    );
-
     await openBar();
     await search("open settings", "open.settings");
     await key("Enter");
     await page!.waitFor(`!!document.querySelector("[data-settings]")`, { label: "settings page" });
 
-    const name = (await apiCall<{ id: string; name: string }[]>("/api/apps")).find((a) => a.id === appId)!.name;
+    const name = (await apiCall<{ id: string; name: string }[]>("/api/apps")).find((a) => a.id === firstTabId)!.name;
     await openBar();
-    await search(name, `tab:${appId}`);
+    await search(name, `tab:${firstTabId}`);
     await key("Enter");
-    await page!.waitFor(`document.querySelector('nav li[aria-current="page"]')?.dataset.appId === "${appId}"`, {
-      label: "the app selected",
+    await page!.waitFor(`document.querySelector('nav li[aria-current="page"]')?.dataset.appId === "${firstTabId}"`, {
+      label: "the tab selected",
     });
-
-    await openBar();
-    await search("open the second", `action:${appId}:second`);
-    await key("Enter");
-    await waitForValue(
-      async () => ((await inView<string>(appTab(), "location.search")) === "?from=command-bar" ? true : undefined),
-      30_000,
-    );
-
-    await openBar();
-    await search("save a snap", "app.snapshot");
-    await key("Enter");
-    await page!.waitFor(`!!document.querySelector("[data-toast]")?.innerText.match(/snapshot/i)`, { label: "toast" });
 
     // Commands that ask for text first.
     await openBar();
@@ -5230,10 +4909,10 @@ try {
     await type(`${bar} input`, "Renamed from the bar");
     await key("Enter");
     await page!.waitFor(
-      `document.querySelector('nav li[data-app-id="${appId}"]')?.innerText.includes("Renamed from the bar")`,
+      `document.querySelector('nav li[data-app-id="${firstTabId}"]')?.innerText.includes("Renamed from the bar")`,
       { label: "renamed" },
     );
-    await apiCall(`/api/apps/${appId}`, { method: "PATCH", body: { name } });
+    await apiCall(`/api/apps/${firstTabId}`, { method: "PATCH", body: { name } });
 
     // Free text: a URL opens, a sentence goes to the agent.
     await openBar();
@@ -5243,8 +4922,8 @@ try {
     await shot("command-bar.png");
     await key("Escape");
     await page!.waitFor(`!document.querySelector("${bar}")`, { label: "closed" });
-    if ((await selected()) !== appId) throw new Error("the selected tab changed");
-    return `opened ${name} and its page, saved a snapshot, renamed it`;
+    if ((await selected()) !== firstTabId) throw new Error("the selected tab changed");
+    return `opened ${name}, renamed it`;
   });
 
   await check(
@@ -5263,10 +4942,10 @@ try {
           ? true
           : undefined,
       );
-      await click(`nav li[data-app-id="${appId}"]`);
-      const panel = `[data-agent-for="${appId}"]`;
+      await click(`nav li[data-app-id="${firstTabId}"]`);
+      const panel = `[data-agent-for="${firstTabId}"]`;
       if (!(await page!.eval<boolean>(`!!document.querySelector('${panel}')`)))
-        await click(`[data-tab-chrome="${appId}"] [data-agent-show]`);
+        await click(`[data-tab-chrome="${firstTabId}"] [data-agent-show]`);
       // Under the composer, the permissions say so; switched back from their menu.
       await page!.waitFor(`!!document.querySelector('${panel} [data-access-picker][data-full-access]')`, {
         label: "full access shown",
@@ -5302,8 +4981,6 @@ try {
       "appearance",
       "workspace",
       "agent",
-      "apps",
-      "secrets",
       "permissions",
       "history",
       "schedules",
@@ -5324,14 +5001,14 @@ try {
     await shot("settings.png");
     await openSettingsAt("agent");
     await page!.eval(`(() => {
-      const t = document.querySelector('textarea[name="instructions"]');
+      const t = document.querySelector('textarea[name="webInstructions"]');
       t.value = "Amounts are in EUR.";
       t.dispatchEvent(new InputEvent("input", { bubbles: true }));
       return true;
     })()`);
     await waitForValue(async () => {
-      const s = await apiCall<{ agent: { instructions: string }; theme: { accent?: string } }>("/api/settings");
-      return s.agent.instructions === "Amounts are in EUR." && s.theme.accent === "#0284c7" ? true : undefined;
+      const s = await apiCall<{ agent: { webInstructions: string }; theme: { accent?: string } }>("/api/settings");
+      return s.agent.webInstructions === "Amounts are in EUR." && s.theme.accent === "#0284c7" ? true : undefined;
     });
     await openSettingsAt("providers");
     const rows = await page!.eval<string[]>(
@@ -5354,24 +5031,6 @@ try {
     await page!.waitFor(`!!document.querySelector("[data-settings-no-results]")`, { label: "no results" });
     await type("[data-settings-search]", "");
     await page!.waitFor(`!document.querySelector("[data-settings-results]")`, { label: "search cleared" });
-    await openSettingsAt("apps");
-    await page!.waitFor(
-      `!!document.querySelector("[data-app-ai-agent] [data-agent-picker]") && !!document.querySelector("[data-ai-limit]")`,
-      { label: "AI in apps settings" },
-    );
-    // The shell commands run in, from the ones found here.
-    const shells = await page!.waitFor<string[]>(
-      `(() => { const o = [...document.querySelectorAll("[data-shell] option")].map((o) => o.value); return o.length > 2 ? o : null; })()`,
-      { label: "shells" },
-    );
-    if (!shells.includes("auto") || !shells.includes("bun")) throw new Error(`shells: ${shells.join(", ")}`);
-    await shot("settings-apps.png");
-    await page!.eval(`document.querySelector("[data-app-ai-agent]").scrollIntoView({ block: "center" }), true`);
-    await shot("settings-ai.png");
-    await openSettingsAt("secrets");
-    await click("[data-add-global-secret]");
-    await page!.waitFor(`!!document.querySelector("[data-global-secret-warning]")`, { label: "global secret warning" });
-    await shot("settings-secrets.png");
     // Resetting goes back to Rune's palette (the icon's cream and burnt orange), in light and dark.
     await openSettingsAt("appearance");
     await click("[data-preset]", "Default");
@@ -5397,7 +5056,7 @@ try {
     } finally {
       await page!.send("Emulation.setEmulatedMedia", { features: [] });
     }
-    return `${nav.length} categories; ${rows.join(", ")}; shells ${shells.join(", ")}; background ${await pageBg()} after reset`;
+    return `${nav.length} categories; ${rows.join(", ")}; background ${await pageBg()} after reset`;
   });
 
   await check(
@@ -5458,7 +5117,7 @@ try {
         // A web tab on the test site: its feed page loads with JavaScript and sets a cookie.
         step = "feed page";
         const count = await page!.eval<number>(`document.querySelectorAll("nav li").length`);
-        await newTab("New web tab");
+        await newTab();
         const tabId = await page!.waitFor<string>(
           `document.querySelectorAll("nav li").length === ${count + 1} && document.querySelector("nav li:last-of-type").dataset.appId`,
           { label: "web tab" },
@@ -5709,7 +5368,7 @@ try {
       await page!.waitFor(`!!${currentWorkspaceName}`, { label: "workspace loaded" });
       const tab = await apiCall<{ id: string }>("/api/apps", {
         method: "POST",
-        body: { kind: "web", url: `${site.url.origin}/devtools` },
+        body: { url: `${site.url.origin}/devtools` },
       });
       await page!.waitFor(`!!document.querySelector('nav li[data-app-id="${tab.id}"]')`, {
         label: "web tab in the sidebar",
@@ -5818,33 +5477,8 @@ try {
       await dt("emulate", { reset: true });
       if ((await device()) !== normal) throw new Error(`emulation wasn't reset: ${await device()} (was ${normal})`);
 
-      // App previews: their console from the start, and their traffic.
-      const app = await apiCall<{ id: string }>("/api/apps", { method: "POST", body: { kind: "app" } });
-      await apiCall(`/api/apps/${app.id}/project`, { method: "POST", body: { preset: "vanilla" } });
-      await page!.waitFor(`!!document.querySelector('nav li[data-app-id="${app.id}"]')`, {
-        label: "app in the sidebar",
-      });
-      await click(`nav li[data-app-id="${app.id}"]`);
-      await page!.waitFor(`!!document.querySelector('[data-app-tab="${app.id}"][data-runtime-state="running"]')`, {
-        timeoutMs: 60_000,
-        label: "app running",
-      });
-      const appId = app.id;
-      await waitForValue(
-        () => rpcOn<boolean>(appId, "page.eval", { code: `(console.error("from the preview"), true)` }),
-        20_000,
-      );
-      const preview = await rpcOn<Console>(appId, "devtools", { command: "console", params: {} });
-      if (preview.startedNow || !preview.entries.some((e) => e.text.includes("from the preview")))
-        throw new Error(`preview console: ${JSON.stringify(preview)}`);
-      await rpcOn(appId, "page.reload");
-      const traffic = await waitForValue(async () => {
-        const list = await rpcOn<{ url: string }[]>(appId, "network.list", { filter: { kind: "all" } });
-        return list.length ? list : undefined;
-      }, 15_000);
       await apiCall(`/api/apps/${tab.id}`, { method: "DELETE" });
-      await apiCall(`/api/apps/${app.id}`, { method: "DELETE" });
-      return `console (${logged.entries.length}), element screenshot ${element.width}×${element.height}, slowWork ${hot.selfMs} ms in a ${traced.events}-event trace, a11y, styles, storage hidden, ${coverage.files.length} coverage files, emulation; preview: console, ${traffic.length} requests`;
+      return `console (${logged.entries.length}), element screenshot ${element.width}×${element.height}, slowWork ${hot.selfMs} ms in a ${traced.events}-event trace, a11y, styles, storage hidden, ${coverage.files.length} coverage files, emulation`;
     },
   );
 
@@ -5855,7 +5489,7 @@ try {
     writeFileSync(join(folder, "src", "cart.ts"), "export const cart = [];\n");
     const tab = await apiCall<{ id: string }>("/api/apps", {
       method: "POST",
-      body: { kind: "web", url: `${site.url.origin}/` },
+      body: { url: `${site.url.origin}/` },
     });
     await page!.waitFor(`!!document.querySelector('nav li[data-app-id="${tab.id}"]')`, { label: "tab in the sidebar" });
     await click(`nav li[data-app-id="${tab.id}"]`);
@@ -5895,7 +5529,7 @@ try {
       await page!.waitFor(`!!${currentWorkspaceName}`, { label: "workspace loaded" });
       const tab = await apiCall<{ id: string }>("/api/apps", {
         method: "POST",
-        body: { kind: "web", url: `${site.url.origin}/` },
+        body: { url: `${site.url.origin}/` },
       });
       await page!.waitFor(`!!document.querySelector('nav li[data-app-id="${tab.id}"]')`, {
         label: "tab in the sidebar",
@@ -6030,7 +5664,7 @@ try {
       writeFileSync(pdf, minimalPdf("Hello PDF"));
       const pdfTab = await apiCall<{ id: string }>("/api/apps", {
         method: "POST",
-        body: { kind: "web", url: fileUrl(pdf) },
+        body: { url: fileUrl(pdf) },
       });
       await page!.waitFor(`!!document.querySelector('nav li[data-app-id="${pdfTab.id}"]')`, { label: "PDF tab" });
       await click(`nav li[data-app-id="${pdfTab.id}"]`);
@@ -6067,88 +5701,62 @@ try {
     },
   );
 
-  await check(
-    "tabs: address suggestions, pinned tiles, close buttons, reopening closed tabs and saved apps",
-    async () => {
-      await page!.waitFor(`!!${currentWorkspaceName}`, { label: "workspace loaded" });
-      const make = (path: string) =>
-        apiCall<{ id: string }>("/api/apps", {
-          method: "POST",
-          body: { kind: "web", url: `${site.url.origin}${path}` },
-        });
-      const a = await make("/");
-      const b = await make("/act");
-      for (const t of [a, b])
-        await page!.waitFor(`!!document.querySelector('nav li[data-app-id="${t.id}"]')`, {
-          label: "tab in the sidebar",
-        });
-      await click(`nav li[data-app-id="${a.id}"]`);
+  await check("tabs: address suggestions, pinned tiles, close buttons, reopening closed tabs", async () => {
+    await page!.waitFor(`!!${currentWorkspaceName}`, { label: "workspace loaded" });
+    const make = (path: string) =>
+      apiCall<{ id: string }>("/api/apps", {
+        method: "POST",
+        body: { url: `${site.url.origin}${path}` },
+      });
+    const a = await make("/");
+    const b = await make("/act");
+    for (const t of [a, b])
+      await page!.waitFor(`!!document.querySelector('nav li[data-app-id="${t.id}"]')`, {
+        label: "tab in the sidebar",
+      });
+    await click(`nav li[data-app-id="${a.id}"]`);
 
-      // Typing in the address bar suggests open tabs (by name or address); Enter takes the first suggestion.
-      await page!.eval(`(() => {
+    // Typing in the address bar suggests open tabs (by name or address); Enter takes the first suggestion.
+    await page!.eval(`(() => {
       const input = document.querySelector("[data-address]");
       input.focus();
       input.value = "/act";
       input.dispatchEvent(new InputEvent("input", { bubbles: true }));
       return true;
     })()`);
-      await page!.waitFor(`!!document.querySelector('[data-suggestions] [data-suggestion="tab:${b.id}"]')`, {
-        label: "tab suggested",
-      });
-      await shot("address-suggestions.png");
-      await page!.eval(`document.querySelector("[data-address]").form.requestSubmit(), true`);
-      await page!.waitFor(`document.querySelector('nav li[aria-current="page"]')?.dataset.appId === "${b.id}"`, {
-        label: "switched by the suggestion",
-      });
+    await page!.waitFor(`!!document.querySelector('[data-suggestions] [data-suggestion="tab:${b.id}"]')`, {
+      label: "tab suggested",
+    });
+    await shot("address-suggestions.png");
+    await page!.eval(`document.querySelector("[data-address]").form.requestSubmit(), true`);
+    await page!.waitFor(`document.querySelector('nav li[aria-current="page"]')?.dataset.appId === "${b.id}"`, {
+      label: "switched by the suggestion",
+    });
 
-      // Pinned: a tile above the list.
-      await apiCall(`/api/apps/${a.id}/pinned`, { method: "PUT", body: { pinned: true } });
-      await page!.waitFor(`!!document.querySelector('[data-pinned-tiles] li[data-app-id="${a.id}"]')`, {
-        label: "pinned tile",
-      });
-      await shot("sidebar-zen.png");
-      await apiCall(`/api/apps/${a.id}/pinned`, { method: "PUT", body: { pinned: false } });
+    // Pinned: a tile above the list.
+    await apiCall(`/api/apps/${a.id}/pinned`, { method: "PUT", body: { pinned: true } });
+    await page!.waitFor(`!!document.querySelector('[data-pinned-tiles] li[data-app-id="${a.id}"]')`, {
+      label: "pinned tile",
+    });
+    await shot("sidebar-zen.png");
+    await apiCall(`/api/apps/${a.id}/pinned`, { method: "PUT", body: { pinned: false } });
 
-      // × closes a web tab; Ctrl+Shift+T brings it back.
-      await click(`nav li[data-app-id="${b.id}"] [data-close-tab]`);
-      await page!.waitFor(`!document.querySelector('nav li[data-app-id="${b.id}"]')`, { label: "closed" });
-      await page!.eval(
-        `window.dispatchEvent(new KeyboardEvent("keydown", { key: "T", ${mod}: true, shiftKey: true, bubbles: true })), true`,
-      );
-      await page!.waitFor(`[...document.querySelectorAll("nav li")].some((li) => li.innerText.includes("Act page"))`, {
-        timeoutMs: 20_000,
-        label: "reopened",
-      });
+    // × closes a web tab; Ctrl+Shift+T brings it back.
+    await click(`nav li[data-app-id="${b.id}"] [data-close-tab]`);
+    await page!.waitFor(`!document.querySelector('nav li[data-app-id="${b.id}"]')`, { label: "closed" });
+    await page!.eval(
+      `window.dispatchEvent(new KeyboardEvent("keydown", { key: "T", ${mod}: true, shiftKey: true, bubbles: true })), true`,
+    );
+    await page!.waitFor(`[...document.querySelectorAll("nav li")].some((li) => li.innerText.includes("Act page"))`, {
+      timeoutMs: 20_000,
+      label: "reopened",
+    });
 
-      // Closing an app keeps it: it's in the library and opens again with its project.
-      const app = await apiCall<{ id: string }>("/api/apps", { method: "POST", body: { kind: "app" } });
-      await apiCall(`/api/apps/${app.id}/project`, { method: "POST", body: { preset: "vanilla", name: "Saved one" } });
-      await page!.waitFor(`!!document.querySelector('nav li[data-app-id="${app.id}"]')`, {
-        label: "app in the sidebar",
-      });
-      await click(`nav li[data-app-id="${app.id}"] [data-close-tab]`);
-      await page!.waitFor(`!document.querySelector('nav li[data-app-id="${app.id}"]')`, { label: "app closed" });
-      const library = await apiCall<{ id: string }[]>("/api/library");
-      if (!library.some((x) => x.id === app.id)) throw new Error("the closed app isn't in the library");
-      await click("[data-new-tab]");
-      await page!.waitFor(`!!document.querySelector("[data-context-menu]")`, { label: "new tab menu" });
-      await page!.waitFor(
-        `[...document.querySelectorAll("[data-context-menu] button")].some((b) => b.textContent.includes("Open Saved one"))`,
-        { label: "saved app in the menu" },
-      );
-      await shot("saved-apps.png");
-      await click("[data-context-menu] button", "Open Saved one");
-      await page!.waitFor(`document.querySelector('nav li[aria-current="page"]')?.dataset.appId === "${app.id}"`, {
-        label: "app reopened",
-      });
-      if ((await apiCall<{ id: string }[]>("/api/library")).some((x) => x.id === app.id))
-        throw new Error("still in the library");
-      for (const id of [a.id, app.id]) await apiCall(`/api/apps/${id}`, { method: "DELETE" });
-      for (const t of await apiCall<{ id: string; name: string }[]>("/api/apps"))
-        if (t.name === "Act page") await apiCall(`/api/apps/${t.id}`, { method: "DELETE" });
-      return "suggested and switched, tile, closed and reopened a web tab, closed and reopened an app";
-    },
-  );
+    await apiCall(`/api/apps/${a.id}`, { method: "DELETE" });
+    for (const t of await apiCall<{ id: string; name: string }[]>("/api/apps"))
+      if (t.name === "Act page") await apiCall(`/api/apps/${t.id}`, { method: "DELETE" });
+    return "suggested and switched, tile, closed and reopened a tab";
+  });
 
   await check("default browser: links and files from other apps open as tabs in the running window", async () => {
     // Settings says whether Rune Browser is the default (runs from source can't be).
@@ -6176,12 +5784,12 @@ try {
         second.kill();
         throw new Error(`the second launch didn't hand over its links and quit (${exit})`);
       }
-      type Tab = { id: string; kind: string; url?: string };
+      type Tab = { id: string; url?: string };
       let tabs: Tab[] = [];
       const opened = await waitForValue(async () => {
         tabs = await apiCall<Tab[]>("/api/apps");
-        const fromLink = tabs.find((a) => a.kind === "web" && a.url === link);
-        const fromFile = tabs.find((a) => a.kind === "web" && a.url === fileUrl(file));
+        const fromLink = tabs.find((a) => a.url === link);
+        const fromFile = tabs.find((a) => a.url === fileUrl(file));
         return fromLink && fromFile ? { fromLink, fromFile } : undefined;
       }, 20_000).catch((err) => {
         throw new Error(`${err.message}; the web tabs: ${tabs.map((t) => t.url).join(", ")}`);
@@ -6223,7 +5831,7 @@ try {
     });
 
   await check("internal pages: rune:// and chrome:// open Rune's pages; version, GPU, flags, the list", async () => {
-    await newTab("New web tab");
+    await newTab();
     const blankTab = await page!.waitFor<string>(
       `document.activeElement === document.querySelector("[data-address]") && document.querySelector('nav li[aria-current="page"]')?.dataset.appId`,
       { label: "a new tab's address bar" },
@@ -6358,7 +5966,7 @@ try {
       : null;
     let tabId: string | undefined;
     try {
-      await newTab("New web tab");
+      await newTab();
       tabId = await page!.waitFor<string>(`document.querySelector('nav li[aria-current="page"]')?.dataset.appId`, {
         label: "the new tab",
       });
@@ -6389,7 +5997,7 @@ try {
 
       // In a new tab, so the warning is its very first page.
       await apiCall(`/api/apps/${tabId}`, { method: "DELETE" });
-      await newTab("New web tab");
+      await newTab();
       tabId = await page!.waitFor<string>(
         `document.querySelector('nav li[aria-current="page"]')?.dataset.appId !== ${JSON.stringify(tabId)} && document.querySelector('nav li[aria-current="page"]')?.dataset.appId`,
         { label: "another new tab" },
@@ -6440,7 +6048,7 @@ try {
       const folderOf = async (id: string) => (await tree()).children!.find((f) => all(f).some((n) => n.id === id))?.id;
       const tabApp = await apiCall<{ id: string }>("/api/apps", {
         method: "POST",
-        body: { kind: "web", url: `${site.url.origin}/second` },
+        body: { url: `${site.url.origin}/second` },
       });
       await page!.waitFor(`!!document.querySelector('nav li[data-app-id="${tabApp.id}"]')`, { label: "tab" });
       await click(`nav li[data-app-id="${tabApp.id}"]`);
@@ -6697,7 +6305,7 @@ try {
       if (await second.win.eval<boolean>(`!!document.querySelector("[data-private-badge]")`))
         throw new Error("a normal window is marked private");
 
-      // Ctrl+Shift+N: a private window, marked as such, without agents, apps or workspaces.
+      // Ctrl+Shift+N: a private window, marked as such, without agents or workspaces.
       await keys(page!, "N", true);
       const priv = await windowPage((id) => id.startsWith("private-"), "private window");
       opened.push(priv.win);
@@ -6715,15 +6323,6 @@ try {
       if (privateUi.agent || privateUi.workspaces)
         throw new Error(`agent or workspaces shown: ${JSON.stringify(privateUi)}`);
       if (!String(privateUi.title).includes("Private")) throw new Error(`title: ${privateUi.title}`);
-      // Its "New tab" menu has no apps; Ctrl+I (the agent) does nothing there.
-      await priv.win.eval(`document.querySelector("[data-new-tab]").click(), true`);
-      await priv.win.waitFor(`!!document.querySelector("[data-context-menu]")`, { label: "private new tab menu" });
-      const menu = await priv.win.eval<string>(`document.querySelector("[data-context-menu]").innerText`);
-      if (menu.includes("New app") || !menu.includes("New private window"))
-        throw new Error(`private New tab menu: ${menu}`);
-      await priv.win.eval(
-        `document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })), true`,
-      );
       await priv.win.screenshot(join(outDir, "window-private.png"));
 
       // A page in it sets a cookie; agents can't use the tab.
@@ -6790,11 +6389,11 @@ try {
       // "Move to new window" from a tab's menu (a window's only tab has nothing to move from): it opens there, and leaves this one.
       const staying = await apiCall<{ id: string }>("/api/apps", {
         method: "POST",
-        body: { kind: "web", url: `${site.url.origin}/`, windowId: mainId },
+        body: { url: `${site.url.origin}/`, windowId: mainId },
       });
       const moving = await apiCall<{ id: string }>("/api/apps", {
         method: "POST",
-        body: { kind: "web", url: `${site.url.origin}/second`, windowId: mainId },
+        body: { url: `${site.url.origin}/second`, windowId: mainId },
       });
       await page!.waitFor(`!!document.querySelector('nav li[data-app-id="${moving.id}"]')`, { label: "tab to move" });
       await page!.eval(`(() => {

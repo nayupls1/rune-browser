@@ -1,5 +1,5 @@
-// Asks the user when an app or agent wants to do something new (use AI, a
-// global secret, customize a site). One request at a time, oldest first;
+// Asks the user when an agent wants to do something new (customize a site,
+// use it with their logins, read another tab). One request at a time, oldest first;
 // unanswered requests are denied by the server after a while.
 import * as stylex from "@stylexjs/stylex";
 import { createSignal, For, onMount, Show } from "solid-js";
@@ -11,15 +11,9 @@ import { Icon } from "./Icon";
 import { Button } from "./ui";
 
 const icons: Record<PermissionRequest["action"], string> = {
-  "app.ai": "sparkles",
-  "app.secret": "key-round",
   "agent.site": "paintbrush",
   "agent.network": "network",
   "agent.override": "flask-conical",
-  "app.data": "database",
-  "app.endpoints": "waypoints",
-  "app.tool": "wrench",
-  "agent.schedule": "calendar-clock",
   "agent.tab": "app-window",
   "agent.browse": "mouse-pointer-click",
   "agent.headless": "eye-off",
@@ -126,7 +120,7 @@ function Prompt(props: { request: PermissionRequest; more: number }) {
                 onChange={(e) => setWholeWorkspace(e.currentTarget.checked)}
                 data-remember-workspace
               />
-              For every app in the workspace {props.request.workspace!.name}
+              For every tab in the workspace {props.request.workspace!.name}
             </label>
           </Show>
           <div {...stylex.attrs(styles.actions)}>

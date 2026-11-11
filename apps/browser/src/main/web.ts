@@ -1,11 +1,9 @@
-// Web tabs and app previews: pages shown in <webview> guests. They get no
-// preload and no Node. The web tabs of a workspace share one session (each
-// workspace has its own cookies and logins); every app preview gets a session
-// of its own (apps all run on 127.0.0.1, and cookies don't separate
-// ports). Popups become new tabs, browser shortcuts are forwarded to the Rune Browser
-// window, and the renderer can screenshot them and use DevTools on them for
-// the agents. Web tab sessions
-// run the installed Chrome extensions (see extensions/).
+// Web tabs: pages shown in <webview> guests. They get no preload and no Node.
+// The web tabs of a workspace share one session (each workspace has its own
+// cookies and logins). Popups become new tabs, browser shortcuts are forwarded
+// to the Rune Browser window, and the renderer can screenshot them and use
+// DevTools on them for the agents. Web tab sessions run the installed Chrome
+// extensions (see extensions/).
 import {
   app,
   clipboard,
@@ -22,7 +20,6 @@ import {
   type WebContents,
 } from "electron";
 import {
-  APP_PARTITION_PATTERN,
   DEFAULT_WORKSPACE,
   type CertificateProblem,
   PRIVATE_PARTITION,
@@ -50,12 +47,6 @@ import type { AppWindows } from "./windows";
 const isWebUrl = (url: string) => /^https?:/i.test(url);
 /** A local file, opened in a web tab by the user (dropped on Rune Browser, or from a chat). */
 const isFileUrl = (url: string) => /^file:\/\//i.test(url);
-/** Where Rune Browser serves apps (see the server's runtime). */
-const isAppUrl = (url: string) => /^http:\/\/(127\.0\.0\.1|localhost):\d+(\/|$)/i.test(url);
-
-// App previews get the harmless permissions only (no camera, location, notifications…). Websites ask
-// the user, remembered in their site settings (sitePermissions.ts).
-const allowedPermissions = new Set(["fullscreen", "clipboard-sanitized-write", "pointerLock"]);
 
 export function setupWebTabs(
   windows: AppWindows,
@@ -130,7 +121,7 @@ export function setupWebTabs(
     onOverridden: (id, requestId, title) => network.markOverridden(id, requestId, title),
   });
 
-  const devtools = setupDevtools({ windows, isWebTab: (contents) => webSessions.has(contents.session) });
+  setupDevtools({ windows });
 
   // Headless tabs: pages the website agent reads in the background, with the workspace's logins if allowed.
   const headless = setupHeadless({
@@ -146,11 +137,7 @@ export function setupWebTabs(
     workspaceOf: (s) => webSessions.get(s),
     partitionOf: (s) => partitions.get(s),
     sessionFor: (partition) =>
-      !partition
-        ? session.defaultSession
-        : WEB_PARTITION_PATTERN.test(partition)
-          ? webSession(partition)
-          : previewSession(partition),
+      partition && WEB_PARTITION_PATTERN.test(partition) ? webSession(partition) : session.defaultSession,
     noDownloads: (contents) => headless.isHeadless(contents),
   });
 
@@ -164,36 +151,27 @@ export function setupWebTabs(
       prefs.webSecurity = true;
       const src = params.src ?? "";
       const partition = params.partition ?? "";
-      const isWeb = WEB_PARTITION_PATTERN.test(partition);
       const web =
-        isWeb &&
+        WEB_PARTITION_PATTERN.test(partition) &&
         (isWebUrl(src) ||
           isFileUrl(src) ||
           src === "about:blank" ||
           extensions.isExtensionPage(webSession(partition), src));
-      const preview = APP_PARTITION_PATTERN.test(partition) && (isAppUrl(src) || src === "about:blank");
-      if (!web && !preview) return event.preventDefault();
-      if (web) {
-        webSession(partition);
-        browser.webPreferences(prefs);
-        // Extension pages in iframes (password managers' fill-in menus…) get the extension APIs too.
-        prefs.nodeIntegrationInSubFrames = true;
-      } else previewSession(partition);
+      if (!web) return event.preventDefault();
+      webSession(partition);
+      browser.webPreferences(prefs);
+      // Extension pages in iframes (password managers' fill-in menus…) get the extension APIs too.
+      prefs.nodeIntegrationInSubFrames = true;
     });
     if (contents.getType() === "webview") setupGuest(contents);
   });
 
   function setupGuest(contents: WebContents) {
-    const isPreview = () => !webSessions.has(contents.session);
-    // Traffic and console of app previews too: their agents debug with them (main/devtools.ts).
     network.watch(contents);
     overrides.track(contents);
-    devtools.track(contents);
-    if (!isPreview()) {
-      extensions.trackGuest(contents);
-      browser.trackGuest(contents);
-      sitePermissions.track(contents);
-    }
+    extensions.trackGuest(contents);
+    browser.trackGuest(contents);
+    sitePermissions.track(contents);
     // The tab's audio indicator.
     contents.on("audio-state-changed", ({ audible }) =>
       sendTo(contents, "rune:audio", { contentsId: contents.id, audible }),
@@ -203,26 +181,25 @@ export function setupWebTabs(
       return { action: "deny" };
     });
     contents.on("will-navigate", (event, url) => {
-      if (!isPreview() && holdInsecure(contents, url)) return event.preventDefault();
-      // App previews stay on the app; links elsewhere open as web tabs.
-      if (isPreview() ? isAppUrl(url) : isTabUrl(contents.session, url) || url.startsWith("about:")) return;
+      if (holdInsecure(contents, url)) return event.preventDefault();
+      if (isTabUrl(contents.session, url) || url.startsWith("about:")) return;
       // Local files only when the user opens one (a file dropped on the page), never when a page
       // (or an agent's script in it) navigates there: that would read any file on the computer.
-      if (!isPreview() && isFileUrl(url) && !event.initiator) return;
+      if (isFileUrl(url) && !event.initiator) return;
       event.preventDefault();
       if (/^(mailto|tel):/i.test(url)) shell.openExternal(url);
       else openTab(contents, url);
     });
     // A redirect to plain HTTP, whoever started the navigation (the tab, the agent, the page).
     contents.on("will-redirect", (details) => {
-      if (details.isMainFrame && !isPreview() && holdInsecure(contents, details.url)) details.preventDefault();
+      if (details.isMainFrame && holdInsecure(contents, details.url)) details.preventDefault();
     });
     // The browser's reserved keys first, then the extensions' shortcuts, then the page (which may pass a shortcut on).
     contents.on("before-input-event", (event, input) => {
       const shortcut = shortcuts.match(input);
       if (shortcut?.page === "reserved") {
         if (shortcuts.handlePageInput(contents, input, shortcut)) event.preventDefault();
-      } else if (!isPreview() && extensions.handleInput(contents.session, input)) {
+      } else if (extensions.handleInput(contents.session, input)) {
         event.preventDefault();
       } else if (shortcut && shortcuts.handlePageInput(contents, input, shortcut)) {
         event.preventDefault();
@@ -282,14 +259,6 @@ export function setupWebTabs(
     });
   }
 
-  const lockedDown = new WeakSet<Electron.Session>();
-  function lockDown(s: Electron.Session) {
-    if (lockedDown.has(s)) return;
-    lockedDown.add(s);
-    s.setPermissionRequestHandler((_contents, permission, callback) => callback(allowedPermissions.has(permission)));
-    s.setPermissionCheckHandler((_contents, permission) => allowedPermissions.has(permission));
-  }
-
   /**
    * Websites get what their site settings allow and are asked for the rest (Settings → Site
    * settings, sitePermissions.ts); extension pages also get what their manifest asks for (clipboardRead,
@@ -321,15 +290,8 @@ export function setupWebTabs(
 
   /** The session of a workspace's web tabs, set up on first use. Maps to the workspace. */
   const webSessions = new WeakMap<Electron.Session, string>();
-  /** Web tabs' and app previews' sessions, by partition (to retry a download in its session). */
+  /** Web tabs' sessions, by partition (to retry a download in its session). */
   const partitions = new WeakMap<Electron.Session, string>();
-  /** An app preview's session, locked down. */
-  function previewSession(partition: string) {
-    const s = session.fromPartition(partition);
-    partitions.set(s, partition);
-    lockDown(s);
-    return s;
-  }
   function webSession(partition: string) {
     const s = session.fromPartition(partition);
     if (webSessions.has(s)) return s;
@@ -353,7 +315,7 @@ export function setupWebTabs(
 
   // A site (or a proxy) asks for a username and password: extensions first (a
   // password manager fills it in), then Rune Browser's own sign-in dialog.
-  // Electron would cancel it otherwise. App previews keep that.
+  // Electron would cancel it otherwise.
   const authPrompts = new Map<string, (value: { username: string; password: string } | null) => void>();
   let authPromptIds = 0;
   app.on("login", (event, contents, details, authInfo, callback) => {

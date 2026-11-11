@@ -22,10 +22,10 @@ class AppServer {
   onNotification: (method: string, params: Json) => void = () => {};
   readonly exited: Promise<number>;
 
-  constructor(binary: string, cwd: string, env: Record<string, string>) {
+  constructor(binary: string, cwd: string) {
     this.proc = Bun.spawn([binary, "app-server"], {
       cwd,
-      env: agentEnv(env),
+      env: agentEnv(),
       stdin: "pipe",
       stdout: "pipe",
       stderr: "pipe",
@@ -107,9 +107,8 @@ function userMcpServers(): string[] {
 
 /**
  * Codex without any tools of its own: no shell, code execution, file viewing,
- * web search or connected apps, and none of the user's MCP servers. For
- * untrusted input (web pages, apps' AI requests). Verified by asking it to
- * read a file: it can't.
+ * web search or connected apps, and none of the user's MCP servers: web pages
+ * are untrusted input. Verified by asking it to read a file: it can't.
  */
 const noTools = () => ({
   features: {
@@ -145,7 +144,7 @@ export const CodexDriver: ProviderDriver = {
       const version =
         (await runCommand(binary, ["--version"], { timeoutMs: 10_000 })).stdout.trim().replace(/^codex-cli\s*/, "") ||
         null;
-      const server = new AppServer(binary, readConfig().agentDir, {});
+      const server = new AppServer(binary, readConfig().agentDir);
       try {
         await server.initialize();
         const [account, models] = await Promise.all([
@@ -192,7 +191,7 @@ export const CodexDriver: ProviderDriver = {
     streamFrom(async (emit, signal) => {
       const binary = binaryFor(settings);
       if (!binary) throw new Error("Codex isn't installed (npm install -g @openai/codex).");
-      const server = new AppServer(binary, input.cwd, input.env);
+      const server = new AppServer(binary, input.cwd);
       let threadId: string | undefined;
       let turnId: string | undefined;
       const onAbort = () => {
@@ -239,7 +238,7 @@ export const CodexDriver: ProviderDriver = {
                         : "Searched the web",
                     },
                   });
-                } else if (item.type === "mcpToolCall" && item.server !== input.mcp?.name) {
+                } else if (item.type === "mcpToolCall" && item.server !== input.mcp.name) {
                   // Rune Browser's own tools report themselves (Agent.ts).
                   const activity = describeTool(`mcp__${item.server}__${item.tool}`, item.arguments ?? {}, input.cwd);
                   if (item.status === "failed" || item.error) activity.failed = true;
@@ -273,18 +272,16 @@ export const CodexDriver: ProviderDriver = {
           cwd: input.cwd,
           model: input.model,
           approvalPolicy: "never",
-          sandbox: input.access === "workspace" ? "workspace-write" : "read-only",
+          sandbox: "read-only",
           developerInstructions: input.instructions,
-          ...(input.ephemeral ? { ephemeral: true } : {}),
           config: (() => {
-            const locked = input.access === "none" ? noTools() : null;
-            const rune = input.mcp
-              ? { [input.mcp.name]: { url: input.mcp.url, default_tools_approval_mode: "approve" } }
-              : {};
+            const locked = noTools();
             return {
               ...locked,
-              mcp_servers: { ...locked?.mcp_servers, ...rune },
-              sandbox_workspace_write: { network_access: true },
+              mcp_servers: {
+                ...locked.mcp_servers,
+                [input.mcp.name]: { url: input.mcp.url, default_tools_approval_mode: "approve" },
+              },
             };
           })(),
         };

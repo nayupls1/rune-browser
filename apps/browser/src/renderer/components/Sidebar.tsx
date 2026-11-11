@@ -6,13 +6,11 @@ import {
   newChat,
   createWorkspace,
   currentWorkspace,
-  deleteApp,
   duplicateApp,
   isLoaded,
   moveApp,
   moveTab,
   moveTabs,
-  newApp,
   newWebTab,
   renameApp,
   selectApp,
@@ -29,7 +27,6 @@ import {
   workspaces,
   workspaceTabs,
   closeTab,
-  reopenApp,
   isPrivate,
 } from "../lib/store";
 import {
@@ -65,7 +62,6 @@ import {
 } from "../lib/splits";
 import { colors, font, radius, space } from "../theme.stylex";
 import { AddressBar, addressOpen, AgentButton, MoreMenu, NavRow } from "./TopBar";
-import { api } from "../lib/api";
 import { confirmDialog } from "./ConfirmDialog";
 import { ContextMenu, type MenuItem, type MenuPosition } from "./ContextMenu";
 import { Icon } from "./Icon";
@@ -147,8 +143,6 @@ const layoutMenuItem = (): MenuItem =>
  */
 export const tabAreaMenuItems = (): (MenuItem | "separator")[] => [
   { id: "new-tab", label: "New tab", icon: "plus", hint: shortcutLabel("tab.new"), onSelect: () => void newWebTab() },
-  // Apps are built by agents, which private windows don't have.
-  ...(isPrivate ? [] : [{ id: "new-app", label: "New app", icon: "sparkles", onSelect: () => newApp() }]),
   "separator",
   layoutMenuItem(),
 ];
@@ -204,15 +198,10 @@ export function keepSelectedInView(list: () => HTMLElement | undefined, axis: "x
   );
 }
 
-/** The New tab menu: a web tab or an app, a window, and the closed apps to open again. */
+/** The New tab menu: a tab or a window. */
 export function NewTabMenu(props: { position: MenuPosition; onClose: () => void; anchor?: Element }) {
-  const [library, setLibrary] = createSignal<AppSummary[]>([]);
-  // Closed apps (the library), fresh each time the menu opens.
-  if (!isPrivate) void api.library().then(setLibrary, () => setLibrary([]));
   const items = (): (MenuItem | "separator")[] => [
-    { label: "New web tab", icon: "globe", onSelect: () => newWebTab() },
-    // Apps are built by agents, which private windows don't have.
-    ...(isPrivate ? [] : [{ label: "New app", icon: "sparkles", onSelect: () => newApp() }]),
+    { label: "New tab", icon: "globe", onSelect: () => newWebTab() },
     "separator",
     { label: withKeys("New window", "window.new"), icon: "app-window", onSelect: () => void newWindow() },
     {
@@ -220,18 +209,6 @@ export function NewTabMenu(props: { position: MenuPosition; onClose: () => void;
       icon: "hat-glasses",
       onSelect: () => void newPrivateWindow(),
     },
-    ...(library().length && !isPrivate
-      ? [
-          "separator" as const,
-          ...library()
-            .slice(0, 12)
-            .map((app): MenuItem => ({
-              label: `Open ${app.name}`,
-              icon: "archive-arrow-up",
-              onSelect: () => void reopenApp(app.id),
-            })),
-        ]
-      : []),
   ];
   return <ContextMenu items={items()} position={props.position} anchor={props.anchor} onClose={props.onClose} />;
 }
@@ -492,7 +469,7 @@ function Resizer() {
         {...stylex.attrs(styles.handle, dragging() && styles.handleActive)}
         data-sidebar-resizer
       />
-      {/* Over everything (web pages and previews too), so they don't swallow the drag. */}
+      {/* Over everything (web pages too), so they don't swallow the drag. */}
       <Show when={dragging()}>
         <div {...stylex.attrs(styles.dragShield)} />
       </Show>
@@ -566,7 +543,7 @@ export function WorkspaceBar(props: { inline?: boolean }) {
               onSelect: async () => {
                 const tabs = apps.filter((a) => a.workspaceId === w.id).length;
                 const ok = await confirmDialog(
-                  `Delete the workspace ${w.name}${tabs ? ` with its ${tabs} tab${tabs === 1 ? "" : "s"} and their data` : ""}? Its secrets, permissions and web logins go too.`,
+                  `Delete the workspace ${w.name}${tabs ? ` with its ${tabs} tab${tabs === 1 ? "" : "s"}` : ""}? Its permissions and web logins go too.`,
                   { confirmLabel: "Delete", danger: true },
                 );
                 if (ok) await deleteWorkspace(w.id);
@@ -953,27 +930,7 @@ export function Item(props: { app: AppSummary; tile?: boolean; horizontal?: bool
         ]
       : []),
     "separator",
-    {
-      label: props.app.kind === "app" ? "Close (the app is kept)" : "Close tab",
-      icon: "x",
-      onSelect: () => void close(),
-    },
-    ...(props.app.kind === "app"
-      ? [
-          {
-            label: "Delete",
-            icon: "trash",
-            danger: true,
-            onSelect: async () => {
-              const ok = await confirmDialog(`Delete “${props.app.name}” and all its data?`, {
-                confirmLabel: "Delete",
-                danger: true,
-              });
-              if (ok) deleteApp(props.app.id);
-            },
-          },
-        ]
-      : []),
+    { label: "Close tab", icon: "x", onSelect: () => void close() },
   ];
   const close = () =>
     closeTab(props.app.id).catch((err) =>
@@ -1039,12 +996,12 @@ export function Item(props: { app: AppSummary; tile?: boolean; horizontal?: bool
           return;
         }
         if (!draggedTab() && !draggedSplit()) {
-          // A file, link or text from outside: a web tab opens it, an app tab leaves it to a new tab.
+          // A file, link or text from outside: the tab opens it.
           if (!hasDroppable(e.dataTransfer)) return;
           e.preventDefault();
           e.stopPropagation();
           e.dataTransfer!.dropEffect = "copy";
-          setDropTarget(props.app.kind === "web" ? { kind: "tab", id: props.app.id } : { kind: "list" });
+          setDropTarget({ kind: "tab", id: props.app.id });
           return;
         }
         e.preventDefault();
@@ -1129,11 +1086,7 @@ export function Item(props: { app: AppSummary; tile?: boolean; horizontal?: bool
       <Show when={!hideName()}>
         <button
           type="button"
-          title={
-            props.app.kind === "app"
-              ? "Close (the app is kept: New tab → Open it again)"
-              : withKeys("Close tab", "tab.close")
-          }
+          title={withKeys("Close tab", "tab.close")}
           aria-label={`Close ${props.app.name}`}
           onClick={(e) => {
             e.stopPropagation();
