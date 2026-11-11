@@ -49,6 +49,8 @@ import { describeSource, sourceTools } from "./sourceTools";
 import { Attachments, type AttachedFile } from "./Attachments";
 import { networkReadTools, networkTools } from "./networkTools";
 import { batchTools } from "./batchTools";
+import { Jobs } from "./Jobs";
+import { jobTools } from "./jobTools";
 import { endpointTools } from "./endpointTools";
 import { Endpoints } from "../db/Endpoints";
 import { sharedContext, withSharedTabs, type SharedTabInput } from "./sharedTabs";
@@ -117,6 +119,7 @@ export const make = Effect.gen(function* () {
   const attachments = yield* Attachments;
   const audit = yield* Audit;
   const scheduler = yield* Scheduler;
+  const jobs = yield* Jobs;
   const running = yield* FiberMap.make<string>();
   // Tools need the services; captured once (without the layer's scope: see toolContext).
   const context = toolContext(
@@ -140,6 +143,7 @@ export const make = Effect.gen(function* () {
       | Audit
       | History
       | ChatFiles
+      | Jobs
     >(),
   );
 
@@ -259,6 +263,7 @@ export const make = Effect.gen(function* () {
             ...(yield* Effect.provide(siteTools(env), context)),
             ...(yield* Effect.provide(networkTools(env), context)),
             ...(yield* Effect.provide(batchTools(env), context)),
+            ...(yield* Effect.provide(jobTools(env, { site: true }), context)),
             ...(yield* Effect.provide(endpointTools(env), context)),
             ...(yield* Effect.provide(historyTools(env, { site: true }), context)),
             ...(yield* Effect.provide(sourceTools(env), context)),
@@ -271,6 +276,7 @@ export const make = Effect.gen(function* () {
             ...(yield* Effect.provide(pageTools(env, { site: false }), context)),
             ...(yield* Effect.provide(devtoolsTools(env, { site: false }), context)),
             ...(yield* Effect.provide(networkReadTools(env), context)),
+            ...(yield* Effect.provide(jobTools(env, { site: false }), context)),
             ...(yield* Effect.provide(endpointTools(env), context)),
             ...(yield* Effect.provide(historyTools(env, { site: false }), context)),
             ...(yield* Effect.provide(sourceTools(env), context)),
@@ -432,6 +438,8 @@ export const make = Effect.gen(function* () {
       if (yield* FiberMap.has(running, id)) return failed("The agent was busy in this tab");
       const defaults = (yield* workspaces.ofApp(id))?.settings.agent ?? (yield* settings.get()).agent;
       const agent = spec.agent ?? { provider: defaults.provider, model: defaults.model, effort: defaults.effort };
+      // The chat's background jobs end with it.
+      yield* jobs.endTab(id);
       yield* apps.newChat(id);
       yield* emit(id, { type: "new-chat" });
       const started = yield* start(id, { prompt: spec.prompt, agent }).pipe(Effect.result);

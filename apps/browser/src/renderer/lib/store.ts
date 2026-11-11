@@ -12,6 +12,7 @@ import type {
   AppMode,
   AppSummary,
   ChatMessage,
+  JobInfo,
   PageContext,
   ProjectInfo,
   ProviderStatus,
@@ -35,6 +36,8 @@ export interface TabState {
   /** Assistant text currently being streamed. */
   draft: string;
   running: boolean;
+  /** The current chat's background jobs (running and ended ones). */
+  jobs: JobInfo[];
   /** Who answers in this tab: provider, model and effort. */
   agent: AgentChoice;
   /** Apps: the project (null until the agent set one up) and how it runs. */
@@ -227,6 +230,7 @@ const emptyState = (): TabState => ({
   messages: [],
   draft: "",
   running: false,
+  jobs: [],
   agent: defaultAgent(),
   project: null,
   runtime: null,
@@ -378,6 +382,7 @@ function watch(id: string) {
     else if (event.type === "new-chat") setStates(id, { messages: [], draft: "" });
     else if (event.type === "message") addMessage(id, event.message);
     else if (event.type === "delta") setStates(id, "draft", (d) => d + event.text);
+    else if (event.type === "jobs") setStates(id, "jobs", reconcile(event.jobs, { key: "id" }));
     else if (event.type === "done") {
       setStates(id, { running: false, draft: "" });
       // The agent may have set up the project.
@@ -395,6 +400,7 @@ async function refreshDetail(id: string) {
   setStates(id, {
     messages: detail.messages,
     running: detail.running,
+    jobs: detail.jobs,
     project: detail.project,
     runtime: detail.runtime,
     ...(detail.running ? {} : { draft: "" }),
@@ -436,6 +442,7 @@ export async function openTab(id: string) {
     loaded: true,
     messages: detail.messages,
     running: detail.running,
+    jobs: detail.jobs,
     agent: detail.agent ?? defaultAgent(workspaceById(detail.workspaceId)),
     project: detail.project,
     runtime: detail.runtime,
@@ -553,6 +560,20 @@ export async function newChat(id: string) {
 export async function openChat(id: string, chatId: number) {
   const { messages } = await api.openChat(id, chatId);
   setStates(id, { messages, draft: "" });
+}
+
+// For the e2e checks: a tab's jobs as if the server had pushed them (real ones need an agent).
+declare global {
+  interface Window {
+    __runeJobs?: { show: (id: string, jobs: JobInfo[]) => void };
+  }
+}
+window.__runeJobs = { show: (id, jobs) => states[id] && setStates(id, "jobs", reconcile(jobs, { key: "id" })) };
+
+/** Stops one of the chat's background jobs; the chat gets it as it ends (a "jobs" event). */
+export async function stopJob(id: string, jobId: string) {
+  const jobs = await api.stopJob(id, jobId);
+  if (states[id]) setStates(id, "jobs", reconcile(jobs, { key: "id" }));
 }
 
 export async function deleteApp(id: string) {

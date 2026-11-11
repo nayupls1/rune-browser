@@ -6,6 +6,8 @@ import type { Visit, VisitSuggestion } from "../../shared/visits";
 import type { GalleryResult, InstalledMod, Mod, ModExtension, ModReview } from "../../shared/mods";
 import type {
   ChatFile,
+  JobInfo,
+  PathInfo,
   TabSplit,
   AppActionInfo,
   AppActionResult,
@@ -129,6 +131,7 @@ export const api = {
   /** Starts an agent turn; its output arrives on the hub (topic app:<id>). */
   chat: (id: string, body: ChatRequest) => post<{ ok: true }>(`/api/apps/${id}/chat`, body),
   stop: (id: string) => post<void>(`/api/apps/${id}/stop`),
+  stopJob: (id: string, jobId: string) => post<JobInfo[]>(`/api/apps/${id}/jobs/${encodeURIComponent(jobId)}/stop`),
   clearChat: (id: string) => request<void>(`/api/apps/${id}/messages`, { method: "DELETE" }),
   chats: (id: string) => request<ChatSummary[]>(`/api/apps/${id}/chats`),
   chatMessages: (id: string, chatId: number) => request<ChatMessage[]>(`/api/apps/${id}/chats/${chatId}`),
@@ -146,6 +149,7 @@ export const api = {
   uploadAttachment: (id: string, file: { name: string; mime: string; data: string }) =>
     post<Attachment>(`/api/apps/${id}/attachments`, file),
   chatFiles: (id: string) => request<{ dir: string; files: ChatFile[] }>(`/api/apps/${id}/files`),
+  lookupPaths: (id: string, paths: string[]) => post<PathInfo[]>(`/api/apps/${id}/files/lookup`, { paths }),
   sources: (id: string) => request<ContextSource[]>(`/api/apps/${id}/sources`),
   addSource: (id: string, source: { folder: string } | { git: string; branch?: string }) =>
     post<ContextSource>(`/api/apps/${id}/sources`, source),

@@ -96,6 +96,11 @@ export interface RuneBridge {
   pickFolder: (title: string) => Promise<string | null>;
   /** Files to open (Ctrl+O): their paths, none if cancelled. */
   pickFiles: () => Promise<string[]>;
+  /**
+   * Opens a local file or folder in the system's app ("open"), or shows it in its folder ("reveal"); programs and
+   * scripts are always only shown. "opened", "revealed", or why not.
+   */
+  openPath: (path: string, how: "open" | "reveal") => Promise<string>;
   serverUrl: string;
   /** Sent with every request to the Rune Browser server (and the hub). */
   token: string;
@@ -511,6 +516,8 @@ export const isEmojiIcon = (icon: string) =>
 export interface AppDetail extends AppSummary {
   messages: ChatMessage[];
   running: boolean;
+  /** The current chat's background jobs (running and ended ones). */
+  jobs: JobInfo[];
   /** Last provider/model/effort used for this tab (null = the defaults from Settings). */
   agent: AgentChoice | null;
   /** Apps only. */
@@ -785,6 +792,22 @@ export interface ChatFile {
   modifiedAt: string;
 }
 
+/**
+ * A path the agent linked in the chat (`[name](<path>)`), looked up for its chip
+ * (POST /api/apps/:id/files/lookup): only inside the tab's chat folders and its
+ * app's project; anything else is "outside", without saying whether it exists.
+ */
+export interface PathInfo {
+  /** The path as the agent wrote it. */
+  input: string;
+  kind: "file" | "folder" | "missing" | "outside";
+  /** Its absolute path (null when outside). */
+  path: string | null;
+  name: string;
+  mime?: string;
+  size?: number;
+}
+
 /** Another tab shared with a message: mentioned (@name), or one of its agent's replies handed over. */
 export interface SharedTab {
   tabId: string;
@@ -908,7 +931,33 @@ export type ChatEvent =
   | { type: "delta"; text: string }
   | { type: "done" }
   /** A new chat started (a scheduled prompt): the current messages went to the tab's earlier chats. */
-  | { type: "new-chat" };
+  | { type: "new-chat" }
+  /** The chat's background jobs changed (started, progressed, ended). */
+  | { type: "jobs"; jobs: JobInfo[] };
+
+/**
+ * Long-running work an agent started in the background (server: agent/Jobs.ts): a request for
+ * each item in a list, or a page script. It belongs to the chat it was started in and ends when
+ * that chat or its tab is closed; the user sees it above the composer and can stop it.
+ */
+export interface JobInfo {
+  /** "j1", "j2"… (per tab). */
+  id: string;
+  kind: "requests" | "script";
+  /** What it does, in a few words: "request #981 × 39", "Page script". */
+  title: string;
+  state: "running" | "done" | "failed" | "canceled";
+  /** How far it got, when it knows: items done out of total. */
+  done: number | null;
+  total: number | null;
+  /** The last progress note it gave ("page 3 of 12"). */
+  note: string | null;
+  startedAt: string;
+  endedAt: string | null;
+  /** Where its results went in the chat's folder, once saved. */
+  file: ChatFile | null;
+  error: string | null;
+}
 
 // --- Web tabs -----------------------------------------------------------------------
 

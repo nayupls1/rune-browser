@@ -32,7 +32,7 @@ import { handOver, refusal } from "../lib/sharing";
 import { appById, apps, states } from "../lib/store";
 import { colors, font, radius, space } from "../theme.stylex";
 import { ContextMenu, type MenuItem, type MenuPosition } from "./ContextMenu";
-import { FileCards, FileMention } from "./FileChip";
+import { FileCards, FileLink, FileMention } from "./FileChip";
 import { Icon } from "./Icon";
 import { SecretRequestCard } from "./Secrets";
 import { toast } from "./Toast";
@@ -479,7 +479,8 @@ function Reply(props: { appId: string; message: ChatMessage }) {
 
 /**
  * Assistant text (Markdown; escaped, so it can't inject markup). Links open as web tabs; code blocks get a copy
- * button; `paths` of files in the chat's folder become chips that open them.
+ * button; `paths` of files in the chat's folder and links to files or folders ([name](<path>)) become chips that
+ * open them.
  */
 export function Markdown(props: { text: string; tabId?: string }) {
   let root!: HTMLDivElement;
@@ -501,6 +502,14 @@ export function Markdown(props: { text: string; tabId?: string }) {
     const tabId = props.tabId;
     if (!tabId) return;
     const disposers: (() => void)[] = [];
+    // Files and folders the agent linked ([name](<path>)): chips that look the path up.
+    for (const link of root.querySelectorAll<HTMLElement>("[data-file-link]")) {
+      const target = link.dataset.fileLink ?? "";
+      const label = link.textContent || target;
+      const slot = document.createElement("span");
+      link.replaceWith(slot);
+      disposers.push(render(() => <FileLink tabId={tabId} target={target} label={label} />, slot));
+    }
     for (const code of root.querySelectorAll(":not(pre) > code")) {
       const label = code.textContent ?? "";
       const file = chatFileNamed(tabId, label);

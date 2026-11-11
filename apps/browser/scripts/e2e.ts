@@ -1890,6 +1890,212 @@ try {
   });
 
   await check(
+    "chat: files and folders the agent links become chips that open them; gone or out of reach, unavailable",
+    async () => {
+      const panel = `[data-agent-for="${appId}"]`;
+      const before = new Set((await apiCall<{ id: number }[]>(`/api/apps/${appId}/chats`)).map((c) => c.id));
+      // An earlier chat with its own folder of files, and a reply linking to them.
+      const folder = crypto.randomUUID();
+      const dir = join(profile, "data", "chats", appId.replace(/[^\w-]/g, ""), folder);
+      mkdirSync(join(dir, "exports"), { recursive: true });
+      writeFileSync(join(dir, "notes.md"), "# Notes\n\nFound 3 items.");
+      writeFileSync(join(dir, "exports", "items.zip"), "zip");
+      writeFileSync(join(dir, "exports", "setup.exe"), "MZ");
+      // A macOS app bundle: a folder that launches when opened.
+      mkdirSync(join(dir, "Tool.app", "Contents"), { recursive: true });
+      writeFileSync(join(dir, "Tool.app", "Contents", "Info.plist"), "<plist/>");
+      const outsideFile = join(profile, "data", "settings.json");
+      const reply = [
+        "Here's what I made:",
+        "- [notes.md](notes.md) and [the exports](<exports/>)",
+        `- [items.zip](<${join(dir, "exports", "items.zip")}>), [setup.exe](exports/setup.exe) and [Tool.app](Tool.app)`,
+        `- [old.csv](exports/old.csv), [settings](<${outsideFile}>) and [the docs](https://example.com/docs)`,
+      ].join("\n");
+      const { Database } = await import("bun:sqlite");
+      const db = new Database(join(profile, "data", "rune.sqlite"));
+      db.run("PRAGMA busy_timeout = 5000");
+      const at = new Date().toISOString();
+      const chatId = Number(
+        db
+          .query(
+            "INSERT INTO chats (app_id, title, folder, created_at, updated_at) VALUES (?, ?, ?, ?, ?) RETURNING id",
+          )
+          .get(appId, "Linked files", folder, at, at)!["id" as never],
+      );
+      for (const [role, content] of [
+        ["user", "Collect the items"],
+        ["assistant", reply],
+      ])
+        db.run("INSERT INTO messages (app_id, chat_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)", [
+          appId,
+          chatId,
+          role!,
+          content!,
+          at,
+        ]);
+      db.close();
+      await click(`${panel} [data-chat-history-button]`);
+      await page!.waitFor(`!!document.querySelector('[data-chat="${chatId}"] [data-open-chat]')`, {
+        label: "the seeded chat",
+      });
+      await click(`[data-chat="${chatId}"] [data-open-chat]`);
+      const chip = (target: string) => `${panel} [data-file-link=${JSON.stringify(target)}]`;
+      const kinds = await page!.waitFor<Record<string, string>>(
+        `(() => {
+        const chips = [...document.querySelectorAll('${panel} [data-file-link]')];
+        if (chips.length !== 7 || chips.some((c) => c.dataset.fileKind === "loading")) return null;
+        return Object.fromEntries(chips.map((c) => [c.textContent.trim(), c.dataset.fileKind]));
+      })()`,
+        { label: "the file chips, looked up" },
+      );
+      const expected = {
+        "notes.md": "file",
+        "the exports": "folder",
+        "items.zip": "file",
+        "setup.exe": "file",
+        "Tool.app": "folder",
+        "old.csv": "missing",
+        settings: "outside",
+      };
+      if (JSON.stringify(kinds) !== JSON.stringify(expected)) throw new Error(`chips: ${JSON.stringify(kinds)}`);
+      // The web link stays a link.
+      if (
+        !(await page!.eval<boolean>(
+          `!!document.querySelector('${panel} .rune-markdown a[href="https://example.com/docs"]')`,
+        ))
+      )
+        throw new Error("the web link isn't a link");
+      // The full path on hover; unavailable ones say so.
+      const titles = await page!.eval<string[]>(
+        `["notes.md", "exports/old.csv"].map((t) => document.querySelector('${panel} [data-file-link="' + t + '"]').title)`,
+      );
+      if (!titles[0]!.includes(join(dir, "notes.md"))) throw new Error(`notes.md's title: ${titles[0]}`);
+      if (!titles[1]!.startsWith("Not available")) throw new Error(`old.csv's title: ${titles[1]}`);
+      await page!.eval(`document.querySelector('${chip("notes.md")}').scrollIntoView({ block: "center" }), true`);
+      await shot("chat-file-links.png");
+
+      // Right-click: open, open with its app, show in folder, copy path.
+      await page!.eval(`(() => {
+      const r = document.querySelector('${chip("notes.md")}').getBoundingClientRect();
+      document.querySelector('${chip("notes.md")}').dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: r.left + 4, clientY: r.bottom }));
+      return true;
+    })()`);
+      const items = await page!.waitFor<string[]>(
+        `(() => { const items = [...document.querySelectorAll("[data-context-menu] [data-menu-item]")].map((b) => b.dataset.menuItem); return items.length ? items : null; })()`,
+        { label: "the chip's menu" },
+      );
+      if (items.join() !== "open,open-with,reveal,copy-path") throw new Error(`menu: ${items.join()}`);
+      await shot("chat-file-link-menu.png");
+      await click(`[data-context-menu] [data-menu-item="reveal"]`);
+      await page!.waitFor(`!document.querySelector("[data-context-menu]")`, { label: "menu closed" });
+
+      // A program is never run from the chat: it's shown in its folder.
+      await click(chip("exports/setup.exe"));
+      await page!.waitFor(
+        `[...document.querySelectorAll("[data-toast]")].some((t) => t.innerText.includes("setup.exe is shown in its folder"))`,
+        { label: "the program shown in its folder, not run" },
+      );
+      // So is an app bundle, although it's a folder.
+      await click(chip("Tool.app"));
+      await page!.waitFor(
+        `[...document.querySelectorAll("[data-toast]")].some((t) => t.innerText.includes("Tool.app is shown in its folder"))`,
+        { label: "the app bundle shown in its folder, not launched" },
+      );
+      // A file a tab can't show opens in its app (offscreen: nothing opens), the folder too; no complaint.
+      await click(chip(join(dir, "exports", "items.zip")));
+      await click(chip("exports/"));
+      await Bun.sleep(300);
+      if (
+        await page!.eval<boolean>(
+          `[...document.querySelectorAll('[data-toast="error"]')].some((t) => t.innerText.includes("Couldn't"))`,
+        )
+      )
+        throw new Error("opening with the system's app failed");
+      // Unavailable chips do nothing.
+      type Tab = { id: string; url: string | null };
+      const tabsBefore = new Set((await apiCall<Tab[]>("/api/apps")).map((t) => t.id));
+      await click(chip(outsideFile));
+      await click(chip("exports/old.csv"));
+      // The file opens in a tab.
+      await click(chip("notes.md"));
+      const opened = await waitForValue(async () => {
+        const fresh = (await apiCall<Tab[]>("/api/apps")).filter((t) => !tabsBefore.has(t.id));
+        return fresh.length ? fresh : undefined;
+      }, 15_000);
+      if (opened.length !== 1 || !opened[0]!.url?.endsWith("notes.md"))
+        throw new Error(`opened: ${JSON.stringify(opened.map((t) => t.url))}`);
+      await apiCall(`/api/apps/${opened[0]!.id}`, { method: "DELETE" });
+      await click(`nav li[data-app-id="${appId}"]`);
+
+      // Back to an empty chat, without the seeded one.
+      await click(`${panel} [data-new-chat]`);
+      await page!.waitFor(`!document.querySelector('${panel} [data-file-link]')`, { label: "a new chat" });
+      for (const chat of await apiCall<{ id: number }[]>(`/api/apps/${appId}/chats`))
+        if (!before.has(chat.id)) await apiCall(`/api/apps/${appId}/chats/${chat.id}`, { method: "DELETE" });
+      return Object.entries(kinds)
+        .map(([k, v]) => `${k}: ${v}`)
+        .join(", ");
+    },
+  );
+
+  await check("chat: the agent's background jobs show above the composer, with how far they got and Stop", async () => {
+    const panel = `[data-agent-for="${appId}"]`;
+    // No jobs in a fresh chat; stopping one that isn't running is a 404.
+    if ((await apiCall<unknown[]>(`/api/apps/${appId}/jobs`)).length) throw new Error("unexpected jobs");
+    const stopMissing = await apiCall(`/api/apps/${appId}/jobs/j99/stop`, { method: "POST" }).then(
+      () => "ok",
+      (err: Error) => err.message,
+    );
+    if (!stopMissing.includes("404")) throw new Error(`stopping a job that isn't running: ${stopMissing}`);
+    // Jobs as the server pushes them (a running batch and a page script, an ended one that isn't shown).
+    const now = new Date().toISOString();
+    const job = (id: string, more: object) => ({
+      id,
+      kind: "requests",
+      title: "request #981 × 39",
+      state: "running",
+      done: 12,
+      total: 39,
+      note: "11× 200, 1× 404",
+      startedAt: now,
+      endedAt: null,
+      file: null,
+      error: null,
+      ...more,
+    });
+    await page!.eval(
+      `window.__runeJobs.show(${JSON.stringify(appId)}, ${JSON.stringify([
+        job("j1", {}),
+        job("j2", { kind: "script", title: "Collect all reviews", done: null, total: null, note: "page 3" }),
+        job("j3", { state: "done", done: 39 }),
+      ])}), true`,
+    );
+    await page!.waitFor(`document.querySelectorAll('${panel} [data-jobs] [data-job]').length === 2`, {
+      label: "the running jobs",
+    });
+    const progress = await page!.eval<string[]>(
+      `[...document.querySelectorAll('${panel} [data-job-progress]')].map((p) => p.textContent.trim())`,
+    );
+    if (progress.join(" | ") !== "12 of 39 · 11× 200, 1× 404 | page 3")
+      throw new Error(`progress: ${progress.join(" | ")}`);
+    // Above the composer.
+    const above = await page!.eval<boolean>(
+      `document.querySelector('${panel} [data-jobs]').getBoundingClientRect().bottom <= document.querySelector('${panel} textarea').getBoundingClientRect().top`,
+    );
+    if (!above) throw new Error("the jobs aren't above the composer");
+    await shot("chat-jobs.png");
+    // Stop asks the server (here: the job isn't really running, so it says so).
+    await click(`${panel} [data-job-stop="j1"]`);
+    await page!.waitFor(
+      `[...document.querySelectorAll('[data-toast="error"]')].some((t) => t.innerText.includes("Couldn't stop the job"))`,
+      { label: "the stop request" },
+    );
+    await page!.eval(`window.__runeJobs.show(${JSON.stringify(appId)}, []), true`);
+    await page!.waitFor(`!document.querySelector('${panel} [data-jobs]')`, { label: "no jobs" });
+    return progress.join(" | ");
+  });
+
+  await check(
     "sidebar: no header; the ⋯ menu, workspaces and the agent in one row at the bottom, also at the minimum width",
     async () => {
       if (await page!.eval<boolean>(`!!document.querySelector("[data-workspace-switcher]")`))

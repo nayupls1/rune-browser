@@ -6,14 +6,15 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, ManagedRuntime } from "effect";
-import { ChatFiles } from "../src/server/agent/ChatFiles";
+import { ChatFiles, lookupPath } from "../src/server/agent/ChatFiles";
 import { fileTools } from "../src/server/agent/fileTools";
 import type { ToolResult } from "../src/server/agent/Mcp";
 import type { ToolEnv } from "../src/server/agent/tools";
 import { readConfig } from "../src/server/Config";
 import { Apps } from "../src/server/db/Apps";
 import { core } from "../src/server/services";
-import type { ChatFile } from "../src/shared/api";
+import type { ChatFile, PathInfo } from "../src/shared/api";
+import { systemOpenAction } from "../src/shared/web";
 import { startServer } from "./lib/server";
 
 const textOf = (r: ToolResult) => r.content.map((c) => (c.type === "text" ? c.text : `[${c.type}]`)).join("\n");
@@ -136,6 +137,125 @@ describe("chat folders", () => {
   });
 });
 
+describe("file links in the chat", () => {
+  test("a linked path is looked up only inside the chat's folders (and an app's project)", async () => {
+    const chat = mkdtempSync(join(tmpdir(), "rune-links-chat-"));
+    const project = mkdtempSync(join(tmpdir(), "rune-links-project-"));
+    const outside = mkdtempSync(join(tmpdir(), "rune-links-outside-"));
+    try {
+      mkdirSync(join(chat, "exports"));
+      writeFileSync(join(chat, "exports", "My report.csv"), "a,b");
+      mkdirSync(join(chat, ".rune"));
+      writeFileSync(join(chat, ".rune", "meta.json"), "{}");
+      mkdirSync(join(project, "src"));
+      writeFileSync(join(project, "src", "App.tsx"), "x");
+      writeFileSync(join(outside, "secret.txt"), "not for the chat");
+      symlinkSync(join(outside, "secret.txt"), join(chat, "leak.txt"));
+      const roots = [chat, project];
+      const look = (p: string) => lookupPath(p, roots);
+
+      expect(await look("exports/My report.csv")).toMatchObject({
+        kind: "file",
+        path: join(chat, "exports", "My report.csv"),
+        name: "My report.csv",
+        mime: "text/csv",
+        size: 3,
+      });
+      expect(await look(`file://${join(chat, "exports", "My report.csv")}`)).toMatchObject({ kind: "file" });
+      expect(await look("exports/")).toMatchObject({ kind: "folder", path: join(chat, "exports") });
+      // Relative paths: the chat's folder first, then the project.
+      expect(await look("src/App.tsx")).toMatchObject({ kind: "file", path: join(project, "src", "App.tsx") });
+      expect(await look(join(project, "src"))).toMatchObject({ kind: "folder" });
+      expect(await look("exports/gone.json")).toMatchObject({
+        kind: "missing",
+        path: join(chat, "exports", "gone.json"),
+      });
+      // Nothing is said about anything else, not even whether it exists.
+      const hidden: Partial<PathInfo> = { kind: "outside", path: null };
+      expect(await look(join(outside, "secret.txt"))).toMatchObject(hidden);
+      expect(await look(join(outside, "nothing.txt"))).toMatchObject(hidden);
+      expect(await look("../../etc/passwd")).toMatchObject(hidden);
+      expect(await look("leak.txt")).toMatchObject(hidden);
+      expect(await look(".rune/meta.json")).toMatchObject(hidden);
+      expect(await look(chat)).toMatchObject({ kind: "folder", path: chat });
+      expect(await look("~/.ssh/id_ed25519")).toMatchObject(hidden);
+      expect(await lookupPath("notes.md", [])).toMatchObject(hidden);
+    } finally {
+      for (const dir of [chat, project, outside]) rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("only known documents, media and archives open with their app; anything else is shown in its folder", () => {
+    const file = (name: string, mode = 0o644) => systemOpenAction(name, { directory: false, mode });
+    const folder = (name: string, bundle = false) => systemOpenAction(name, { directory: true, bundle });
+    for (const name of [
+      "report.pdf",
+      "photo.JPG",
+      "clip.mp4",
+      "song.flac",
+      "data.csv",
+      "notes.md",
+      "letter.docx",
+      "sheet.xlsx",
+      "slides.pptx",
+      "doc.odt",
+      "archive.zip",
+      "backup.tar.gz",
+    ])
+      expect(file(name)).toBe("open");
+    // An allowlist: anything not on it, known to be dangerous or not, is only shown.
+    for (const name of [
+      "setup.exe",
+      "run.sh",
+      "x.desktop",
+      "Install.command",
+      "evil.terminal",
+      "link.webloc",
+      "link.inetloc",
+      "link.fileloc",
+      "do.applescript",
+      "macro.docm",
+      "macro.xlsm",
+      "macro.pptm",
+      "old.doc",
+      "disk.iso",
+      "disk.img",
+      "disk.vhd",
+      "disk.vhdx",
+      "console.msc",
+      "help.chm",
+      "app.jnlp",
+      "app.application",
+      "app.appref-ms",
+      "x.settingcontent-ms",
+      "driver.inf",
+      "script.ws",
+      "w.gadget",
+      "m.mjs",
+      "c.cjs",
+      "page.html",
+      "image.svg",
+      "a.AppImage",
+      "evil.lnk",
+      "s.ps1",
+      "unknown.qqq",
+      "no-extension",
+    ])
+      expect(file(name)).toBe("reveal");
+    // Marked executable: shown, whatever its name.
+    expect(file("report.pdf", 0o755)).toBe("reveal");
+    // macOS bundles are folders that launch: shown, by their extension or their Contents/Info.plist.
+    for (const name of ["Foo.app", "Foo.app/", "x.workflow", "x.action", "x.prefPane", "x.bundle", "x.plugin"])
+      expect(folder(name)).toBe("reveal");
+    for (const name of ["x.appex", "x.xpc", "x.kext", "x.scptd", "Install.mpkg", "Install.pkg"])
+      expect(folder(name)).toBe("reveal");
+    expect(folder("Renamed", true)).toBe("reveal");
+    // Plain folders open in the file manager.
+    expect(folder("exports")).toBe("open");
+    expect(folder("My Files.2024")).toBe("open");
+  });
+});
+
 describe("chat files over the API", () => {
   let server: Awaited<ReturnType<typeof startServer>>;
   afterAll(() => server?.stop());
@@ -165,5 +285,17 @@ describe("chat files over the API", () => {
     expect((await raw(shot.path, other.id)).status).toBe(404);
     expect((await raw(join(listed.dir, "..", "..", "..", "settings.json"))).status).toBe(404);
     expect((await raw(join(listed.dir, ".rune", "attachments"))).status).toBe(404);
+
+    // File links: looked up in the tab's own chat folders only.
+    const lookup = (paths: string[], tabId = tab.id) =>
+      server.api<PathInfo[]>(`/api/apps/${tabId}/files/lookup`, { method: "POST", json: { paths } });
+    const found = await lookup([
+      "out/page.html",
+      "out",
+      "nope.txt",
+      join(listed.dir, "..", "..", "..", "settings.json"),
+    ]);
+    expect(found.map((f) => f.kind)).toEqual(["file", "folder", "missing", "outside"]);
+    expect((await lookup([shot.path], other.id))[0]!.kind).toBe("outside");
   });
 });

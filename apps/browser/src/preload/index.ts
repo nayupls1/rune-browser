@@ -39,6 +39,7 @@ const bridge: RuneBridge = {
   },
   pickFolder: (title) => ipcRenderer.invoke("rune:pick-folder", title),
   pickFiles: () => ipcRenderer.invoke("rune:pick-files"),
+  openPath: (path, how) => ipcRenderer.invoke("rune:open-path", path, how),
   versions: {
     electron: process.versions.electron ?? "",
     chrome: process.versions.chrome ?? "",

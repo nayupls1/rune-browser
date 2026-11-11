@@ -7,10 +7,11 @@
 // its folder; deleting the chat or the tab deletes it.
 import { existsSync } from "node:fs";
 import { mkdir, readdir, realpath, rm, stat } from "node:fs/promises";
+import { homedir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Context, Data, Effect, Layer } from "effect";
-import type { ChatFile } from "../../shared/api";
+import type { ChatFile, PathInfo } from "../../shared/api";
 import { ServerConfig } from "../Config";
 import { Apps } from "../db/Apps";
 
@@ -67,6 +68,47 @@ export interface ChatFilesShape {
   /** Deletes a chat's folder (by its id). */
   readonly forget: (tabId: string, folder: string | null) => Effect.Effect<void>;
   readonly forgetTab: (tabId: string) => Effect.Effect<void>;
+}
+
+/**
+ * What a path the agent linked in the chat is, for its chip (`[name](<path>)`):
+ * a file, a folder, missing, or outside the places the chat may show (`roots`:
+ * the tab's chat folders and, for an app, its project; relative paths are
+ * taken from the first root that has them, else the first). Nothing is said
+ * about a path outside them, not even whether it exists, and Rune Browser's
+ * own `.rune` folders count as outside.
+ */
+export async function lookupPath(input: string, roots: readonly string[]): Promise<PathInfo> {
+  const trimmed = input.trim();
+  const outside: PathInfo = { input, kind: "outside", path: null, name: basename(trimmed) || trimmed };
+  let wanted = trimmed;
+  if (/^file:\/\//i.test(wanted)) {
+    try {
+      wanted = fileURLToPath(wanted);
+    } catch {
+      return outside;
+    }
+  } else if (wanted === "~" || wanted.startsWith("~/")) wanted = join(homedir(), wanted.slice(1));
+  if (!wanted || !roots.length || wanted.includes("\0")) return outside;
+  const candidates = isAbsolute(wanted) ? [resolve(wanted)] : roots.map((root) => resolve(root, wanted));
+  const within = candidates
+    .map((path) => ({ path, root: roots.find((r) => inside(r, path)) }))
+    .filter(
+      (c): c is { path: string; root: string } => !!c.root && relative(c.root, c.path).split(sep)[0] !== META_DIR,
+    );
+  if (!within.length) return outside;
+  for (const { path, root } of within) {
+    // Symlinks can't lead out: the real path has to be inside the root's real path too.
+    const [realRoot, real] = await Promise.all([realpath(root).catch(() => root), realpath(path).catch(() => null)]);
+    if (!real) continue;
+    if (!inside(realRoot, real) || relative(realRoot, real).split(sep)[0] === META_DIR) return outside;
+    const info = await stat(real).catch(() => null);
+    if (!info) continue;
+    const name = basename(path);
+    if (info.isDirectory()) return { input, kind: "folder", path, name };
+    if (info.isFile()) return { input, kind: "file", path, name, mime: mimeOf(path), size: info.size };
+  }
+  return { input, kind: "missing", path: within[0]!.path, name: basename(within[0]!.path) };
 }
 
 export class ChatFiles extends Context.Service<ChatFiles, ChatFilesShape>()("rune/ChatFiles") {}

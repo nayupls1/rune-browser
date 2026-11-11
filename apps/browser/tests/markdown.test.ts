@@ -38,3 +38,22 @@ test("renders tables, with their alignment", () => {
   // A lone row of pipes isn't a table.
   expect(markdownToHtml("| just text |")).toBe("<p>| just text |</p>");
 });
+
+test("links to local files and folders become file links; web links stay links", () => {
+  expect(markdownToHtml("See [report.csv](<exports/My report.csv>) and [notes](notes.md).")).toBe(
+    '<p>See <span class="rune-file-link" data-file-link="exports/My report.csv">report.csv</span> and <span class="rune-file-link" data-file-link="notes.md">notes</span>.</p>',
+  );
+  expect(markdownToHtml("[the folder](</home/me/My Files/>) [`a.ts`](C:\\work\\a.ts) [x](file:///tmp/x.json)")).toBe(
+    '<p><span class="rune-file-link" data-file-link="/home/me/My Files/">the folder</span> <span class="rune-file-link" data-file-link="C:\\work\\a.ts"><code>a.ts</code></span> <span class="rune-file-link" data-file-link="file:///tmp/x.json">x</span></p>',
+  );
+  // Web links (also in <…>) are links, never chips.
+  expect(markdownToHtml("[docs](<https://x.dev/a>)")).toBe(
+    '<p><a href="https://x.dev/a" target="_blank" rel="noreferrer">docs</a></p>',
+  );
+  // Other schemes and anchors stay text; quotes can't leave the attribute.
+  for (const target of ["javascript:alert(1)", "data:text/html,x", "#top", "//evil.example/x"])
+    expect(markdownToHtml(`[x](${target})`)).not.toContain("data-file-link");
+  const quoted = markdownToHtml('[x](<a" onclick="alert(1)>)');
+  expect(quoted).toContain('data-file-link="a&quot; onclick=&quot;alert(1)"');
+  expect(quoted).not.toContain('" onclick="');
+});

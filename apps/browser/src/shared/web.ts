@@ -61,6 +61,33 @@ export const isViewableFile = (name: string, mime = "") =>
   /^application\/(pdf|json|xml|xhtml\+xml|javascript)$/.test(mime) ||
   VIEWABLE_EXTENSIONS.test(name);
 
+/**
+ * File types the chat may open with the system's app: documents without macros, images, audio, video, plain text
+ * and archives. An allowlist: anything else (programs, scripts, installers, shortcuts, disk images, macro documents,
+ * settings files…) is only shown in its folder, since opening it could run or mount something.
+ */
+const SYSTEM_OPENABLE =
+  /\.(pdf|png|jpe?g|gif|webp|avif|bmp|tiff?|heic|heif|mp3|wav|ogg|oga|opus|flac|m4a|aac|mp4|m4v|mov|webm|mkv|avi|ogv|docx|xlsx|pptx|odt|ods|odp|rtf|epub|txt|text|md|markdown|csv|tsv|json|log|ya?ml|zip|tar|gz|tgz|bz2|xz|7z)$/i;
+
+/** Folder names that are macOS bundles (apps, installers, plug-ins): opening one launches or installs it. */
+const BUNDLE_EXTENSIONS =
+  /\.(app|workflow|action|prefpane|bundle|plugin|appex|xpc|kext|scptd|mpkg|pkg|framework|qlgenerator|mdimporter|saver|wdgt|service|systemextension|driver)$/i;
+
+/**
+ * What opening a local file or folder from the chat does: "open" (with the system's app; folders in the file
+ * manager) only for an allowlisted file type that isn't marked executable, or a plain folder; else "reveal" (shown
+ * in its folder). `bundle`: the folder is a macOS bundle even without a known extension (it has Contents/Info.plist).
+ */
+export function systemOpenAction(
+  name: string,
+  item: { directory: boolean; mode?: number; bundle?: boolean },
+): "open" | "reveal" {
+  const base = name.replace(/[\\/]+$/, "");
+  if (item.directory) return item.bundle || BUNDLE_EXTENSIONS.test(base) ? "reveal" : "open";
+  if (((item.mode ?? 0) & 0o111) !== 0) return "reveal";
+  return SYSTEM_OPENABLE.test(base) ? "open" : "reveal";
+}
+
 /** Why a page can't be loaded in a headless tab, or null. */
 export function headlessUrlProblem(url: string): string | null {
   let parsed: URL;

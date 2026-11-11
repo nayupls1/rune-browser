@@ -6,7 +6,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Exit, ManagedRuntime, Schema, Scope } from "effect";
 import { make, tool, type Tool } from "../src/server/agent/Mcp";
+import { batchTools } from "../src/server/agent/batchTools";
 import { browseTools } from "../src/server/agent/browseTools";
+import { jobTools } from "../src/server/agent/jobTools";
 import { fileTools } from "../src/server/agent/fileTools";
 import { appTools, pageTools, registryTools, scheduleTools, siteTools, tabTools } from "../src/server/agent/tools";
 import { readConfig } from "../src/server/Config";
@@ -79,6 +81,8 @@ describe("mcp", () => {
         return [
           ...(yield* pageTools(env, { site: true })),
           ...(yield* browseTools(env)),
+          ...(yield* batchTools(env)),
+          ...(yield* jobTools(env, { site: true })),
           ...(yield* siteTools(env)),
           ...(yield* appTools(env)),
           ...(yield* registryTools(env)),

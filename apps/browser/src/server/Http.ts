@@ -65,7 +65,8 @@ import { Runtime } from "./workspace/Runtime";
 import { Sandbox } from "./workspace/Sandbox";
 import { SourceError, Sources } from "./workspace/Sources";
 import { Attachments, IMAGE_TYPES, MAX_ATTACHMENT } from "./agent/Attachments";
-import { ChatFiles } from "./agent/ChatFiles";
+import { ChatFiles, lookupPath } from "./agent/ChatFiles";
+import { Jobs } from "./agent/Jobs";
 import { cancelImport, Workspace } from "./workspace/Workspace";
 
 class HttpFail extends Data.TaggedError("HttpFail")<{ readonly status: number; readonly message: string }> {}
@@ -289,6 +290,27 @@ const attachmentRoutes = HttpRouter.addAll([
       }),
     ),
   ),
+  // Paths the agent linked in the chat, for their chips: a file, a folder or missing, but only inside
+  // the tab's chat folders and its app's project (anything else is "outside", existing or not).
+  HttpRouter.route(
+    "POST",
+    "/api/apps/:id/files/lookup",
+    handle(
+      Effect.gen(function* () {
+        const id = yield* param("id");
+        const app = yield* (yield* Apps).get(id);
+        if (!app) return yield* fail(404, "Not found");
+        const { paths } = yield* decodeBody(
+          Schema.Struct({ paths: Schema.Array(str(4000)).check(Schema.isMaxLength(100)) }),
+        );
+        const files = yield* ChatFiles;
+        const current = yield* files.dir(id).pipe(Effect.orElseSucceed(() => null));
+        const project = app.kind === "app" ? ((yield* (yield* Workspace).info(id))?.dir ?? null) : null;
+        const roots = [...new Set([current, project, ...(yield* files.folders(id))].filter((r): r is string => !!r))];
+        return json(yield* Effect.promise(() => Promise.all(paths.map((p) => lookupPath(p, roots)))));
+      }),
+    ),
+  ),
   // A file of one of the tab's chats, by its absolute path (thumbnails in the chat).
   HttpRouter.route(
     "GET",
@@ -422,6 +444,7 @@ const detail = (id: string) =>
       ...summary,
       messages: yield* apps.messages(id),
       running: yield* agent.isRunning(id),
+      jobs: yield* (yield* Jobs).list(id),
       agent: app.agent,
       project: isApp ? yield* workspace.info(id) : null,
       runtime: isApp ? { ...(yield* runtime.status(id)), mode: app.mode } : null,
@@ -714,6 +737,7 @@ const appRoutes = HttpRouter.addAll([
         const id = yield* param("id");
         if (!(yield* apps.get(id))) return yield* fail(404, "Not found");
         if (yield* agent.isRunning(id)) return yield* fail(409, "Stop the agent before clearing the chat");
+        yield* (yield* Jobs).endTab(id);
         yield* (yield* ChatFiles).forget(id, yield* apps.clearMessages(id));
         return noContent;
       }),
@@ -744,6 +768,7 @@ const appRoutes = HttpRouter.addAll([
         const id = yield* param("id");
         if (!(yield* apps.get(id))) return yield* fail(404, "Not found");
         if (yield* (yield* Agent).isRunning(id)) return yield* fail(409, "Stop the agent before starting a new chat");
+        yield* (yield* Jobs).endTab(id);
         yield* apps.newChat(id);
         return json({ messages: [], chats: yield* apps.chats(id) }, 201);
       }),
@@ -757,6 +782,8 @@ const appRoutes = HttpRouter.addAll([
         const apps = yield* Apps;
         const id = yield* param("id");
         if (yield* (yield* Agent).isRunning(id)) return yield* fail(409, "Stop the agent before switching chats");
+        if (!(yield* apps.get(id))) return yield* fail(404, "Not found");
+        yield* (yield* Jobs).endTab(id);
         if (!(yield* apps.openChat(id, Number(yield* param("chatId"))))) return yield* fail(404, "No such chat");
         return json({ messages: yield* apps.messages(id), chats: yield* apps.chats(id) });
       }),
@@ -811,6 +838,28 @@ const appRoutes = HttpRouter.addAll([
           })
           .pipe(Effect.catchTag("AgentError", (e) => fail(e.status, e.message)));
         return json({ ok: true }, 202);
+      }),
+    ),
+  ),
+
+  // The current chat's background jobs (agent/Jobs.ts); the user stops one from the chat.
+  HttpRouter.route(
+    "GET",
+    "/api/apps/:id/jobs",
+    Effect.gen(function* () {
+      return json(yield* (yield* Jobs).list(yield* param("id")));
+    }),
+  ),
+  HttpRouter.route(
+    "POST",
+    "/api/apps/:id/jobs/:jobId/stop",
+    handle(
+      Effect.gen(function* () {
+        const id = yield* param("id");
+        const stopped = yield* (yield* Jobs).cancel(id, yield* param("jobId"));
+        if (!stopped.length) return yield* fail(404, "No such running job");
+        yield* youDid(id, "job.stop", stopped[0]!.title);
+        return json(yield* (yield* Jobs).list(id));
       }),
     ),
   ),
