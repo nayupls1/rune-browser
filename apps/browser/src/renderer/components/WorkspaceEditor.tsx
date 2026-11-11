@@ -201,7 +201,7 @@ function WorkspaceEditor(props: { workspace: WorkspaceInfo; request: WorkspaceEd
           <span {...stylex.attrs(styles.spacer)} />
           <button
             type="button"
-            title="Default agent, instructions and secrets"
+            title="Default agent and instructions"
             onClick={() => {
               close(true);
               void openSettings("workspace");

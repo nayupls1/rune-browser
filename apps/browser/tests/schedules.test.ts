@@ -5,7 +5,7 @@
 // agent, after everything around it.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, ManagedRuntime } from "effect";
@@ -108,7 +108,7 @@ describe("checks", () => {
     name: "News",
     trigger: { type: "cron", cron: "0 * * * *" },
     prompt: "Summarize the news",
-    target: { workspaceId: "w", tabId: null, kind: "web", url: null },
+    target: { workspaceId: "w", tabId: null, url: null },
     agent: null,
     notify: "failure",
     timeoutSec: 60,
@@ -122,19 +122,16 @@ describe("checks", () => {
     expect(scheduleProblem({ ...spec, trigger: { type: "once", at: "2020-01-01T00:00:00Z" } })).toBe(
       "That time has passed",
     );
-    expect(scheduleProblem({ ...spec, trigger: { type: "event", event: "app:abc:done" } })).toBeNull();
+    expect(scheduleProblem({ ...spec, trigger: { type: "event", event: "rune.started" } })).toBeNull();
+    expect(scheduleProblem({ ...spec, trigger: { type: "event", event: "app:abc:done" } })).toContain("Events are");
     expect(scheduleProblem({ ...spec, trigger: { type: "event", event: "whenever" } })).toContain("Events are");
     expect(scheduleProblem({ ...spec, timeoutSec: 99_999 })).toContain("time limit");
   });
 
-  test("where: a tab, or a new (web or app) tab, at a website or not", () => {
+  test("where: a tab, or a new tab, at a website or not", () => {
     expect(scheduleProblem({ ...spec, target: { ...spec.target, tabId: "a" } })).toBeNull();
-    expect(scheduleProblem({ ...spec, target: { ...spec.target, kind: "app" } })).toBeNull();
     expect(scheduleProblem({ ...spec, target: { ...spec.target, url: "https://example.com" } })).toBeNull();
     expect(scheduleProblem({ ...spec, target: { ...spec.target, url: "example.com" } })).toContain("http(s)");
-    expect(scheduleProblem({ ...spec, target: { ...spec.target, kind: "app", url: "https://a.example" } })).toContain(
-      "http(s)",
-    );
     expect(scheduleProblem({ ...spec, target: { ...spec.target, workspaceId: "" } })).toBe("Which workspace?");
   });
 
@@ -148,21 +145,10 @@ describe("checks", () => {
   });
 
   test("a task outlives its tab: the next run opens a new one like it", () => {
-    const inTab = { workspaceId: "w", tabId: "a", kind: "web", url: null } as const;
-    const web = { kind: "web", workspaceId: "w", url: "https://news.example/today" } as const;
-    expect(targetWithoutTab(inTab, web)).toEqual({
-      workspaceId: "w",
-      tabId: null,
-      kind: "web",
-      url: "https://news.example/today",
-    });
-    // An app tab: a new app tab. A web tab that wasn't on a website: an empty one (or the address it had).
-    expect(targetWithoutTab(inTab, { kind: "app", workspaceId: "w", url: null })).toEqual({
-      workspaceId: "w",
-      tabId: null,
-      kind: "app",
-      url: null,
-    });
+    const inTab = { workspaceId: "w", tabId: "a", url: null } as const;
+    const web = { workspaceId: "w", url: "https://news.example/today" } as const;
+    expect(targetWithoutTab(inTab, web)).toEqual({ workspaceId: "w", tabId: null, url: "https://news.example/today" });
+    // A tab that wasn't on a website: an empty one (or the address it had).
     expect(targetWithoutTab(inTab, { ...web, url: "file:///home/me/notes.html" }).url).toBeNull();
     expect(targetWithoutTab({ ...inTab, url: "https://kept.example" }, { ...web, url: "rune://settings" }).url).toBe(
       "https://kept.example",
@@ -185,7 +171,7 @@ describe("tasks from before they were prompts only", () => {
     const { tab, workspace } = await run(
       Effect.gen(function* () {
         const workspace = (yield* (yield* Workspaces).first()).id;
-        const tab = yield* (yield* Apps).create(workspace, "web", "https://example.com/");
+        const tab = yield* (yield* Apps).create(workspace, "https://example.com/");
         return { tab: tab.id, workspace };
       }),
     );
@@ -206,7 +192,7 @@ describe("tasks from before they were prompts only", () => {
     old("new-tab", {
       type: "prompt",
       prompt: "Hi",
-      newTab: { kind: "web", workspaceId: workspace, url: "https://a.example" },
+      newTab: { workspaceId: workspace, url: "https://a.example" },
     });
     old("tool", { type: "tool", appId: tab, tool: "digest" });
     old("command", { type: "command", appId: tab, command: "true" });
@@ -218,8 +204,8 @@ describe("tasks from before they were prompts only", () => {
       }),
     );
     expect(list.map((s) => [s.id, s.prompt, s.target, s.agent])).toEqual([
-      ["in-tab", "Summarize", { workspaceId: workspace, tabId: tab, kind: "web", url: null }, null],
-      ["new-tab", "Hi", { workspaceId: workspace, tabId: null, kind: "web", url: "https://a.example" }, null],
+      ["in-tab", "Summarize", { workspaceId: workspace, tabId: tab, url: null }, null],
+      ["new-tab", "Hi", { workspaceId: workspace, tabId: null, url: "https://a.example" }, null],
     ]);
   }, 30_000);
 });
@@ -231,7 +217,7 @@ describe("scheduler", () => {
     name: "Job",
     trigger: { type: "cron", cron: "0 3 * * *" },
     prompt: "Summarize the news",
-    target: { workspaceId: space.id, tabId: null, kind: "web", url: null },
+    target: { workspaceId: space.id, tabId: null, url: null },
     agent: null,
     notify: "never",
     timeoutSec: 60,
@@ -301,11 +287,10 @@ describe("scheduler", () => {
     const opened = await tabs();
     expect(opened.length).toBe(before + 1);
     const tab = opened.at(-1)!;
-    expect(tab.kind).toBe("web");
     // The run links to its chat's tab, and the task keeps that tab.
     expect(run!.tabId).toBe(tab.id);
     const after = (await scheduleOf(schedule.id))!;
-    expect(after.target).toEqual({ workspaceId: space.id, tabId: tab.id, kind: "web", url: null });
+    expect(after.target).toEqual({ workspaceId: space.id, tabId: tab.id, url: null });
     expect(after.nextRunAt).toBeNull();
     expect(after.lastRun?.id).toBe(run!.id);
     await server.api(`/api/schedules/${schedule.id}`, { method: "DELETE" });
@@ -359,11 +344,11 @@ describe("scheduler", () => {
     const news = await server.api<WorkspaceInfo>("/api/workspaces", { method: "POST", json: { name: "News" } });
     const tab = await server.api<AppSummary>("/api/apps", {
       method: "POST",
-      json: { kind: "web", url: "https://example.com/news", workspaceId: news.id },
+      json: { url: "https://example.com/news", workspaceId: news.id },
     });
     const task = await create({
       name: "News",
-      target: { workspaceId: news.id, tabId: tab.id, kind: "web", url: null },
+      target: { workspaceId: news.id, tabId: tab.id, url: null },
     });
     const first = await runNow(task.id);
     expect(first.tabId).toBe(tab.id);
@@ -371,7 +356,7 @@ describe("scheduler", () => {
     // Closing a web tab deletes it.
     await server.api(`/api/apps/${tab.id}`, { method: "DELETE" });
     const kept = await scheduleOf(task.id);
-    expect(kept?.target).toEqual({ workspaceId: news.id, tabId: null, kind: "web", url: "https://example.com/news" });
+    expect(kept?.target).toEqual({ workspaceId: news.id, tabId: null, url: "https://example.com/news" });
     expect(kept?.workspaceId).toBe(news.id);
     expect((await runsOf(task.id)).map((r) => r.id)).toEqual([first.id]);
 
@@ -385,35 +370,20 @@ describe("scheduler", () => {
     await server.api(`/api/workspaces/${news.id}`, { method: "DELETE" });
   }, 60_000);
 
-  test("deleting an app keeps its tasks (they open a new app tab); deleting a workspace moves them, paused", async () => {
+  test("deleting a workspace moves its tasks to another one, paused", async () => {
     const scratch = await server.api<WorkspaceInfo>("/api/workspaces", { method: "POST", json: { name: "Scratch" } });
-    const app = await server.api<AppSummary>("/api/apps", { method: "POST", json: { workspaceId: scratch.id } });
     const web = await server.api<AppSummary>("/api/apps", {
       method: "POST",
-      json: { kind: "web", url: "https://example.com/", workspaceId: scratch.id },
+      json: { url: "https://example.com/", workspaceId: scratch.id },
     });
-    const inApp = await create({
-      name: "In the app",
-      target: { workspaceId: scratch.id, tabId: app.id, kind: "app", url: null },
-    });
-    await server.api(`/api/apps/${app.id}`, { method: "DELETE" });
-    expect((await scheduleOf(inApp.id))?.target).toEqual({
-      workspaceId: scratch.id,
-      tabId: null,
-      kind: "app",
-      url: null,
-    });
-
-    const inWeb = await create({
-      name: "In the web tab",
-      target: { workspaceId: scratch.id, tabId: web.id, kind: "web", url: null },
-    });
+    const inWeb = await create({ name: "In the tab", target: { workspaceId: scratch.id, tabId: web.id, url: null } });
+    const newTab = await create({ name: "In a new tab", target: { workspaceId: scratch.id, tabId: null, url: null } });
     const before = (await tabs()).length;
     await server.api(`/api/workspaces/${scratch.id}`, { method: "DELETE" });
     expect((await tabs()).length).toBe(before - 1);
     for (const [id, target] of [
-      [inApp.id, { workspaceId: space.id, tabId: null, kind: "app", url: null }],
-      [inWeb.id, { workspaceId: space.id, tabId: null, kind: "web", url: "https://example.com/" }],
+      [inWeb.id, { workspaceId: space.id, tabId: null, url: "https://example.com/" }],
+      [newTab.id, { workspaceId: space.id, tabId: null, url: null }],
     ] as const) {
       const moved = await scheduleOf(id);
       expect(moved).toMatchObject({ target, workspaceId: space.id, paused: true, nextRunAt: null });
@@ -422,49 +392,7 @@ describe("scheduler", () => {
   });
 
   test("a tab or workspace that doesn't exist is refused", async () => {
-    await expect(create({ target: { workspaceId: space.id, tabId: "nope", kind: "web", url: null } })).rejects.toThrow(
-      "404",
-    );
-    await expect(create({ target: { workspaceId: "nope", tabId: null, kind: "web", url: null } })).rejects.toThrow(
-      "404",
-    );
+    await expect(create({ target: { workspaceId: space.id, tabId: "nope", url: null } })).rejects.toThrow("404");
+    await expect(create({ target: { workspaceId: "nope", tabId: null, url: null } })).rejects.toThrow("404");
   });
-
-  test("events: one an app sends, and the app starting", async () => {
-    const app = await server.api<AppSummary>("/api/apps", { method: "POST" });
-    const dir = join(server.dataDir, "apps", app.id);
-    await server.api(`/api/apps/${app.id}/project`, { method: "POST", json: { preset: "api" } });
-    await server.api(`/api/apps/${app.id}/runtime`, { method: "POST", json: { action: "stop" } });
-    writeFileSync(
-      join(dir, "server.ts"),
-      `await Bun.write("token.txt", process.env.RUNE_API_TOKEN ?? "");
-Bun.serve({ hostname: "127.0.0.1", port: Number(process.env.PORT), fetch: () => new Response("ok") });`,
-    );
-    writeFileSync(
-      join(dir, "rune.json"),
-      JSON.stringify({ install: "true", dev: "bun server.ts", start: "bun server.ts" }),
-    );
-    const target = { workspaceId: app.workspaceId, tabId: app.id, kind: "app", url: null } as const;
-    const onStart = await create({
-      name: "On start",
-      target,
-      trigger: { type: "event", event: `app.started:${app.id}` },
-    });
-    expect(onStart.nextRunAt).toBeNull();
-    await server.api(`/api/apps/${app.id}/runtime`, { method: "POST", json: { action: "restart" } });
-    expect((await finished(onStart.id, 1, 60_000))[0]).toMatchObject({ trigger: "event", tabId: app.id });
-
-    const onPing = await create({ name: "On ping", target, trigger: { type: "event", event: `app:${app.id}:ping` } });
-    const file = join(dir, "token.txt");
-    for (let i = 0; i < 100 && !existsSync(file); i++) await Bun.sleep(100);
-    const token = readFileSync(file, "utf8");
-    expect(token).toMatch(/^nai_/);
-    const res = await fetch(`${server.url}/app-api/v1/events`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ name: "ping" }),
-    });
-    expect(res.status).toBe(200);
-    expect((await finished(onPing.id))[0]).toMatchObject({ trigger: "event" });
-  }, 90_000);
 });

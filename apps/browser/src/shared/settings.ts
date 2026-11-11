@@ -52,13 +52,11 @@ export const Settings = Schema.Struct({
     /** null = the provider's default. */
     model: Schema.NullOr(Schema.String).pipe(withDefault(null)),
     effort: Schema.NullOr(Schema.String).pipe(withDefault(null)),
-    /** Appended to the app builder's system prompt. */
-    instructions: Instructions,
     /** Appended to the website agent's system prompt. */
     webInstructions: Instructions,
-    /** Show tool activity ("Edited src/App.tsx") in the chat. */
+    /** Show tool activity ("Customized example.com") in the chat. */
     showToolMessages: Schema.Boolean.pipe(withDefault(true)),
-    /** ask: agents ask before anything beyond their tab (customizing sites, other apps, schedules, acting on sites…). full: they don't; it's still logged. */
+    /** ask: agents ask before anything beyond their tab (customizing sites, acting on sites, reading other tabs…). full: they don't; it's still logged. */
     permissions: Schema.Literals(["ask", "full"]).pipe(withDefault("ask")),
   }).pipe(withDefault({})),
   providers: Schema.Struct({
@@ -106,32 +104,6 @@ export const Settings = Schema.Struct({
       .check(Schema.isMaxLength(20))
       .pipe(withDefault([])),
   }).pipe(withDefault({})),
-  apps: Schema.Struct({
-    /** How app processes are isolated. auto: bubblewrap when it's installed. */
-    sandbox: Schema.Literals(["auto", "bwrap", "none"]).pipe(withDefault("auto")),
-    /** The shell app commands run in: "auto" (sh; Bun's shell on Windows), "bun", a detected shell's id or a path. */
-    shell: Schema.String.check(Schema.isMaxLength(1000)).pipe(withDefault("auto")),
-    /** Show the toolchains installed in your home folder (mise, nvm, rustup…) to the sandbox, read-only. */
-    sandboxToolchains: Schema.Boolean.pipe(withDefault(true)),
-    /** More folders the sandbox may read (absolute paths). */
-    sandboxReadOnly: Schema.Array(Schema.String.check(Schema.isMaxLength(4000)))
-      .check(Schema.isMaxLength(50))
-      .pipe(withDefault([])),
-    /** Start an app's server when its tab is opened. */
-    autoStart: Schema.Boolean.pipe(withDefault(true)),
-    /** Build and switch to the finished app when the agent is done. */
-    autoPublish: Schema.Boolean.pipe(withDefault(false)),
-    /** AI for apps: their servers can ask a model through Rune Browser, on the user's own subscription. */
-    ai: Schema.Struct({
-      enabled: Schema.Boolean.pipe(withDefault(true)),
-      provider: Schema.Literals(providerIds).pipe(withDefault("claude")),
-      /** null = the provider's default. */
-      model: Schema.NullOr(Schema.String).pipe(withDefault(null)),
-      effort: Schema.NullOr(Schema.String).pipe(withDefault(null)),
-      /** Requests per app and day. */
-      dailyLimit: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 100_000 })).pipe(withDefault(200)),
-    }).pipe(withDefault({})),
-  }).pipe(withDefault({})),
 });
 export type Settings = typeof Settings.Type;
 
@@ -148,7 +120,6 @@ export const WorkspaceSettings = Schema.Struct({
     }),
   ).pipe(withDefault(null)),
   /** Added after the global instructions in the workspace's tabs. */
-  instructions: Instructions,
   webInstructions: Instructions,
 });
 export type WorkspaceSettings = typeof WorkspaceSettings.Type;

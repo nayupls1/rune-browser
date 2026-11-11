@@ -60,20 +60,6 @@ describe("timeline rows", () => {
     expect(failed.at(-1)).toMatchObject({ type: "message", message: { content: "Overloaded" } });
   });
 
-  test("requests for a secret stay in view", () => {
-    const rows = buildRows(
-      [msg("user", "Go", 0), msg("secret", "{}", 1), tool("read", "Read a.ts", 2), msg("assistant", "Done", 3)],
-      false,
-      true,
-    );
-    expect(rows.map((r) => (r.type === "message" ? r.message.role : r.type))).toEqual([
-      "user",
-      "turn-end",
-      "secret",
-      "assistant",
-    ]);
-  });
-
   test("files the agent showed stay in view, before its reply", () => {
     const rows = buildRows(
       [

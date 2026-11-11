@@ -3,7 +3,6 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { createServer } from "node:net";
 import { join } from "node:path";
-import { loadSecretsKey } from "./secretsKey";
 
 export interface ServerHandle {
   url: string;
@@ -73,13 +72,6 @@ export async function startServer({ allowedOrigin, onExit }: ServerOptions): Pro
   const url = `http://127.0.0.1:${port}`;
   const token = randomBytes(32).toString("hex");
   const { command, args } = serverCommand();
-  let secretsKey: ReturnType<typeof loadSecretsKey> = null;
-  try {
-    secretsKey = loadSecretsKey();
-  } catch (err) {
-    console.error("Couldn't load the secrets key:", err);
-  }
-
   const child = spawn(command, args, {
     env: {
       ...process.env,
@@ -88,8 +80,6 @@ export async function startServer({ allowedOrigin, onExit }: ServerOptions): Pro
       RUNE_TOKEN: token,
       RUNE_PARENT: "electron",
       RUNE_DATA_DIR: join(app.getPath("userData"), "data"),
-      // Dev only: `bun --watch` restarts the server, which then can't read stdin again.
-      ...(process.env.VITE_DEV_SERVER_URL && secretsKey ? { RUNE_DEV_SECRETS_KEY: JSON.stringify(secretsKey) } : {}),
     },
     // stdin stays piped so the server can detect when the app goes away. Its errors pass through
     // here, so the last of them can go into a crash report.
@@ -119,9 +109,6 @@ export async function startServer({ allowedOrigin, onExit }: ServerOptions): Pro
     if (!running || stopping) return;
     onExit?.({ code, signal, stderr: partial.trim() ? [...stderr, partial.slice(0, 500)] : [...stderr] });
   });
-
-  // The secrets key goes over stdin, not the environment (other processes of the user can read that).
-  child.stdin!.write(`${JSON.stringify({ secretsKey })}\n`);
 
   const stop = () => {
     stopping = true;

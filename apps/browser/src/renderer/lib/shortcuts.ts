@@ -27,7 +27,6 @@ import {
   isPrivate,
   isSettingsView,
   isTab,
-  newApp,
   newWebTab,
   openSettings,
   reopenClosedTab,
@@ -210,7 +209,7 @@ const actions: Record<string, Action> = {
 
   "bookmark.page": { when: (ctx) => canBookmark(appById(ctx.tabId)?.url), run: (ctx) => bookmarkTab(ctx.tabId!) },
   "bookmark.all": {
-    when: () => workspaceTabs().some((t) => t.kind === "web" && canBookmark(t.url)),
+    when: () => workspaceTabs().some((t) => canBookmark(t.url)),
     run: () => bookmarkAllTabs(),
   },
   "open.bookmarks": { run: () => selectApp(BOOKMARKS_VIEW) },
@@ -223,10 +222,9 @@ const actions: Record<string, Action> = {
   "open.shortcuts": { run: () => openSettings("shortcuts") },
 
   "app.command-bar": { run: () => openCommandBar() },
-  // Private windows have no agents, apps or workspaces.
+  // Private windows have no agents or workspaces.
   "agent.toggle": { when: (ctx) => hasTab(ctx) && !isPrivate, run: (ctx) => toggleAgent(ctx.tabId!) },
   "sidebar.toggle": { run: () => toggleSidebar() },
-  "new.app": { when: () => !isPrivate, run: () => newApp() },
   ...Object.fromEntries(
     [1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => [
       `workspace.select-${n}`,

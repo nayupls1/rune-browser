@@ -5,7 +5,7 @@
 // (lib/files.ts), like a file dropped on Rune Browser, or in the system's app
 // if a tab can't show it (folders too); right-click for showing it in its
 // folder and copying its path. A linked path that's gone, or outside what the
-// chat may show (the tab's chat folders and its app's project), is a chip
+// chat may show (the tab's chat folders), is a chip
 // marked unavailable.
 import * as stylex from "@stylexjs/stylex";
 import { createResource, createSignal, For, Show } from "solid-js";
@@ -253,7 +253,7 @@ function linkLook(info: PathInfo | undefined, target: string): { icon: string; t
     case "outside":
       return {
         icon: "file-lock",
-        title: `Not available: the chat only opens files in its own folder (and an app's project)\n${where}`,
+        title: `Not available: the chat only opens files in its own folder\n${where}`,
       };
   }
 }

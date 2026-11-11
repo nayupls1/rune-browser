@@ -48,23 +48,18 @@ class OpenCodeServer {
   static async start(
     binary: string,
     cwd: string,
-    env: Record<string, string>,
+    /** null: no tools at all (the probe that lists the models). */
     mcp: McpEndpoint | null,
-    access: "workspace" | "none",
   ) {
     const port = await freePort();
     const password = crypto.randomUUID();
     const config: Json = {
-      // Not interactive: in a project everything inside it is allowed, outside it isn't.
-      permission:
-        access === "workspace"
-          ? { edit: "allow", bash: "allow", webfetch: "allow", external_directory: "deny" }
-          : askEverything(mcp),
+      permission: askEverything(mcp),
       ...(mcp ? { mcp: { [mcp.name]: { type: "remote", url: mcp.url, headers: mcp.headers, enabled: true } } } : {}),
     };
     const proc = Bun.spawn([binary, "serve", "--hostname=127.0.0.1", `--port=${port}`], {
       cwd,
-      env: { ...agentEnv(env), OPENCODE_CONFIG_CONTENT: JSON.stringify(config), OPENCODE_SERVER_PASSWORD: password },
+      env: { ...agentEnv(), OPENCODE_CONFIG_CONTENT: JSON.stringify(config), OPENCODE_SERVER_PASSWORD: password },
       stdin: "ignore",
       stdout: "pipe",
       stderr: "pipe",
@@ -158,7 +153,7 @@ export const OpenCodeDriver: ProviderDriver = {
         };
       }
       const version = (await runCommand(binary, ["--version"], { timeoutMs: 10_000 })).stdout.trim() || null;
-      const server = await OpenCodeServer.start(binary, readConfig().agentDir, {}, null, "none");
+      const server = await OpenCodeServer.start(binary, readConfig().agentDir, null);
       try {
         const { providers, default: defaults } = await server.request<{
           providers: Json[];
@@ -202,7 +197,7 @@ export const OpenCodeDriver: ProviderDriver = {
     streamFrom(async (emit, signal) => {
       const binary = binaryFor(settings);
       if (!binary) throw new Error("OpenCode isn't installed (https://opencode.ai).");
-      const server = await OpenCodeServer.start(binary, input.cwd, input.env, input.mcp, input.access);
+      const server = await OpenCodeServer.start(binary, input.cwd, input.mcp);
       const events = new AbortController();
       let sessionId: string | undefined;
       const onAbort = () => {
@@ -262,7 +257,7 @@ export const OpenCodeDriver: ProviderDriver = {
                 part.type === "tool" &&
                 (part.state?.status === "completed" || part.state?.status === "error")
               ) {
-                if (reported.has(part.id) || (input.mcp && String(part.tool).startsWith(`${input.mcp.name}_`))) break;
+                if (reported.has(part.id) || String(part.tool).startsWith(`${input.mcp.name}_`)) break;
                 reported.add(part.id);
                 const activity = describeTool(part.tool, part.state.input ?? {}, input.cwd);
                 if (activity.kind === "other" && part.state.title) activity.title = part.state.title;
@@ -273,15 +268,13 @@ export const OpenCodeDriver: ProviderDriver = {
             }
             case "permission.asked": {
               // Nobody can answer: Rune Browser's own tools are fine, everything else is refused.
-              const ours = !!input.mcp && String(p.permission ?? "").startsWith(`${input.mcp.name}_`);
+              const ours = String(p.permission ?? "").startsWith(`${input.mcp.name}_`);
               void server
                 .request("POST", `/permission/${p.id}/reply`, {
                   reply: ours ? "once" : "reject",
                   message: "Not allowed here.",
                 })
                 .catch(() => {});
-              if (!ours && input.access === "workspace")
-                emit({ type: "tool", activity: { kind: "other", title: `Refused: ${p.permission}`, failed: true } });
               break;
             }
             case "session.error":
@@ -322,7 +315,6 @@ export const OpenCodeDriver: ProviderDriver = {
       } finally {
         signal.removeEventListener("abort", onAbort);
         events.abort();
-        if (input.ephemeral && sessionId) await server.request("DELETE", `/session/${sessionId}`).catch(() => {});
         server.close();
       }
     }),

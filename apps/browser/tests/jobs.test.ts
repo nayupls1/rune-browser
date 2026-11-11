@@ -105,10 +105,7 @@ const setup = (options: { answers?: Partial<Record<AskInput["action"], boolean>>
   // Each turn has its own tools (and scope); jobs outlive it.
   const turn = () => {
     const tools = Effect.runSync(
-      Effect.provide(
-        Effect.all([batchTools(env), jobTools(env, { site: true })]).pipe(Effect.map((t) => t.flat())),
-        context,
-      ),
+      Effect.provide(Effect.all([batchTools(env), jobTools(env)]).pipe(Effect.map((t) => t.flat())), context),
     );
     return (name: string, args: object = {}) =>
       Effect.runPromise(tools.find((t) => t.name === name)!.run(args)).then((r) => ({

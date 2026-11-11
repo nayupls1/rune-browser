@@ -83,7 +83,7 @@ try {
     label: "boot",
   });
   await Bun.sleep(1000);
-  await ev(`[...document.querySelectorAll("button")].find((b) => b.textContent.includes("New web tab")).click(), true`);
+  await ev(`document.querySelector("[data-new-tab]").click(), true`);
   const tab = await page.waitFor<string>(`document.querySelector("[data-web-tab]")?.dataset.webTab`, {
     label: "web tab",
   });

@@ -516,11 +516,7 @@ export function StartupSection() {
   const currentPages = () =>
     apps
       .filter(
-        (a) =>
-          a.kind === "web" &&
-          a.workspaceId === currentWorkspace()?.id &&
-          /^https?:\/\//i.test(a.url ?? "") &&
-          a.url!.length <= 2000,
+        (a) => a.workspaceId === currentWorkspace()?.id && /^https?:\/\//i.test(a.url ?? "") && a.url!.length <= 2000,
       )
       .map((a) => a.url!)
       .slice(0, 20);

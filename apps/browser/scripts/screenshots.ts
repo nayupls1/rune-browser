@@ -1,13 +1,14 @@
 // The README's screenshots (docs/screenshots/), taken of the real browser: the built app is launched headless
 // on a throwaway profile, with the settings a new profile starts with, and driven over the DevTools protocol.
-// The website in page-changes.png is the website's demo recipe site (apps/landing/scripts/demo-site.html),
-// served here under a made-up host, and its page changes are added through the app's own API, as the agent
-// would add them.
+// The website in every one of them is the website's demo recipe site (apps/landing/scripts/demo-site.html),
+// served here under a made-up host. Its page changes are added through Rune Browser's own API, as the agent
+// would add them, and the agent's chat in agent.png is written into the database (no model is asked).
 //
 //   bun run build          (once, or after changing the browser)
 //   bun run screenshots
 //
 // Needs openssl (for the demo site's certificate).
+import { Database } from "bun:sqlite";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -99,9 +100,6 @@ const api = <T>(path: string, init: { method?: string; body?: unknown } = {}) =>
     headers: { "Content-Type": "application/json", Authorization: "Bearer " + window.rune.token },
     ${init.body !== undefined ? `body: ${JSON.stringify(JSON.stringify(init.body))},` : ""}
   }).then(async (r) => { if (!r.ok) throw new Error(r.status + " " + (await r.text())); return r.status === 204 ? null : r.json(); }))`);
-/** Runs code in the webview inside `root` (an app preview or web tab). */
-const inView = <T>(root: string, code: string) =>
-  ev<T>(`document.querySelector(${JSON.stringify(`${root} webview`)}).executeJavaScript(${JSON.stringify(code)})`);
 /** Picks an item of a ⋯ menu: the browser's (in the top row) or a tab's. */
 const fromMenu = async (menu: string, id: string) => {
   await click(menu);
@@ -110,24 +108,37 @@ const fromMenu = async (menu: string, id: string) => {
   });
   await click(`[data-context-menu] [data-menu-item="${id}"]`);
 };
-/** Opens the "New tab" button's menu (a right-click) and picks an entry; resolves to the new tab's id. */
-const newTab = async (label: "New app" | "New web tab") => {
-  const before = await ev<string[]>(`[...document.querySelectorAll("[data-app-id]")].map((e) => e.dataset.appId)`);
-  await ev(
-    `document.querySelector("[data-new-tab]").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true })), true`,
+/** Opens the demo site in a new tab, with the agent sidebar open; resolves to the tab's id. */
+const demoTab = async () => {
+  const tab = await api<{ id: string }>("/api/apps", { method: "POST", body: { url: PAGE } });
+  await page.waitFor(`!!document.querySelector('[data-app-id="${tab.id}"]')`, { label: "the tab", timeoutMs: 30_000 });
+  await click(`[data-app-id="${tab.id}"]`);
+  await page.waitFor(
+    `document.querySelector('[data-web-tab="${tab.id}"] webview')?.executeJavaScript('!!document.querySelector(".card")')`,
+    { timeoutMs: 20_000, label: "the demo site" },
   );
-  await page.waitFor(`!!document.querySelector("[data-context-menu]")`, { label: "new tab menu" });
-  await click("[data-context-menu] button", label);
-  return page.waitFor<string>(
-    `[...document.querySelectorAll("[data-app-id]")].map((e) => e.dataset.appId).find((id) => !${JSON.stringify(before)}.includes(id))`,
-    { label: `the ${label}`, timeoutMs: 30_000 },
-  );
+  return tab.id;
+};
+/** The agent sidebar of a tab, opened. */
+const showAgent = async (id: string) => {
+  const agent = `[data-agent-for="${id}"]`;
+  if (!(await ev<boolean>(`!!document.querySelector('${agent}')`)))
+    await click(`[data-tab-chrome="${id}"] [data-agent-show]`);
+  await page.waitFor(`!!document.querySelector('${agent} textarea')`, { label: "agent sidebar" });
+  return agent;
+};
+const addChanges = async () => {
+  for (const change of CHANGES)
+    await api("/api/page-changes", { method: "POST", body: { scope: { type: "site", value: HOST }, ...change } });
 };
 const settle = () => Bun.sleep(1200);
 async function shot(name: string, take: () => Promise<void>) {
   if (only && !name.includes(only)) return;
   // Each starts from a window without tabs.
-  for (const app of await api<{ id: string }[]>("/api/apps")) await api(`/api/apps/${app.id}`, { method: "DELETE" });
+  for (const tab of await api<{ id: string }[]>("/api/apps")) await api(`/api/apps/${tab.id}`, { method: "DELETE" });
+  // ...and without page changes.
+  for (const change of await api<{ id: string }[]>("/api/page-changes"))
+    await api(`/api/page-changes/${change.id}`, { method: "DELETE" });
   await take().catch(async (err) => {
     const failed = join(tmpdir(), `rune-shots-failed-${name}`);
     await page.screenshot(failed);
@@ -149,101 +160,54 @@ try {
   await Bun.sleep(1000);
   mkdirSync(out, { recursive: true });
 
-  await shot("new-app.png", async () => {
-    const id = await newTab("New app");
-    await page.waitFor(`document.body.innerText.includes("What do you want to build?")`, { label: "new app screen" });
-    await page.waitFor(`!!document.querySelector('[data-agent-for="${id}"] textarea')`, { label: "agent sidebar" });
-  });
-
-  await shot("snapshots.png", async () => {
-    const id = await newTab("New app");
-    const tab = `[data-app-tab="${id}"]`;
-    await page.waitFor(`!!document.querySelector('[data-agent-for="${id}"] textarea')`, { label: "agent sidebar" });
-    await click(`${tab} [data-template="vanilla"]`);
-    await page.waitFor(`!!document.querySelector('${tab}[data-runtime-state="running"] webview')`, {
-      timeoutMs: 120_000,
-      label: "the app running",
-    });
-    await page.waitFor(
-      `document.querySelector('${tab} webview').executeJavaScript('!!document.querySelector("h1")?.textContent')`,
-      {
-        timeoutMs: 30_000,
-        label: "the app's page",
-      },
+  await shot("agent.png", async () => {
+    // The tab and the chat that made the changes, as the agent would have written it, before the window opens the
+    // tab (it reads the chat then).
+    const { id } = await api<{ id: string }>("/api/apps", { method: "POST", body: { url: PAGE } });
+    const db = new Database(join(profile, "data", "rune.sqlite"));
+    db.run("PRAGMA busy_timeout = 5000");
+    const say = (role: string, content: string) =>
+      db.run("INSERT INTO messages (app_id, role, content) VALUES (?, ?, ?)", [id, role, content]);
+    say("user", "Hide the ads, the life story and the newsletter pop-up, and make the ingredients easier to read.");
+    say("tool", JSON.stringify({ kind: "screenshot", title: "Took a screenshot" }));
+    say("tool", JSON.stringify({ kind: "inspect", title: "Inspected .card li" }));
+    for (const change of CHANGES)
+      say("tool", JSON.stringify({ kind: "customize", title: `Added a page change “${change.title}”` }));
+    say(
+      "assistant",
+      "Done: the ads, the life story and the newsletter pop-up are hidden on every page of the blog, and the ingredients are larger. Each change has its own switch under the paintbrush in the address bar.",
     );
-    await api(`/api/apps/${id}`, { method: "PATCH", body: { name: "Weekly notes" } });
-    // A change, as the agent would make it, and some data.
-    const file = join(profile, "data", "apps", id, "src", "main.ts");
-    const source = await Bun.file(file).text();
-    await Bun.write(
-      file,
-      source
-        .replace(
-          "A starting point: notes saved in SQLite, live in every open window.",
-          "Notes for the week, saved in SQLite and live in every open window.",
-        )
-        .replace("Write a note…", "What's on your mind?")
-        .replace(
-          `root.querySelector("h1")!.textContent = document.title;`,
-          `root.querySelector("h1")!.textContent = "Weekly notes";`,
-        ),
-    );
-    await page.waitFor(
-      `document.querySelector('${tab} webview').executeJavaScript('document.body.innerText.includes("Notes for the week")')`,
-      {
-        timeoutMs: 30_000,
-        label: "the change, live",
-      },
-    );
-    for (const text of [
-      "Book the train to Lyon",
-      "Call the plumber about the kitchen tap",
-      "Try the tomato soup recipe",
-    ])
-      await inView(
-        tab,
-        `fetch("/api/notes", { method: "POST", headers: { "Content-Type": "application/json" }, body: ${JSON.stringify(JSON.stringify({ text }))} }).then((r) => r.ok)`,
-      );
-    await page.waitFor(
-      `document.querySelector('${tab} webview').executeJavaScript('document.querySelectorAll("li").length === 3')`,
-      {
-        label: "the notes",
-      },
-    );
-    await fromMenu(`[data-tab-chrome="${id}"] [data-more-menu]`, "snapshots");
-    const panel = `${tab} [data-history-panel]`;
-    await page.waitFor(`!!document.querySelector('${panel} [data-snapshot]')`, { label: "snapshots" });
-    await click(`${panel} [data-save-snapshot]`);
-    await page.waitFor(`document.querySelectorAll('${panel} [data-snapshot]').length >= 2`, { label: "new snapshot" });
-    await click(`${panel} [data-snapshot] button`);
-    await page.waitFor(`!!document.querySelector('${panel} [data-history-file="src/main.ts"]')`, { label: "its diff" });
-    // The change to the app's code rather than its lockfile.
-    await click(`${panel} [data-history-file="bun.lock"] button`);
-    const changed = `[...document.querySelectorAll('${panel} [data-history-file="src/main.ts"] div')].some((d) => d.textContent.includes("Notes for the week"))`;
-    if (!(await ev<boolean>(changed))) await click(`${panel} [data-history-file="src/main.ts"] button`);
-    await page.waitFor(changed, { label: "the diff of src/main.ts" });
-  });
-
-  await shot("page-changes.png", async () => {
-    const id = await newTab("New web tab");
-    const chrome = `[data-tab-chrome="${id}"]`;
-    const agent = `[data-agent-for="${id}"]`;
-    await Bun.sleep(500);
-    await ev(`(() => {
-      const input = document.activeElement?.matches("input") ? document.activeElement : document.querySelector('${chrome} [data-address]');
-      input.value = ${JSON.stringify(PAGE)};
-      input.dispatchEvent(new InputEvent("input", { bubbles: true }));
-      input.form.requestSubmit();
-      return true;
-    })()`);
+    db.close();
+    await addChanges();
+    await page.waitFor(`!!document.querySelector('[data-app-id="${id}"]')`, { label: "the tab", timeoutMs: 30_000 });
+    await click(`[data-app-id="${id}"]`);
     await page.waitFor(
       `document.querySelector('[data-web-tab="${id}"] webview')?.executeJavaScript('!!document.querySelector(".card")')`,
       { timeoutMs: 20_000, label: "the demo site" },
     );
-    if (!(await ev<boolean>(`!!document.querySelector('${agent}')`))) await click(`${chrome} [data-agent-show]`);
-    await page.waitFor(`!!document.querySelector('${agent} textarea')`, { label: "agent sidebar" });
-    for (const change of CHANGES)
-      await api("/api/page-changes", { method: "POST", body: { scope: { type: "site", value: HOST }, ...change } });
+    const agent = await showAgent(id);
+    await page.waitFor(`document.querySelector('${agent}').innerText.includes("Each change has its own switch")`, {
+      label: "the chat",
+    });
+  });
+
+  await shot("snapshots.png", async () => {
+    const id = await demoTab();
+    await addChanges();
+    await fromMenu(`[data-tab-chrome="${id}"] [data-more-menu]`, "settings");
+    await page.waitFor(`!!document.querySelector('[data-settings-nav="snapshots"]')`, { label: "settings" });
+    await click('[data-settings-nav="snapshots"]');
+    const entry = `[...document.querySelectorAll("[data-history-page] [data-snapshot]")].find((e) => e.innerText.includes("Larger ingredients"))`;
+    await page.waitFor(`!!${entry}`, { label: "the snapshot of the last change" });
+    await ev(`${entry}.querySelector("button").click(), true`);
+    await page.waitFor(`!!document.querySelector("[data-history-page] [data-history-file]")`, { label: "its diff" });
+  });
+
+  await shot("page-changes.png", async () => {
+    const id = await demoTab();
+    const chrome = `[data-tab-chrome="${id}"]`;
+    await showAgent(id);
+    await addChanges();
     await page.waitFor(`!!document.querySelector('${chrome} [data-customized]')`, { label: "changes applied" });
     await click(`${chrome} [data-customized]`);
     await page.waitFor(

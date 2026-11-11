@@ -50,7 +50,7 @@ export type OnStartup = "continue" | "newTab" | "pages";
 export interface StartupPlan {
   open: SavedWindow[];
   closed: SavedWindow[];
-  /** Windows dropped from the closed list: their tabs go (apps to the library). */
+  /** Windows dropped from the closed list: their tabs go. */
   forget: string[];
 }
 
@@ -127,7 +127,7 @@ export function trimClosed<T extends { closed: SavedWindow[]; forget: string[] }
 
 /**
  * Where tabs go when the windows change (POST /api/windows): the server deletes
- * private tabs whose window isn't open, closes the tabs of forgotten windows,
+ * private tabs whose window isn't open and the tabs of forgotten windows,
  * and gives tabs of windows it doesn't know (or none) to the first open window.
  */
 export interface WindowsSync {
@@ -136,15 +136,15 @@ export interface WindowsSync {
   forget: string[];
 }
 
-export type TabFate = "keep" | "delete" | "close" | { adopt: string };
+export type TabFate = "keep" | "delete" | { adopt: string };
 
 /** What happens to one tab in a sync (see WindowsSync). */
-export function tabFate(tab: { windowId: string | null; kind: "app" | "web" }, sync: WindowsSync): TabFate {
+export function tabFate(tab: { windowId: string | null }, sync: WindowsSync): TabFate {
   const open = new Set(sync.open);
   if (tab.windowId && open.has(tab.windowId)) return "keep";
   if (isPrivateWindow(tab.windowId)) return "delete";
   if (tab.windowId && sync.closed.includes(tab.windowId)) return "keep";
-  if (tab.windowId && sync.forget.includes(tab.windowId)) return tab.kind === "app" ? "close" : "delete";
+  if (tab.windowId && sync.forget.includes(tab.windowId)) return "delete";
   const home = sync.open.find((id) => !isPrivateWindow(id));
   return home ? { adopt: home } : "keep";
 }

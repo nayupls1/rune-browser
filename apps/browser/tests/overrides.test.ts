@@ -8,6 +8,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, ManagedRuntime } from "effect";
+import { SqlClient } from "effect/sql";
 import {
   DEFAULT_WORKSPACE,
   type AppSummary,
@@ -22,7 +23,7 @@ import { readConfig } from "../src/server/Config";
 import { Apps } from "../src/server/db/Apps";
 import { ResponseOverrides } from "../src/server/db/ResponseOverrides";
 import { Hub } from "../src/server/Hub";
-import { Permissions, WEBSITE_AGENT } from "../src/server/security/Permissions";
+import { WEBSITE_AGENT } from "../src/server/security/Permissions";
 import { core } from "../src/server/services";
 import {
   answerHeaders,
@@ -183,10 +184,12 @@ describe("the website agent's tools", () => {
       Effect.gen(function* () {
         const apps = yield* Apps;
         const hub = yield* Hub;
-        const permissions = yield* Permissions;
+        const sql = yield* SqlClient.SqlClient;
+        const remember = (host: string, decision: "allow" | "deny") =>
+          sql`INSERT INTO permissions (subject, action, resource, decision) VALUES (${WEBSITE_AGENT}, 'agent.override', ${host}, ${decision})`;
         const overrides = yield* ResponseOverrides;
-        const tab = yield* apps.create(DEFAULT_WORKSPACE, "web", "https://a.test/feed");
-        const other = yield* apps.create(DEFAULT_WORKSPACE, "web", "https://b.test/");
+        const tab = yield* apps.create(DEFAULT_WORKSPACE, "https://a.test/feed");
+        const other = yield* apps.create(DEFAULT_WORKSPACE, "https://b.test/");
         const synced: string[] = [];
         const fakeHub = {
           ...hub,
@@ -209,7 +212,7 @@ describe("the website agent's tools", () => {
         const tools = yield* toolsOf(tab.id);
         const names = tools.map((t) => t.name);
 
-        yield* permissions.set(WEBSITE_AGENT, "agent.override", "a.test", "allow");
+        yield* remember("a.test", "allow");
         const empty = yield* call(tools, "override_response", {
           title: "Empty feed",
           pattern: "/api/feed",
@@ -228,7 +231,7 @@ describe("the website agent's tools", () => {
         const listed = yield* call(tools, "response_overrides", {});
 
         // Another site the user said no to.
-        yield* permissions.set(WEBSITE_AGENT, "agent.override", "b.test", "deny");
+        yield* remember("b.test", "deny");
         const refused = yield* call(yield* toolsOf(other.id), "override_response", {
           title: "Fail",
           pattern: "/x",
@@ -283,7 +286,7 @@ describe("removing them (server)", () => {
     workspace = await server.api<WorkspaceInfo>("/api/workspaces", { method: "POST", json: { name: "Testing" } });
     tab = await server.api<AppSummary>("/api/apps", {
       method: "POST",
-      json: { kind: "web", url: "https://example.com/", workspaceId: workspace.id },
+      json: { url: "https://example.com/", workspaceId: workspace.id },
     });
   });
   afterAll(() => server.stop());

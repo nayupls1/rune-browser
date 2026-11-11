@@ -1,5 +1,5 @@
 // The Rune Browser server's HTTP API. Every request carries the token Electron gave
-// this window; agent output and app status arrive on the hub (realtime.ts).
+// this window; agent output and other changes arrive on the hub (realtime.ts).
 import type { Settings } from "../../shared/settings";
 import type { Endpoint, EndpointHost } from "../../shared/endpoints";
 import type { Visit, VisitSuggestion } from "../../shared/visits";
@@ -9,21 +9,11 @@ import type {
   JobInfo,
   PathInfo,
   TabSplit,
-  AppActionInfo,
-  AppActionResult,
-  AppTool,
   AppDetail,
-  AppMode,
   AppSummary,
   AuditEntry,
-  DataOverview,
-  DataRows,
-  ToolResult,
-  PermissionAction,
   PermissionGrant,
   PermissionRequest,
-  SecretInfo,
-  SecretsOverview,
   ChatRequest,
   ChatMessage,
   ChatSummary,
@@ -32,17 +22,12 @@ import type {
   HealthResponse,
   HistoryDetail,
   HistoryEntry,
-  LogLine,
   NetworkRule,
-  PresetInfo,
-  ProjectInfo,
   ProviderId,
   ProviderStatus,
   ReplayOverrides,
   ReplayResult,
   RequestDraft,
-  RuntimeStatus,
-  SandboxInfo,
   SavedRequest,
   SiteOverride,
   Schedule,
@@ -51,7 +36,6 @@ import type {
   PageChange,
   PageChangeSpec,
   ResponseOverride,
-  TabKind,
   WorkspaceInfo,
 } from "../../shared/api";
 import type { WorkspaceSettings } from "../../shared/settings";
@@ -85,15 +69,13 @@ export const api = {
 
   providers: () => request<ProviderStatus[]>("/api/providers"),
   refreshProviders: (id?: ProviderId) => post<ProviderStatus[]>("/api/providers/refresh", id ? { id } : {}),
-  presets: () => request<PresetInfo[]>("/api/presets"),
-  sandbox: () => request<SandboxInfo>("/api/sandbox"),
 
   getSettings: () => request<Settings>("/api/settings"),
   saveSettings: (settings: Settings) =>
     request<Settings>("/api/settings", { method: "PUT", body: JSON.stringify(settings) }),
 
   listApps: () => request<AppSummary[]>("/api/apps"),
-  createApp: (body: { kind?: TabKind; url?: string; workspaceId?: string; windowId?: string } = {}) =>
+  createApp: (body: { url?: string; workspaceId?: string; windowId?: string } = {}) =>
     post<AppSummary>("/api/apps", body),
   moveApp: (id: string, workspaceId: string) => post<AppSummary>(`/api/apps/${id}/move`, { workspaceId }),
   moveToWindow: (id: string, windowId: string) => post<AppSummary>(`/api/apps/${id}/window`, { windowId }),
@@ -120,10 +102,6 @@ export const api = {
   renameApp: (id: string, name: string) =>
     request<AppSummary>(`/api/apps/${id}`, { method: "PATCH", body: JSON.stringify({ name }) }),
   deleteApp: (id: string) => request<void>(`/api/apps/${id}`, { method: "DELETE" }),
-  closeApp: (id: string) => post<AppSummary | { deleted: true }>(`/api/apps/${id}/close`),
-  library: () => request<AppSummary[]>("/api/library"),
-  reopenApp: (id: string, workspaceId: string, windowId?: string) =>
-    post<AppSummary>(`/api/apps/${id}/reopen`, { workspaceId, windowId }),
   duplicateApp: (id: string) => post<AppSummary>(`/api/apps/${id}/duplicate`),
   updatePage: (id: string, page: { url?: string; title?: string; favicon?: string | null }) =>
     request<AppSummary>(`/api/apps/${id}/page`, { method: "PATCH", body: JSON.stringify(page) }),
@@ -140,12 +118,6 @@ export const api = {
     post<{ messages: ChatMessage[]; chats: ChatSummary[] }>(`/api/apps/${id}/chats/${chatId}/open`),
   deleteChat: (id: string, chatId: number) => request<void>(`/api/apps/${id}/chats/${chatId}`, { method: "DELETE" }),
 
-  runtime: (id: string) => request<{ status: RuntimeStatus; logs: LogLine[] }>(`/api/apps/${id}/runtime`),
-  controlRuntime: (id: string, action: "start" | "stop" | "restart") =>
-    post<RuntimeStatus>(`/api/apps/${id}/runtime`, { action }),
-  setMode: (id: string, mode: AppMode) => post<RuntimeStatus>(`/api/apps/${id}/mode`, { mode }),
-  importApp: (id: string, source: { git: string; branch?: string } | { folder: string }) =>
-    post<{ project: ProjectInfo | null }>(`/api/apps/${id}/import`, source),
   uploadAttachment: (id: string, file: { name: string; mime: string; data: string }) =>
     post<Attachment>(`/api/apps/${id}/attachments`, file),
   chatFiles: (id: string) => request<{ dir: string; files: ChatFile[] }>(`/api/apps/${id}/files`),
@@ -156,15 +128,6 @@ export const api = {
   removeSource: (id: string, sourceId: string) =>
     request<void>(`/api/apps/${id}/sources/${sourceId}`, { method: "DELETE" }),
   pullSource: (id: string, sourceId: string) => post<ContextSource>(`/api/apps/${id}/sources/${sourceId}/pull`),
-  cancelImport: (id: string) => request<void>(`/api/apps/${id}/import`, { method: "DELETE" }),
-  createProject: (id: string, preset: string, name?: string) =>
-    post<ProjectInfo>(`/api/apps/${id}/project`, { preset, name }),
-
-  secrets: (scope?: string) =>
-    request<SecretsOverview>(`/api/secrets${scope ? `?scope=${encodeURIComponent(scope)}` : ""}`),
-  /** Creates or replaces a secret. The value is never sent back. */
-  saveSecret: (scope: string, name: string, value: string) =>
-    request<SecretInfo>("/api/secrets", { method: "PUT", body: JSON.stringify({ scope, name, value }) }),
   /** The API map (shared/endpoints.ts): a workspace's hosts, a host's endpoints. */
   endpointHosts: (workspaceId: string) =>
     request<EndpointHost[]>(`/api/endpoints?workspace=${encodeURIComponent(workspaceId)}`),
@@ -180,7 +143,6 @@ export const api = {
     request<void>(`/api/endpoints/sites/${encodeURIComponent(site)}?workspace=${encodeURIComponent(workspaceId)}`, {
       method: "DELETE",
     }),
-  deleteSecret: (id: string) => request<void>(`/api/secrets/${id}`, { method: "DELETE" }),
 
   /** Browsing history (shared/visits.ts): a workspace's visits (every workspace's with null), newest first. */
   visits: (query: { workspaceId: string | null; search?: string; before?: number; limit?: number }) => {
@@ -214,11 +176,9 @@ export const api = {
     ),
 
   permissions: () => request<PermissionGrant[]>("/api/permissions"),
-  setPermission: (subject: string, action: PermissionAction, resource: string, decision: "allow" | "deny") =>
-    request<void>("/api/permissions", { method: "PUT", body: JSON.stringify({ subject, action, resource, decision }) }),
   revokePermission: (id: number) => request<void>(`/api/permissions/${id}`, { method: "DELETE" }),
   pendingPermissions: () => request<PermissionRequest[]>("/api/permissions/pending"),
-  /** remember: for this app (or agent), or for every app in its workspace. */
+  /** remember: for this tab (or agent), or for every tab in its workspace. */
   answerPermission: (id: string, allow: boolean, remember: boolean | "workspace") =>
     post<void>(`/api/permissions/pending/${id}`, { allow, remember }),
 
@@ -231,32 +191,7 @@ export const api = {
     return request<AuditEntry[]>(`/api/audit${params.size ? `?${params}` : ""}`);
   },
 
-  appData: (id: string) => request<DataOverview>(`/api/apps/${id}/data`),
-  appDataRows: (id: string, table: string, query: { offset?: number; limit?: number; search?: string } = {}) => {
-    const params = new URLSearchParams(
-      Object.entries(query)
-        .filter(([, v]) => v !== undefined && v !== "")
-        .map(([k, v]) => [k, String(v)]),
-    );
-    return request<DataRows>(
-      `/api/apps/${id}/data/tables/${encodeURIComponent(table)}${params.size ? `?${params}` : ""}`,
-    );
-  },
-  /** The app's data as a .tar.gz, with the file name the server suggests. */
-  exportAppData: async (id: string) => {
-    const res = await fetch(url(`/api/apps/${id}/data/export`), {
-      headers: { Authorization: `Bearer ${window.rune.token}` },
-    });
-    if (!res.ok)
-      throw new Error(
-        ((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `${res.status} ${res.statusText}`,
-      );
-    const name = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") ?? "")?.[1] ?? "app-data.tar.gz";
-    return { blob: await res.blob(), name };
-  },
-  deleteAppData: (id: string) => request<void>(`/api/apps/${id}/data`, { method: "DELETE" }),
-
-  history: (filter: { target?: string; workspace?: string; before?: number; limit?: number } = {}) => {
+  history: (filter: { target?: string; before?: number; limit?: number } = {}) => {
     const params = new URLSearchParams(
       Object.entries(filter)
         .filter(([, v]) => v !== undefined && v !== "")
@@ -267,23 +202,9 @@ export const api = {
   historyDetail: (id: number) => request<HistoryDetail>(`/api/history/${id}`),
   /** A snapshot right now; undefined if nothing changed since the last one. */
   saveSnapshot: (target: string) => post<HistoryEntry | undefined>("/api/history", { target }),
-  /** data: also put the app's data back (else its current data is kept). */
-  restoreSnapshot: (id: number, data: boolean) => post<void>(`/api/history/${id}/restore`, { data }),
-  restoreAll: (id: number, data: boolean, workspaceId?: string) =>
-    post<{ restored: string[] }>(`/api/history/${id}/restore-all`, { data, workspaceId }),
-  undoSnapshot: (id: number, data = false) => post<{ note: string | null }>(`/api/history/${id}/undo`, { data }),
-
-  /** Every app's command bar actions. */
-  actions: () => request<AppActionInfo[]>("/api/actions"),
-  runAction: (id: string, actionId: string, input?: string) =>
-    post<AppActionResult>(
-      `/api/apps/${id}/actions/${encodeURIComponent(actionId)}`,
-      input === undefined ? {} : { input },
-    ),
-  /** An app's tools in the registry (its actions and the ones from its data). */
-  appTools: (id: string) => request<AppTool[]>(`/api/apps/${id}/tools`),
-  callTool: (id: string, toolId: string, args: { params?: Record<string, unknown>; input?: string }) =>
-    post<ToolResult>(`/api/apps/${id}/tools/${encodeURIComponent(toolId)}`, args),
+  restoreSnapshot: (id: number) => post<void>(`/api/history/${id}/restore`),
+  restoreAll: (id: number) => post<{ restored: string[] }>(`/api/history/${id}/restore-all`),
+  undoSnapshot: (id: number) => post<{ note: string | null }>(`/api/history/${id}/undo`),
 
   networkRules: () => request<NetworkRule[]>("/api/network/rules"),
   addNetworkRule: (rule: Omit<NetworkRule, "id" | "createdAt" | "enabled"> & { enabled?: boolean }) =>

@@ -1,6 +1,6 @@
 // The top of the sidebar, like Zen Browser's: the window's close button, the
-// agent, extensions, downloads, back, forward, reload and a ⋯ menu (bookmarks, history,
-// the tab's own tools…), then the address of the tab on screen (an app's localhost URL).
+// agent, extensions, downloads, back, forward, reload and a ⋯ menu (bookmarks, history…),
+// then the address of the tab on screen.
 // Focusing the address pops it out over the page, big, with suggestions from open tabs,
 // bookmarks and history (before anything's typed: the pages visited most). Pages get the whole
 // content area. Each tab provides what's shown here (lib/tabChrome.ts).
@@ -178,8 +178,7 @@ export function AgentButton() {
 /**
  * The ⋯ at the bottom left of the sidebar, like Chrome's ⋮ and Zen's menu: new tabs and
  * windows, bookmarks, history, downloads and extensions, what the browser does
- * to the page (find, zoom, print), the tab's own tools (an app's logs, data,
- * secrets…), Settings. One button instead of a row of them.
+ * to the page (find, zoom, print), Settings. One button instead of a row of them.
  */
 export function MoreMenu() {
   const [at, setAt] = createSignal<MenuPosition>();
@@ -207,7 +206,6 @@ export function MoreMenu() {
     ];
   };
   const items = (): (MenuItem | "separator")[] => {
-    const tab = chromeOf(selectedId())?.menu?.() ?? [];
     return [
       { id: "new-tab", label: "New tab", icon: "plus", hint: hint("tab.new"), onSelect: () => void newWebTab() },
       { id: "new-window", label: "New window", icon: "app-window", hint: hint("window.new"), onSelect: newWindow },
@@ -244,7 +242,6 @@ export function MoreMenu() {
       },
       { id: "extensions", label: "Extensions", icon: "puzzle", onSelect: () => openSettings("extensions") },
       ...pageItems(),
-      ...(tab.length ? (["separator", ...tab] as const) : []),
       "separator",
       {
         id: "settings",
@@ -260,7 +257,7 @@ export function MoreMenu() {
       <button
         type="button"
         ref={button}
-        title="More: bookmarks, history, downloads, the tab's tools, settings"
+        title="More: bookmarks, history, downloads, settings"
         aria-haspopup="menu"
         aria-expanded={!!at()}
         onClick={() => {
@@ -378,7 +375,7 @@ export function AddressBar(props: { inline?: boolean }) {
   const historySuggestion = (page: VisitSuggestion): Suggestion => ({
     key: `history:${page.url}`,
     action: "Open",
-    icon: () => <TabIcon tab={{ kind: "web", icon: null, favicon: page.favicon, url: page.url }} size={16} />,
+    icon: () => <TabIcon tab={{ icon: null, favicon: page.favicon, url: page.url }} size={16} />,
     title: page.title || displayUrl(page.url),
     detail: displayUrl(page.url).slice(0, 80),
     url: page.url,
@@ -433,7 +430,7 @@ export function AddressBar(props: { inline?: boolean }) {
         icon: () => <Icon name="globe" size={15} />,
         title: target,
         detail: "",
-        run: () => open(target, q),
+        run: () => open(target),
       });
     // Open tabs, in every workspace.
     // One or two letters match the start of a word or of the site (not any letter anywhere); longer, anything.
@@ -520,14 +517,10 @@ export function AddressBar(props: { inline?: boolean }) {
     return out;
   };
 
-  /**
-   * In this tab when it can (a web tab), else in a new web tab. A typed path goes to the
-   * app on screen first (its preview); elsewhere it's a local file.
-   */
-  function open(target: string, typed?: string) {
+  /** In this tab when it can (a web tab), else in a new web tab. */
+  function open(target: string) {
     if (openInternalPage(target)) return;
     const c = chrome();
-    if (typed?.startsWith("/") && c?.go?.(typed)) return;
     if (!(c?.go && c.go(target))) void newWebTab(target);
   }
 
@@ -579,7 +572,7 @@ export function AddressBar(props: { inline?: boolean }) {
             ? typed
             : normalizeUrl(typed, searchEngine().url);
     if (newTab && !openInternalPage(target)) void newWebTab(target);
-    else if (!newTab) open(target, typed);
+    else if (!newTab) open(target);
     finish();
     return true;
   };
@@ -624,7 +617,7 @@ export function AddressBar(props: { inline?: boolean }) {
           if (chosen) return run(chosen);
           const typed = text().trim();
           if (!typed) return;
-          open(isExtensionUrl(typed) ? typed : normalizeUrl(typed, searchEngine().url), typed);
+          open(isExtensionUrl(typed) ? typed : normalizeUrl(typed, searchEngine().url));
           finish();
         }}
         // Open, a click anywhere in it (its padding, the icon, the list's heading) keeps typing in the input.

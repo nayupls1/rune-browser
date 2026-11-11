@@ -5,8 +5,8 @@
 <h1 align="center">Rune Browser</h1>
 
 <p align="center">
-  A desktop browser where coding agents build your own small apps,<br>
-  and customize the websites you use, on your own Claude, Codex or OpenCode login.
+  A desktop browser with an agent that reads, customizes and uses the websites you visit,<br>
+  on your own Claude, Codex or OpenCode login.
 </p>
 
 <p align="center">
@@ -17,41 +17,44 @@
 
 ---
 
-Every tab in Rune Browser is a web page or an **app**. Describe an app and the
-agent builds it: a real project with its own server and SQLite database,
-running in a sandbox and shown in a live preview next to the chat. Keep
-editing it by talking to the agent, or close the chat and use it. On web pages
-the same agent can hide, restyle or add things, and those changes stay.
+Rune Browser is a browser with an agent in its sidebar. Ask it about the page
+you're on, point at an element, or hand it a task: it hides, restyles or adds
+things to the page (and those changes stay), clicks through pages for you,
+reads a site's data from its requests, and saves what it finds in files you
+can open from the chat.
 
-![A new app: describe it, pick an idea or a template](apps/browser/docs/screenshots/new-app.png)
+![The website agent beside a page](apps/browser/docs/screenshots/agent.png)
 
 ## What it does
 
-- **Apps from a sentence.** "A habit tracker with daily check-ins": the agent
-  writes a real project (React, vanilla or API-only, or whatever you ask for),
-  runs it, and fixes what it sees in the preview. Apps can store data, use AI,
-  run on a schedule, offer tools to agents, and read each other's data when you
-  allow it.
-- **Your own agents and logins.** Claude Code, Codex and OpenCode, the CLIs you
-  already use, signed in with your own subscription. No API keys, no accounts
-  here.
 - **Websites your way.** Ask the agent about a page or point at an element:
   it hides, restyles or adds things, per page, site or pattern, each with its
   own switch. Bundle changes, a theme and extensions into a **mod** to share.
+- **An agent that does the clicking.** It searches, fills in forms and
+  compares in your tab, asks before anything that pays, posts or deletes, and
+  runs long jobs in the background. Tasks can run on a **schedule**, once or
+  repeating, as a prompt in their own tab.
+- **It knows your sites.** As you browse it maps the APIs sites call (their
+  shapes, never your data), so the agent gets a site's data straight from its
+  requests. DevTools, the network log and response overrides are its tools too,
+  and you can attach a folder of code for it to fix what it finds.
+- **Your own agents and logins.** Claude Code, Codex and OpenCode, the CLIs you
+  already use, signed in with your own subscription. No API keys, no accounts
+  here.
 - **A real browser.** Workspaces with their own logins, split view, a command
-  bar (Ctrl+K), Chrome extensions (imported from your browser), and password
-  managers that fill in sign-ins.
-- **Safe by default.** Apps run in a sandbox (bubblewrap on Linux) and ask
-  before reaching anything beyond it; secrets never reach agents; web pages
-  never reach an agent that has tools. Everything agents and apps do is in
-  Activity.
-- **Nothing is lost.** Every change is saved as a snapshot, with its diff,
-  to undo or restore, including the app's data.
+  bar (Ctrl+K), bookmarks, history and downloads, Chrome extensions (imported
+  from your browser), and password managers that fill in sign-ins.
+- **Safe by default.** The agent only has Rune Browser's tools, never a shell
+  or your files; it asks before acting on a site, reading another tab or
+  changing your code; cookies and tokens stay hidden from it. Everything it
+  does is in Activity.
+- **Nothing is lost.** Every change to site customizations and settings is
+  saved as a snapshot, with its diff, to undo or restore.
 
-|                                                                                         |                                                                              |
-| --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| ![An app with its agent and its snapshots](apps/browser/docs/screenshots/snapshots.png) | ![Page changes on a website](apps/browser/docs/screenshots/page-changes.png) |
-| ![The mods gallery](apps/browser/docs/screenshots/mods-gallery.png)                     |                                                                              |
+|                                                                              |                                                                     |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| ![Page changes on a website](apps/browser/docs/screenshots/page-changes.png) | ![The mods gallery](apps/browser/docs/screenshots/mods-gallery.png) |
+| ![Snapshots of site changes](apps/browser/docs/screenshots/snapshots.png)    |                                                                     |
 
 ## Install
 
@@ -60,11 +63,11 @@ Get the latest release from the
 Rune Browser updates itself from there (Settings → About; a Daily channel gets
 builds of the latest changes).
 
-| OS                        | Download                                                                                                                 | Notes                                                                                                                                                     |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Linux** (x64)           | `.AppImage` (any distribution), `.deb` (Debian, Ubuntu), `.rpm` (Fedora, openSUSE) or `.pacman` (Arch: `sudo pacman -U`) | Install [bubblewrap](https://github.com/containers/bubblewrap) (`bwrap`) so apps run sandboxed (the deb recommends it, the pacman package depends on it). |
-| **Windows** (x64)         | `-setup-x64.exe`                                                                                                         | Not signed yet: on the SmartScreen warning, choose "More info" → "Run anyway".                                                                            |
-| **macOS** (Apple Silicon) | `.dmg`                                                                                                                   | Supported but untested, and not signed yet: right-click → Open the first time. Updates are downloaded by hand.                                            |
+| OS                        | Download                                                                                                                 | Notes                                                                                                          |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
+| **Linux** (x64)           | `.AppImage` (any distribution), `.deb` (Debian, Ubuntu), `.rpm` (Fedora, openSUSE) or `.pacman` (Arch: `sudo pacman -U`) |                                                                                                                |
+| **Windows** (x64)         | `-setup-x64.exe`                                                                                                         | Not signed yet: on the SmartScreen warning, choose "More info" → "Run anyway".                                 |
+| **macOS** (Apple Silicon) | `.dmg`                                                                                                                   | Supported but untested, and not signed yet: right-click → Open the first time. Updates are downloaded by hand. |
 
 Then install and sign in to at least one agent:
 
@@ -102,8 +105,8 @@ run the browser's; `bun run dev:landing` runs the website.
 
 ## Docs
 
-- [Concepts](apps/browser/docs/concepts.md): workspaces, apps and their data, agents, AI in
-  apps, tools, schedules, secrets, permissions, history and mods
+- [Concepts](apps/browser/docs/concepts.md): workspaces, the agent and its tools, shared tabs,
+  schedules, permissions, snapshots and mods
 - [Interface](apps/browser/docs/interface.md): the window, sidebars, command bar, split view, settings
 - [Browsing](apps/browser/docs/browsing.md): web tabs, page changes, network, the API map, extensions, keyboard shortcuts
 - [Chromium parity](apps/browser/docs/chromium-parity.md): rune:// pages, and how Chromium's settings, shortcuts and behavior fare

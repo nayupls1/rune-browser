@@ -81,7 +81,7 @@ export function TabHoverCard(props: { area: () => HTMLElement; placement: "below
         const address = () => {
           const t = tab();
           if (!t) return "";
-          return t.url ? displayUrl(t.url) : t.kind === "app" ? "App" : "New tab";
+          return t.url ? displayUrl(t.url) : "New tab";
         };
         return (
           <Portal>

@@ -93,28 +93,27 @@ describe("startup", () => {
 
 describe("where tabs go when the windows change", () => {
   const sync = { open: ["private-p", "w-a"], closed: ["w-c"], forget: ["w-f"] };
-  test.each<[{ windowId: string | null; kind: "app" | "web" }, TabFate]>([
-    [{ windowId: "w-a", kind: "web" as const }, "keep"],
-    [{ windowId: "private-p", kind: "web" as const }, "keep"],
-    [{ windowId: "private-gone", kind: "web" as const }, "delete"],
-    [{ windowId: "w-c", kind: "app" as const }, "keep"],
-    [{ windowId: "w-f", kind: "app" as const }, "close"],
-    [{ windowId: "w-f", kind: "web" as const }, "delete"],
+  test.each<[{ windowId: string | null }, TabFate]>([
+    [{ windowId: "w-a" }, "keep"],
+    [{ windowId: "private-p" }, "keep"],
+    [{ windowId: "private-gone" }, "delete"],
+    [{ windowId: "w-c" }, "keep"],
+    [{ windowId: "w-f" }, "delete"],
     // Unknown windows (or none): the first open normal window takes them in.
-    [{ windowId: "w-unknown", kind: "web" as const }, { adopt: "w-a" }],
-    [{ windowId: null, kind: "app" as const }, { adopt: "w-a" }],
+    [{ windowId: "w-unknown" }, { adopt: "w-a" }],
+    [{ windowId: null }, { adopt: "w-a" }],
   ])("%o → %o", (tab, fate) => {
     expect(tabFate(tab, sync)).toEqual(fate);
   });
 
   test("with no normal window open, tabs of unknown windows wait", () => {
-    expect(tabFate({ windowId: null, kind: "web" }, { open: ["private-p"], closed: [], forget: [] })).toBe("keep");
+    expect(tabFate({ windowId: null }, { open: ["private-p"], closed: [], forget: [] })).toBe("keep");
   });
 });
 
 test("agents can't be shown a private tab", () => {
-  const me = { id: "a", kind: "web" as const, workspaceId: "default" };
-  const other = { id: "b", kind: "web" as const, workspaceId: "default", name: "Bank", private: false };
+  const me = { id: "a", workspaceId: "default" };
+  const other = { id: "b", workspaceId: "default", name: "Bank", private: false };
   expect(shareRefusal(me, other)).toBeNull();
   expect(shareRefusal(me, { ...other, private: true })).toBe("That tab doesn't exist anymore.");
 });
@@ -134,18 +133,17 @@ describe("the server's windows", () => {
   });
   afterAll(() => server?.stop());
 
-  test("tabs belong to the window they're made in; private ones are web tabs only", async () => {
-    const web = await tab({ kind: "web", url: "https://example.com/", windowId: "w-one" });
+  test("tabs belong to the window they're made in", async () => {
+    const web = await tab({ url: "https://example.com/", windowId: "w-one" });
     expect(web.windowId).toBe("w-one");
     expect(web.private).toBe(false);
-    const priv = await tab({ kind: "web", url: "https://private-secret.example/", windowId: "private-one" });
+    const priv = await tab({ url: "https://private-secret.example/", windowId: "private-one" });
     await server.api(`/api/apps/${priv.id}/page`, {
       method: "PATCH",
       json: { url: "https://private-secret.example/inbox", title: "Private secret inbox" },
     });
     expect(priv.private).toBe(true);
-    await expect(tab({ kind: "app", windowId: "private-one" })).rejects.toThrow("400");
-    await expect(tab({ kind: "web", windowId: "not a window" })).rejects.toThrow("400");
+    await expect(tab({ windowId: "not a window" })).rejects.toThrow("400");
   });
 
   test("agents don't work in private tabs", async () => {
@@ -156,8 +154,8 @@ describe("the server's windows", () => {
   });
 
   test("tabs move between windows of their kind, leaving their split view", async () => {
-    const a = await tab({ kind: "web", url: "https://a.example/", windowId: "w-one" });
-    const b = await tab({ kind: "web", url: "https://b.example/", windowId: "w-one" });
+    const a = await tab({ url: "https://a.example/", windowId: "w-one" });
+    const b = await tab({ url: "https://b.example/", windowId: "w-one" });
     const [space] = await server.api<WorkspaceInfo[]>("/api/workspaces");
     const split = { id: "s1", direction: "row", tabs: [a.id, b.id], sizes: [0.5, 0.5] };
     await server.api(`/api/workspaces/${space!.id}/splits`, { method: "PUT", json: { splits: [split] } });
@@ -179,11 +177,11 @@ describe("the server's windows", () => {
     ).rejects.toThrow("400");
   });
 
-  test("a sync deletes closed private windows' tabs, closes forgotten windows' and adopts the rest", async () => {
-    const old = await tab({ kind: "web", url: "https://old.example/", windowId: "w-forgotten" });
-    const oldApp = await tab({ kind: "app", windowId: "w-forgotten" });
-    const stray = await tab({ kind: "web", url: "https://stray.example/", windowId: "w-unknown" });
-    const kept = await tab({ kind: "web", url: "https://kept.example/", windowId: "w-closed" });
+  test("a sync deletes closed private windows' and forgotten windows' tabs, and adopts the rest", async () => {
+    const old = await tab({ url: "https://old.example/", windowId: "w-forgotten" });
+    const oldEmpty = await tab({ windowId: "w-forgotten" });
+    const stray = await tab({ url: "https://stray.example/", windowId: "w-unknown" });
+    const kept = await tab({ url: "https://kept.example/", windowId: "w-closed" });
 
     const result = await syncWindows(["w-one", "w-two"], ["w-closed"], ["w-forgotten"]);
     // Nothing of the private tab is left in the database's files either.
@@ -191,19 +189,18 @@ describe("the server's windows", () => {
       const file = Bun.file(join(server.dataDir, name));
       if (await file.exists()) expect(Buffer.from(await file.arrayBuffer()).includes("private-secret")).toBe(false);
     }
-    expect(result.deleted).toBeGreaterThanOrEqual(2); // the private tab and the forgotten web tab
+    expect(result.deleted).toBeGreaterThanOrEqual(3); // the private tab and the forgotten window's two
     const now = await tabs();
     expect(now.some((t) => t.private)).toBe(false);
     expect(now.some((t) => t.id === old.id)).toBe(false);
-    // An app with nothing built yet has nothing to keep; it's gone too.
-    expect(now.some((t) => t.id === oldApp.id)).toBe(false);
+    expect(now.some((t) => t.id === oldEmpty.id)).toBe(false);
     expect(now.find((t) => t.id === stray.id)?.windowId).toBe("w-one");
     expect(now.find((t) => t.id === kept.id)?.windowId).toBe("w-closed");
   });
 
   test("a tab made without a window (a scheduled run) goes to the first open window", async () => {
     await syncWindows(["w-two", "w-one"]);
-    const made = await tab({ kind: "web", url: "https://later.example/" });
+    const made = await tab({ url: "https://later.example/" });
     expect(made.windowId).toBe("w-two");
     const detail = await server.api<AppDetail>(`/api/apps/${made.id}`);
     expect(detail.windowId).toBe("w-two");

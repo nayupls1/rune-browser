@@ -1,5 +1,5 @@
-// Settings: a sidebar of categories (General, Appearance, Privacy… for browsing; Agents, Apps,
-// Secrets… for Rune Browser's own) with a search over all of them, Rune Browser's pages (History,
+// Settings: a sidebar of categories (General, Appearance, Privacy… for browsing; Agents,
+// Permissions… for Rune Browser's own) with a search over all of them, Rune Browser's pages (History,
 // Snapshots, Schedules, Mods, Activity), and the chosen one beside it.
 import * as stylex from "@stylexjs/stylex";
 import {
@@ -15,14 +15,7 @@ import {
   Switch,
   type JSX,
 } from "solid-js";
-import {
-  defaultAppModel,
-  providerIds,
-  workspaceScope,
-  type PermissionGrant,
-  type ProviderId,
-  type ProviderStatus,
-} from "../../shared/api";
+import { providerIds, type PermissionGrant, type ProviderId, type ProviderStatus } from "../../shared/api";
 import type { DefaultBrowserStatus } from "../../shared/defaultBrowser";
 import type { GlobalTheme, Settings } from "../../shared/settings";
 import { api } from "../lib/api";
@@ -87,7 +80,6 @@ import { Icon } from "./Icon";
 import { editWorkspace } from "./WorkspaceEditor";
 import { ProviderIcon } from "./ProviderIcon";
 import { setFullAccess } from "../lib/access";
-import { SecretForm, SecretRow } from "./Secrets";
 import { Button, EmptyState, Input, Select } from "./ui";
 import { toast } from "./Toast";
 
@@ -267,7 +259,7 @@ export function SettingsShell(props: { view: string }) {
             <span {...stylex.attrs(styles.navEmpty)}>No matches</span>
           </Show>
           <Group name="browser" label="Browser" />
-          <Group name="agents" label="Agents and apps" />
+          <Group name="agents" label="Agents" />
           <Show when={!searching()}>
             <div {...stylex.attrs(styles.navGroup)} data-settings-group="pages">
               <button
@@ -487,8 +479,6 @@ const highlightCss = `::highlight(settings-search) { background-color: color-mix
 const set = <K extends keyof Settings>(key: K, value: Partial<Settings[K]>) =>
   updateSettings((s) => ({ ...s, [key]: typeof value === "object" ? { ...(s[key] as object), ...value } : value }));
 const setTheme = (value: Partial<GlobalTheme>) => set("theme", value);
-const setAi = (value: Partial<Settings["apps"]["ai"]>) =>
-  updateSettings((s) => ({ ...s, apps: { ...s.apps, ai: { ...s.apps.ai, ...value } } }));
 
 /** One category of settings: its title, then its parts. */
 export function SettingsPage(props: { section: string }) {
@@ -532,9 +522,6 @@ function SettingsPart(props: { section: string }) {
       <Match when={props.section === "providers"}>
         <ProvidersSection />
       </Match>
-      <Match when={props.section === "apps"}>
-        <AppsSection />
-      </Match>
       <Match when={props.section === "web"}>
         <WebSection />
       </Match>
@@ -543,9 +530,6 @@ function SettingsPart(props: { section: string }) {
       </Match>
       <Match when={props.section === "extensions"}>
         <ExtensionsSection />
-      </Match>
-      <Match when={props.section === "secrets"}>
-        <SecretsSection />
       </Match>
       <Match when={props.section === "permissions"}>
         <PermissionsSection />
@@ -690,21 +674,13 @@ function AgentSection() {
       </Section>
       <Section title="Instructions">
         <Row
-          label="Instructions for building apps"
-          description="Added to the app builder's prompt in every tab: your language, currency, style."
+          label="Instructions for the agent"
+          description="Added to the website agent's prompt in every tab: your language, how you like changes."
           wide
         >
           <TextArea
-            value={settings().agent.instructions}
-            placeholder={"e.g. Answer in German. Amounts are in EUR. Prefer dark themes with a green accent."}
-            onInput={(instructions) => set("agent", { instructions })}
-            name="instructions"
-          />
-        </Row>
-        <Row label="Instructions for customizing websites" description="Added to the website agent's prompt." wide>
-          <TextArea
             value={settings().agent.webInstructions}
-            placeholder={"e.g. Keep changes minimal. Never hide ads by removing content the page needs."}
+            placeholder={"e.g. Answer in German. Keep changes minimal; never hide content the page needs."}
             onInput={(webInstructions) => set("agent", { webInstructions })}
             name="webInstructions"
           />
@@ -730,7 +706,10 @@ function AgentSection() {
             />
           </div>
         </Row>
-        <Row label="Show tool activity" description='Lines like "Edited src/App.tsx" or "Ran bun add zod" in the chat.'>
+        <Row
+          label="Show tool activity"
+          description='Lines like "Customized example.com" or "Read the page" in the chat.'
+        >
           <Toggle
             checked={settings().agent.showToolMessages}
             onChange={(showToolMessages) => set("agent", { showToolMessages })}
@@ -814,62 +793,6 @@ function NetworkSection() {
   );
 }
 
-function AppsSection() {
-  const aiDefaultModel = () => {
-    const status = providerById(settings().apps.ai.provider);
-    return status ? defaultAppModel(status) : null;
-  };
-  return (
-    <>
-      <Section title="Running apps" anchor="apps">
-        <SandboxRows />
-        <Row label="Start apps when opened" description="Run an app's server as soon as you open its tab.">
-          <Toggle checked={settings().apps.autoStart} onChange={(autoStart) => set("apps", { autoStart })} />
-        </Row>
-        <Row
-          label="Publish when the agent is done"
-          description="Build and switch to the finished app after every agent turn."
-        >
-          <Toggle checked={settings().apps.autoPublish} onChange={(autoPublish) => set("apps", { autoPublish })} />
-        </Row>
-      </Section>
-
-      <Section title="AI in apps">
-        <Row label="Let apps use AI" description="On your subscription, with no API keys or tools.">
-          <Toggle checked={settings().apps.ai.enabled} onChange={(enabled) => setAi({ enabled })} />
-        </Row>
-        <Row label="Model" description="A fast one by default, to spare your limits.">
-          <div {...stylex.attrs(styles.pickerBox)} data-app-ai-agent>
-            <AgentPicker
-              choice={{
-                provider: settings().apps.ai.provider,
-                model: settings().apps.ai.model ?? aiDefaultModel(),
-                effort: settings().apps.ai.effort,
-              }}
-              onChange={(choice) => setAi({ provider: choice.provider, model: choice.model, effort: choice.effort })}
-            />
-          </div>
-        </Row>
-        <Row label="Daily limit" description="Requests per app and day.">
-          <input
-            type="number"
-            min="1"
-            max="100000"
-            value={settings().apps.ai.dailyLimit}
-            onChange={(e) => {
-              const n = Math.round(Number(e.currentTarget.value));
-              if (n >= 1 && n <= 100_000) setAi({ dailyLimit: n });
-              else e.currentTarget.value = String(settings().apps.ai.dailyLimit);
-            }}
-            {...stylex.attrs(styles.textInput, styles.numberInput)}
-            data-ai-limit
-          />
-        </Row>
-      </Section>
-    </>
-  );
-}
-
 const defaultBrowserText: Record<"default" | Extract<DefaultBrowserStatus, { how: string }>["how"], string> = {
   default: "Rune Browser is your default browser: links and web files from other apps open here, in new tabs.",
   direct: "Links and web pages from other apps (email, chat, documents, the terminal) open in another browser.",
@@ -920,14 +843,6 @@ export function DefaultBrowserRow() {
         </Show>
       </span>
     </Row>
-  );
-}
-
-function SecretsSection() {
-  return (
-    <Section title="Global secrets" anchor="secrets">
-      <GlobalSecrets />
-    </Section>
   );
 }
 
@@ -1154,7 +1069,7 @@ function ProviderRow(props: { id: ProviderId }) {
   );
 }
 
-/** The current workspace: its name, agent defaults and instructions, shared secrets; deleting it. */
+/** The current workspace: its name, agent defaults and instructions; deleting it. */
 function WorkspaceSection() {
   return (
     <Show when={currentWorkspace()} keyed>
@@ -1218,42 +1133,27 @@ function WorkspaceSection() {
               />
             </Row>
             <Row
-              label="Instructions for building apps"
+              label="Instructions for the agent"
               description="Added after the global instructions in this workspace's tabs."
               wide
             >
               <TextArea
-                value={current().settings.instructions}
-                placeholder={"e.g. This is for my client Acme: use their colors (#0a5) and English."}
-                onInput={(instructions) => edit({ instructions })}
-                name="workspaceInstructions"
-              />
-            </Row>
-            <Row label="Instructions for customizing websites" wide>
-              <TextArea
                 value={current().settings.webInstructions}
-                placeholder={"e.g. Keep changes subtle."}
+                placeholder={"e.g. This is for my client Acme: answer in English, keep changes subtle."}
                 onInput={(webInstructions) => edit({ webInstructions })}
                 name="workspaceWebInstructions"
               />
             </Row>
-            <WorkspaceSecrets workspaceId={workspace.id} />
-            <Row
-              label="Delete workspace"
-              description="Deletes its tabs with their apps, data and chats, its secrets, and its web logins."
-            >
+            <Row label="Delete workspace" description="Deletes its tabs with their chats, and its web logins.">
               <button
                 type="button"
                 disabled={workspaces.length < 2}
                 title={workspaces.length < 2 ? "The last workspace can't be deleted" : undefined}
                 onClick={async () => {
-                  const ok = await confirmDialog(
-                    `Delete the workspace “${current().name}” with all its tabs, apps and their data?`,
-                    {
-                      confirmLabel: "Delete workspace",
-                      danger: true,
-                    },
-                  );
+                  const ok = await confirmDialog(`Delete the workspace “${current().name}” with all its tabs?`, {
+                    confirmLabel: "Delete workspace",
+                    danger: true,
+                  });
                   if (ok) await deleteWorkspace(workspace.id);
                 }}
                 {...stylex.attrs(styles.linkButton, styles.dangerButton)}
@@ -1269,140 +1169,17 @@ function WorkspaceSection() {
   );
 }
 
-/** Secrets every app in the workspace gets. */
-function WorkspaceSecrets(props: { workspaceId: string }) {
-  const scope = () => workspaceScope(props.workspaceId);
-  const [overview] = createResource(
-    () => [scope(), securityVersion()] as const,
-    ([s]) => api.secrets(s),
-  );
-  const [adding, setAdding] = createSignal(false);
-  return (
-    <>
-      <Row label="Secrets for its apps" description="Environment variables for every app here; an app's own wins.">
-        <Show when={!adding()}>
-          <button
-            type="button"
-            onClick={() => setAdding(true)}
-            {...stylex.attrs(styles.linkButton)}
-            data-add-workspace-secret
-          >
-            + Add
-          </button>
-        </Show>
-      </Row>
-      <For each={overview()?.secrets}>
-        {(secret) => (
-          <div {...stylex.attrs(styles.secretRow)}>
-            <SecretRow secret={secret} scopeLabel="workspace" />
-          </div>
-        )}
-      </For>
-      <Show when={adding()}>
-        <div {...stylex.attrs(styles.secretRow)}>
-          <SecretForm
-            saveLabel="Add"
-            onSave={async (name, value) => {
-              await api.saveSecret(scope(), name, value);
-              setAdding(false);
-            }}
-            onCancel={() => setAdding(false)}
-          />
-        </div>
-      </Show>
-    </>
-  );
-}
-
-/** Global secrets: available to every app the user allows, so adding one comes with a warning. */
-function GlobalSecrets() {
-  const [overview] = createResource(securityVersion, () => api.secrets("global"));
-  const [adding, setAdding] = createSignal(false);
-  const protection = () =>
-    overview()?.protection === "keychain"
-      ? "Encrypted, with the key in your OS keychain."
-      : overview()?.protection === "file"
-        ? "Encrypted, with the key protected by file permissions only (no OS keychain found)."
-        : "Locked: Rune Browser couldn't unlock its key from the OS keychain.";
-  return (
-    <>
-      <p {...stylex.attrs(styles.muted, styles.note)}>
-        Secrets are environment variables for apps (API keys, passwords). Add an app's own secrets from its tab (⋯ →
-        Secrets); global ones here can be shared with apps you allow. {protection()} Values can't be viewed after
-        saving.
-      </p>
-      <For each={overview()?.secrets}>
-        {(secret) => (
-          <div {...stylex.attrs(styles.secretRow)}>
-            <SecretRow secret={secret} scopeLabel="global" />
-          </div>
-        )}
-      </For>
-      <div {...stylex.attrs(styles.secretRow)}>
-        <Show
-          when={adding()}
-          fallback={
-            <button
-              type="button"
-              onClick={() => setAdding(true)}
-              {...stylex.attrs(styles.linkButton)}
-              data-add-global-secret
-            >
-              + Add a global secret
-            </button>
-          }
-        >
-          <div {...stylex.attrs(styles.warning)} role="alert" data-global-secret-warning>
-            <strong>Global secrets are riskier.</strong> Every app you allow to use one gets it, and so does any code
-            those apps run: their dependencies, or a bug the agent wrote. A leak from one app exposes it for all of
-            them. Prefer a secret per app (⋯ → Secrets in the app's tab) unless several apps really need the same one.
-          </div>
-          <SecretForm
-            saveLabel="Add global secret"
-            onSave={async (name, value) => {
-              await api.saveSecret("global", name, value);
-              setAdding(false);
-            }}
-            onCancel={() => setAdding(false)}
-          />
-        </Show>
-      </div>
-    </>
-  );
-}
-
-const permissionLabel = (g: Pick<PermissionGrant, "action" | "resource">) =>
-  g.action === "app.ai"
-    ? "Use AI"
-    : g.action === "app.secret"
-      ? `Use the global secret ${g.resource}`
-      : g.action === "agent.network"
-        ? `Send requests to ${g.resource}`
-        : g.action === "agent.override"
-          ? `Change what ${g.resource} returns`
-          : g.action === "app.data"
-            ? `Read the data of ${appById(g.resource)?.name ?? "a deleted app"}`
-            : g.action === "app.endpoints"
-              ? "Read the API map"
-              : g.action === "app.tool"
-                ? toolLabel(g.resource)
-                : g.action === "agent.schedule"
-                  ? "Run things on a schedule"
-                  : g.action === "agent.tab"
-                    ? `Read the tab ${appById(g.resource)?.name ?? "(deleted)"}`
-                    : g.action === "agent.browse"
-                      ? `Use ${g.resource} for you (click, type, fill in forms)`
-                      : g.action === "agent.headless"
-                        ? `Read ${g.resource} in the background with your login`
-                        : g.action === "agent.source"
-                          ? `Change the code in ${g.resource}`
-                          : `Customize ${g.resource}`;
-
-/** "<app id>/<tool id>" as "Use add-expense in Budget". */
-const toolLabel = (resource: string) => {
-  const [appId, tool] = resource.split("/");
-  return `Use ${tool} in ${appById(appId ?? "")?.name ?? "a deleted app"}`;
+const permissionLabels: Record<PermissionGrant["action"], (resource: string) => string> = {
+  "agent.site": (r) => `Customize ${r}`,
+  "agent.network": (r) => `Send requests to ${r}`,
+  "agent.override": (r) => `Change what ${r} returns`,
+  "agent.tab": (r) => `Read the tab ${appById(r)?.name ?? "(closed)"}`,
+  "agent.browse": (r) => `Use ${r} for you (click, type, fill in forms)`,
+  "agent.headless": (r) => `Read ${r} in the background with your login`,
+  "agent.confirm": (r) => `Confirm an action on ${r}`,
+  "agent.source": (r) => `Change the code in ${r}`,
 };
+const permissionLabel = (g: Pick<PermissionGrant, "action" | "resource">) => permissionLabels[g.action](g.resource);
 
 /** Remembered decisions, each revocable. */
 function PermissionRows() {
@@ -1412,7 +1189,7 @@ function PermissionRows() {
       when={grants()?.length}
       fallback={
         <p {...stylex.attrs(styles.muted, styles.note)}>
-          Nothing remembered yet. When an app or agent asks for something and you choose “Remember”, it shows up here.
+          Nothing remembered yet. When an agent asks for something and you choose “Remember”, it shows up here.
         </p>
       }
     >
@@ -2068,147 +1845,6 @@ function SiteRows() {
   );
 }
 
-/** How app processes run: the sandbox, the shell, and what the sandbox shows of the system. */
-function SandboxRows() {
-  const apps = () => settings().apps;
-  const setApps = (value: Partial<Settings["apps"]>) =>
-    updateSettings((s) => ({ ...s, apps: { ...s.apps, ...value } }));
-  // Asked again when the settings change: they decide the shell and what the sandbox shows.
-  const [info] = createResource(
-    () => JSON.stringify([apps().sandbox, apps().shell, apps().sandboxToolchains, apps().sandboxReadOnly]),
-    () => api.sandbox(),
-  );
-  const isCustom = () => !["auto", ...(info()?.shells.map((s) => s.id) ?? [])].includes(apps().shell);
-  const [custom, setCustom] = createSignal(false);
-  const shellValue = () => (custom() || isCustom() ? "custom" : apps().shell);
-  const autoLabel = () => {
-    const shells = info()?.shells ?? [];
-    const auto = info()?.platform === "win32" ? "bun" : "sh";
-    return `Automatic (${shells.find((s) => s.id === auto)?.label ?? auto})`;
-  };
-  const isLinux = () => info()?.platform === "linux";
-  const sandboxed = () => info()?.kind === "bwrap";
-  const sandboxNote = () => {
-    const i = info();
-    if (!i) return "";
-    if (i.platform !== "linux") return "Not sandboxed: the sandbox needs Linux.";
-    if (!i.bwrapAvailable) return "Not sandboxed: install bubblewrap (bwrap).";
-    return "";
-  };
-  const addFolder = async () => {
-    const folder = await window.rune.pickFolder("A folder apps may read");
-    if (folder && !apps().sandboxReadOnly.includes(folder))
-      setApps({ sandboxReadOnly: [...apps().sandboxReadOnly, folder] });
-  };
-
-  return (
-    <>
-      <Row label="Sandbox" description={sandboxNote() || "How apps are isolated."} warn={!!sandboxNote()}>
-        <Segmented
-          value={apps().sandbox}
-          options={[
-            ["auto", "Automatic"],
-            ["bwrap", "Bubblewrap"],
-            ["none", "Off"],
-          ]}
-          onChange={(sandbox) => setApps({ sandbox })}
-        />
-      </Row>
-      <Row
-        label="Shell"
-        description={
-          shellValue() === "custom" && info()?.shell.id !== "custom"
-            ? "That program wasn't found; the automatic shell is used."
-            : "What app commands run in."
-        }
-        warn={shellValue() === "custom" && info()?.shell.id !== "custom"}
-      >
-        <div {...stylex.attrs(styles.control)} data-shell>
-          <Select
-            value={shellValue()}
-            onChange={(e) => {
-              const value = e.currentTarget.value;
-              setCustom(value === "custom");
-              if (value !== "custom") setApps({ shell: value });
-            }}
-            xstyle={styles.select}
-          >
-            <option value="auto">{autoLabel()}</option>
-            <For each={info()?.shells ?? []}>{(shell) => <option value={shell.id}>{shell.label}</option>}</For>
-            <option value="custom">Another program…</option>
-          </Select>
-          <Show when={shellValue() === "custom"}>
-            <input
-              value={isCustom() ? apps().shell : ""}
-              placeholder={info()?.platform === "win32" ? "C:\\path\\to\\shell.exe" : "/path/to/shell"}
-              spellcheck={false}
-              onChange={(e) => {
-                const path = e.currentTarget.value.trim();
-                setApps({ shell: path || "auto" });
-                if (!path) setCustom(false);
-              }}
-              {...stylex.attrs(styles.textInput, styles.mono)}
-            />
-          </Show>
-        </div>
-      </Row>
-      <Show when={isLinux()}>
-        <Row label="Your toolchains" description="Runtimes from mise, asdf, nvm, rustup and others, read-only.">
-          <Toggle checked={apps().sandboxToolchains} onChange={(sandboxToolchains) => setApps({ sandboxToolchains })} />
-        </Row>
-        <Row
-          label="More folders apps can read"
-          description="Read-only in every app's sandbox."
-          wide={apps().sandboxReadOnly.length > 0}
-        >
-          <div {...stylex.attrs(styles.folderList)} data-sandbox-folders>
-            <For each={apps().sandboxReadOnly}>
-              {(folder) => (
-                <div {...stylex.attrs(styles.folderRow)}>
-                  <span {...stylex.attrs(styles.mono, styles.folderPath)}>{folder}</span>
-                  <button
-                    type="button"
-                    title="Remove"
-                    aria-label={`Remove ${folder}`}
-                    onClick={() => setApps({ sandboxReadOnly: apps().sandboxReadOnly.filter((f) => f !== folder) })}
-                    {...stylex.attrs(styles.iconButton)}
-                  >
-                    <Icon name="trash" size={15} />
-                  </button>
-                </div>
-              )}
-            </For>
-            <Button onClick={() => void addFolder()} data-add-folder>
-              Add folder…
-            </Button>
-          </div>
-        </Row>
-        <Show when={sandboxed()}>
-          <Row
-            label="What apps see"
-            description="Besides the system (/usr, /etc, /opt) and their own project and data."
-            wide
-          >
-            <details {...stylex.attrs(styles.details)} data-sandbox-view>
-              <summary>
-                {info()?.readOnly.length ?? 0} folders from your home, {info()?.path.length ?? 0} folders on PATH
-              </summary>
-              <span {...stylex.attrs(styles.rowLabel)}>Read-only</span>
-              <For each={info()?.readOnly} fallback={<span {...stylex.attrs(styles.muted)}>None</span>}>
-                {(dir) => <span {...stylex.attrs(styles.mono, styles.folderPath)}>{dir}</span>}
-              </For>
-              <span {...stylex.attrs(styles.rowLabel)}>PATH</span>
-              <For each={info()?.path}>
-                {(dir) => <span {...stylex.attrs(styles.mono, styles.folderPath)}>{dir}</span>}
-              </For>
-            </details>
-          </Row>
-        </Show>
-      </Show>
-    </>
-  );
-}
-
 export const unloadChoices = (current: number): [number, string][] => {
   const choices: [number, string][] = [
     [5, "After 5 minutes"],
@@ -2270,8 +1906,6 @@ export function Row(props: {
   footer?: boolean;
   /** Text lined up with rows that have a leading control. */
   inset?: boolean;
-  /** The description is a warning (apps run unsandboxed). */
-  warn?: boolean;
   children?: JSX.Element;
 }) {
   return (
@@ -2292,12 +1926,7 @@ export function Row(props: {
       <div {...stylex.attrs(styles.rowText, props.wide && styles.rowTextWide)}>
         <span {...stylex.attrs(styles.rowLabel, props.footer && styles.footerLabel)}>{props.label}</span>
         <Show when={props.description}>
-          <span {...stylex.attrs(styles.rowDescription, props.warn && styles.rowWarning)}>
-            <Show when={props.warn}>
-              <Icon name="triangle-alert" size={13} {...stylex.attrs(styles.warningIcon)} />
-            </Show>
-            {props.description}
-          </span>
+          <span {...stylex.attrs(styles.rowDescription)}>{props.description}</span>
         </Show>
       </div>
       <div {...stylex.attrs(styles.control, props.wide && styles.controlWide, props.leading && styles.controlLeading)}>
@@ -2513,37 +2142,6 @@ const styles = stylex.create({
     scrollbarWidth: "thin",
     scrollbarColor: `color-mix(in oklab, ${colors.border}, ${colors.text} 15%) transparent`,
   },
-  numberInput: { width: 110 },
-  folderList: { display: "flex", flexDirection: "column", alignItems: "flex-start", gap: space.xs, width: "100%" },
-  folderRow: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: space.sm, width: "100%" },
-  folderPath: { overflowWrap: "anywhere", color: colors.text },
-  details: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 4,
-    fontSize: font.sm,
-    color: colors.muted,
-    cursor: "default",
-  },
-  secretRow: {
-    paddingBlock: space.xs,
-    paddingInline: space.lg,
-    borderTopWidth: 1,
-    borderTopStyle: "solid",
-    borderTopColor: colors.border,
-  },
-  warning: {
-    marginBlock: space.sm,
-    padding: space.md,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: colors.warning,
-    backgroundColor: `color-mix(in oklab, transparent, ${colors.warning} 12%)`,
-    color: colors.text,
-    fontSize: font.sm,
-    lineHeight: 1.5,
-  },
   note: { margin: 0, paddingBlock: space.md, paddingInline: space.lg, lineHeight: 1.5 },
   pickerBox: {
     display: "inline-flex",
@@ -2647,7 +2245,6 @@ const styles = stylex.create({
   rowLabel: { fontSize: font.md, fontWeight: 500, lineHeight: 1.35 },
   control: { display: "flex", alignItems: "center", gap: space.sm, flexWrap: "wrap" },
   controlWide: { width: "100%" },
-  select: { width: 220 },
   siteControls: { display: "flex", alignItems: "center", gap: space.sm },
   siteList: { display: "flex", flexDirection: "column", gap: space.xs },
   siteHost: { flex: 1, minWidth: 0, fontSize: font.sm, overflowWrap: "anywhere" },
@@ -3152,7 +2749,5 @@ const styles = stylex.create({
   providerToggle: { display: "flex", alignItems: "center", gap: space.sm, paddingTop: 5 },
   dt: { color: colors.muted },
   setPath: { marginTop: -1 },
-  rowWarning: { color: colors.warning, fontWeight: 500 },
   toggleLabel: { fontSize: font.xs },
-  warningIcon: { marginRight: 5, verticalAlign: "-2px" },
 });

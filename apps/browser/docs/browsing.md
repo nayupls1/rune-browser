@@ -17,7 +17,7 @@ open page and saves changes that apply on every visit. It gets only the page too
   - and until the element is hydrated, since a server-rendered page whose DOM changed under its framework fails to hydrate and is rendered again (or breaks). React (16 and later) marks its root when hydration starts and each element when it reaches it, so elements in a Suspense boundary that hydrates later wait for it; Next.js, Remix, Nuxt and Solid pages wait until their framework has started (10 seconds at most for the page); Vue 2 and Astro islands until they drop their server-rendered mark. An element still waiting after 10 seconds is changed anyway (a framework that failed to load). Svelte and Angular leave no such marks: their pages get the wait for load and idle only. Content the framework doesn't own (`dangerouslySetInnerHTML`, other scripts' elements) is ready with its owner.
 - **Visible:** the paintbrush in the address bar lists every change on the page (and the site's CSS/JS override) with a switch and a remove button, and Settings → Web tools lists all of them. Turning one off undoes it in place; only scripts need a reload, since what they did can't be taken back.
 - **Tools:** the website agent uses `add_page_change`, `update_page_change`, `remove_page_change` and `list_page_changes`, and asks per site or pattern first (`agent.site`). The API is `/api/page-changes`.
-- **History:** changes are part of the site customizations' snapshots (`@changes/<id>.json`). The agent improves an existing change rather than adding another, and has `list_snapshots`, `view_snapshot` and `restore_snapshot` (only the site it's on; the app builder has the same for its app). Agents can't delete snapshots.
+- **History:** changes are part of the site customizations' snapshots (`@changes/<id>.json`). The agent improves an existing change rather than adding another, and has `list_snapshots`, `view_snapshot` and `restore_snapshot` (only the site it's on). Agents can't delete snapshots.
 
 **Using pages for you.** The website agent can also do things on the web: open pages, click, type, fill in forms, press keys, scroll and wait for content (`agent/browseTools.ts`), with real input events in the tab you're looking at, so it works with your logins there.
 
@@ -25,7 +25,7 @@ open page and saves changes that apply on every visit. It gets only the page too
 - **Your OK per site:** acting on a site with your session asks once per site (`agent.browse`, rememberable in Settings → Agent permissions).
 - **Confirmation every time** for what has consequences: clicking or submitting something that buys, pays, books, sends, posts, subscribes or deletes, submitting a form that takes card details, and typing card details (`agent.confirm`, never remembered). The agent asks for anything else with consequences itself (`confirm_action`). Passwords are never typed: you sign in yourself.
 - **Visible:** a marker shows where it clicks or types, and a banner says the agent is using the page, with **Take over**, which stops it.
-- **App actions:** what it finds can go into your apps with `use_app_tool` (after your OK for that app's tool).
+- **Files:** what it finds can go into files in the chat's folder, which show as chips in the chat (see [Concepts](concepts.md#agents)).
 - **Limits:** the checks read the element's text, name and form, so a site that labels "Buy" as an icon only can slip past the confirmation (the agent is told to use `confirm_action` then). `run_js` can still change a page directly; it's meant for exploring.
 
 **Headless tabs.** The website agent can load a website in the background, without opening a tab, only to read its data: another page than yours, several pages one after another, a site to compare with (`agent/headlessTools.ts`, `main/headless.ts`).
@@ -58,7 +58,7 @@ showing one that can't, like other browsers (`shared/insecure.ts`).
   private window doesn't offer "for good" (it remembers nothing).
 - **Not for local addresses:** this computer and the private network (`localhost`, `*.localhost`, private, link-local
   and VPN ranges, IPv6 local addresses, names without a dot, `.local`, `.lan`, `.home`, `.home.arpa`, `.internal`) are never
-  upgraded or warned about. App previews aren't web tabs, so they aren't affected either.
+  upgraded or warned about.
 - **Not secure:** the address bar says "Not secure" on a page shown over HTTP (and under the warning).
 - **Same rules for everything:** what a web tab's page navigates to itself, its redirects and extensions'
   `tabs.update` are held back in the main process (`main/web.ts`) and handed to the tab, so tabs in the background and
@@ -90,7 +90,7 @@ last.
 
 The older **site override** (one stylesheet and script per hostname, `set_site_override`) still exists for larger reworks.
 
-Web tab logins are cookies, which are encrypted with a key from the same keychain, like Chrome's. The `EnableCookieEncryption` fuse is set in `electron-builder.yml` for the packaged app, and by `scripts/electron.ts` in `node_modules` for runs from source. As in Chrome, a site's local storage, IndexedDB and cache aren't encrypted. They sit in the 0700 profile folder.
+Web tab logins are cookies, which are encrypted with a key from the OS keychain, like Chrome's (the same keychain keeps the key saved requests' credentials are sealed with, `main/sealKey.ts`). On Linux desktops Chromium doesn't recognize (Hyprland, Sway…), Rune Browser asks for the Secret Service (gnome-keyring, KeePassXC…) itself (`--password-store=gnome-libsecret`); KDE's KWallet is found on its own. The `EnableCookieEncryption` fuse is set in `electron-builder.yml` for the packaged app, and by `scripts/electron.ts` in `node_modules` for runs from source. As in Chrome, a site's local storage, IndexedDB and cache aren't encrypted. They sit in the 0700 profile folder.
 
 Web tabs say they're plain Chrome, because some sites turn away other browsers. Google's sign-in can tell that Rune Browser isn't Chrome, though, and refuses a browser that claims to be ("This browser or app may not be secure"). It accepts Electron when the user agent names it. So requests to `accounts.google.com` get Electron's own user agent, through the built-in extension that applies the network rules (`signInRule` in `src/shared/extensions.ts`).
 
@@ -181,7 +181,7 @@ Sites can ask for the permissions above, and you decide, like in Chrome (`shared
   watches the page has, which the address bar reads while something might be in use.
 - **Limits:** device pickers (USB, HID, serial, Bluetooth) aren't supported, and those requests are refused. Uses in
   frames of other sites, which the script can't reach, show as in use until the page goes away; stopping one reloads
-  the page. App previews keep only the harmless permissions (full screen, pointer lock, writing to the clipboard).
+  the page.
 
 ## Browsing history
 
@@ -257,8 +257,7 @@ endpoint, grouped by host, with its parameters, request body and responses (`sha
   differ in one segment (4 or more values, e.g. `/users/ada`, `/users/bob`…) become one template. Each host keeps at most
   300 endpoints (the least used make room), each workspace 5000.
 - **Browse:** Settings → API map lists the workspace's hosts, their endpoints and each one's shapes.
-- **Agents and apps:** both agents have `api_map` (hosts, a host's endpoints, or a search). Apps' servers call
-  `GET $RUNE_API_URL/endpoints?search=` after the user allows it (`app.endpoints`, audited).
+- **Agents:** the agent has `api_map` (hosts, a host's endpoints, or a search).
 - **Privacy controls:** a switch turns the map off (it also needs traffic recording). A site can be left out (it covers
   its subdomains, and deletes what was mapped for it), a host's map can be deleted, and a deleted workspace takes its map
   with it.
@@ -304,7 +303,7 @@ The ones that reach into the browser's own data and devices are in `src/main/ext
 - `favicon`: `chrome-extension://<id>/_favicon/?pageUrl=…` in its pages and `fetch` gives the site's icon.
 - `tabs.discard` unloads the tab (tab unloading), `tabs.detectLanguage` reads the page's language.
 
-**Site sign-ins** (HTTP Basic/Digest, proxies): Electron cancels them and never asks extensions. Rune Browser handles them itself (`login` in `src/main/web.ts`): extensions that listen to `webRequest.onAuthRequired` (with `webRequestAuthProvider` or `webRequestBlocking`, and access to the site) are asked first, like in Chrome, so password managers fill them in. A retry keeps its request ID, and after two refused answers the extensions aren't asked again. Then Rune Browser's own sign-in dialog asks you (`components/AuthDialog.tsx`). App previews keep Electron's behavior.
+**Site sign-ins** (HTTP Basic/Digest, proxies): Electron cancels them and never asks extensions. Rune Browser handles them itself (`login` in `src/main/web.ts`): extensions that listen to `webRequest.onAuthRequired` (with `webRequestAuthProvider` or `webRequestBlocking`, and access to the site) are asked first, like in Chrome, so password managers fill them in. A retry keeps its request ID, and after two refused answers the extensions aren't asked again. Then Rune Browser's own sign-in dialog asks you (`components/AuthDialog.tsx`).
 
 Chromium puts its own namespaces back on `chrome` whenever bindings update (another extension loading does that), so the shim extends the namespaces Electron has instead of replacing them.
 
@@ -323,19 +322,19 @@ Stopped service workers are started again for the events they listened to. Elect
 ## Downloads
 
 Downloads work like Chromium's (`main/downloads.ts`, shown by `components/Downloads.tsx`), for every session: web
-tabs, app previews and Rune Browser's own window.
+tabs and Rune Browser's own window.
 
 - **Saving:** files go to the downloads folder (Settings → General → Downloads: the system's, or one you pick), under a
   name that doesn't overwrite anything (`report (1).pdf`), or wherever you pick when "Ask where to save each file" is on
   there. "Save link as…" and "Save image as…"
-  in a page's context menu always ask, and so do app previews (a sandboxed app only gets a file out where you say).
+  in a page's context menu always ask.
 - **Progress:** a button appears in the sidebar's top row once something was downloaded, with a ring while files
   download (the taskbar or dock icon shows it too). Its panel lists this run's downloads with their speed, size and
   time left, and pauses, resumes or cancels them.
 - **Finished and failed** downloads get a notice (with "Show in folder" or "Retry") and a dot on the button until
   they're looked at.
 - **Risky files:** programs, installers and scripts (`.exe`, `.msi`, `.dmg`, `.pkg`, `.deb`, `.AppImage`, `.sh`,
-  `.jar`, `.apk`…), and anything from a site without HTTPS (not this computer: apps on localhost are fine), are saved
+  `.jar`, `.apk`…), and anything from a site without HTTPS (not this computer: servers on localhost are fine), are saved
   as `Unconfirmed 123456.download` until you choose: the panel opens by itself with **Discard** and **Keep anyway**.
   Keeping gives the file its name (asking where, if that's on); discarding deletes it. There's no Safe Browsing check:
   the warning goes by file type and site.
@@ -404,6 +403,6 @@ The rest of Chromium (settings, internal pages, everyday behavior) is in [Chromi
 | Home (Alt+Home), menu (Alt+F, F10), focus toolbar (Alt+Shift+T)                                    | Not applicable: no home page; the ⋯ menu has no shortcut                     |
 
 Rune Browser's own: the command bar (Ctrl+K), the agent (Ctrl+I; Ctrl+J is Chromium's downloads), the sidebar (Ctrl+Shift+B), workspaces 1–9
-(Ctrl+Alt+1–9), Settings (Ctrl+,) and this list (Ctrl+/). Duplicating, pinning, new apps and the bookmarks bar have
+(Ctrl+Alt+1–9), Settings (Ctrl+,) and this list (Ctrl+/). Duplicating, pinning and the bookmarks bar have
 no keys by default; you can give them some. The mouse's back and forward buttons can be given to any action too (Settings records them like keys):
 webviews don't act on them by themselves, so the main process takes them from the page's input events.

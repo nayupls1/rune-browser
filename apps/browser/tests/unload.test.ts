@@ -15,7 +15,7 @@ describe("PUT /api/apps/:id/pinned", () => {
   test("pins and unpins a tab; new tabs and copies aren't pinned", async () => {
     const tab = await server.api<AppSummary>("/api/apps", {
       method: "POST",
-      json: { kind: "web", url: "https://example.com/" },
+      json: { url: "https://example.com/" },
     });
     expect(tab.pinned).toBe(false);
     const pinned = await server.api<AppSummary>(`/api/apps/${tab.id}/pinned`, {
@@ -34,7 +34,7 @@ describe("PUT /api/apps/:id/pinned", () => {
 
   test("refuses bad input and unknown tabs", async () => {
     await expect(server.api("/api/apps/nope/pinned", { method: "PUT", json: { pinned: true } })).rejects.toThrow("404");
-    const tab = await server.api<AppSummary>("/api/apps", { method: "POST", json: { kind: "web" } });
+    const tab = await server.api<AppSummary>("/api/apps", { method: "POST", json: {} });
     await expect(server.api(`/api/apps/${tab.id}/pinned`, { method: "PUT", json: { pinned: "yes" } })).rejects.toThrow(
       "400",
     );

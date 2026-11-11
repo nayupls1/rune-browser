@@ -1,10 +1,8 @@
-// Runs agent turns: picks the provider, gives it Rune Browser's instructions and tools,
+// Runs the website agent's turns: picks the provider, gives it Rune Browser's instructions and tools,
 // persists the conversation and pushes everything to the renderer on the hub
 // (topic app:<id>). A turn runs in the background; stopping interrupts it.
-import { delimiter } from "node:path";
 import { Context, Data, Effect, Fiber, FiberMap, Layer, Option, Scope, Stream } from "effect";
 import {
-  appTarget,
   type AgentChoice,
   type ChatEvent,
   type ChatFile,
@@ -23,22 +21,16 @@ import { History } from "../history/History";
 import { Audit } from "../security/Audit";
 import { ResponseOverrides } from "../db/ResponseOverrides";
 import { Permissions } from "../security/Permissions";
-import { Secrets } from "../security/Secrets";
 import { Hub } from "../Hub";
 import type { TurnInput } from "../providers/Provider";
 import { Providers } from "../providers/Providers";
-import { AppData } from "../workspace/AppData";
-import { AppTools } from "../workspace/AppTools";
 import { PageChanges } from "../db/PageChanges";
 import { Scheduler, type Outcome, type PromptRun } from "../scheduler/Scheduler";
-import { Projects } from "../workspace/Projects";
-import type { Runtime } from "../workspace/Runtime";
-import { Sandbox } from "../workspace/Sandbox";
-import { Sources } from "../workspace/Sources";
-import { Workspace } from "../workspace/Workspace";
+import { Tabs } from "../Tabs";
+import { Sources } from "../sources/Sources";
 import { Mcp, type Tool } from "./Mcp";
 import { describeRuneTool, toolKind } from "./activity";
-import { buildAppPrompt, buildWebPrompt, contextSummary, withPageContext } from "./prompts";
+import { buildWebPrompt, contextSummary, withPageContext } from "./prompts";
 import { browseTools } from "./browseTools";
 import { headlessTools } from "./headlessTools";
 import { ChatFiles } from "./ChatFiles";
@@ -47,14 +39,14 @@ import { devtoolsTools } from "./devtoolsTools";
 import { historyTools } from "./historyTools";
 import { describeSource, sourceTools } from "./sourceTools";
 import { Attachments, type AttachedFile } from "./Attachments";
-import { networkReadTools, networkTools } from "./networkTools";
+import { networkTools } from "./networkTools";
 import { batchTools } from "./batchTools";
 import { Jobs } from "./Jobs";
 import { jobTools } from "./jobTools";
 import { endpointTools } from "./endpointTools";
 import { Endpoints } from "../db/Endpoints";
 import { sharedContext, withSharedTabs, type SharedTabInput } from "./sharedTabs";
-import { appTools, pageTools, registryTools, scheduleTools, siteTools, tabTools, type ToolEnv } from "./tools";
+import { pageTools, siteTools, tabTools, type ToolEnv } from "./tools";
 
 /** Tool arguments for the audit log: short values as they are, long ones by size. */
 export function summarizeArgs(args: unknown): string | null {
@@ -110,11 +102,9 @@ export const make = Effect.gen(function* () {
   const hub = yield* Hub;
   const providers = yield* Providers;
   const mcp = yield* Mcp;
-  const workspace = yield* Workspace;
   const workspaces = yield* Workspaces;
   const history = yield* History;
-  const projects = yield* Projects;
-  const sandbox = yield* Sandbox;
+  const tabs = yield* Tabs;
   const sources = yield* Sources;
   const attachments = yield* Attachments;
   const audit = yield* Audit;
@@ -126,19 +116,12 @@ export const make = Effect.gen(function* () {
     yield* Effect.context<
       | Hub
       | Apps
-      | Workspace
-      | Runtime
-      | Projects
       | Sites
       | Permissions
-      | Secrets
       | Network
       | ResponseOverrides
       | Endpoints
-      | AppData
-      | AppTools
       | PageChanges
-      | Scheduler
       | Sources
       | Audit
       | History
@@ -234,9 +217,8 @@ export const make = Effect.gen(function* () {
       yield* message(appId, "user", request.prompt);
       yield* apps.touch(appId);
 
-      const web = app.kind === "web";
       const status = (yield* providers.list).find((p) => p.id === choice.provider);
-      const actorLabel = `${web ? "Website agent" : "App builder"} · ${status?.label ?? choice.provider}${choice.model ? ` (${choice.model})` : ""}`;
+      const actorLabel = `Website agent · ${status?.label ?? choice.provider}${choice.model ? ` (${choice.model})` : ""}`;
       const env: ToolEnv = {
         tabId: appId,
         log: (line) =>
@@ -254,40 +236,24 @@ export const make = Effect.gen(function* () {
             if (call && !call.files.some((f) => f.path === file.path)) call.files.push(file);
           }),
       };
-      const tools = web
-        ? [
-            ...(yield* Effect.provide(pageTools(env, { site: true }), context)),
-            ...(yield* Effect.provide(devtoolsTools(env, { site: true }), context)),
-            ...(yield* Effect.provide(browseTools(env), context)),
-            ...(yield* Effect.provide(headlessTools(env), context)),
-            ...(yield* Effect.provide(siteTools(env), context)),
-            ...(yield* Effect.provide(networkTools(env), context)),
-            ...(yield* Effect.provide(batchTools(env), context)),
-            ...(yield* Effect.provide(jobTools(env, { site: true }), context)),
-            ...(yield* Effect.provide(endpointTools(env), context)),
-            ...(yield* Effect.provide(historyTools(env, { site: true }), context)),
-            ...(yield* Effect.provide(sourceTools(env), context)),
-            ...(yield* Effect.provide(registryTools(env), context)),
-            ...(yield* Effect.provide(tabTools(env), context)),
-            ...(yield* Effect.provide(fileTools(env), context)),
-          ]
-        : [
-            ...(yield* Effect.provide(appTools(env), context)),
-            ...(yield* Effect.provide(pageTools(env, { site: false }), context)),
-            ...(yield* Effect.provide(devtoolsTools(env, { site: false }), context)),
-            ...(yield* Effect.provide(networkReadTools(env), context)),
-            ...(yield* Effect.provide(jobTools(env, { site: false }), context)),
-            ...(yield* Effect.provide(endpointTools(env), context)),
-            ...(yield* Effect.provide(historyTools(env, { site: false }), context)),
-            ...(yield* Effect.provide(sourceTools(env), context)),
-            ...(yield* Effect.provide(registryTools(env), context)),
-            ...(yield* Effect.provide(scheduleTools(env), context)),
-            ...(yield* Effect.provide(tabTools(env), context)),
-            ...(yield* Effect.provide(fileTools(env, { project: true }), context)),
-          ];
+      const tools = [
+        ...(yield* Effect.provide(pageTools(env), context)),
+        ...(yield* Effect.provide(devtoolsTools(env), context)),
+        ...(yield* Effect.provide(browseTools(env), context)),
+        ...(yield* Effect.provide(headlessTools(env), context)),
+        ...(yield* Effect.provide(siteTools(env), context)),
+        ...(yield* Effect.provide(networkTools(env), context)),
+        ...(yield* Effect.provide(batchTools(env), context)),
+        ...(yield* Effect.provide(jobTools(env), context)),
+        ...(yield* Effect.provide(endpointTools(env), context)),
+        ...(yield* Effect.provide(historyTools(env), context)),
+        ...(yield* Effect.provide(sourceTools(env), context)),
+        ...(yield* Effect.provide(tabTools(env), context)),
+        ...(yield* Effect.provide(fileTools(env), context)),
+      ];
       const mcpUrl = yield* mcp.register(tools.map((t) => audited(t, appId, actorLabel)));
-      // Snapshots around the turn: what changed before it (the user, the app's data), and what the agent changed.
-      const target = web ? "sites" : appTarget(appId);
+      // Snapshots around the turn: what changed before it (the user), and what the agent changed.
+      const target = "sites";
       const prompt = request.prompt.trim();
       yield* history.record(target, {
         actor: "rune",
@@ -303,21 +269,7 @@ export const make = Effect.gen(function* () {
         detail: `${request.prompt.length} characters`,
       });
 
-      let cwd: string;
-      let instructions: string;
-      if (web) {
-        cwd = config.agentDir;
-        instructions = buildWebPrompt(combine(s.agent.webInstructions, space?.webInstructions));
-      } else {
-        cwd = yield* workspace.ensureDir(appId);
-        const project = yield* workspace.info(appId);
-        instructions = buildAppPrompt({
-          instructions: combine(s.agent.instructions, space?.instructions),
-          dir: cwd,
-          hasProject: !!project,
-        });
-        yield* projects.editing(appId);
-      }
+      let instructions = buildWebPrompt(combine(s.agent.webInstructions, space?.webInstructions));
       // The code attached to the tab: the agent works with it through Rune Browser's source tools.
       const attached = yield* sources.list(appId);
       if (attached.length) {
@@ -326,7 +278,7 @@ export const make = Effect.gen(function* () {
 
       const driver = providers.driver(choice.provider);
       const input = (resume: string | null): TurnInput => ({
-        cwd,
+        cwd: config.agentDir,
         prompt: withSharedTabs(withPageContext(turnInput.prompt, request.page), shared.text),
         files: turnInput.files,
         instructions,
@@ -334,8 +286,6 @@ export const make = Effect.gen(function* () {
         effort: choice.effort,
         resume,
         mcp: { name: "rune", url: mcpUrl, headers: {} },
-        access: web ? "none" : "workspace",
-        env: { PATH: `${process.env.PATH ?? ""}${delimiter}${sandbox.binDir}` },
       });
 
       let heard = false;
@@ -376,8 +326,6 @@ export const make = Effect.gen(function* () {
         // Also when stopped halfway.
         Effect.ensuring(snapshotAfter),
       );
-
-      if (!web) yield* projects.edited(appId);
     }).pipe(
       Effect.scoped,
       Effect.onInterrupt(() => Effect.asVoid(message(app.id, "error", "Stopped."))),
@@ -429,8 +377,8 @@ export const make = Effect.gen(function* () {
       if (!tabId) {
         const space = yield* workspaces.get(target.workspaceId);
         if (!space) return failed("The workspace is gone");
-        const app = yield* apps.create(space.id, target.kind, target.kind === "web" ? target.url : null);
-        yield* projects.publish(app);
+        const app = yield* apps.create(space.id, target.url);
+        yield* tabs.publish(app);
         tabId = app.id;
       }
       const id = tabId;

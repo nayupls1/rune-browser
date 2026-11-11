@@ -1,6 +1,6 @@
 // A tab's icon wherever the tab shows up, and the picker for choosing one.
 // A tab's own icon is a Lucide icon name, an emoji or an image (data URL);
-// without one, apps show a window and web tabs their site's favicon.
+// without one, a tab shows its site's favicon.
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js";
 import { Portal } from "solid-js/web";
@@ -12,19 +12,16 @@ import { Icon, iconFor, iconTags } from "./Icon";
 import { toast } from "./Toast";
 
 export function TabIcon(props: {
-  tab: Pick<AppSummary, "kind" | "icon" | "favicon"> & Partial<Pick<AppSummary, "url">>;
+  tab: Pick<AppSummary, "icon" | "favicon"> & Partial<Pick<AppSummary, "url">>;
   size?: number;
 }) {
   const size = () => props.size ?? 16;
   const isFile = () => /^file:/i.test(props.tab.url ?? "");
-  const fallback = () =>
-    props.tab.kind === "web" ? (
-      <Show when={!isFile()} fallback={<Icon name="file" size={size()} {...stylex.attrs(styles.icon)} />}>
-        <Favicon url={props.tab.favicon} size={size()} />
-      </Show>
-    ) : (
-      <Icon name="app-window" size={size()} {...stylex.attrs(styles.icon)} />
-    );
+  const fallback = () => (
+    <Show when={!isFile()} fallback={<Icon name="file" size={size()} {...stylex.attrs(styles.icon)} />}>
+      <Favicon url={props.tab.favicon} size={size()} />
+    </Show>
+  );
   return (
     <Show when={props.tab.icon} fallback={fallback()}>
       {(icon) => (
@@ -326,7 +323,7 @@ export function IconPicker(props: { tab: AppSummary; position: { x: number; y: n
               data-icon-reset
             >
               <Icon name="rotate-ccw" size={14} />
-              {props.tab.kind === "web" ? "Use the site's icon" : "Use the default"}
+              Use the site's icon
             </button>
           </Show>
         </div>

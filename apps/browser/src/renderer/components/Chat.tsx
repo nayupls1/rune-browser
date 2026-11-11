@@ -24,17 +24,15 @@ import { withKeys } from "../lib/shortcuts";
 
 /**
  * The agent of a tab: its conversation and composer, in the agent sidebar
- * (AgentSidebar). Works the same for every kind of tab: the elements picked
- * in the tab's page (lib/picks.ts) come with the message, and the tab's page
- * handle sends it with the page.
+ * (AgentSidebar). The elements picked in the tab's page (lib/picks.ts) come
+ * with the message, and the tab's page handle sends it with the page.
  */
 export function Chat(props: { appId: string }) {
   const state = () => states[props.appId]!;
   const tab = () => appById(props.appId);
-  const web = () => tab()?.kind === "web";
   const [historyOpen, setHistoryOpen] = createSignal(false);
   let historyButton!: HTMLButtonElement;
-  // The tab's page (a web page or an app's preview), once it's registered.
+  // The tab's page, once it's registered.
   const page = () => (pagesVersion(), pageOf(props.appId));
   let scroller!: HTMLDivElement;
   // Follow the conversation while you're at its end; scrolled up, it stays put.
@@ -74,7 +72,6 @@ export function Chat(props: { appId: string }) {
     onCleanup(() => follow.disconnect());
   });
   const empty = () => !state().messages.length && !state().running;
-  const kind = () => (web() ? "web" : state().project ? "app" : "new");
 
   return (
     <aside {...stylex.attrs(styles.root)} data-agent-panel>
@@ -120,10 +117,7 @@ export function Chat(props: { appId: string }) {
         </Show>
         <button
           type="button"
-          title={withKeys(
-            editsApp(props.appId) ? "Done: hide the agent and run the finished app" : "Hide agent",
-            "agent.toggle",
-          )}
+          title={withKeys("Hide agent", "agent.toggle")}
           aria-label="Hide agent"
           onClick={() => setAgentCollapsed(props.appId, true)}
           {...stylex.attrs(styles.headerButton)}
@@ -141,7 +135,7 @@ export function Chat(props: { appId: string }) {
         >
           <div {...stylex.attrs(styles.messages, empty() && styles.messagesEmpty)} data-chat-messages>
             <Show when={empty()}>
-              <EmptyState appId={props.appId} kind={kind()} />
+              <EmptyState appId={props.appId} />
             </Show>
             <Timeline appId={props.appId} />
           </div>
@@ -164,13 +158,7 @@ export function Chat(props: { appId: string }) {
         <Composer
           appId={props.appId}
           running={state().running}
-          placeholder={
-            web()
-              ? "Ask about or change this page…"
-              : state().project
-                ? "Ask for a change…"
-                : "Describe the app you want…"
-          }
+          placeholder="Ask about or change this page…"
           top={
             <Show when={picksOf(props.appId).length || headlessTabsOf(props.appId).length}>
               <div {...stylex.attrs(styles.chips)}>
@@ -215,13 +203,7 @@ export function Chat(props: { appId: string }) {
             <Show when={page()}>
               <button
                 type="button"
-                title={
-                  isPicking(props.appId)
-                    ? "Cancel picking (Esc)"
-                    : web()
-                      ? "Pick elements on the page for the agent"
-                      : "Pick elements in the app for the agent"
-                }
+                title={isPicking(props.appId) ? "Cancel picking (Esc)" : "Pick elements on the page for the agent"}
                 aria-label="Pick elements"
                 aria-pressed={isPicking(props.appId)}
                 onClick={() => void page()?.pick()}
@@ -250,47 +232,25 @@ export function Chat(props: { appId: string }) {
   );
 }
 
-const suggestions: Record<"web" | "app" | "new", { icon: string; text: string }[]> = {
-  web: [
-    { icon: "scroll-text", text: "Summarize this page" },
-    { icon: "eye-off", text: "Hide what I don't need on this page" },
-    { icon: "table", text: "Put the data on this page in a table" },
-  ],
-  app: [
-    { icon: "palette", text: "Polish the design" },
-    { icon: "moon", text: "Add a dark mode" },
-    { icon: "bug", text: "Find and fix bugs" },
-  ],
-  new: [
-    { icon: "list-checks", text: "A habit tracker with daily streaks" },
-    { icon: "book-open", text: "A reading list with notes and ratings" },
-    { icon: "wallet", text: "A budget for this month, by category" },
-  ],
-};
+const suggestions = [
+  { icon: "scroll-text", text: "Summarize this page" },
+  { icon: "eye-off", text: "Hide what I don't need on this page" },
+  { icon: "table", text: "Put the data on this page in a table" },
+];
 
 /** A fresh chat: what the agent can do here, and a few things to start with. */
-function EmptyState(props: { appId: string; kind: "web" | "app" | "new" }) {
+function EmptyState(props: { appId: string }) {
   return (
     <div {...stylex.attrs(styles.empty)} data-chat-empty>
       <span {...stylex.attrs(styles.emptyMark)} aria-hidden="true">
-        <Icon name={props.kind === "web" ? "sparkles" : props.kind === "app" ? "pencil" : "wand-sparkles"} size={18} />
+        <Icon name="sparkles" size={18} />
       </span>
-      <p {...stylex.attrs(styles.emptyTitle)}>
-        {props.kind === "web"
-          ? "Ask about this page"
-          : props.kind === "app"
-            ? "What should change?"
-            : "Describe your app"}
-      </p>
+      <p {...stylex.attrs(styles.emptyTitle)}>Ask about this page</p>
       <p {...stylex.attrs(styles.hint)}>
-        {props.kind === "web"
-          ? "Ask anything, or pick elements and say how they should look or work. Changes are saved for the site."
-          : props.kind === "app"
-            ? "The agent edits the app's code and runs it. You'll see every file it touches here."
-            : "The agent sets up a project and builds it. You'll see every file it touches here."}
+        Ask anything, or pick elements and say how they should look or work. Changes are saved for the site.
       </p>
       <div {...stylex.attrs(styles.suggestions)}>
-        <For each={suggestions[props.kind]}>
+        <For each={suggestions}>
           {(s) => (
             <button
               type="button"
@@ -320,7 +280,7 @@ function AccessPicker() {
         title={
           fullAccess()
             ? `Full access: agents don't ask before acting. ${FULL_ACCESS_WARNING}`
-            : "Agents ask you before they act on sites, use your logins, other tabs or apps"
+            : "Agents ask you before they act on sites, use your logins or read other tabs"
         }
         aria-haspopup="menu"
         aria-expanded={open()}
@@ -760,36 +720,6 @@ const styles = stylex.create({
     backgroundColor: { default: colors.accentSoft, ":hover": colors.accentSoft },
     color: { default: colors.accent, ":hover": colors.accent },
   },
-  showButton: {
-    position: "absolute",
-    top: space.md,
-    right: space.md,
-    zIndex: 10,
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 6,
-    height: 32,
-    paddingInline: space.md,
-    borderRadius: radius.full,
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: colors.border,
-    backgroundColor: { default: colors.surface, ":hover": colors.surfaceHover },
-    boxShadow: "0 2px 8px rgb(0 0 0 / 0.08)",
-    color: colors.text,
-    fontSize: font.sm,
-    fontWeight: 500,
-    cursor: "pointer",
-  },
-  showDot: {
-    width: 7,
-    height: 7,
-    borderRadius: radius.full,
-    backgroundColor: colors.accent,
-    animationName: pulse,
-    animationDuration: "1.2s",
-    animationIterationCount: "infinite",
-  },
   body: { position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column" },
   scroller: {
     flex: 1,
@@ -925,29 +855,3 @@ const styles = stylex.create({
     cursor: "pointer",
   },
 });
-
-/** Whether the agent panel stands for editing an app (its mode follows the panel). */
-const editsApp = (id: string) => appById(id)?.kind === "app" && !!states[id]?.project;
-
-/** Floating button that brings a hidden agent panel back (for an app: back to editing). */
-export function ShowAgentButton(props: { appId: string }) {
-  const running = () => !!states[props.appId]?.running;
-  return (
-    <button
-      type="button"
-      title={withKeys(
-        editsApp(props.appId) ? "Edit: show the agent and run the dev server" : "Show agent",
-        "agent.toggle",
-      )}
-      onClick={() => setAgentCollapsed(props.appId, false)}
-      {...stylex.attrs(styles.showButton)}
-      data-agent-show
-    >
-      <Icon name={editsApp(props.appId) ? "pencil" : "bot"} size={16} />
-      {editsApp(props.appId) ? "Edit" : "Agent"}
-      <Show when={running()}>
-        <span {...stylex.attrs(styles.showDot)} />
-      </Show>
-    </button>
-  );
-}

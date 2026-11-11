@@ -1,7 +1,7 @@
 # Security policy
 
-Rune Browser runs coding agents, sandboxed apps and web pages next to your
-logins and secrets, so security reports are very welcome.
+Rune Browser runs an agent and web pages next to your logins, so security
+reports are very welcome.
 
 ## Reporting a vulnerability
 
@@ -23,12 +23,13 @@ staying current is one restart away.
 
 Especially interesting:
 
-- An app or a web page escaping its sandbox, or reaching another app's data,
-  your files or the network beyond what it was allowed.
-- A web page or an app's AI request getting an agent to use tools (see "Rules
-  for the product" in [CLAUDE.md](CLAUDE.md): untrusted input never reaches a
-  provider that has tools).
-- Secret values reaching agents, prompts, logs or API responses.
+- A web page escaping its sandbox, or reaching your files, other workspaces'
+  logins or Rune Browser's own API.
+- A web page getting the agent to use a provider's own tools (see "Rules for
+  the product" in [CLAUDE.md](CLAUDE.md): the agent only ever has Rune
+  Browser's tools).
+- Cookies, tokens or sealed credentials reaching the agent, prompts, logs or
+  API responses.
 - Anything that lets an agent bypass a permission prompt.
 
 The agents themselves (Claude Code, Codex, OpenCode) are separate projects;

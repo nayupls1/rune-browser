@@ -38,7 +38,7 @@ const API_TYPES = ["XHR", "Fetch", "EventSource"];
 
 export interface OverridesOptions {
   windows: AppWindows;
-  /** The workspace a web tab session belongs to; app previews have none and aren't intercepted. */
+  /** The workspace a web tab session belongs to (other sessions aren't intercepted). */
   workspaceOf: (session: Session) => string | undefined;
   /** A request of a tab was answered by an override (DevTools' Network request id), for its log. */
   onOverridden: (webContentsId: number, requestId: string, title: string) => void;

@@ -1,4 +1,4 @@
-// The command bar (Ctrl+K, also from inside web pages and app previews).
+// The command bar (Ctrl+K, also from inside web pages).
 import * as stylex from "@stylexjs/stylex";
 import { createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";

@@ -1,6 +1,6 @@
 // Scheduled tasks: prompts for an agent that run on their own (each run a new
-// chat in the task's tab, as if the user had sent it), once, repeating or on
-// an event. Shows every task (pause, edit, run now, delete), what's running,
+// chat in the task's tab, as if the user had sent it), once, repeating or
+// when Rune Browser starts. Shows every task (pause, edit, run now, delete), what's running,
 // what's coming up and the past runs with the agent's replies. The times are
 // picked in words (every weekday at 9:00), not as cron expressions. Updates live.
 import * as stylex from "@stylexjs/stylex";
@@ -46,7 +46,6 @@ import { Icon } from "./Icon";
 import { Button, EmptyState } from "./ui";
 
 const tabById = (id: string | null) => (id ? allApps().find((a) => a.id === id) : undefined);
-const appName = (id: string) => tabById(id)?.name ?? "a deleted app";
 const host = (url: string) => {
   try {
     return new URL(url).host;
@@ -55,16 +54,14 @@ const host = (url: string) => {
   }
 };
 
-/** "Notes", "a new tab at news.example", "a new app tab"; with the workspace when there are several. */
+/** "Notes", "a new tab at news.example"; with the workspace when there are several. */
 function describeTarget(target: ScheduleTarget, workspaceId: string) {
   const tab = tabById(target.tabId);
   const where = target.tabId
     ? (tab?.name ?? "a closed tab")
-    : target.kind === "app"
-      ? "a new app tab"
-      : target.url
-        ? `a new tab at ${host(target.url)}`
-        : "a new tab";
+    : target.url
+      ? `a new tab at ${host(target.url)}`
+      : "a new tab";
   const space = workspaces.length > 1 ? workspaceById(workspaceId)?.name : undefined;
   return space ? `${where} in ${space}` : where;
 }
@@ -193,14 +190,18 @@ export function SchedulesPage() {
                     </Show>
                   </span>
                   <span {...stylex.attrs(styles.meta)} data-schedule-meta>
-                    {describeTrigger(s.trigger, appName)} · {describeTarget(s.target, s.workspaceId)}
+                    {describeTrigger(s.trigger)} · {describeTarget(s.target, s.workspaceId)}
                     <Show when={s.agent}>{(agent) => <> · {describeAgent(agent())}</>}</Show>
                   </span>
                   <span {...stylex.attrs(styles.meta)}>
                     <Show
                       when={s.nextRunAt}
                       fallback={
-                        s.paused ? "Paused" : s.trigger.type === "event" ? "Waits for the event" : "Won't run again"
+                        s.paused
+                          ? "Paused"
+                          : s.trigger.type === "event"
+                            ? "Runs when Rune Browser starts"
+                            : "Won't run again"
                       }
                     >
                       Next {relative(s.nextRunAt!)} ({when(s.nextRunAt!)})
@@ -365,7 +366,7 @@ const WHEN_OPTIONS: [When, string][] = [
   ["month", "Every month"],
   ["hours", "Every few hours"],
   ["minutes", "Every few minutes"],
-  ["event", "When something happens"],
+  ["event", "When Rune Browser starts"],
 ];
 /** The week as people read it: Monday first. */
 const WEEK = [1, 2, 3, 4, 5, 6, 0];
@@ -404,25 +405,16 @@ function ScheduleEditor(props: { schedule: Schedule | null; draft: ScheduleSpec 
       ? localInput(initial.trigger.at)
       : localInput(new Date(Date.now() + 3600_000).toISOString()),
   );
-  const initialEvent = initial?.trigger.type === "event" ? initial.trigger.event : "rune.started";
-  const [eventKind, setEventKind] = createSignal(
-    initialEvent === "rune.started" ? "rune.started" : initialEvent.split(":")[0]!,
-  );
-  const [eventName, setEventName] = createSignal(
-    initialEvent.startsWith("app:") ? initialEvent.split(":").slice(2).join(":") : "",
-  );
-
   // Where: a tab of the workspace, or a new one opened on the first run (and kept).
   const [workspaceId, setWorkspaceId] = createSignal(
     (s?.workspaceId ?? initial?.target.workspaceId) || (currentWorkspace()?.id ?? ""),
   );
   const tabsOf = () => allApps().filter((a) => a.workspaceId === workspaceId() && !a.private);
-  /** A tab's id, or "new:web" / "new:app". */
-  const [target, setTarget] = createSignal(initial?.target.tabId ?? `new:${initial?.target.kind ?? "web"}`);
+  /** A tab's id, or "new" (a new tab opened on the first run). */
+  const [target, setTarget] = createSignal(initial?.target.tabId ?? "new");
   const keptTab = initial?.target.tabId && !tabById(initial.target.tabId) ? initial.target.tabId : null;
   const [url, setUrl] = createSignal(initial?.target.url ?? "");
-  const newTab = () => target().startsWith("new:");
-  const newWebTab = () => target() === "new:web";
+  const newTab = () => target() === "new";
 
   // Who answers: the workspace's default agent, or a model picked for the task.
   const [agent, setAgent] = createSignal<AgentChoice | null>(initial?.agent ?? null);
@@ -448,16 +440,7 @@ function ScheduleEditor(props: { schedule: Schedule | null; draft: ScheduleSpec 
     if (r) return { type: "cron", cron: repeatToCron(r) };
     if (mode() === "custom") return { type: "cron", cron: cron().trim() };
     if (mode() === "once") return { type: "once", at: new Date(at()).toISOString() };
-    const tab = target();
-    return {
-      type: "event",
-      event:
-        eventKind() === "rune.started"
-          ? "rune.started"
-          : eventKind() === "app"
-            ? `app:${tab}:${eventName().trim()}`
-            : `${eventKind()}:${tab}`,
-    };
+    return { type: "event", event: "rune.started" };
   };
   /** The schedule read back in words, with its next run. */
   const summary = () => {
@@ -465,15 +448,13 @@ function ScheduleEditor(props: { schedule: Schedule | null; draft: ScheduleSpec 
     if (t.type === "cron" && typeof parseCron(t.cron) === "string") return parseCron(t.cron) as string;
     if (mode() === "week" && !days().length) return "Pick at least one day";
     const r = currentRepeat();
-    const words = r ? describeRepeat(r) : describeTrigger(t, appName);
+    const words = r ? describeRepeat(r) : describeTrigger(t);
     const next = nextRun(t, new Date());
     return next ? `${words} · next ${when(next)} (${relative(next)})` : words;
   };
-  const appEvent = () => mode() === "event" && eventKind() !== "rune.started";
   const toggleDay = (d: number) => setDays((list) => (list.includes(d) ? list.filter((x) => x !== d) : [...list, d]));
 
   const spec = (): ScheduleSpec | string => {
-    if (appEvent() && newTab()) return "App events need one of the workspace's tabs";
     if (mode() === "week" && !days().length) return "Pick at least one day";
     const where = target();
     return {
@@ -481,18 +462,8 @@ function ScheduleEditor(props: { schedule: Schedule | null; draft: ScheduleSpec 
       trigger: trigger(),
       prompt: prompt(),
       target: newTab()
-        ? {
-            workspaceId: workspaceId(),
-            tabId: null,
-            kind: where === "new:app" ? "app" : "web",
-            url: newWebTab() && url().trim() ? url().trim() : null,
-          }
-        : {
-            workspaceId: workspaceId(),
-            tabId: where,
-            kind: tabById(where)?.kind ?? initial?.target.kind ?? "web",
-            url: initial?.target.url ?? null,
-          },
+        ? { workspaceId: workspaceId(), tabId: null, url: url().trim() || null }
+        : { workspaceId: workspaceId(), tabId: where, url: initial?.target.url ?? null },
       agent: agent(),
       notify: notify(),
       timeoutSec: timeout(),
@@ -611,27 +582,6 @@ function ScheduleEditor(props: { schedule: Schedule | null; draft: ScheduleSpec 
             data-schedule-cron
           />
         </Show>
-        <Show when={mode() === "event"}>
-          <select
-            value={eventKind()}
-            onChange={(e) => setEventKind(e.currentTarget.value)}
-            {...stylex.attrs(styles.input, styles.auto)}
-            data-schedule-event
-          >
-            <option value="rune.started">Rune Browser starts</option>
-            <option value="app.started">Its app starts</option>
-            <option value="app.crashed">Its app crashes</option>
-            <option value="app">Its app sends an event…</option>
-          </select>
-          <Show when={eventKind() === "app"}>
-            <input
-              value={eventName()}
-              placeholder="new-order"
-              onInput={(e) => setEventName(e.currentTarget.value)}
-              {...stylex.attrs(styles.input, styles.mono, styles.narrow)}
-            />
-          </Show>
-        </Show>
       </div>
       <Show when={mode() === "week"}>
         <div {...stylex.attrs(styles.days)} role="group" aria-label="Days of the week">
@@ -665,7 +615,7 @@ function ScheduleEditor(props: { schedule: Schedule | null; draft: ScheduleSpec 
             value={workspaceId()}
             onChange={(e) => {
               setWorkspaceId(e.currentTarget.value);
-              if (!newTab()) setTarget("new:web");
+              if (!newTab()) setTarget("new");
             }}
             {...stylex.attrs(styles.input, styles.auto)}
             data-schedule-workspace
@@ -679,13 +629,12 @@ function ScheduleEditor(props: { schedule: Schedule | null; draft: ScheduleSpec 
           {...stylex.attrs(styles.input)}
           data-schedule-target
         >
-          <option value="new:web">A new tab (opened on the first run)</option>
-          <option value="new:app">A new app tab (opened on the first run)</option>
+          <option value="new">A new tab (opened on the first run)</option>
           <For each={tabsOf()}>{(a) => <option value={a.id}>{a.name}</option>}</For>
           <Show when={keptTab}>{(id) => <option value={id()}>Its tab (closed)</option>}</Show>
         </select>
       </div>
-      <Show when={newWebTab()}>
+      <Show when={newTab()}>
         <div {...stylex.attrs(styles.field)}>
           <span {...stylex.attrs(styles.label)} />
           <input

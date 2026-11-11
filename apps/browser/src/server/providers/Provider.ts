@@ -6,7 +6,7 @@ import { Data, Effect, Queue, Stream } from "effect";
 import type { ProviderId, ProviderModel, ProviderStatus, ToolActivity } from "../../shared/api";
 import type { ProviderSettings } from "../../shared/settings";
 
-/** Rune Browser's MCP server for this turn (agent tools: app runtime, pages, …). */
+/** Rune Browser's MCP server for this turn (the agent's tools: pages, customizations, …). */
 export interface McpEndpoint {
   readonly name: string;
   readonly url: string;
@@ -22,19 +22,12 @@ export interface TurnInput {
   readonly effort: string | null;
   /** Provider session to continue. */
   readonly resume: string | null;
-  /** Rune Browser's tools for the turn; null for plain completions (AI for apps). */
-  readonly mcp: McpEndpoint | null;
   /**
-   * workspace: the provider's own file and shell tools, confined to `cwd`.
-   * none: none of the provider's own tools (no files, shell, web, connectors),
-   * only Rune Browser's MCP tools if there are any. Used for untrusted input: the
-   * website agent and apps' AI requests.
+   * Rune Browser's tools for the turn: the only ones the agent gets. None of the
+   * provider's own tools (no files, shell, web, connectors): web pages are
+   * untrusted input.
    */
-  readonly access: "workspace" | "none";
-  /** A one-off request: don't keep the session around (AI for apps). */
-  readonly ephemeral?: boolean;
-  /** Extra environment for the agent process (PATH with bun). */
-  readonly env: Record<string, string>;
+  readonly mcp: McpEndpoint;
   /** Images (and PDFs) the user attached: given to the model as content it sees. */
   readonly files?: readonly { readonly path: string; readonly mime: string; readonly name: string }[];
 }

@@ -247,7 +247,7 @@ export async function launchRune(opts: LaunchOptions & { seedProfile?: (profile:
       tabIdOf: (tab) => tabIds.get(tab)!,
       async newTab(url) {
         const before = new Set((await targets(port)).filter((t) => t.type === "webview").map((t) => t.id));
-        const app = await api<{ id: string }>("/api/apps", { method: "POST", body: { kind: "web", url, windowId } });
+        const app = await api<{ id: string }>("/api/apps", { method: "POST", body: { url, windowId } });
         const view = `[data-web-tab="${app.id}"] webview`;
         // A new tab from elsewhere isn't selected: click it, as the user would.
         await ui.waitFor(`!!document.querySelector('[data-app-id="${app.id}"]')`, { label: "the new tab" });

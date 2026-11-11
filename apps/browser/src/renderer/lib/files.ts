@@ -18,7 +18,7 @@ import { openInternalPage } from "./internalPages";
 export async function openUrl(url: string, options: { tabId?: string; background?: boolean } = {}) {
   if (openInternalPage(url)) return;
   const tab = options.tabId ? appById(options.tabId) : undefined;
-  if (tab?.kind === "web") {
+  if (tab) {
     await selectApp(tab.id);
     const page = pageOf(tab.id);
     if (page) {
@@ -76,7 +76,7 @@ export function chatFileNamed(tabId: string, text: string): ChatFile | undefined
 
 // --- Paths the agent links ([name](<path>)) --------------------------------------------------
 // Looked up on the server, which only says what a path is inside the tab's
-// chat folders and its app's project (POST /api/apps/:id/files/lookup). The
+// chat folders (POST /api/apps/:id/files/lookup). The
 // chips of one reply are looked up together, and remembered until the chat's
 // files change.
 

@@ -1,6 +1,6 @@
-// The audit log: everything agents, apps and the user did, newest first.
-// Shows the current workspace (plus what belongs to none, like global
-// secrets), filterable by tab and by who did it. New entries appear live.
+// The audit log: everything agents and the user did, newest first.
+// Shows the current workspace (plus what belongs to none, like settings),
+// filterable by tab and by who did it. New entries appear live.
 import * as stylex from "@stylexjs/stylex";
 import { createEffect, createSignal, For, on, onCleanup, Show } from "solid-js";
 import type { AuditEntry } from "../../shared/api";
@@ -13,37 +13,24 @@ import { Icon } from "./Icon";
 
 const PAGE = 100;
 
-const actorIcons: Record<AuditEntry["actor"], string> = {
+// Entries from before apps were removed may have "app" as their actor: they get the fallback.
+const actorIcons: Record<string, string> = {
   user: "user",
   agent: "bot",
-  app: "app-window",
   rune: "shield",
 };
 
 const actions: Record<string, string> = {
   "agent.turn": "Started working",
   "agent.native": "Used its own tool",
-  "ai.request": "Asked AI",
-  "secret.create": "Added a secret",
-  "secret.replace": "Replaced a secret",
-  "secret.delete": "Deleted a secret",
-  "secret.inject": "Gave the app its secrets",
   "permission.allow": "Allowed",
   "permission.deny": "Denied",
   "permission.revoke": "Revoked a permission",
   "permission.timeout": "Request expired",
-  "runtime.start": "Started the app",
-  "runtime.stop": "Stopped the app",
-  "runtime.restart": "Restarted the app",
-  "runtime.mode": "Switched mode",
   "tab.move": "Moved the tab to",
   "history.restore": "Restored an earlier version:",
   "history.undo": "Undid a change:",
   "workspace.delete": "Deleted the workspace",
-  "app.action": "Used",
-  "data.export": "Exported the data of",
-  "data.delete": "Deleted the data of",
-  "data.read": "Read the data of",
   "schedule.run": "Ran the schedule",
   "schedule.create": "Created the schedule",
   "schedule.delete": "Deleted the schedule",
@@ -119,7 +106,6 @@ export function ActivityPage() {
         >
           <option value="">Everyone</option>
           <option value="agent">Agents</option>
-          <option value="app">Apps</option>
           <option value="user">You</option>
           <option value="rune">Rune Browser</option>
         </select>
@@ -132,7 +118,7 @@ export function ActivityPage() {
             return (
               <li {...stylex.attrs(styles.entry)} data-audit-action={entry.action}>
                 <span {...stylex.attrs(styles.icon, denied() && styles.iconDenied, failed() && styles.iconError)}>
-                  <Icon name={actorIcons[entry.actor]} size={14} />
+                  <Icon name={actorIcons[entry.actor] ?? "circle"} size={14} />
                 </span>
                 <div {...stylex.attrs(styles.body)}>
                   <div {...stylex.attrs(styles.line)}>

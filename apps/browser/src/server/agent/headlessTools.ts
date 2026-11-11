@@ -1,8 +1,7 @@
 // Headless tabs: the website agent loads a page in the background, only to read
 // its data, without opening a tab for the user (main/headless.ts does the work,
-// through the renderer: lib/headless.ts). Pages are untrusted, so these tools
-// are only the website agent's, which runs without tools of its own
-// (access "none"), never an app builder's.
+// through the renderer: lib/headless.ts). Pages are untrusted, which is fine:
+// the website agent runs without tools of its own.
 //
 // - Without logins by default: an empty session that keeps nothing.
 // - With logins (the workspace's cookies) only for the hosts the user allowed

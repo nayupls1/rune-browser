@@ -1,10 +1,9 @@
-// Snapshots for agents (history/History.ts): an app builder sees its app's
-// versions and a website agent the site customizations', so they can look at
-// what they did before and go back to it. They can restore but never delete
-// a snapshot; restoring saves the current state first, so it can be undone.
-// The website agent's restore only touches the site it's on.
+// Snapshots for the website agent (history/History.ts): the site
+// customizations' versions, so it can look at what it did before and go back
+// to it. It can restore but never delete a snapshot; restoring saves the
+// current state first, so it can be undone, and only touches the site it's on.
 import { Effect, Schema } from "effect";
-import { appTarget, type HistoryEntry, type PageChange } from "../../shared/api";
+import type { HistoryEntry, PageChange } from "../../shared/api";
 import { topics } from "../../shared/hub";
 import { hostOf, scopeMatches } from "../../shared/web";
 import { PageChanges } from "../db/PageChanges";
@@ -27,15 +26,13 @@ const line = (e: HistoryEntry) => {
   return `#${e.id} ${e.at.slice(0, 16).replace("T", " ")} · ${e.actorLabel} · ${e.summary.slice(0, 120)}${files ? ` (${files} files)` : ""}`;
 };
 
-export const historyTools = Effect.fn(function* (env: ToolEnv, options: { site: boolean }) {
+export const historyTools = Effect.fn(function* (env: ToolEnv) {
   const history = yield* History;
   const pageChanges = yield* PageChanges;
   const sites = yield* Sites;
   const hub = yield* Hub;
-  const target = options.site ? "sites" : appTarget(env.tabId);
-  const what = options.site
-    ? "the site customizations (page changes and site overrides)"
-    : "this app (its files; its data only when asked)";
+  const target = "sites";
+  const what = "the site customizations (page changes and site overrides)";
   const currentUrl = hub.rpc<{ url: string }>("page.info", { tabId: env.tabId }).pipe(Effect.map((p) => p.url));
 
   /** A snapshot of this agent's target. */
@@ -43,11 +40,7 @@ export const historyTools = Effect.fn(function* (env: ToolEnv, options: { site: 
     Effect.gen(function* () {
       const entry = yield* history.entry(id).pipe(Effect.orElseSucceed(() => null));
       if (!entry || entry.target !== target)
-        return yield* Effect.fail(
-          new Error(
-            `No snapshot #${id} of ${options.site ? "the site customizations" : "this app"} (see list_snapshots).`,
-          ),
-        );
+        return yield* Effect.fail(new Error(`No snapshot #${id} of the site customizations (see list_snapshots).`));
       return entry;
     });
 
@@ -98,25 +91,11 @@ export const historyTools = Effect.fn(function* (env: ToolEnv, options: { site: 
 
     tool(
       "restore_snapshot",
-      options.site
-        ? "Bring this site's page changes and override back to how they were in a snapshot (other sites stay as they are). The current state is saved first, so this can be undone too."
-        : "Bring the app's files back to how they were in a snapshot (its data stays as it is unless data is true). The current state is saved first, so this can be undone too.",
-      Schema.Struct({
-        id: Schema.Finite,
-        data: Schema.optionalKey(
-          Schema.Boolean.annotate({
-            description: options.site ? "Ignored for websites" : "Also bring back the app's data",
-          }),
-        ),
-      }),
+      "Bring this site's page changes and override back to how they were in a snapshot (other sites stay as they are). The current state is saved first, so this can be undone too.",
+      Schema.Struct({ id: Schema.Finite }),
       (args) =>
         Effect.gen(function* () {
           const entry = yield* own(args.id);
-          if (!options.site) {
-            yield* history.restore(entry.id, { data: args.data ?? false });
-            yield* env.log(`Restored the app to snapshot #${entry.id}`);
-            return `Restored the app to snapshot #${entry.id} (“${entry.summary.slice(0, 80)}”).`;
-          }
           const url = yield* currentUrl;
           const host = hostOf(url);
           if (!host) return text("The tab isn't on a website.", true);

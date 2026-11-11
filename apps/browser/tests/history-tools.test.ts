@@ -69,7 +69,7 @@ describe("snapshot tools", () => {
           log: (l: string) => Effect.sync(() => void logged.push(l)),
           message: () => Effect.void,
         };
-        const tools = yield* historyTools(env, { site: true }).pipe(Effect.provideService(Hub, fakeHub));
+        const tools = yield* historyTools(env).pipe(Effect.provideService(Hub, fakeHub));
         const call = (name: string, args: object) =>
           Effect.map(tools.find((t) => t.name === name)!.run(args), (r) => ({
             text: (r.content[0] as { text: string }).text,

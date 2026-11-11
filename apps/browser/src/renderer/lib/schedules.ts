@@ -38,7 +38,7 @@ export function scheduleChat(appId: string): boolean {
     name: nameFromPrompt(prompt),
     prompt,
     trigger: { type: "cron", cron: "0 9 * * *" },
-    target: { workspaceId: tab.workspaceId, tabId: tab.id, kind: tab.kind, url: null },
+    target: { workspaceId: tab.workspaceId, tabId: tab.id, url: null },
     agent: { provider, model, effort },
     notify: "failure",
     timeoutSec: DEFAULT_TIMEOUT_SEC,

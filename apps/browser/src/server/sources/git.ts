@@ -1,6 +1,5 @@
-// Git for Rune Browser itself: cloning projects into new app tabs (Workspace.ts)
-// and repositories attached to a tab for its agent (Sources.ts), pulling them
-// again, and reading their state. It runs with your own Git setup (credential
+// Git for Rune Browser itself: cloning repositories attached to a tab for its
+// agent (Sources.ts), pulling them again, and reading their state. It runs with your own Git setup (credential
 // helpers, SSH keys and agent), so private repositories work, but never
 // prompts: Rune Browser has no terminal to answer in. No hooks run.
 import { basename } from "node:path";
@@ -10,8 +9,8 @@ import { agentEnv } from "../providers/process";
 /**
  * What a link to a repository means: https links (GitHub's /tree/<branch>
  * pages too), SSH links (git@host:owner/repo, ssh://), host/owner/repo
- * without a scheme and GitHub's owner/repo. null when it isn't one; local
- * paths and file:// links are for "Import a folder".
+ * without a scheme and GitHub's owner/repo. null when it isn't one (local
+ * paths and file:// links are attached as folders).
  */
 export function parseGitSource(
   input: string,
@@ -82,7 +81,7 @@ export function cloneError(output: string) {
   return text;
 }
 
-/** Running git commands, by what started them (an app's import, a tab's source), so they can be cancelled. */
+/** Running git commands, by what started them (a tab's source), so they can be cancelled. */
 const running = new Map<string, () => void>();
 export const cancelGit = (key: string) => {
   const cancel = running.get(key);

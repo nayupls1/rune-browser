@@ -1,12 +1,11 @@
 // Tabs' own icons: what the user picks (a Lucide icon, an emoji or an image),
-// what the agent may set, and images the agent takes from the project.
+// and that a copy of a tab keeps it.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, ManagedRuntime } from "effect";
 import { DEFAULT_WORKSPACE, type AppSummary } from "../src/shared/api";
-import { readIconFile } from "../src/server/agent/tools";
 import { readConfig } from "../src/server/Config";
 import { Apps } from "../src/server/db/Apps";
 import { core } from "../src/server/services";
@@ -18,46 +17,7 @@ const PNG = Buffer.from(
 );
 const pngUrl = `data:image/png;base64,${PNG.toString("base64")}`;
 
-describe("icon files from the project", () => {
-  const dir = mkdtempSync(join(tmpdir(), "rune-icons-"));
-  const project = join(dir, "project");
-  beforeAll(() => {
-    mkdirSync(join(project, "public"), { recursive: true });
-    writeFileSync(join(project, "public", "icon.png"), PNG);
-    writeFileSync(
-      join(project, "logo.svg"),
-      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><rect width="1" height="1"/></svg>`,
-    );
-    writeFileSync(join(project, "fake.png"), "not a png");
-    writeFileSync(join(project, "big.png"), Buffer.concat([PNG, Buffer.alloc(120_000)]));
-    writeFileSync(join(dir, "secret.png"), PNG);
-    symlinkSync(join(dir, "secret.png"), join(project, "link.png"));
-  });
-  afterAll(() => rmSync(dir, { recursive: true, force: true }));
-
-  test("images inside the project become data URLs", async () => {
-    expect(await readIconFile(project, "public/icon.png")).toBe(pngUrl);
-    expect(await readIconFile(project, "./logo.svg")).toStartWith("data:image/svg+xml;base64,");
-  });
-
-  test("anything else is refused", async () => {
-    expect(await readIconFile(project, "../secret.png")).toEqual({ error: "../secret.png isn't inside the project." });
-    expect(await readIconFile(project, join(dir, "secret.png"))).toMatchObject({
-      error: expect.stringContaining("isn't inside"),
-    });
-    expect(await readIconFile(project, "link.png")).toMatchObject({ error: expect.stringContaining("isn't inside") });
-    expect(await readIconFile(project, "fake.png")).toMatchObject({
-      error: expect.stringContaining("isn't a valid PNG"),
-    });
-    expect(await readIconFile(project, "big.png")).toMatchObject({ error: expect.stringContaining("too big") });
-    expect(await readIconFile(project, "missing.png")).toMatchObject({
-      error: expect.stringContaining("doesn't exist"),
-    });
-    expect(await readIconFile(project, "notes.txt")).toMatchObject({ error: expect.stringContaining("use a PNG") });
-  });
-});
-
-describe("the agent and the user's icon", () => {
+describe("the user's icon", () => {
   const dataDir = mkdtempSync(join(tmpdir(), "rune-icons-db-"));
   const runtime = ManagedRuntime.make(core(readConfig({ RUNE_DATA_DIR: dataDir, PORT: "1" })));
   afterAll(async () => {
@@ -65,24 +25,19 @@ describe("the agent and the user's icon", () => {
     rmSync(dataDir, { recursive: true, force: true });
   });
 
-  test("the agent sets the icon until the user picks one; resetting hands it back", async () => {
+  test("a copy keeps it; resetting goes back to the default", async () => {
     const icons = await runtime.runPromise(
       Effect.gen(function* () {
         const apps = yield* Apps;
-        const app = yield* apps.create(DEFAULT_WORKSPACE, "app", null);
+        const tab = yield* apps.create(DEFAULT_WORKSPACE, "https://example.com/");
         const seen: (string | null | undefined)[] = [];
-        seen.push((yield* apps.setInfo(app.id, { icon: "wallet" }))?.icon);
-        seen.push((yield* apps.setIcon(app.id, "🐢"))?.icon);
-        seen.push((yield* apps.setInfo(app.id, { icon: "rocket" }))?.icon);
-        // A copy keeps the user's choice.
-        const copy = (yield* apps.duplicate(app.id))!;
-        seen.push((yield* apps.setInfo(copy.id, { icon: "rocket" }))?.icon);
-        seen.push((yield* apps.setIcon(app.id, null))?.icon);
-        seen.push((yield* apps.setInfo(app.id, { icon: "rocket" }))?.icon);
+        seen.push((yield* apps.setIcon(tab.id, "🐢"))?.icon);
+        seen.push((yield* apps.duplicate(tab.id))?.icon);
+        seen.push((yield* apps.setIcon(tab.id, null))?.icon);
         return seen;
       }),
     );
-    expect(icons).toEqual(["wallet", "🐢", "🐢", "🐢", null, "rocket"]);
+    expect(icons).toEqual(["🐢", "🐢", null]);
   });
 });
 
@@ -93,7 +48,7 @@ describe("PUT /api/apps/:id/icon", () => {
     server = await startServer();
     tab = await server.api<AppSummary>("/api/apps", {
       method: "POST",
-      json: { kind: "web", url: "https://example.com/" },
+      json: { url: "https://example.com/" },
     });
   });
   afterAll(() => server.stop());

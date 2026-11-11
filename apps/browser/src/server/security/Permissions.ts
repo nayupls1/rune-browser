@@ -1,9 +1,9 @@
-// Permissions: what an app or agent may do beyond its own sandbox. When
-// something new is requested, the user is asked in the UI (allow once,
-// always allow, deny); remembered choices are stored and can be revoked.
-// A choice can be remembered for one app or for every app in its workspace
-// (subject "workspace:<id>"); the app's own choice wins. Unanswered requests
-// are denied after a timeout.
+// Permissions: what an agent may do beyond its own tab. When something new is
+// requested, the user is asked in the UI (allow once, always allow, deny);
+// remembered choices are stored and can be revoked. A choice can be
+// remembered for one tab or for every tab in its workspace (subject
+// "workspace:<id>"); the tab's own choice wins. Unanswered requests are
+// denied after a timeout.
 import { Context, Deferred, Effect, Layer } from "effect";
 import { SqlClient } from "effect/sql";
 import {
@@ -34,7 +34,7 @@ interface GrantRow {
   workspace_name: string | null;
 }
 
-/** Grants with the names of their app or workspace. */
+/** Grants with the names of their tab or workspace. */
 const GRANTS = `
   SELECT p.*, a.name AS app_name, a.workspace_id AS app_workspace, w.name AS workspace_name
   FROM permissions p
@@ -65,19 +65,12 @@ export interface PermissionsShape {
   ) => Effect.Effect<"allow" | "deny" | null>;
   /** The remembered decision, else asks the user (false if they deny or don't answer in time). */
   readonly ask: (input: AskInput) => Effect.Effect<boolean>;
-  /** remember: for this subject, or (apps) for every app in its workspace. */
+  /** remember: for this subject, or (tabs) for every tab in its workspace. */
   readonly answer: (id: string, allow: boolean, remember: false | "subject" | "workspace") => Effect.Effect<boolean>;
   readonly pending: Effect.Effect<PermissionRequest[]>;
   readonly list: Effect.Effect<PermissionGrant[]>;
-  /** Remembers a decision (from the UI, e.g. letting an app use a global secret). */
-  readonly set: (
-    subject: string,
-    action: PermissionAction,
-    resource: string,
-    decision: "allow" | "deny",
-  ) => Effect.Effect<void>;
   readonly revoke: (id: number) => Effect.Effect<PermissionGrant | null>;
-  /** Forgets everything about a subject (the app was deleted). */
+  /** Forgets everything about a subject (its tab was closed, its workspace deleted). */
   readonly forget: (subject: string) => Effect.Effect<void>;
 }
 
@@ -87,8 +80,8 @@ export const subjectName = (subject: string, appName: string | null, workspaceNa
   subject === WEBSITE_AGENT
     ? "Website agent"
     : workspaceOfScope(subject)
-      ? `Apps in ${workspaceName ?? "a deleted workspace"}`
-      : (appName ?? "A deleted app");
+      ? `Tabs in ${workspaceName ?? "a deleted workspace"}`
+      : (appName ?? "A closed tab");
 
 export const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -111,7 +104,7 @@ export const make = Effect.gen(function* () {
 
   const changed = hub.publish({ type: "permissions-changed", topic: topics.activity });
 
-  // The subject's own decision, else (apps) the one for its workspace.
+  // The subject's own decision, else (tabs) the one for its workspace.
   const decision = (subject: string, action: PermissionAction, resource: string) =>
     sql<{ decision: "allow" | "deny" }>`
       SELECT decision FROM permissions
@@ -132,7 +125,7 @@ export const make = Effect.gen(function* () {
   const nameOf = (subject: string) =>
     subject === WEBSITE_AGENT
       ? Effect.succeed("Website agent")
-      : apps.get(subject).pipe(Effect.map((a) => a?.name ?? "A deleted app"));
+      : apps.get(subject).pipe(Effect.map((a) => a?.name ?? "A closed tab"));
 
   const workspaceOf = (subject: string) =>
     sql<{
@@ -155,7 +148,6 @@ export const make = Effect.gen(function* () {
 
   return {
     decision,
-    set,
 
     ask: (input) =>
       Effect.gen(function* () {
@@ -238,7 +230,7 @@ export const make = Effect.gen(function* () {
           tabId: request.subject === WEBSITE_AGENT ? null : request.subject,
           action: allow ? "permission.allow" : "permission.deny",
           target: `${request.action}${request.resource ? ` ${request.resource}` : ""}`,
-          detail: `${request.subjectName}${forWorkspace ? ` (remembered for all apps in ${request.workspace!.name})` : remember ? " (remembered)" : " (once)"}`,
+          detail: `${request.subjectName}${forWorkspace ? ` (remembered for all tabs in ${request.workspace!.name})` : remember ? " (remembered)" : " (once)"}`,
           outcome: allow ? "ok" : "denied",
         });
         return yield* resolve(id, allow);

@@ -1,10 +1,10 @@
-// DevTools for agents: what Chrome DevTools shows about the page in the tab
-// (an app's preview, or the website in a web tab), so an agent can test pages
+// DevTools for the website agent: what Chrome DevTools shows about the page in
+// the tab, so the agent can test pages
 // and find out what's wrong on its own: console, metrics and web vitals,
 // performance traces, accessibility tree, CSS rules, storage, coverage and
 // emulation. The work happens in Electron's main process (main/devtools.ts),
-// reached through the Rune Browser window. On web tabs, cookie values and tokens
-// stay hidden there.
+// reached through the Rune Browser window. Cookie values and tokens stay hidden
+// there.
 import { Effect, Schema } from "effect";
 import type { DevtoolsCommand } from "../../shared/api";
 import type { TraceAnalysis } from "../../shared/trace";
@@ -22,12 +22,12 @@ interface ConsoleEntry {
 
 const json = (value: unknown) => JSON.stringify(value, null, 1);
 
-export const devtoolsTools = Effect.fn(function* (env: ToolEnv, options: { site: boolean }) {
+export const devtoolsTools = Effect.fn(function* (env: ToolEnv) {
   const hub = yield* Hub;
   const data = yield* dataTools(env);
   const devtools = <T>(command: DevtoolsCommand, params: object = {}, timeoutMs = 30_000) =>
     hub.rpc<T>("devtools", { tabId: env.tabId, command, params }, timeoutMs);
-  const where = options.site ? "the page in the user's tab" : "the app's preview";
+  const where = "the page in the user's tab";
 
   // Emulation changes what the user sees: it's undone when the turn ends.
   let emulating = false;
@@ -38,11 +38,7 @@ export const devtoolsTools = Effect.fn(function* (env: ToolEnv, options: { site:
   return [
     data(
       "console_logs",
-      `Console messages and uncaught errors of ${where} (console.log/warn/error, exceptions with their stack, and the browser's own messages: failed requests, CSP, deprecations), oldest first.${
-        options.site
-          ? " On a website, capturing starts the first time you ask: reload the page or redo the steps to see what happens then."
-          : ""
-      }`,
+      `Console messages and uncaught errors of ${where} (console.log/warn/error, exceptions with their stack, and the browser's own messages: failed requests, CSP, deprecations), oldest first. Capturing starts the first time you ask: reload the page or redo the steps to see what happens then.`,
       Schema.Struct({
         level: Schema.optionalKey(
           Schema.Literals(["all", "warnings", "errors"]).annotate({
@@ -174,7 +170,7 @@ export const devtoolsTools = Effect.fn(function* (env: ToolEnv, options: { site:
 
     data(
       "page_storage",
-      `What ${where} stores: cookies (name, domain, expiry, flags${options.site ? "; values hidden" : ""}), localStorage and sessionStorage${options.site ? " (credential-like values hidden)" : ""}, IndexedDB databases with their stores and record counts, Cache Storage and service workers.`,
+      `What ${where} stores: cookies (name, domain, expiry, flags; values hidden), localStorage and sessionStorage (credential-like values hidden), IndexedDB databases with their stores and record counts, Cache Storage and service workers.`,
       NoArgs,
       () => devtools<object>("storage").pipe(Effect.map(json)),
     ),

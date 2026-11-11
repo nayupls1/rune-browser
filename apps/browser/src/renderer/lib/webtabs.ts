@@ -82,10 +82,10 @@ export interface PageHandle {
   saveState: () => Promise<SavedPage | null>;
   /** Something the user would notice going away is happening (sound playing). */
   busy: () => boolean;
-  /** Web tabs: an action of the website agent, with real input events (lib/browse.ts). */
-  act?: (action: BrowseAction) => Promise<unknown>;
-  /** Web tabs: waits for what an action started (a navigation) to finish. */
-  settle?: () => Promise<PageInfo>;
+  /** An action of the website agent, with real input events (lib/browse.ts). */
+  act: (action: BrowseAction) => Promise<unknown>;
+  /** Waits for what an action started (a navigation) to finish. */
+  settle: () => Promise<PageInfo>;
 }
 
 export type BrowseAction =
@@ -101,7 +101,7 @@ const [pagesVersion, setPagesVersion] = createSignal(0);
 export { pagesVersion };
 export const pagesChanged = () => setPagesVersion((v) => v + 1);
 
-/** The page open in a tab (web tab or app preview), if it's mounted. */
+/** The page open in a tab, if it's mounted. */
 export const pageOf = (tabId: string) => pages.get(tabId);
 
 /** The tab showing a webContents. */
@@ -171,7 +171,7 @@ export async function wakePage(tabId: string) {
   if (!handle && appById(tabId)) {
     await openTab(tabId);
     handle = await registered(tabId, 5_000);
-    // Waits for its first load (bounded: an app that isn't running has no page to load).
+    // Waits for its first load (bounded).
     await handle?.whenLoaded();
   }
   if (!handle) throw new Error("No page is open in this tab");
@@ -228,11 +228,7 @@ handleRpc("page.capture", async ({ tabId }) => {
 handleRpc("page.navigate", async ({ tabId, url }) => (await page(tabId)).navigate(String(url)));
 handleRpc("page.reload", async ({ tabId }) => (await page(tabId)).reload());
 // The website agent's browse tools (agent/browseTools.ts): find the element, then act on it.
-const browsing = async (tabId: unknown) => {
-  const handle = await page(tabId);
-  if (!handle.act || !handle.settle) throw new Error("Only web pages can be used this way");
-  return handle as PageHandle & Required<Pick<PageHandle, "act" | "settle">>;
-};
+const browsing = page;
 handleRpc("page.target", async (params) => (await browsing(params.tabId)).eval(targetScript(params as Locator)));
 handleRpc("page.act", async (params) => (await browsing(params.tabId)).act(params as unknown as BrowseAction));
 handleRpc("page.settle", async ({ tabId }) => (await browsing(tabId)).settle());
@@ -261,7 +257,7 @@ handleRpc("page.applyOverride", async ({ tabId }) => {
 // What the website agent gets is always redacted (reveal: false).
 
 const network = window.rune.web.network;
-// DevTools for the agents (main/devtools.ts), on web tabs and app previews.
+// DevTools for the agents (main/devtools.ts), on web tabs.
 handleRpc("devtools", async ({ tabId, command, params }) => {
   const handle = await page(tabId);
   const run = () => window.rune.web.devtools(handle.webContentsId(), command as DevtoolsCommand, params ?? {});
@@ -405,7 +401,7 @@ watchTopic(topics.sites, (msg) => {
 });
 onConnected(() => void loadPageChanges());
 
-// Links that want a new window (web pages, app previews, chat links).
+// Links that want a new window (web pages, chat links).
 window.rune.web.onOpenTab((url, background) => void newWebTab(url, { background }));
 
 // Links and files from other apps (Rune Browser as the default browser: main/defaultBrowser.ts),

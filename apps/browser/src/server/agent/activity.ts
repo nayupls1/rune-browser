@@ -14,7 +14,7 @@ const quoted = (v: unknown, max = 50) => (str(v) ? ` “${clip(str(v)!, max)}”
 const plain = (v: unknown, max = 60) => (str(v) ? ` ${clip(str(v)!, max)}` : "");
 
 const tools: Record<string, { kind: ToolKind; title: (args: Args) => string }> = {
-  // The page (the website, or the app's preview).
+  // The page in the tab.
   get_page: { kind: "page", title: () => "Read the page" },
   navigate: { kind: "web", title: (a) => `Opened${plain(a.url, 70) || " a page"}` },
   reload: { kind: "page", title: () => "Reloaded the page" },
@@ -70,7 +70,6 @@ const tools: Record<string, { kind: ToolKind; title: (args: Args) => string }> =
   edit_file: { kind: "edit", title: (a) => `Edited${plain(a.path) || " a file"}` },
   delete_file: { kind: "edit", title: (a) => `Deleted${plain(a.path) || " a file"}` },
   show_files: { kind: "read", title: () => "Showed files" },
-  copy_to_project: { kind: "create", title: (a) => `Copied${plain(a.path) || " a file"} into the project` },
   // Site customizations and page changes.
   get_site_override: { kind: "customize", title: () => "Read the site's customization" },
   set_site_override: { kind: "customize", title: () => "Customized the site" },
@@ -94,30 +93,10 @@ const tools: Record<string, { kind: ToolKind; title: (args: Args) => string }> =
   override_response: { kind: "network", title: () => "Overrode a response" },
   remove_response_override: { kind: "network", title: () => "Removed a response override" },
   api_map: { kind: "network", title: () => "Read the API map" },
-  // The app.
-  create_project: { kind: "app", title: () => "Created the project" },
-  app_status: { kind: "app", title: () => "Checked the app" },
-  app_logs: { kind: "app", title: () => "Read the app's logs" },
-  restart_app: { kind: "app", title: () => "Restarted the app" },
-  set_app_info: { kind: "app", title: () => "Updated the app's name and icon" },
-  app_data: { kind: "app", title: () => "Looked at the app's data" },
-  run_command: {
-    kind: "command",
-    title: (a) => `Ran${str(a.command) ? ` \`${clip(str(a.command)!, 70)}\`` : " a command"}`,
-  },
-  search_icons: { kind: "search", title: (a) => `Searched icons for${quoted(a.query)}` },
-  list_app_tools: { kind: "app", title: () => "Listed the apps' tools" },
-  use_app_tool: { kind: "app", title: (a) => `Used${plain(a.tool, 40) || " an app's tool"}` },
-  // Schedules, snapshots, secrets, tabs.
-  list_schedules: { kind: "schedule", title: () => "Listed the scheduled tasks" },
-  create_schedule: { kind: "schedule", title: (a) => `Scheduled${quoted(a.name) || " a task"}` },
-  update_schedule: { kind: "schedule", title: () => "Updated a scheduled task" },
-  delete_schedule: { kind: "schedule", title: () => "Deleted a scheduled task" },
+  // Snapshots and tabs.
   list_snapshots: { kind: "snapshot", title: () => "Listed the snapshots" },
   view_snapshot: { kind: "snapshot", title: () => "Looked at a snapshot" },
   restore_snapshot: { kind: "snapshot", title: () => "Restored a snapshot" },
-  list_secrets: { kind: "secret", title: () => "Listed the secrets" },
-  request_secret: { kind: "secret", title: (a) => `Asked for the secret${plain(a.name, 40) || ""}` },
   list_tabs: { kind: "tab", title: () => "Listed the tabs" },
   read_tab: { kind: "tab", title: (a) => `Read the tab${quoted(a.tab, 40)}` },
   // Attached code.

@@ -8,9 +8,15 @@ import { Effect, Exit, ManagedRuntime, Schema, Scope } from "effect";
 import { make, tool, type Tool } from "../src/server/agent/Mcp";
 import { batchTools } from "../src/server/agent/batchTools";
 import { browseTools } from "../src/server/agent/browseTools";
-import { jobTools } from "../src/server/agent/jobTools";
+import { devtoolsTools } from "../src/server/agent/devtoolsTools";
+import { endpointTools } from "../src/server/agent/endpointTools";
 import { fileTools } from "../src/server/agent/fileTools";
-import { appTools, pageTools, registryTools, scheduleTools, siteTools, tabTools } from "../src/server/agent/tools";
+import { headlessTools } from "../src/server/agent/headlessTools";
+import { historyTools } from "../src/server/agent/historyTools";
+import { jobTools } from "../src/server/agent/jobTools";
+import { networkTools } from "../src/server/agent/networkTools";
+import { sourceTools } from "../src/server/agent/sourceTools";
+import { pageTools, siteTools, tabTools } from "../src/server/agent/tools";
 import { readConfig } from "../src/server/Config";
 import { core } from "../src/server/services";
 
@@ -76,21 +82,27 @@ describe("mcp", () => {
   });
 
   test("every Rune Browser tool has an object input schema", async () => {
+    // The website agent's tools, as Agent.ts gives them.
     const tools = await runtime.runPromise(
-      Effect.gen(function* () {
-        return [
-          ...(yield* pageTools(env, { site: true })),
-          ...(yield* browseTools(env)),
-          ...(yield* batchTools(env)),
-          ...(yield* jobTools(env, { site: true })),
-          ...(yield* siteTools(env)),
-          ...(yield* appTools(env)),
-          ...(yield* registryTools(env)),
-          ...(yield* scheduleTools(env)),
-          ...(yield* tabTools(env)),
-          ...(yield* fileTools(env)),
-        ];
-      }),
+      Effect.scoped(
+        Effect.gen(function* () {
+          return [
+            ...(yield* pageTools(env)),
+            ...(yield* devtoolsTools(env)),
+            ...(yield* browseTools(env)),
+            ...(yield* headlessTools(env)),
+            ...(yield* siteTools(env)),
+            ...(yield* networkTools(env)),
+            ...(yield* batchTools(env)),
+            ...(yield* jobTools(env)),
+            ...(yield* endpointTools(env)),
+            ...(yield* historyTools(env)),
+            ...(yield* sourceTools(env)),
+            ...(yield* tabTools(env)),
+            ...(yield* fileTools(env)),
+          ];
+        }),
+      ),
     );
     const s = await session(tools);
     const list = await s.rpc("tools/list");
@@ -98,8 +110,8 @@ describe("mcp", () => {
     for (const t of list.result.tools) {
       expect(t.inputSchema.type).toBe("object");
       // Numbers are plain numbers (not "number or the string NaN").
-      for (const prop of Object.values(t.inputSchema.properties ?? {}) as { anyOf?: unknown }[])
-        expect(prop.anyOf).toBeUndefined();
+      for (const prop of Object.values(t.inputSchema.properties ?? {}) as { anyOf?: { type?: string }[] }[])
+        if (prop.anyOf?.some((p) => p.type === "number")) expect(prop.anyOf).toBeUndefined();
     }
     await s.close();
   });

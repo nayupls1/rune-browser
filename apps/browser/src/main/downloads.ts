@@ -1,5 +1,5 @@
-// Downloads, like Chromium's: every session's downloads (web tabs, app
-// previews, Rune Browser's own windows) go to the downloads folder under a name
+// Downloads, like Chromium's: every session's downloads (web tabs, Rune
+// Browser's own windows) go to the downloads folder under a name
 // that doesn't overwrite anything, or where the user picks when "ask where to
 // save" is on (Settings → General → Downloads, main/browser.ts). Risky ones (a
 // file type that runs code, a site without HTTPS) are saved under a name that
@@ -201,9 +201,7 @@ export function setupDownloads(options: {
     const danger =
       downloadDanger({ filename, url: item.getURL(), initiator: item.getInitiatorOrigin(), pageUrl }) ??
       downloadDanger({ filename, url });
-    // An app's page always asks where to save: an app (sandboxed) only gets files out when the user says where.
-    const fromApp = !!options.partitionOf(s) && options.workspaceOf(s) === undefined;
-    const asking = askNext.delete(url) || askNext.delete(item.getURL()) || options.ask() || fromApp;
+    const asking = askNext.delete(url) || askNext.delete(item.getURL()) || options.ask();
     // Started by an extension, maybe under a name of its own (in the downloads folder, like Chrome's).
     const waiting = requested.get(url) ?? requested.get(item.getURL());
     const request = waiting?.shift();

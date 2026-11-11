@@ -301,7 +301,7 @@ const tabSwitch: Scenario = {
     for (let i = 0; i < 10; i++) {
       const app = await r.api<{ id: string }>("/api/apps", {
         method: "POST",
-        body: { kind: "web", url: ctx.site.url(`/nav/${i}`), windowId: r.windowId },
+        body: { url: ctx.site.url(`/nav/${i}`), windowId: r.windowId },
       });
       ids.push(app.id);
       // Viewed once, so it's loaded (as tabs a user opened and looked at are).
@@ -374,7 +374,7 @@ function manyTabs(layout: "horizontal" | "vertical"): Scenario {
             Array.from({ length: 10 }, (_, k) =>
               r.api("/api/apps", {
                 method: "POST",
-                body: { kind: "web", url: ctx.site.url(`/nav/${i + k}`), windowId: r.windowId },
+                body: { url: ctx.site.url(`/nav/${i + k}`), windowId: r.windowId },
               }),
             ),
           );
@@ -472,7 +472,7 @@ const hungPage: Scenario = {
     const keep = await openTabs(ctx);
     const other = await r.api<{ id: string }>("/api/apps", {
       method: "POST",
-      body: { kind: "web", url: ctx.site.url("/nav/2"), windowId: r.windowId },
+      body: { url: ctx.site.url("/nav/2"), windowId: r.windowId },
     });
     await r.ui.waitFor(`!!document.querySelector('[data-app-id="${other.id}"]')`, { label: "the other tab" });
     await ctx.tab.navigate(ctx.site.url("/hang?ms=4000"));

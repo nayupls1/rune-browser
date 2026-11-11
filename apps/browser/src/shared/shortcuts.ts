@@ -259,7 +259,6 @@ export const shortcutDefs: ShortcutDef[] = [
     keys: ["Mod+Shift+B"],
     page: "page",
   },
-  { id: "new.app", label: "New app", category: "Rune Browser", keys: [], page: "page" },
   ...workspaceNumbers.map((n): ShortcutDef => ({
     id: `workspace.select-${n}`,
     label: `Workspace ${n}`,

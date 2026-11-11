@@ -1,14 +1,13 @@
 // Snapshots in the UI: the timeline (who changed what, when), each with its
 // files and line diffs, and the two ways back: undo just that change, or
-// restore everything to that version. Used by the Snapshots page and the app
-// tab's history panel. Browsing history is BrowsingHistory.tsx.
+// restore everything to that version: the Snapshots page. Browsing history is
+// BrowsingHistory.tsx.
 import * as stylex from "@stylexjs/stylex";
 import { createEffect, createResource, createSignal, For, on, onCleanup, Show } from "solid-js";
-import { appOfTarget, type HistoryEntry, type HistoryFile } from "../../shared/api";
+import type { HistoryEntry, HistoryFile } from "../../shared/api";
 import { topics } from "../../shared/hub";
 import { api } from "../lib/api";
 import { watchTopic } from "../lib/realtime";
-import { allApps, currentWorkspace, workspaces } from "../lib/store";
 import { colors, font, radius, space } from "../theme.stylex";
 import { confirmDialog } from "./ConfirmDialog";
 import { Icon } from "./Icon";
@@ -16,44 +15,36 @@ import { Button } from "./ui";
 
 const PAGE = 50;
 
-const actorIcons: Record<HistoryEntry["actor"], string> = {
+// Snapshots from before apps were removed may have "app" as their actor: they get the fallback.
+const actorIcons: Record<string, string> = {
   agent: "bot",
   user: "user",
-  app: "app-window",
   rune: "camera",
 };
 
 const when = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 
 /** The name of what a snapshot covers. */
-export const targetName = (target: string) => {
-  const appId = appOfTarget(target);
-  if (appId) return allApps().find((a) => a.id === appId)?.name ?? "A deleted app";
-  return target === "sites" ? "Site customizations" : "Settings";
-};
+const targetName = (target: string) => (target === "sites" ? "Site customizations" : "Settings");
 
-/** The snapshots of a target (or of everything in the workspace), newest first, live. */
-export function HistoryList(props: {
-  target?: string;
-  workspaceId?: string;
-  showTarget?: boolean;
-  empty?: string;
-  /** Offer "restore everything to here" (the History page): for the workspace's apps, or all of them (""). */
-  restoreAllIn?: string;
-}) {
+/** The snapshots of a target (or of everything), newest first, live. */
+function HistoryList(props: { target?: string; showTarget?: boolean }) {
   const [entries, setEntries] = createSignal<HistoryEntry[]>([]);
   const [more, setMore] = createSignal(false);
   const [open, setOpen] = createSignal<number | null>(null);
-  const matches = (e: HistoryEntry) =>
-    (!props.target || e.target === props.target) &&
-    (!props.workspaceId || !e.workspaceId || e.workspaceId === props.workspaceId);
+  const matches = (e: HistoryEntry) => !props.target || e.target === props.target;
 
   const load = async (before?: number) => {
-    const page = await api.history({ target: props.target, workspace: props.workspaceId, before, limit: PAGE });
+    const page = await api.history({ target: props.target, before, limit: PAGE });
     setEntries((list) => (before ? [...list, ...page] : page));
     setMore(page.length === PAGE);
   };
-  createEffect(on([() => props.target, () => props.workspaceId], () => void load()));
+  createEffect(
+    on(
+      () => props.target,
+      () => void load(),
+    ),
+  );
   onCleanup(
     watchTopic(topics.history, (msg) => {
       if (msg.type === "snapshot" && matches(msg.entry)) {
@@ -65,11 +56,10 @@ export function HistoryList(props: {
 
   return (
     <div {...stylex.attrs(styles.list)} data-history>
-      <For each={entries()} fallback={<p {...stylex.attrs(styles.empty)}>{props.empty ?? "No changes yet."}</p>}>
+      <For each={entries()} fallback={<p {...stylex.attrs(styles.empty)}>No changes yet.</p>}>
         {(entry) => (
           <Entry
             entry={entry}
-            restoreAllIn={props.restoreAllIn}
             showTarget={!!props.showTarget}
             open={open() === entry.id}
             onToggle={() => setOpen((id) => (id === entry.id ? null : entry.id))}
@@ -86,65 +76,28 @@ export function HistoryList(props: {
 }
 
 function Stats(props: { entry: HistoryEntry }) {
-  const files = () => {
-    const dbs = new Set(Object.keys(props.entry.data));
-    const count = (paths: string[]) => paths.filter((p) => !dbs.has(p)).length;
-    return {
-      added: count(props.entry.added),
-      modified: count(props.entry.modified),
-      removed: count(props.entry.removed),
-    };
-  };
-  const tables = () =>
-    Object.values(props.entry.data).flatMap((t) =>
-      Object.entries(t).map(([name, [before, after]]) => {
-        const delta = (after ?? 0) - (before ?? 0);
-        return after === null
-          ? `${name} removed`
-          : before === null
-            ? `${name} new`
-            : `${name} ${delta > 0 ? "+" : ""}${delta}`;
-      }),
-    );
-  const dataChanged = () => Object.keys(props.entry.data).length > 0;
   return (
     <span {...stylex.attrs(styles.stats)}>
-      <Show when={files().added}>
-        <span {...stylex.attrs(styles.added)}>+{files().added}</span>
+      <Show when={props.entry.added.length}>
+        <span {...stylex.attrs(styles.added)}>+{props.entry.added.length}</span>
       </Show>
-      <Show when={files().modified}>
-        <span {...stylex.attrs(styles.modified)}>~{files().modified}</span>
+      <Show when={props.entry.modified.length}>
+        <span {...stylex.attrs(styles.modified)}>~{props.entry.modified.length}</span>
       </Show>
-      <Show when={files().removed}>
-        <span {...stylex.attrs(styles.removed)}>−{files().removed}</span>
-      </Show>
-      <Show when={dataChanged()}>
-        <span {...stylex.attrs(styles.dataChip)} title="The app's data changed">
-          <Icon name="database" size={11} />
-          {tables().length ? tables().slice(0, 3).join(", ") : "data"}
-        </span>
+      <Show when={props.entry.removed.length}>
+        <span {...stylex.attrs(styles.removed)}>−{props.entry.removed.length}</span>
       </Show>
     </span>
   );
 }
 
-function Entry(props: {
-  entry: HistoryEntry;
-  showTarget: boolean;
-  open: boolean;
-  onToggle: () => void;
-  restoreAllIn?: string;
-}) {
+function Entry(props: { entry: HistoryEntry; showTarget: boolean; open: boolean; onToggle: () => void }) {
   const [detail] = createResource(
     () => (props.open ? props.entry.id : undefined),
     (id) => api.historyDetail(id),
   );
   const [busy, setBusy] = createSignal(false);
   const [message, setMessage] = createSignal<{ text: string; error: boolean }>();
-  const isApp = () => !!appOfTarget(props.entry.target);
-  // The app's data only goes back when asked: whatever was added since would be lost.
-  const [withData, setWithData] = createSignal(false);
-  const hasData = () => isApp();
 
   const run = async (fn: () => Promise<string | null | void>) => {
     setBusy(true);
@@ -161,37 +114,30 @@ function Entry(props: {
 
   const undo = () =>
     run(async () => {
-      const data = hasData() && withData();
-      const ok = await confirmDialog(
-        `Undo “${props.entry.summary}”? Only what changed in this step is reverted${isApp() ? (data ? ", including the app's data." : "; the app's data stays as it is.") : "."}`,
-        { confirmLabel: "Undo", danger: data },
-      );
+      const ok = await confirmDialog(`Undo “${props.entry.summary}”? Only what changed in this step is reverted.`, {
+        confirmLabel: "Undo",
+      });
       if (!ok) return;
-      return (await api.undoSnapshot(props.entry.id, data)).note;
+      return (await api.undoSnapshot(props.entry.id)).note;
     });
 
   const restore = () =>
     run(async () => {
-      const data = hasData() && withData();
       const ok = await confirmDialog(
-        `Restore ${targetName(props.entry.target)} to how it was on ${when(props.entry.at)}?${isApp() ? (data ? " The app's data goes back too: what was added since is lost." : " The app's current data stays as it is.") : ""} You can undo this.`,
-        { confirmLabel: "Restore", danger: data },
+        `Restore ${targetName(props.entry.target)} to how it was on ${when(props.entry.at)}? You can undo this.`,
+        { confirmLabel: "Restore" },
       );
-      if (ok) await api.restoreSnapshot(props.entry.id, data);
+      if (ok) await api.restoreSnapshot(props.entry.id);
     });
 
   const restoreAll = () =>
     run(async () => {
-      const data = withData();
-      const scope = props.restoreAllIn
-        ? (workspaces.find((w) => w.id === props.restoreAllIn)?.name ?? "this workspace")
-        : "all workspaces";
       const ok = await confirmDialog(
-        `Put everything back to how it was on ${when(props.entry.at)}? Rune Browser's settings, the site customizations and the apps in ${scope} go back to that moment${data ? ", their data too (what was added since is lost)" : "; the apps' data stays as it is"}. Apps made since stay as they are. Each can be undone on its own.`,
+        `Put everything back to how it was on ${when(props.entry.at)}? Rune Browser's settings and the site customizations go back to that moment. Each can be undone on its own.`,
         { confirmLabel: "Restore everything", danger: true },
       );
       if (!ok) return;
-      const { restored } = await api.restoreAll(props.entry.id, data, props.restoreAllIn || undefined);
+      const { restored } = await api.restoreAll(props.entry.id);
       return restored.length
         ? `Restored ${restored.map(targetName).join(", ")}.`
         : "Everything already was the way it was then.";
@@ -201,7 +147,7 @@ function Entry(props: {
     <div {...stylex.attrs(styles.entry)} data-snapshot={props.entry.id}>
       <button type="button" onClick={props.onToggle} aria-expanded={props.open} {...stylex.attrs(styles.head)}>
         <span {...stylex.attrs(styles.actor)}>
-          <Icon name={actorIcons[props.entry.actor]} size={13} />
+          <Icon name={actorIcons[props.entry.actor] ?? "circle"} size={13} />
         </span>
         <span {...stylex.attrs(styles.headText)}>
           <span {...stylex.attrs(styles.summary)}>{props.entry.summary}</span>
@@ -226,23 +172,15 @@ function Entry(props: {
               <Icon name="archive-arrow-up" size={14} />
               Restore this version
             </Button>
-            <Show when={props.restoreAllIn !== undefined}>
-              <Button
-                onClick={() => void restoreAll()}
-                disabled={busy()}
-                title="Settings, site customizations and every app back to this moment"
-                data-restore-all
-              >
-                <Icon name="rewind" size={14} />
-                Restore everything to here
-              </Button>
-            </Show>
-            <Show when={hasData()}>
-              <label {...stylex.attrs(styles.check)}>
-                <input type="checkbox" checked={withData()} onChange={(e) => setWithData(e.currentTarget.checked)} />
-                also its data
-              </label>
-            </Show>
+            <Button
+              onClick={() => void restoreAll()}
+              disabled={busy()}
+              title="Settings and site customizations back to this moment"
+              data-restore-all
+            >
+              <Icon name="rewind" size={14} />
+              Restore everything to here
+            </Button>
           </div>
           <Show when={message()}>
             {(m) => (
@@ -280,7 +218,7 @@ function FileDiff(props: { file: HistoryFile; open: boolean }) {
         onClick={() => setOpen((o) => !o)}
         {...stylex.attrs(styles.fileHead)}
       >
-        <Icon name={props.file.kind === "data" ? "database" : "file"} size={13} {...stylex.attrs(styles.fileIcon)} />
+        <Icon name="file" size={13} {...stylex.attrs(styles.fileIcon)} />
         <code {...stylex.attrs(styles.path)}>{props.file.path}</code>
         <span {...stylex.attrs(styles.fileStatus, isAdded() && styles.added, isRemoved() && styles.removed)}>
           {statusLabels[props.file.status]}
@@ -297,23 +235,6 @@ function FileDiff(props: { file: HistoryFile; open: boolean }) {
           </span>
         </Show>
       </button>
-      <Show when={props.file.kind === "data"}>
-        <div {...stylex.attrs(styles.tables)}>
-          <Show
-            when={Object.keys(props.file.tables ?? {}).length}
-            fallback={<span>Rows were changed (the number of rows stayed the same).</span>}
-          >
-            <For each={Object.entries(props.file.tables ?? {})}>
-              {([name, [before, after]]) => (
-                <span>
-                  <code>{name}</code>: {before === null ? "new table" : `${before} rows`} →{" "}
-                  {after === null ? "removed" : `${after} rows`}
-                </span>
-              )}
-            </For>
-          </Show>
-        </div>
-      </Show>
       <Show when={isOpen()}>
         <div {...stylex.attrs(styles.diff)}>
           <For each={props.file.hunks}>
@@ -343,28 +264,12 @@ function FileDiff(props: { file: HistoryFile; open: boolean }) {
   );
 }
 
-/** The Snapshots page (Settings): everything in the current workspace, or one thing. */
+/** The Snapshots page (Settings): everything, or one thing. */
 export function HistoryPage() {
   const [target, setTarget] = createSignal("");
-  const [everywhere, setEverywhere] = createSignal(false);
-  const workspace = () => (everywhere() ? undefined : currentWorkspace()?.id);
-  const appTabs = () => allApps().filter((a) => a.kind === "app" && (!workspace() || a.workspaceId === workspace()));
   return (
     <div {...stylex.attrs(styles.page)} data-history-page>
       <div {...stylex.attrs(styles.filters)}>
-        <select
-          value={everywhere() ? "all" : "current"}
-          onChange={(e) => {
-            setEverywhere(e.currentTarget.value === "all");
-            setTarget("");
-          }}
-          {...stylex.attrs(styles.select)}
-        >
-          <option value="current">{currentWorkspace()?.name ?? "This workspace"}</option>
-          <Show when={workspaces.length > 1}>
-            <option value="all">All workspaces</option>
-          </Show>
-        </select>
         <select
           value={target()}
           onChange={(e) => setTarget(e.currentTarget.value)}
@@ -374,49 +279,10 @@ export function HistoryPage() {
           <option value="">Everything</option>
           <option value="settings">Settings</option>
           <option value="sites">Site customizations</option>
-          <For each={appTabs()}>{(a) => <option value={`app:${a.id}`}>{a.name}</option>}</For>
         </select>
       </div>
       <div {...stylex.attrs(styles.card)}>
-        <HistoryList
-          target={target() || undefined}
-          workspaceId={workspace()}
-          showTarget={!target()}
-          restoreAllIn={workspace() ?? ""}
-        />
-      </div>
-    </div>
-  );
-}
-
-/** The app tab's history: its snapshots, and saving one by hand. */
-export function HistoryPanel(props: { appId: string; onClose: () => void }) {
-  const [saved, setSaved] = createSignal<string>();
-  const save = async () => {
-    const entry = await api.saveSnapshot(`app:${props.appId}`);
-    setSaved(entry ? "Saved." : "Nothing changed since the last snapshot.");
-    setTimeout(() => setSaved(), 3000);
-  };
-  return (
-    <div {...stylex.attrs(styles.panel)} data-history-panel>
-      <div {...stylex.attrs(styles.panelHeader)}>
-        <Icon name="file-clock" size={14} />
-        <span {...stylex.attrs(styles.panelTitle)}>History</span>
-        <Show when={saved()}>
-          <span {...stylex.attrs(styles.meta)}>{saved()}</span>
-        </Show>
-        <button type="button" onClick={() => void save()} {...stylex.attrs(styles.linkButton)} data-save-snapshot>
-          Save a snapshot
-        </button>
-        <button type="button" title="Close" onClick={props.onClose} {...stylex.attrs(styles.iconButton)}>
-          <Icon name="x" size={14} />
-        </button>
-      </div>
-      <div {...stylex.attrs(styles.panelBody)}>
-        <HistoryList
-          target={`app:${props.appId}`}
-          empty="No snapshots yet: they're saved when the agent works on the app."
-        />
+        <HistoryList target={target() || undefined} showTarget={!target()} />
       </div>
     </div>
   );
@@ -489,20 +355,6 @@ const styles = stylex.create({
   added: { color: colors.success },
   modified: { color: colors.warning },
   removed: { color: colors.danger },
-  dataChip: {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 4,
-    maxWidth: 220,
-    paddingInline: 6,
-    borderRadius: radius.full,
-    backgroundColor: colors.surfaceHover,
-    color: colors.muted,
-    fontFamily: font.sans,
-    overflow: "hidden",
-    whiteSpace: "nowrap",
-    textOverflow: "ellipsis",
-  },
   chevron: { flexShrink: 0, color: colors.muted },
   body: {
     display: "flex",
@@ -513,7 +365,6 @@ const styles = stylex.create({
     paddingTop: space.xs,
   },
   actions: { display: "flex", alignItems: "center", gap: space.sm, flexWrap: "wrap" },
-  check: { display: "flex", alignItems: "center", gap: 6, color: colors.muted, fontSize: font.sm, cursor: "pointer" },
   message: { margin: 0, fontSize: font.sm, color: colors.muted },
   messageError: { color: colors.danger },
   file: {
@@ -540,15 +391,6 @@ const styles = stylex.create({
   path: { flex: 1, minWidth: 0, fontFamily: font.mono, fontSize: font.xs, overflowWrap: "anywhere" },
   fileStatus: { flexShrink: 0, color: colors.muted, fontSize: font.xs },
   lineStats: { flexShrink: 0, color: colors.muted, fontFamily: font.mono, fontSize: font.xs },
-  tables: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 2,
-    paddingBlock: 6,
-    paddingInline: space.md,
-    color: colors.muted,
-    fontSize: font.xs,
-  },
   diff: { maxHeight: 420, overflow: "auto", fontFamily: font.mono, fontSize: 12, lineHeight: 1.5 },
   hunkHead: { paddingInline: space.sm, backgroundColor: colors.surfaceHover, color: colors.muted },
   line: { whiteSpace: "pre", paddingRight: space.sm, minWidth: "fit-content" },
@@ -567,47 +409,6 @@ const styles = stylex.create({
     backgroundColor: { default: colors.surface, ":hover": colors.surfaceHover },
     color: colors.text,
     fontSize: font.sm,
-    cursor: "pointer",
-  },
-  panel: {
-    display: "flex",
-    flexDirection: "column",
-    maxHeight: "45%",
-    flexShrink: 0,
-    borderTopWidth: 1,
-    borderTopStyle: "solid",
-    borderTopColor: colors.border,
-    backgroundColor: colors.surface,
-  },
-  panelHeader: {
-    display: "flex",
-    alignItems: "center",
-    gap: 6,
-    height: 34,
-    flexShrink: 0,
-    paddingInline: space.md,
-    color: colors.muted,
-  },
-  panelTitle: { flex: 1, fontSize: font.xs, fontWeight: 600 },
-  panelBody: { overflowY: "auto", borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: colors.border },
-  linkButton: {
-    padding: 0,
-    borderWidth: 0,
-    backgroundColor: "transparent",
-    color: colors.accent,
-    fontSize: font.xs,
-    cursor: "pointer",
-  },
-  iconButton: {
-    display: "grid",
-    placeItems: "center",
-    width: 24,
-    height: 24,
-    padding: 0,
-    borderWidth: 0,
-    borderRadius: radius.sm,
-    backgroundColor: { default: "transparent", ":hover": colors.surfaceHover },
-    color: colors.muted,
     cursor: "pointer",
   },
 });

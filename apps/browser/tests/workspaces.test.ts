@@ -1,8 +1,8 @@
-// Workspaces: tabs, secrets, permissions and the audit log scoped to them,
-// against the real server and real (sandboxed) app processes. No model is called.
+// Workspaces: tabs, permissions and the audit log scoped to them, against the
+// real server. No model is called.
 import { Database } from "bun:sqlite";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -13,17 +13,6 @@ import {
   type WorkspaceInfo,
 } from "../src/shared/api";
 import { startServer } from "./lib/server";
-import { devScript } from "./lib/apps";
-
-const waitFor = async <T>(fn: () => T | undefined, ms = 15_000): Promise<T> => {
-  const deadline = Date.now() + ms;
-  for (;;) {
-    const value = fn();
-    if (value !== undefined) return value;
-    if (Date.now() > deadline) throw new Error("timed out");
-    await Bun.sleep(100);
-  }
-};
 
 describe("workspaces", () => {
   let server: Awaited<ReturnType<typeof startServer>>;
@@ -31,32 +20,11 @@ describe("workspaces", () => {
   let inClient: AppSummary;
   let inPersonal: AppSummary;
 
-  const dirOf = (app: AppSummary) => join(server.dataDir, "apps", app.id);
-  const seen = (app: AppSummary, step: string) => {
-    const file = join(dirOf(app), `seen-${step}.txt`);
-    return existsSync(file) ? readFileSync(file, "utf8") || undefined : undefined;
-  };
-  /** From now on, the app's dev "server" writes the secrets it got (for `step`) and stays up. */
-  const report = (app: AppSummary, step: string) =>
-    devScript(
-      dirOf(app),
-      `await Bun.write("seen-${step}.txt", [process.env.SHARED || "unset", process.env.GLOBAL_KEY || "unset"].join(" "));`,
-    );
-  /**
-   * What the app's dev process reports for `step`, once it's `expected`, or the last thing it reported. A restart
-   * from an earlier step can land late (slow process starts on Windows) and report first with what it was given then.
-   */
-  const reported = async (app: AppSummary, step: string, expected: string) => {
-    await waitFor(() => (seen(app, step) === expected ? true : undefined)).catch(() => {});
-    return seen(app, step);
-  };
-  const restart = (app: AppSummary) =>
-    server.api(`/api/apps/${app.id}/runtime`, { method: "POST", json: { action: "restart" } });
-  const newApp = async (workspaceId?: string) => {
-    const app = await server.api<AppSummary>("/api/apps", { method: "POST", json: workspaceId ? { workspaceId } : {} });
-    await server.api(`/api/apps/${app.id}/project`, { method: "POST", json: { preset: "api" } });
-    return app;
-  };
+  const newTab = (workspaceId?: string) =>
+    server.api<AppSummary>("/api/apps", {
+      method: "POST",
+      json: { url: "https://example.com/", ...(workspaceId ? { workspaceId } : {}) },
+    });
 
   beforeAll(async () => {
     server = await startServer();
@@ -66,15 +34,15 @@ describe("workspaces", () => {
   test("there's always one to start with, where tabs go by default", async () => {
     const list = await server.api<WorkspaceInfo[]>("/api/workspaces");
     expect(list.map((w) => [w.id, w.name])).toEqual([[DEFAULT_WORKSPACE, "Personal"]]);
-    expect(list[0]!.settings).toEqual({ agent: null, instructions: "", webInstructions: "" });
-    inPersonal = await newApp();
+    expect(list[0]!.settings).toEqual({ agent: null, webInstructions: "" });
+    inPersonal = await newTab();
     expect(inPersonal.workspaceId).toBe(DEFAULT_WORKSPACE);
   });
 
   test("tabs are created in a workspace", async () => {
     client = await server.api<WorkspaceInfo>("/api/workspaces", { method: "POST", json: { name: "  Client  " } });
     expect(client.name).toBe("Client");
-    inClient = await newApp(client.id);
+    inClient = await newTab(client.id);
     expect(inClient.workspaceId).toBe(client.id);
     const apps = await server.api<AppSummary[]>("/api/apps");
     expect(apps.find((a) => a.id === inClient.id)?.workspaceId).toBe(client.id);
@@ -85,8 +53,7 @@ describe("workspaces", () => {
   test("its own settings are saved and validated", async () => {
     const settings = {
       agent: { provider: "codex" as const, model: null, effort: "low" },
-      instructions: "Use Acme's colors.",
-      webInstructions: "",
+      webInstructions: "Answer in French.",
     };
     const saved = await server.api<WorkspaceInfo>(`/api/workspaces/${client.id}`, {
       method: "PATCH",
@@ -101,81 +68,23 @@ describe("workspaces", () => {
     ).rejects.toThrow("400");
   });
 
-  test("workspace secrets go to its apps only; an app's own secret wins", async () => {
-    await server.api("/api/secrets", {
-      method: "PUT",
-      json: { scope: `workspace:${client.id}`, name: "SHARED", value: "from-workspace" },
-    });
-    report(inClient, "shared");
-    report(inPersonal, "shared");
-    await Promise.all([restart(inClient), restart(inPersonal)]);
-    expect(await reported(inClient, "shared", "from-workspace unset")).toBe("from-workspace unset");
-    expect(await reported(inPersonal, "shared", "unset unset")).toBe("unset unset");
-
-    await server.api("/api/secrets", { method: "PUT", json: { scope: inClient.id, name: "SHARED", value: "own" } });
-    report(inClient, "own");
-    await restart(inClient);
-    expect(await reported(inClient, "own", "own unset")).toBe("own unset");
-    const own = (await server.api<{ secrets: { id: string }[] }>(`/api/secrets?scope=${inClient.id}`)).secrets[0]!;
-    await server.api(`/api/secrets/${own.id}`, { method: "DELETE" });
-
-    await expect(
-      server.api("/api/secrets", { method: "PUT", json: { scope: "workspace:nope", name: "X", value: "x" } }),
-    ).rejects.toThrow("404");
-  });
-
-  test("a permission can be remembered for every app in a workspace; the app's own choice wins", async () => {
-    await server.api("/api/secrets", { method: "PUT", json: { scope: "global", name: "GLOBAL_KEY", value: "glob" } });
-    report(inClient, "granted");
-    report(inPersonal, "granted");
-    // Granting restarts the workspace's running apps.
-    await server.api("/api/permissions", {
-      method: "PUT",
-      json: { subject: `workspace:${client.id}`, action: "app.secret", resource: "GLOBAL_KEY", decision: "allow" },
-    });
-    expect(await reported(inClient, "granted", "from-workspace glob")).toBe("from-workspace glob");
-    await restart(inPersonal);
-    expect(await reported(inPersonal, "granted", "unset unset")).toBe("unset unset");
-
+  test("a permission remembered for every tab of a workspace is labeled with it", async () => {
+    server.remember(`workspace:${client.id}`, "agent.tab", inPersonal.id, "allow");
     const grant = (await server.api<PermissionGrant[]>("/api/permissions")).find(
       (g) => g.subject === `workspace:${client.id}`,
     )!;
-    expect(grant).toMatchObject({ subjectName: "Apps in Client", workspaceId: client.id });
-
-    report(inClient, "denied");
-    await server.api("/api/permissions", {
-      method: "PUT",
-      json: { subject: inClient.id, action: "app.secret", resource: "GLOBAL_KEY", decision: "deny" },
-    });
-    expect(await reported(inClient, "denied", "from-workspace unset")).toBe("from-workspace unset");
-    const own = (await server.api<PermissionGrant[]>("/api/permissions")).find((g) => g.subject === inClient.id)!;
-    await server.api(`/api/permissions/${own.id}`, { method: "DELETE" });
-  });
-
-  test("a moved tab gets its new workspace's secrets and restarts", async () => {
-    report(inClient, "moved");
-    const moved = await server.api<AppSummary>(`/api/apps/${inClient.id}/move`, {
-      method: "POST",
-      json: { workspaceId: DEFAULT_WORKSPACE },
-    });
-    expect(moved.workspaceId).toBe(DEFAULT_WORKSPACE);
-    expect(await reported(inClient, "moved", "unset unset")).toBe("unset unset");
-    report(inClient, "back");
-    await server.api(`/api/apps/${inClient.id}/move`, { method: "POST", json: { workspaceId: client.id } });
-    expect(await reported(inClient, "back", "from-workspace glob")).toBe("from-workspace glob");
+    expect(grant).toMatchObject({ subjectName: "Tabs in Client", workspaceId: client.id });
   });
 
   test("the audit log is filtered by workspace", async () => {
+    await server.api(`/api/apps/${inClient.id}/move`, { method: "POST", json: { workspaceId: DEFAULT_WORKSPACE } });
+    await server.api(`/api/apps/${inClient.id}/move`, { method: "POST", json: { workspaceId: client.id } });
     const entries = await server.api<AuditEntry[]>(`/api/audit?workspace=${client.id}`);
-    expect(entries.some((e) => e.tabId === inClient.id && e.workspaceId === client.id)).toBe(true);
-    expect(
-      entries.some(
-        (e) => e.action === "secret.create" && e.target === "workspace SHARED" && e.workspaceId === client.id,
-      ),
-    ).toBe(true);
-    // Nothing from the other workspace's tabs, but what belongs to none (the global secret) is there.
+    expect(entries.some((e) => e.tabId === inClient.id && e.action === "tab.move" && e.workspaceId === client.id)).toBe(
+      true,
+    );
+    // Nothing from the other workspace's tabs.
     expect(entries.some((e) => e.tabId === inPersonal.id)).toBe(false);
-    expect(entries.some((e) => e.target === "global GLOBAL_KEY" && e.workspaceId === null)).toBe(true);
   });
 
   test("tabs keep the order they're put in; new and moved ones go last", async () => {
@@ -183,7 +92,7 @@ describe("workspaces", () => {
     const web = () =>
       server.api<AppSummary>("/api/apps", {
         method: "POST",
-        json: { kind: "web", url: "https://example.com/", workspaceId: space.id },
+        json: { url: "https://example.com/", workspaceId: space.id },
       });
     const [a, b, c, d] = [await web(), await web(), await web(), await web()];
     const order = async () =>
@@ -214,7 +123,7 @@ describe("workspaces", () => {
     const web = () =>
       server.api<AppSummary>("/api/apps", {
         method: "POST",
-        json: { kind: "web", url: "https://example.com/", workspaceId: space.id },
+        json: { url: "https://example.com/", workspaceId: space.id },
       });
     const [a, b, c, d] = [await web(), await web(), await web(), await web()];
     const put = (splits: unknown) =>
@@ -249,12 +158,10 @@ describe("workspaces", () => {
     await server.api(`/api/workspaces/${space.id}`, { method: "DELETE" });
   });
 
-  test("deleting a workspace deletes its tabs, data, secrets and permissions; the last one stays", async () => {
+  test("deleting a workspace deletes its tabs and permissions; the last one stays", async () => {
     await server.api(`/api/workspaces/${client.id}`, { method: "DELETE" });
     expect((await server.api<WorkspaceInfo[]>("/api/workspaces")).map((w) => w.id)).toEqual([DEFAULT_WORKSPACE]);
     expect((await server.api<AppSummary[]>("/api/apps")).map((a) => a.id)).toEqual([inPersonal.id]);
-    expect(existsSync(dirOf(inClient))).toBe(false);
-    expect((await server.api<{ secrets: unknown[] }>(`/api/secrets?scope=workspace:${client.id}`)).secrets).toEqual([]);
     expect(
       (await server.api<PermissionGrant[]>("/api/permissions")).filter((g) => g.workspaceId === client.id),
     ).toEqual([]);

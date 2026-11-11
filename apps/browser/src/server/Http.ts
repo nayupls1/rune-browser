@@ -2,8 +2,6 @@
 import { Data, Effect, Layer, Schema, Stream } from "effect";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 import {
-  appOfTarget,
-  appTarget,
   IMAGE_ICON_MAX,
   IMAGE_ICON_PATTERN,
   isEmojiIcon,
@@ -11,8 +9,6 @@ import {
   providerIds,
   workspaceOfScope,
   workspaceScope,
-  type AppActionInfo,
-  type AppActionResult,
   type NetworkRule,
   type ReplayOverrides,
   type ReplayResult,
@@ -21,7 +17,6 @@ import {
   type HealthResponse,
   type PermissionAction,
   type ProviderId,
-  type SecretsOverview,
 } from "../shared/api";
 import { topics } from "../shared/hub";
 import { isPrivateWindow, tabFate, WINDOW_ID_PATTERN } from "../shared/windows";
@@ -30,11 +25,8 @@ import { Agent } from "./agent/Agent";
 import { Mcp } from "./agent/Mcp";
 import { PageContextInput } from "./agent/prompts";
 import { MAX_SHARED_TABS, SharedTabInput } from "./agent/sharedTabs";
-import { Ai, type AiEvent } from "./ai/Ai";
-import { AiTokens } from "./ai/AiTokens";
 import { Audit } from "./security/Audit";
 import { Permissions, WEBSITE_AGENT } from "./security/Permissions";
-import { Secrets } from "./security/Secrets";
 import { ServerConfig } from "./Config";
 import { Apps } from "./db/Apps";
 import { BookmarkError, Bookmarks } from "./bookmarks/Bookmarks";
@@ -54,20 +46,14 @@ import { Sites } from "./db/Sites";
 import { ModError, Mods } from "./mods/Mods";
 import { decodeShareCode } from "../shared/mods";
 import { Workspaces } from "./db/Workspaces";
-import { History, type By } from "./history/History";
+import { History, type By, type HistoryError } from "./history/History";
 import { Hub } from "./Hub";
 import { Providers } from "./providers/Providers";
-import { presetInfo, presets } from "./workspace/presets";
-import { AppData, type RowQuery } from "./workspace/AppData";
-import { AppTools, type ToolCaller } from "./workspace/AppTools";
-import { Projects } from "./workspace/Projects";
-import { Runtime } from "./workspace/Runtime";
-import { Sandbox } from "./workspace/Sandbox";
-import { SourceError, Sources } from "./workspace/Sources";
+import { Tabs } from "./Tabs";
+import { SourceError, Sources } from "./sources/Sources";
 import { Attachments, IMAGE_TYPES, MAX_ATTACHMENT } from "./agent/Attachments";
 import { ChatFiles, lookupPath } from "./agent/ChatFiles";
 import { Jobs } from "./agent/Jobs";
-import { cancelImport, Workspace } from "./workspace/Workspace";
 
 class HttpFail extends Data.TaggedError("HttpFail")<{ readonly status: number; readonly message: string }> {}
 
@@ -110,7 +96,7 @@ const WindowId = Schema.String.check(Schema.isPattern(WINDOW_ID_PATTERN, { messa
 /**
  * Only Rune Browser's renderer may use the API. Requests need the token Electron gave
  * the renderer, and browsers must come from the renderer's origin: websites in
- * web tabs and apps in previews can reach 127.0.0.1 too.
+ * web tabs can reach 127.0.0.1 too.
  */
 const guard = HttpRouter.middleware(
   (effect) =>
@@ -118,14 +104,8 @@ const guard = HttpRouter.middleware(
       const config = yield* ServerConfig;
       const req = yield* HttpServerRequest.HttpServerRequest;
       const url = new URL(req.url, "http://localhost");
-      // MCP, AI and the app API have tokens of their own (per agent turn, per app).
-      if (
-        req.method === "OPTIONS" ||
-        url.pathname === "/api/health" ||
-        url.pathname.startsWith("/mcp/") ||
-        url.pathname.startsWith("/ai/") ||
-        url.pathname.startsWith("/app-api/")
-      ) {
+      // MCP has tokens of its own (per agent turn).
+      if (req.method === "OPTIONS" || url.pathname === "/api/health" || url.pathname.startsWith("/mcp/")) {
         return yield* effect;
       }
       const origin = req.headers.origin;
@@ -291,22 +271,20 @@ const attachmentRoutes = HttpRouter.addAll([
     ),
   ),
   // Paths the agent linked in the chat, for their chips: a file, a folder or missing, but only inside
-  // the tab's chat folders and its app's project (anything else is "outside", existing or not).
+  // the tab's chat folders (anything else is "outside", existing or not).
   HttpRouter.route(
     "POST",
     "/api/apps/:id/files/lookup",
     handle(
       Effect.gen(function* () {
         const id = yield* param("id");
-        const app = yield* (yield* Apps).get(id);
-        if (!app) return yield* fail(404, "Not found");
+        if (!(yield* (yield* Apps).get(id))) return yield* fail(404, "Not found");
         const { paths } = yield* decodeBody(
           Schema.Struct({ paths: Schema.Array(str(4000)).check(Schema.isMaxLength(100)) }),
         );
         const files = yield* ChatFiles;
         const current = yield* files.dir(id).pipe(Effect.orElseSucceed(() => null));
-        const project = app.kind === "app" ? ((yield* (yield* Workspace).info(id))?.dir ?? null) : null;
-        const roots = [...new Set([current, project, ...(yield* files.folders(id))].filter((r): r is string => !!r))];
+        const roots = [...new Set([current, ...(yield* files.folders(id))].filter((r): r is string => !!r))];
         return json(yield* Effect.promise(() => Promise.all(paths.map((p) => lookupPath(p, roots)))));
       }),
     ),
@@ -347,7 +325,7 @@ const serveChatFile = (file: { path: string; name: string; mime: string }) =>
     });
   });
 
-// Code attached to a tab for its agent: folders of yours and Git repositories (workspace/Sources.ts).
+// Code attached to a tab for its agent: folders of yours and Git repositories (sources/Sources.ts).
 const sourceFail = <A, R>(effect: Effect.Effect<A, SourceError, R>) =>
   effect.pipe(Effect.catchTag("SourceError", (e) => fail(400, e.message)));
 const sourceOf = (tabId: string, id: string) =>
@@ -418,57 +396,40 @@ const sourceRoutes = HttpRouter.addAll([
   ),
 ]);
 
-// What app processes run with here: the sandbox, the shells to choose from, the toolchains it shows.
-const sandboxRoute = HttpRouter.add(
-  "GET",
-  "/api/sandbox",
-  Effect.gen(function* () {
-    return json(yield* (yield* Sandbox).info);
-  }),
-);
-
-const presetsRoute = HttpRouter.add("GET", "/api/presets", Effect.succeed(json(presets.map(presetInfo))));
-
-/** An app with everything the renderer shows for it. */
+/** A tab with everything the renderer shows for it. */
 const detail = (id: string) =>
   Effect.gen(function* () {
     const apps = yield* Apps;
-    const agent = yield* Agent;
-    const workspace = yield* Workspace;
-    const runtime = yield* Runtime;
     const app = yield* apps.get(id);
     if (!app) return yield* fail(404, "Not found");
-    const { nameLocked: _, session: __, mode: ___, ...summary } = app;
-    const isApp = app.kind === "app";
+    const { nameLocked: _, session: __, ...summary } = app;
     return {
       ...summary,
       messages: yield* apps.messages(id),
-      running: yield* agent.isRunning(id),
+      running: yield* (yield* Agent).isRunning(id),
       jobs: yield* (yield* Jobs).list(id),
       agent: app.agent,
-      project: isApp ? yield* workspace.info(id) : null,
-      runtime: isApp ? { ...(yield* runtime.status(id)), mode: app.mode } : null,
     } satisfies AppDetail;
   });
 
 const publishApp = (summary: AppSummary | null) =>
   Effect.gen(function* () {
-    yield* (yield* Projects).publish(summary);
+    yield* (yield* Tabs).publish(summary);
   });
 
 /** A snapshot of something the user changed in the UI (folded together while they keep changing it). */
-const snapshot = (target: "settings" | "sites" | `app:${string}`, summary: string, coalesce = false) =>
+const snapshot = (target: "settings" | "sites", summary: string, coalesce = false) =>
   Effect.gen(function* () {
     const history = yield* History;
     const by: By = { actor: "user", actorLabel: "You", summary, coalesceMs: coalesce ? 10 * 60 * 1000 : undefined };
     yield* history.record(target, by);
   });
 
-/** Deletes a tab with everything that belongs to it (Projects.remove), its agent stopped first. */
+/** Deletes a tab with everything that belongs to it (Tabs.remove), its agent stopped first. */
 const removeApp = (id: string) =>
   Effect.gen(function* () {
     yield* (yield* Agent).stop(id);
-    yield* (yield* Projects).remove(id);
+    yield* (yield* Tabs).remove(id);
     yield* dropTabOverrides(id);
   });
 
@@ -497,8 +458,7 @@ const appRoutes = HttpRouter.addAll([
         const workspaces = yield* Workspaces;
         const input = yield* decodeBody(
           Schema.Struct({
-            kind: Schema.optionalKey(Schema.Literals(["app", "web"])),
-            // Extension pages (options, tabs extensions open) and local files the user opens are web tabs too.
+            // Extension pages (options, tabs extensions open) and local files the user opens are tabs too.
             url: Schema.optionalKey(
               str(8000).check(
                 Schema.isPattern(/^(https?:\/\/|chrome-extension:\/\/[a-p]{32}\/|file:\/\/\/)/i, {
@@ -512,17 +472,8 @@ const appRoutes = HttpRouter.addAll([
         );
         const space = input.workspaceId ? yield* workspaces.get(input.workspaceId) : yield* workspaces.first();
         if (!space) return yield* fail(404, "No such workspace");
-        const kind = input.kind ?? "app";
-        // Agents don't work in private windows, so there are no apps there.
-        if (kind === "app" && isPrivateWindow(input.windowId))
-          return yield* fail(400, "Private windows have web tabs only");
-        const app = yield* apps.create(
-          space.id,
-          kind,
-          kind === "web" ? (input.url ?? null) : null,
-          input.windowId ?? null,
-        );
-        if (kind === "web" && input.url) yield* visited({ ...app, url: null }, { url: input.url });
+        const app = yield* apps.create(space.id, input.url ?? null, input.windowId ?? null);
+        if (input.url) yield* visited({ ...app, url: null }, { url: input.url });
         yield* publishApp(app);
         return json(app, 201);
       }),
@@ -534,11 +485,7 @@ const appRoutes = HttpRouter.addAll([
     "/api/apps/:id",
     handle(
       Effect.gen(function* () {
-        const id = yield* param("id");
-        const result = yield* detail(id);
-        // Opening an app starts it (in its mode).
-        yield* (yield* Projects).opened(id);
-        return json(result);
+        return json(yield* detail(yield* param("id")));
       }),
     ),
   ),
@@ -566,54 +513,6 @@ const appRoutes = HttpRouter.addAll([
       yield* removeApp(yield* param("id"));
       return noContent;
     }),
-  ),
-
-  // Closing an app's tab keeps the app (the library); it can be opened again.
-  HttpRouter.route(
-    "POST",
-    "/api/apps/:id/close",
-    handle(
-      Effect.gen(function* () {
-        const id = yield* param("id");
-        yield* (yield* Agent).stop(id);
-        // A new app tab with nothing in it yet has nothing to keep.
-        const tab = yield* (yield* Apps).get(id);
-        if (tab?.kind === "app" && !(yield* (yield* Workspace).info(id))) {
-          yield* removeApp(id);
-          return json({ deleted: true });
-        }
-        const closed = yield* (yield* Projects).close(id);
-        if (!closed) return yield* fail(404, "No such app");
-        yield* dropTabOverrides(id);
-        yield* youDid(id, "app.close", closed.name);
-        return json(closed);
-      }),
-    ),
-  ),
-  HttpRouter.route(
-    "GET",
-    "/api/library",
-    Effect.gen(function* () {
-      return json(yield* (yield* Apps).closed());
-    }),
-  ),
-  HttpRouter.route(
-    "POST",
-    "/api/apps/:id/reopen",
-    handle(
-      Effect.gen(function* () {
-        const id = yield* param("id");
-        const { workspaceId, windowId } = yield* decodeBody(
-          Schema.Struct({ workspaceId: str(100), windowId: Schema.optionalKey(WindowId) }),
-        );
-        yield* ensureWorkspace(workspaceId);
-        if (isPrivateWindow(windowId)) return yield* fail(400, "Private windows have web tabs only");
-        const opened = yield* (yield* Projects).reopen(id, workspaceId, windowId);
-        if (!opened) return yield* fail(404, "No such app");
-        yield* youDid(id, "app.reopen", opened.name);
-        return json(opened);
-      }),
-    ),
   ),
 
   // The tab's own icon (a Lucide name, an emoji or a small image), or null for the default.
@@ -651,7 +550,7 @@ const appRoutes = HttpRouter.addAll([
     ),
   ),
 
-  // Moving a tab to another workspace: it gets that workspace's secrets and permissions.
+  // Moving a tab to another workspace: it gets that workspace's session and permissions.
   HttpRouter.route(
     "POST",
     "/api/apps/:id/move",
@@ -668,7 +567,7 @@ const appRoutes = HttpRouter.addAll([
         // A private window has no workspaces: its tabs share the private session.
         if (app.private) return yield* fail(400, "Private tabs aren't in a workspace");
         if (app.workspaceId === workspaceId) return json(app);
-        const moved = yield* (yield* Projects).move(id, workspaceId);
+        const moved = yield* (yield* Tabs).move(id, workspaceId);
         yield* youDid(id, "tab.move", target.name);
         return json(moved);
       }),
@@ -684,15 +583,15 @@ const appRoutes = HttpRouter.addAll([
         const id = yield* param("id");
         const { windowId } = yield* decodeBody(Schema.Struct({ windowId: WindowId }));
         const app = yield* (yield* Apps).get(id);
-        if (!app || app.closedAt) return yield* fail(404, "Not found");
+        if (!app) return yield* fail(404, "Not found");
         if (app.private !== isPrivateWindow(windowId))
           return yield* fail(400, "Tabs don't move between private and normal windows");
-        return json(yield* (yield* Projects).moveToWindow(id, windowId));
+        return json(yield* (yield* Tabs).moveToWindow(id, windowId));
       }),
     ),
   ),
 
-  // Web tabs report navigation: URL, page title (renames the tab) and favicon.
+  // Tabs report navigation: URL, page title (renames the tab) and favicon.
   HttpRouter.route(
     "PATCH",
     "/api/apps/:id/page",
@@ -707,7 +606,7 @@ const appRoutes = HttpRouter.addAll([
           }),
         );
         const before = yield* apps.get(yield* param("id"));
-        const tab = before && (yield* apps.updateWebTab(before.id, page));
+        const tab = before && (yield* apps.updatePage(before.id, page));
         if (!before || !tab) return yield* fail(404, "Not found");
         yield* visited(before, page);
         return json(tab);
@@ -720,7 +619,7 @@ const appRoutes = HttpRouter.addAll([
     "/api/apps/:id/duplicate",
     handle(
       Effect.gen(function* () {
-        const copy = yield* (yield* Projects).copy(yield* param("id"));
+        const copy = yield* (yield* Tabs).copy(yield* param("id"));
         if (!copy) return yield* fail(404, "Not found");
         return json(copy, 201);
       }),
@@ -878,8 +777,8 @@ const appRoutes = HttpRouter.addAll([
 /**
  * The main process tells which windows are open, closed (to be reopened) and forgotten, at
  * startup and whenever that changes (shared/windows.ts: tabFate): private tabs whose window
- * closed are deleted, forgotten windows' tabs close (apps go to the library), and tabs of
- * windows nobody knows go to the first open window.
+ * closed and forgotten windows' tabs are deleted, and tabs of windows nobody knows go to the
+ * first open window.
  */
 const windowRoutes = HttpRouter.add(
   "POST",
@@ -889,23 +788,17 @@ const windowRoutes = HttpRouter.add(
       const ids = Schema.Array(WindowId).check(Schema.isMaxLength(200));
       const sync = yield* decodeBody(Schema.Struct({ open: ids, closed: ids, forget: ids }));
       const apps = yield* Apps;
-      const projects = yield* Projects;
+      const tabs = yield* Tabs;
       yield* apps.setHomeWindow(sync.open.find((id) => !isPrivateWindow(id)) ?? null);
-      const changed = { deleted: 0, closed: 0, adopted: 0 };
+      const changed = { deleted: 0, adopted: 0 };
       for (const tab of yield* apps.list()) {
         const fate = tabFate(tab, { open: [...sync.open], closed: [...sync.closed], forget: [...sync.forget] });
         if (fate === "keep") continue;
         if (fate === "delete") {
           yield* removeApp(tab.id);
           changed.deleted++;
-        } else if (fate === "close") {
-          yield* (yield* Agent).stop(tab.id);
-          if (yield* (yield* Workspace).info(tab.id)) yield* projects.close(tab.id);
-          else yield* removeApp(tab.id);
-          yield* dropTabOverrides(tab.id);
-          changed.closed++;
         } else {
-          yield* projects.publish(yield* apps.setWindow(tab.id, fate.adopt, "same"));
+          yield* tabs.publish(yield* apps.setWindow(tab.id, fate.adopt, "same"));
           changed.adopted++;
         }
       }
@@ -914,119 +807,6 @@ const windowRoutes = HttpRouter.add(
     }),
   ),
 );
-
-const runtimeRoutes = HttpRouter.addAll([
-  HttpRouter.route(
-    "GET",
-    "/api/apps/:id/runtime",
-    Effect.gen(function* () {
-      const runtime = yield* Runtime;
-      const apps = yield* Apps;
-      const id = yield* param("id");
-      const app = yield* apps.get(id);
-      return json({
-        status: { ...(yield* runtime.status(id)), mode: app?.mode ?? "dev" },
-        logs: runtime.logs(id, 500),
-      });
-    }),
-  ),
-
-  HttpRouter.route(
-    "POST",
-    "/api/apps/:id/runtime",
-    handle(
-      Effect.gen(function* () {
-        const runtime = yield* Runtime;
-        const id = yield* param("id");
-        const { action } = yield* decodeBody(Schema.Struct({ action: Schema.Literals(["start", "stop", "restart"]) }));
-        if (action === "stop") yield* runtime.stop(id);
-        else if (action === "start") yield* runtime.ensure(id);
-        else yield* runtime.restart(id);
-        yield* youDid(id, `runtime.${action}`, null);
-        return json(yield* runtime.status(id));
-      }),
-    ),
-  ),
-
-  // dev: being edited (dev server). live: done (built, start command).
-  HttpRouter.route(
-    "POST",
-    "/api/apps/:id/mode",
-    handle(
-      Effect.gen(function* () {
-        const runtime = yield* Runtime;
-        const apps = yield* Apps;
-        const id = yield* param("id");
-        const { mode } = yield* decodeBody(Schema.Struct({ mode: Schema.Literals(["dev", "live"]) }));
-        if (!(yield* apps.get(id))) return yield* fail(404, "Not found");
-        yield* youDid(id, "runtime.mode", mode);
-        return json(yield* runtime.setMode(id, mode));
-      }),
-    ),
-  ),
-
-  // An existing project as the app: cloned from Git (https) or copied from a folder.
-  HttpRouter.route(
-    "POST",
-    "/api/apps/:id/import",
-    handle(
-      Effect.gen(function* () {
-        const apps = yield* Apps;
-        const id = yield* param("id");
-        const input = yield* decodeBody(
-          Schema.Struct({
-            git: Schema.optionalKey(str(2000)),
-            branch: Schema.optionalKey(str(200)),
-            folder: Schema.optionalKey(str(4000)),
-          }),
-        );
-        const app = yield* apps.get(id);
-        if (!app || app.kind !== "app") return yield* fail(404, "Not found");
-        if (!input.git === !input.folder) return yield* fail(400, "Give either git or folder");
-        const source = input.git
-          ? ({ kind: "git", url: input.git, ...(input.branch?.trim() ? { branch: input.branch.trim() } : {}) } as const)
-          : ({ kind: "folder", path: input.folder! } as const);
-        const project = yield* (yield* Projects)
-          .importApp(id, source)
-          .pipe(Effect.catchTag("WorkspaceError", (e) => fail(400, e.message)));
-        yield* youDid(id, "app.import", input.git ?? input.folder ?? null);
-        return json({ project }, 201);
-      }),
-    ),
-  ),
-
-  HttpRouter.route(
-    "DELETE",
-    "/api/apps/:id/import",
-    handle(
-      Effect.gen(function* () {
-        const id = yield* param("id");
-        return cancelImport(id) ? noContent : yield* fail(404, "Nothing is being cloned");
-      }),
-    ),
-  ),
-
-  // Sets up the project from a preset without the agent (tests, "start from a preset").
-  HttpRouter.route(
-    "POST",
-    "/api/apps/:id/project",
-    handle(
-      Effect.gen(function* () {
-        const apps = yield* Apps;
-        const id = yield* param("id");
-        const { preset, name } = yield* decodeBody(
-          Schema.Struct({ preset: str(50), name: Schema.optionalKey(str(80)) }),
-        );
-        const app = yield* apps.get(id);
-        if (!app || app.kind !== "app") return yield* fail(404, "Not found");
-        const project = yield* (yield* Projects)
-          .create(id, preset, { name, by: { actor: "user", actorLabel: "You" } })
-          .pipe(Effect.catchTag("WorkspaceError", (e) => fail(400, e.message)));
-        return json(project, 201);
-      }),
-    ),
-  ),
-]);
 
 const siteRoutes = HttpRouter.addAll([
   HttpRouter.route(
@@ -1286,7 +1066,6 @@ export const ScheduleBody = Schema.Struct({
   target: Schema.Struct({
     workspaceId: str(100),
     tabId: Schema.NullOr(str(64)),
-    kind: Schema.Literals(["app", "web"]),
     url: Schema.NullOr(str(8000)),
   }),
   agent: Schema.NullOr(
@@ -1312,7 +1091,6 @@ const scheduleRoutes = HttpRouter.addAll([
       return json(
         yield* (yield* Scheduler).list({
           workspaceId: params.get("workspace") ?? undefined,
-          appId: params.get("app") ?? undefined,
         }),
       );
     }),
@@ -1351,7 +1129,7 @@ const scheduleRoutes = HttpRouter.addAll([
     handle(
       Effect.gen(function* () {
         const spec = yield* decodeBody(ScheduleBody);
-        const schedule = yield* scheduleFail((yield* Scheduler).create(spec, { by: "user" }));
+        const schedule = yield* scheduleFail((yield* Scheduler).create(spec));
         yield* youDid(spec.target.tabId ?? `workspace:${spec.target.workspaceId}`, "schedule.create", schedule.name);
         return json(schedule);
       }),
@@ -1394,468 +1172,12 @@ const scheduleRoutes = HttpRouter.addAll([
   ),
 ]);
 
-// --- AI for apps ------------------------------------------------------------------------
-
-/** The app making an AI request: from its token, and only from its server (never a browser). */
-const aiApp = Effect.gen(function* () {
-  const tokens = yield* AiTokens;
-  const req = yield* HttpServerRequest.HttpServerRequest;
-  if (req.headers.origin !== undefined) {
-    return yield* fail(
-      403,
-      "AI requests must come from the app's server, not from the browser. Call your server, and let it call Rune Browser.",
-    );
-  }
-  const appId = tokens.appFor(req.headers.authorization?.replace(/^Bearer /, "") ?? "");
-  if (!appId) return yield* fail(401, "Missing or invalid RUNE_AI_TOKEN");
-  return appId;
-});
-
-const AiChatBody = Schema.Struct({
-  prompt: Schema.optionalKey(str(200_000)),
-  messages: Schema.optionalKey(
-    Schema.Array(Schema.Struct({ role: Schema.Literals(["user", "assistant"]), content: str(200_000) })).check(
-      Schema.isMaxLength(200),
-    ),
-  ),
-  system: Schema.optionalKey(str(50_000)),
-  model: Schema.optionalKey(str(300)),
-  effort: Schema.optionalKey(str(50)),
-  json: Schema.optionalKey(Schema.Boolean),
-  stream: Schema.optionalKey(Schema.Boolean),
-});
-
-/** The reply as JSON, if it is JSON (models like to wrap it in code fences). */
-function parseJson(text: string): unknown {
-  const unfenced = text.replace(/^```(?:json)?\s*([\s\S]*?)\s*```$/i, "$1").trim();
-  try {
-    return JSON.parse(unfenced);
-  } catch {
-    return undefined;
-  }
-}
-
-const aiRoutes = HttpRouter.addAll([
-  HttpRouter.route(
-    "GET",
-    "/ai/v1/models",
-    handle(
-      Effect.gen(function* () {
-        const appId = yield* aiApp;
-        const ai = yield* Ai;
-        return json(yield* ai.info(appId));
-      }),
-    ),
-  ),
-  HttpRouter.route(
-    "POST",
-    "/ai/v1/chat",
-    handle(
-      Effect.gen(function* () {
-        const appId = yield* aiApp;
-        const ai = yield* Ai;
-        const input = yield* decodeBody(AiChatBody);
-        const messages =
-          input.messages ?? (input.prompt !== undefined ? [{ role: "user" as const, content: input.prompt }] : []);
-        const request = { messages, system: input.system, model: input.model, effort: input.effort, json: input.json };
-        const stream = yield* ai
-          .chat(appId, request)
-          .pipe(Effect.catchTag("AiError", (e) => fail(e.status, e.message)));
-
-        if (input.stream) {
-          // Newline-delimited JSON: {"type":"delta","text"}…, then {"type":"done",…} or {"type":"error",…}.
-          const lines = stream.pipe(
-            Stream.map((event) =>
-              event.type === "done" && input.json ? { ...event, json: parseJson(event.text) } : event,
-            ),
-            Stream.catchTag("AiError", (e) => Stream.make({ type: "error", status: e.status, message: e.message })),
-            Stream.map((event) => `${JSON.stringify(event)}\n`),
-            Stream.encodeText,
-          );
-          return HttpServerResponse.stream(lines, { contentType: "application/x-ndjson" });
-        }
-
-        const done = yield* stream.pipe(
-          Stream.runFold(
-            () => null as Extract<AiEvent, { type: "done" }> | null,
-            (last, event) => (event.type === "done" ? event : last),
-          ),
-          Effect.catchTag("AiError", (e) => fail(e.status, e.message)),
-        );
-        if (!done) return yield* fail(503, "No answer");
-        return json({
-          text: done.text,
-          ...(input.json ? { json: parseJson(done.text) } : {}),
-          provider: done.provider,
-          model: done.model,
-        });
-      }),
-    ),
-  ),
-]);
-
-// --- Managed app data -------------------------------------------------------------------------
-
-/** Paging, search, order and filters from the query string (`where.<column>=value`). */
-const rowQuery = Effect.gen(function* () {
-  const params = new URL((yield* HttpServerRequest.HttpServerRequest).url, "http://localhost").searchParams;
-  const where: Record<string, string> = {};
-  for (const [key, value] of params) if (key.startsWith("where.")) where[key.slice(6)] = value;
-  const number = (name: string) => (params.get(name) ? Number(params.get(name)) || 0 : undefined);
-  return {
-    offset: number("offset"),
-    limit: number("limit"),
-    search: params.get("search") ?? undefined,
-    orderBy: params.get("order") ?? undefined,
-    desc: params.get("desc") === "1" || params.get("desc") === "true",
-    where,
-  } satisfies RowQuery;
-});
-
-const requireApp = (id: string) =>
-  Effect.gen(function* () {
-    const app = yield* (yield* Apps).get(id);
-    if (!app || app.kind !== "app") return yield* fail(404, "Not found");
-    return app;
-  });
-
-const dataRoutes = HttpRouter.addAll([
-  HttpRouter.route(
-    "GET",
-    "/api/apps/:id/data",
-    handle(
-      Effect.gen(function* () {
-        const id = yield* param("id");
-        yield* requireApp(id);
-        return json(yield* (yield* AppData).overview(id));
-      }),
-    ),
-  ),
-  HttpRouter.route(
-    "GET",
-    "/api/apps/:id/data/tables/:table",
-    handle(
-      Effect.gen(function* () {
-        const id = yield* param("id");
-        yield* requireApp(id);
-        const table = decodeURIComponent(yield* param("table"));
-        const rows = yield* (yield* AppData)
-          .rows(id, table, yield* rowQuery)
-          .pipe(Effect.catchTag("AppDataError", (e) => fail(e.status, e.message)));
-        return json(rows);
-      }),
-    ),
-  ),
-  // Everything the app stored, as a .tar.gz (database, tables as JSON, files).
-  HttpRouter.route(
-    "GET",
-    "/api/apps/:id/data/export",
-    handle(
-      Effect.gen(function* () {
-        const id = yield* param("id");
-        const app = yield* requireApp(id);
-        const bytes = yield* (yield* AppData).exportArchive(id);
-        yield* youDid(id, "data.export", app.name, `${bytes.byteLength} bytes`);
-        const name = `${
-          app.name
-            .replace(/[^\w .-]/g, "")
-            .trim()
-            .replace(/\s+/g, "-") || "app"
-        }-data.tar.gz`;
-        return HttpServerResponse.uint8Array(bytes, {
-          contentType: "application/gzip",
-          headers: { "Content-Disposition": `attachment; filename="${name}"` },
-        });
-      }),
-    ),
-  ),
-  // Deletes the app's database and files. A snapshot first, so History can bring them back.
-  HttpRouter.route(
-    "DELETE",
-    "/api/apps/:id/data",
-    handle(
-      Effect.gen(function* () {
-        const id = yield* param("id");
-        const app = yield* requireApp(id);
-        const runtime = yield* Runtime;
-        const history = yield* History;
-        if (yield* (yield* Agent).isRunning(id))
-          return yield* fail(409, "Stop the agent before deleting the app's data");
-        yield* history.record(appTarget(id), {
-          actor: "rune",
-          actorLabel: "Rune Browser",
-          summary: "Before deleting the app's data",
-        });
-        const status = yield* runtime.status(id);
-        yield* runtime.stop(id);
-        yield* (yield* AppData).clear(id);
-        yield* history.record(appTarget(id), { actor: "user", actorLabel: "You", summary: "Deleted the app's data" });
-        yield* youDid(id, "data.delete", app.name);
-        runtime.note(id, "Its data was deleted");
-        if (status.state !== "stopped") yield* Effect.forkDetach(runtime.restart(id));
-        return noContent;
-      }),
-    ),
-  ),
-]);
-
-/** The app calling Rune Browser's app API: from its token, and only from its server (never a browser). */
-const apiApp = Effect.gen(function* () {
-  const tokens = yield* AiTokens;
-  const req = yield* HttpServerRequest.HttpServerRequest;
-  if (req.headers.origin !== undefined)
-    return yield* fail(403, "Rune Browser's app API is for the app's server, not the browser.");
-  const appId = tokens.appFor(req.headers.authorization?.replace(/^Bearer /, "") ?? "");
-  if (!appId) return yield* fail(401, "Missing or invalid RUNE_API_TOKEN");
-  const app = yield* (yield* Apps).get(appId);
-  if (!app) return yield* fail(401, "The app no longer exists");
-  return app;
-});
-
-/**
- * Whether `appId` may read `targetId`'s data: always its own; another app's in
- * the same workspace once the user allows it (other workspaces stay apart).
- */
-const mayRead = (app: { id: string; name: string; workspaceId: string }, targetId: string) =>
-  Effect.gen(function* () {
-    if (targetId === app.id) return app;
-    const target = yield* (yield* Apps).get(targetId);
-    if (!target || target.kind !== "app" || target.workspaceId !== app.workspaceId)
-      return yield* fail(404, "No such app in this workspace");
-    const permissions = yield* Permissions;
-    const allowed = yield* permissions.ask({
-      subject: app.id,
-      action: "app.data",
-      resource: target.id,
-      title: `Let "${app.name}" read the data of "${target.name}"?`,
-      detail: `Its server wants to read what "${target.name}" stored (its tables). It can't change anything.`,
-      timeoutMs: 60_000,
-    });
-    yield* (yield* Audit).record({
-      actor: "app",
-      actorLabel: app.name,
-      tabId: app.id,
-      action: "data.read",
-      target: target.name,
-      outcome: allowed ? "ok" : "denied",
-    });
-    if (!allowed)
-      return yield* fail(
-        403,
-        `The user didn't allow reading the data of "${target.name}". It can be allowed in Rune Browser's Settings → Agent permissions.`,
-      );
-    return target;
-  });
-
-const appApiRoutes = HttpRouter.addAll([
-  // An app tells Rune Browser something happened ("app:<id>:<name>"); schedules waiting for it run.
-  HttpRouter.route(
-    "POST",
-    "/app-api/v1/events",
-    handle(
-      Effect.gen(function* () {
-        const app = yield* apiApp;
-        const { name } = yield* decodeBody(Schema.Struct({ name: str(64) }));
-        if (!/^[\w.-]+$/.test(name)) return yield* fail(400, "Event names are letters, digits, _ . and -");
-        yield* (yield* Scheduler).emit(`app:${app.id}:${name}`);
-        return json({ event: `app:${app.id}:${name}` });
-      }),
-    ),
-  ),
-  // Every tool of the apps in this app's workspace (calls to other apps' need the user's OK).
-  HttpRouter.route(
-    "GET",
-    "/app-api/v1/tools",
-    handle(
-      Effect.gen(function* () {
-        const app = yield* apiApp;
-        const catalog = yield* (yield* AppTools).catalog(app.workspaceId);
-        return json(
-          catalog.map((info) => ({ ...info, self: info.appId === app.id, tools: info.tools.filter((t) => !t.path) })),
-        );
-      }),
-    ),
-  ),
-  HttpRouter.route(
-    "POST",
-    "/app-api/v1/tools/:app/:tool",
-    handle(
-      Effect.gen(function* () {
-        const app = yield* apiApp;
-        const args = yield* decodeBody(ToolCallBody);
-        return json(yield* callTool({ kind: "app", appId: app.id }, yield* param("app"), yield* param("tool"), args));
-      }),
-    ),
-  ),
-  // The API map of the app's workspace: the APIs of the sites its web tabs used (after the user's OK).
-  HttpRouter.route(
-    "GET",
-    "/app-api/v1/endpoints",
-    handle(
-      Effect.gen(function* () {
-        const app = yield* apiApp;
-        const req = yield* HttpServerRequest.HttpServerRequest;
-        const params = new URL(req.url, "http://localhost").searchParams;
-        const allowed = yield* (yield* Permissions).ask({
-          subject: app.id,
-          action: "app.endpoints",
-          resource: app.workspaceId,
-          title: `Let "${app.name}" read the API map?`,
-          detail:
-            "Its server wants the shapes of the APIs that sites you used call (addresses, parameters, the kinds of values). The map has no values, logins or personal data.",
-          timeoutMs: 60_000,
-        });
-        yield* (yield* Audit).record({
-          actor: "app",
-          actorLabel: app.name,
-          tabId: app.id,
-          action: "endpoints.read",
-          target: params.get("search") || null,
-          outcome: allowed ? "ok" : "denied",
-        });
-        if (!allowed)
-          return yield* fail(
-            403,
-            "The user didn't allow reading the API map. It can be allowed in Rune Browser's Settings → Agent permissions.",
-          );
-        const limit = Math.min(Math.max(Number(params.get("limit")) || 50, 1), 200);
-        const endpoints = yield* (yield* Endpoints).search(app.workspaceId, params.get("search") ?? "", limit);
-        return json(endpoints.map((e) => ({ ...e, description: describeEndpoint(e) })));
-      }),
-    ),
-  ),
-  // The apps whose data this app could ask for: its workspace's.
-  HttpRouter.route(
-    "GET",
-    "/app-api/v1/data",
-    handle(
-      Effect.gen(function* () {
-        const app = yield* apiApp;
-        const all = yield* (yield* Apps).list();
-        return json(
-          all
-            .filter((a) => a.kind === "app" && a.workspaceId === app.workspaceId)
-            .map((a) => ({ id: a.id, name: a.name, self: a.id === app.id })),
-        );
-      }),
-    ),
-  ),
-  HttpRouter.route(
-    "GET",
-    "/app-api/v1/data/:app",
-    handle(
-      Effect.gen(function* () {
-        const target = yield* mayRead(yield* apiApp, yield* param("app"));
-        const { tables } = yield* (yield* AppData).overview(target.id);
-        return json({ app: { id: target.id, name: target.name }, tables });
-      }),
-    ),
-  ),
-  HttpRouter.route(
-    "GET",
-    "/app-api/v1/data/:app/:table",
-    handle(
-      Effect.gen(function* () {
-        const target = yield* mayRead(yield* apiApp, yield* param("app"));
-        const table = decodeURIComponent(yield* param("table"));
-        const rows = yield* (yield* AppData)
-          .rows(target.id, table, yield* rowQuery)
-          .pipe(Effect.catchTag("AppDataError", (e) => fail(e.status, e.message)));
-        return json(rows);
-      }),
-    ),
-  ),
-]);
-
-// --- App actions (command bar) ----------------------------------------------------------------
-
-const ToolCallBody = Schema.Struct({
-  params: Schema.optionalKey(Schema.Record(Schema.String, Schema.Unknown)),
-  input: Schema.optionalKey(Schema.NullOr(str(4000))),
-});
-
-const callTool = (
-  caller: ToolCaller,
-  appId: string,
-  toolId: string,
-  args: { params?: Record<string, unknown>; input?: string | null },
-) =>
-  Effect.gen(function* () {
-    return yield* (yield* AppTools)
-      .call(caller, appId, toolId, args)
-      .pipe(Effect.catchTag("AppToolError", (e) => fail(e.status, e.message)));
-  });
-
-const actionRoutes = HttpRouter.addAll([
-  // Every app's actions, from their rune.json.
-  HttpRouter.route(
-    "GET",
-    "/api/actions",
-    Effect.gen(function* () {
-      const apps = yield* Apps;
-      const workspace = yield* Workspace;
-      const list: AppActionInfo[] = [];
-      for (const app of yield* apps.list()) {
-        if (app.kind !== "app") continue;
-        const manifest = yield* workspace.manifest(app.id).pipe(Effect.orElseSucceed(() => null));
-        for (const action of manifest?.actions ?? []) {
-          list.push({ appId: app.id, workspaceId: app.workspaceId, appName: app.name, appIcon: app.icon, action });
-        }
-      }
-      return json(list);
-    }),
-  ),
-  // Runs an endpoint action (the command bar): through the tool registry, as the user.
-  HttpRouter.route(
-    "POST",
-    "/api/apps/:id/actions/:action",
-    handle(
-      Effect.gen(function* () {
-        const { input } = yield* decodeBody(Schema.Struct({ input: Schema.optionalKey(Schema.NullOr(str(4000))) }));
-        const { ok, status, message } = yield* callTool({ kind: "user" }, yield* param("id"), yield* param("action"), {
-          input,
-        });
-        return json({ ok, status, message } satisfies AppActionResult);
-      }),
-    ),
-  ),
-  // The tool registry: an app's tools (its actions and the ones from its data).
-  HttpRouter.route(
-    "GET",
-    "/api/apps/:id/tools",
-    handle(
-      Effect.gen(function* () {
-        const id = yield* param("id");
-        yield* requireApp(id);
-        return json(yield* (yield* AppTools).list(id));
-      }),
-    ),
-  ),
-  HttpRouter.route(
-    "POST",
-    "/api/apps/:id/tools/:tool",
-    handle(
-      Effect.gen(function* () {
-        const args = yield* decodeBody(ToolCallBody);
-        return json(yield* callTool({ kind: "user" }, yield* param("id"), yield* param("tool"), args));
-      }),
-    ),
-  ),
-]);
-
 // --- History -------------------------------------------------------------------------------
 
-const historyTarget = Schema.Union([
-  Schema.Literals(["sites", "settings"]),
-  str(200).check(Schema.isPattern(/^app:[\w-]+$/, { message: "target must be sites, settings or app:<id>" })),
-]);
+const historyTarget = Schema.Literals(["sites", "settings"]);
 
-/** Restoring an app while its agent works on it would pull the files from under it. */
-const ensureAgentIdle = (target: string) =>
-  Effect.gen(function* () {
-    const appId = appOfTarget(target);
-    if (appId && (yield* (yield* Agent).isRunning(appId))) return yield* fail(409, "Stop the agent before restoring");
-  });
+const historyFail = <A, R>(effect: Effect.Effect<A, HistoryError, R>) =>
+  effect.pipe(Effect.catchTag("HistoryError", (e) => fail(e.status, e.message)));
 
 const historyRoutes = HttpRouter.addAll([
   HttpRouter.route(
@@ -1867,7 +1189,6 @@ const historyRoutes = HttpRouter.addAll([
       return json(
         yield* history.list({
           target: params.get("target") ?? undefined,
-          workspaceId: params.get("workspace") ?? undefined,
           before: params.get("before") ? Number(params.get("before")) : undefined,
           limit: params.get("limit") ? Number(params.get("limit")) : undefined,
         }),
@@ -1882,11 +1203,7 @@ const historyRoutes = HttpRouter.addAll([
       Effect.gen(function* () {
         const history = yield* History;
         const { target } = yield* decodeBody(Schema.Struct({ target: historyTarget }));
-        const entry = yield* history.record(target as `app:${string}`, {
-          actor: "user",
-          actorLabel: "You",
-          summary: "Saved a snapshot",
-        });
+        const entry = yield* history.record(target, { actor: "user", actorLabel: "You", summary: "Saved a snapshot" });
         return entry ? json(entry, 201) : noContent;
       }),
     ),
@@ -1896,41 +1213,24 @@ const historyRoutes = HttpRouter.addAll([
     "/api/history/:id",
     handle(
       Effect.gen(function* () {
-        const history = yield* History;
-        const detail = yield* history
-          .detail(Number(yield* param("id")))
-          .pipe(Effect.catchTag("HistoryError", (e) => fail(e.status, e.message)));
-        return json(detail);
+        return json(yield* historyFail((yield* History).detail(Number(yield* param("id")))));
       }),
     ),
   ),
-  // Everything back to one moment: settings, site customizations and the workspace's apps.
+  // Everything back to one moment: settings and site customizations.
   HttpRouter.route(
     "POST",
     "/api/history/:id/restore-all",
     handle(
       Effect.gen(function* () {
         const history = yield* History;
-        const { data, workspaceId } = yield* decodeBody(
-          Schema.Struct({ data: Schema.optionalKey(Schema.Boolean), workspaceId: Schema.optionalKey(str(100)) }),
-        );
-        const entry = yield* history
-          .entry(Number(yield* param("id")))
-          .pipe(Effect.catchTag("HistoryError", (e) => fail(e.status, e.message)));
-        const apps = yield* Apps;
-        const agent = yield* Agent;
-        for (const app of yield* apps.list()) {
-          if ((!workspaceId || app.workspaceId === workspaceId) && (yield* agent.isRunning(app.id)))
-            return yield* fail(409, `Stop the agent in “${app.name}” first`);
-        }
-        const result = yield* history
-          .restoreAll(entry.id, { data: data ?? false, ...(workspaceId ? { workspaceId } : {}) })
-          .pipe(Effect.catchTag("HistoryError", (e) => fail(e.status, e.message)));
+        const entry = yield* historyFail(history.entry(Number(yield* param("id"))));
+        const result = yield* historyFail(history.restoreAll(entry.id));
         yield* youDid(
-          workspaceId ? workspaceScope(workspaceId) : null,
+          null,
           "history.restoreAll",
           entry.at,
-          `${result.restored.length} restored: ${result.restored.join(", ")}${data ? " · with data" : ""}`,
+          `${result.restored.length} restored: ${result.restored.join(", ")}`,
         );
         return json(result);
       }),
@@ -1942,21 +1242,9 @@ const historyRoutes = HttpRouter.addAll([
     handle(
       Effect.gen(function* () {
         const history = yield* History;
-        const { data } = yield* decodeBody(Schema.Struct({ data: Schema.optionalKey(Schema.Boolean) }));
-        const entry = yield* history
-          .entry(Number(yield* param("id")))
-          .pipe(Effect.catchTag("HistoryError", (e) => fail(e.status, e.message)));
-        yield* ensureAgentIdle(entry.target);
-        // The data goes back only when asked: what was added since would be lost.
-        yield* history
-          .restore(entry.id, { data: data ?? false })
-          .pipe(Effect.catchTag("HistoryError", (e) => fail(e.status, e.message)));
-        yield* youDid(
-          entry.tabId,
-          "history.restore",
-          entry.summary,
-          `${entry.target} · ${entry.at}${data ? " · with its data" : ""}`,
-        );
+        const entry = yield* historyFail(history.entry(Number(yield* param("id"))));
+        yield* historyFail(history.restore(entry.id));
+        yield* youDid(null, "history.restore", entry.summary, `${entry.target} · ${entry.at}`);
         return noContent;
       }),
     ),
@@ -1967,15 +1255,9 @@ const historyRoutes = HttpRouter.addAll([
     handle(
       Effect.gen(function* () {
         const history = yield* History;
-        const { data } = yield* decodeBody(Schema.Struct({ data: Schema.optionalKey(Schema.Boolean) }));
-        const entry = yield* history
-          .entry(Number(yield* param("id")))
-          .pipe(Effect.catchTag("HistoryError", (e) => fail(e.status, e.message)));
-        yield* ensureAgentIdle(entry.target);
-        const result = yield* history
-          .undo(entry.id, { data: data ?? false })
-          .pipe(Effect.catchTag("HistoryError", (e) => fail(e.status, e.message)));
-        yield* youDid(entry.tabId, "history.undo", entry.summary, `${entry.target}${data ? " · with its data" : ""}`);
+        const entry = yield* historyFail(history.entry(Number(yield* param("id"))));
+        const result = yield* historyFail(history.undo(entry.id));
+        yield* youDid(null, "history.undo", entry.summary, entry.target);
         return json(result);
       }),
     ),
@@ -2107,14 +1389,13 @@ const workspaceRoutes = HttpRouter.addAll([
       }),
     ),
   ),
-  // Deletes the workspace with its tabs (and their data), its secrets and its permissions.
+  // Deletes the workspace with its tabs (and their chats), its permissions and its browsing data.
   HttpRouter.route(
     "DELETE",
     "/api/workspaces/:id",
     handle(
       Effect.gen(function* () {
         const workspaces = yield* Workspaces;
-        const secrets = yield* Secrets;
         const permissions = yield* Permissions;
         const hub = yield* Hub;
         const id = yield* param("id");
@@ -2124,7 +1405,6 @@ const workspaceRoutes = HttpRouter.addAll([
         const appIds = yield* workspaces.appIds(id);
         yield* (yield* Scheduler).forgetWorkspace(id, appIds);
         for (const appId of appIds) yield* removeApp(appId);
-        yield* secrets.removeScope(workspaceScope(id));
         yield* permissions.forget(workspaceScope(id));
         yield* (yield* Network).removeWorkspace(id);
         yield* (yield* ResponseOverrides).removeWorkspace(id);
@@ -2140,113 +1420,19 @@ const workspaceRoutes = HttpRouter.addAll([
   ),
 ]);
 
-// --- Secrets, permissions and the audit log ----------------------------------------------
+// --- Permissions and the audit log ----------------------------------------------------------
 
 /**
  * An audit entry for something the user did in the UI. `where`: a tab id, a
- * secret scope or permission subject ("global", "workspace:<id>",
- * "website-agent"), or null.
+ * permission subject ("workspace:<id>", "website-agent"), or null.
  */
 const youDid = (where: string | null, action: string, target: string | null, detail: string | null = null) =>
   Effect.gen(function* () {
     const audit = yield* Audit;
     const workspaceId = where ? workspaceOfScope(where) : null;
-    const tabId = where && !workspaceId && where !== "global" && where !== WEBSITE_AGENT ? where : null;
+    const tabId = where && !workspaceId && where !== WEBSITE_AGENT ? where : null;
     yield* audit.record({ actor: "user", actorLabel: "You", tabId, workspaceId, action, target, detail });
   });
-
-/** "global KEY", "workspace KEY", "app KEY" for the audit log. */
-const secretLabel = (scope: string, name: string) =>
-  `${scope === "global" ? "global" : workspaceOfScope(scope) ? "workspace" : "app"} ${name}`;
-
-/**
- * Running apps that use a secret get restarted, so their environment changes
- * right away. `scope`: the secret's scope, or the subject of a permission.
- */
-const restartUsers = (scope: string, name: string) =>
-  Effect.gen(function* () {
-    const runtime = yield* Runtime;
-    const permissions = yield* Permissions;
-    const apps = yield* Apps;
-    const workspaces = yield* Workspaces;
-    const space = workspaceOfScope(scope);
-    let appIds: string[];
-    if (scope === "global") {
-      appIds = [];
-      for (const app of yield* apps.list()) {
-        if (app.kind === "app" && (yield* permissions.decision(app.id, "app.secret", name)) === "allow")
-          appIds.push(app.id);
-      }
-    } else appIds = space ? yield* workspaces.appIds(space) : [scope];
-    for (const id of appIds) yield* runtime.refresh(id);
-  });
-
-const secretRoutes = HttpRouter.addAll([
-  HttpRouter.route(
-    "GET",
-    "/api/secrets",
-    Effect.gen(function* () {
-      const secrets = yield* Secrets;
-      const req = yield* HttpServerRequest.HttpServerRequest;
-      const scope = new URL(req.url, "http://localhost").searchParams.get("scope") ?? undefined;
-      return json({ protection: secrets.protection, secrets: yield* secrets.list(scope) } satisfies SecretsOverview);
-    }),
-  ),
-  HttpRouter.route(
-    "PUT",
-    "/api/secrets",
-    handle(
-      Effect.gen(function* () {
-        const secrets = yield* Secrets;
-        const apps = yield* Apps;
-        const workspaces = yield* Workspaces;
-        const input = yield* decodeBody(Schema.Struct({ scope: str(150), name: str(100), value: str(70_000) }));
-        const space = workspaceOfScope(input.scope);
-        if (space) {
-          if (!(yield* workspaces.get(space))) return yield* fail(404, "No such workspace");
-        } else if (input.scope !== "global") {
-          const app = yield* apps.get(input.scope);
-          if (!app || app.kind !== "app") return yield* fail(404, "No such app");
-        }
-        const existed = (yield* secrets.list(input.scope)).some((x) => x.name === input.name);
-        const saved = yield* secrets
-          .set(input.scope, input.name, input.value)
-          .pipe(Effect.catchTag("SecretError", (e) => fail(400, e.message)));
-        yield* youDid(input.scope, existed ? "secret.replace" : "secret.create", secretLabel(input.scope, input.name));
-        yield* restartUsers(input.scope, input.name);
-        return json(saved);
-      }),
-    ),
-  ),
-  HttpRouter.route(
-    "DELETE",
-    "/api/secrets/:id",
-    handle(
-      Effect.gen(function* () {
-        const secrets = yield* Secrets;
-        const removed = yield* secrets.remove(yield* param("id"));
-        if (!removed) return yield* fail(404, "Not found");
-        yield* youDid(removed.scope, "secret.delete", secretLabel(removed.scope, removed.name));
-        yield* restartUsers(removed.scope, removed.name);
-        return noContent;
-      }),
-    ),
-  ),
-]);
-
-const permissionActions = [
-  "app.ai",
-  "app.secret",
-  "agent.site",
-  "agent.network",
-  "agent.override",
-  "app.data",
-  "app.tool",
-  "agent.schedule",
-  "agent.tab",
-  "agent.browse",
-  "agent.headless",
-] as const satisfies readonly PermissionAction[];
 
 const permissionRoutes = HttpRouter.addAll([
   HttpRouter.route(
@@ -2256,32 +1442,6 @@ const permissionRoutes = HttpRouter.addAll([
       const permissions = yield* Permissions;
       return json(yield* permissions.list);
     }),
-  ),
-  // Granting from the UI (e.g. letting an app use a global secret).
-  HttpRouter.route(
-    "PUT",
-    "/api/permissions",
-    handle(
-      Effect.gen(function* () {
-        const permissions = yield* Permissions;
-        const input = yield* decodeBody(
-          Schema.Struct({
-            subject: str(100),
-            action: Schema.Literals(permissionActions),
-            resource: str(300),
-            decision: Schema.Literals(["allow", "deny"]),
-          }),
-        );
-        yield* permissions.set(input.subject, input.action, input.resource, input.decision);
-        yield* youDid(
-          input.subject,
-          `permission.${input.decision}`,
-          `${input.action}${input.resource ? ` ${input.resource}` : ""}`,
-        );
-        if (input.action === "app.secret") yield* restartUsers(input.subject, input.resource);
-        return noContent;
-      }),
-    ),
   ),
   HttpRouter.route(
     "DELETE",
@@ -2298,7 +1458,6 @@ const permissionRoutes = HttpRouter.addAll([
           `${revoked.action}${revoked.resource ? ` ${revoked.resource}` : ""}`,
           revoked.subjectName,
         );
-        if (revoked.action === "app.secret") yield* restartUsers(revoked.subject, revoked.resource);
         return noContent;
       }),
     ),
@@ -2317,7 +1476,7 @@ const permissionRoutes = HttpRouter.addAll([
     handle(
       Effect.gen(function* () {
         const permissions = yield* Permissions;
-        // remember: true (this app or agent) or "workspace" (every app in its workspace).
+        // remember: true (this tab or agent) or "workspace" (every tab in its workspace).
         const { allow, remember } = yield* decodeBody(
           Schema.Struct({
             allow: Schema.Boolean,
@@ -2342,7 +1501,7 @@ const permissionRoutes = HttpRouter.addAll([
         yield* audit.list({
           tabId: params.get("tab") ?? undefined,
           workspaceId: params.get("workspace") ?? undefined,
-          actor: actor === "user" || actor === "agent" || actor === "app" || actor === "rune" ? actor : undefined,
+          actor: actor === "user" || actor === "agent" || actor === "rune" ? actor : undefined,
           before: params.get("before") ? Number(params.get("before")) : undefined,
           limit: params.get("limit") ? Number(params.get("limit")) : undefined,
         }),
@@ -2613,13 +1772,13 @@ const publishVisits = (workspaceId: string | null) =>
     yield* (yield* Hub).publish({ type: "visits-changed", topic: topics.visits, workspaceId });
   });
 
-/** A web tab went somewhere (`tab` as it was before): history records it (shared/visits.ts), unless it's private. */
+/** A tab went somewhere (`tab` as it was before): history records it (shared/visits.ts), unless it's private. */
 const visited = (
-  tab: { id: string; workspaceId: string; kind: string; url: string | null; private: boolean },
+  tab: { id: string; workspaceId: string; url: string | null; private: boolean },
   page: { url?: string; title?: string; favicon?: string | null },
 ) =>
   Effect.gen(function* () {
-    if (tab.kind !== "web" || tab.private) return;
+    if (tab.private) return;
     if (yield* (yield* Visits).record(tab, page)) yield* publishVisits(tab.workspaceId);
   });
 
@@ -2995,24 +2154,16 @@ export const routes = Layer.mergeAll(
   mcp,
   providerRoutes,
   settingsRoutes,
-  sandboxRoute,
   sourceRoutes,
   attachmentRoutes,
-  presetsRoute,
   appRoutes,
   windowRoutes,
   workspaceRoutes,
   historyRoutes,
-  actionRoutes,
-  dataRoutes,
-  appApiRoutes,
-  runtimeRoutes,
   siteRoutes,
   pageChangeRoutes,
   modRoutes,
   scheduleRoutes,
-  aiRoutes,
-  secretRoutes,
   permissionRoutes,
   networkRoutes,
   overrideRoutes,

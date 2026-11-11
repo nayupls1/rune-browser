@@ -35,7 +35,7 @@ describe("chat folders", () => {
       Effect.gen(function* () {
         const apps = yield* Apps;
         const files = yield* ChatFiles;
-        const tab = (yield* apps.create("default", "web", "https://example.com")).id;
+        const tab = (yield* apps.create("default", "https://example.com")).id;
         const messages: { role: string; content: string }[] = [];
         const saved: ChatFile[] = [];
         const env: ToolEnv = {
@@ -104,7 +104,7 @@ describe("chat folders", () => {
       Effect.gen(function* () {
         const apps = yield* Apps;
         const files = yield* ChatFiles;
-        const tab = (yield* apps.create("default", "app", null)).id;
+        const tab = (yield* apps.create("default", null)).id;
         const first = yield* files.dir(tab);
         writeFileSync(join(first, "a.txt"), "first chat");
         yield* apps.addMessage(tab, "user", "First");
@@ -138,20 +138,20 @@ describe("chat folders", () => {
 });
 
 describe("file links in the chat", () => {
-  test("a linked path is looked up only inside the chat's folders (and an app's project)", async () => {
+  test("a linked path is looked up only inside the tab's chat folders", async () => {
     const chat = mkdtempSync(join(tmpdir(), "rune-links-chat-"));
-    const project = mkdtempSync(join(tmpdir(), "rune-links-project-"));
+    const earlier = mkdtempSync(join(tmpdir(), "rune-links-earlier-chat-"));
     const outside = mkdtempSync(join(tmpdir(), "rune-links-outside-"));
     try {
       mkdirSync(join(chat, "exports"));
       writeFileSync(join(chat, "exports", "My report.csv"), "a,b");
       mkdirSync(join(chat, ".rune"));
       writeFileSync(join(chat, ".rune", "meta.json"), "{}");
-      mkdirSync(join(project, "src"));
-      writeFileSync(join(project, "src", "App.tsx"), "x");
+      mkdirSync(join(earlier, "src"));
+      writeFileSync(join(earlier, "src", "App.tsx"), "x");
       writeFileSync(join(outside, "secret.txt"), "not for the chat");
       symlinkSync(join(outside, "secret.txt"), join(chat, "leak.txt"));
-      const roots = [chat, project];
+      const roots = [chat, earlier];
       const look = (p: string) => lookupPath(p, roots);
 
       expect(await look("exports/My report.csv")).toMatchObject({
@@ -163,9 +163,9 @@ describe("file links in the chat", () => {
       });
       expect(await look(`file://${join(chat, "exports", "My report.csv")}`)).toMatchObject({ kind: "file" });
       expect(await look("exports/")).toMatchObject({ kind: "folder", path: join(chat, "exports") });
-      // Relative paths: the chat's folder first, then the project.
-      expect(await look("src/App.tsx")).toMatchObject({ kind: "file", path: join(project, "src", "App.tsx") });
-      expect(await look(join(project, "src"))).toMatchObject({ kind: "folder" });
+      // Relative paths: the current chat's folder first, then the earlier chats'.
+      expect(await look("src/App.tsx")).toMatchObject({ kind: "file", path: join(earlier, "src", "App.tsx") });
+      expect(await look(join(earlier, "src"))).toMatchObject({ kind: "folder" });
       expect(await look("exports/gone.json")).toMatchObject({
         kind: "missing",
         path: join(chat, "exports", "gone.json"),
@@ -181,7 +181,7 @@ describe("file links in the chat", () => {
       expect(await look("~/.ssh/id_ed25519")).toMatchObject(hidden);
       expect(await lookupPath("notes.md", [])).toMatchObject(hidden);
     } finally {
-      for (const dir of [chat, project, outside]) rmSync(dir, { recursive: true, force: true });
+      for (const dir of [chat, earlier, outside]) rmSync(dir, { recursive: true, force: true });
     }
   });
 
@@ -262,7 +262,7 @@ describe("chat files over the API", () => {
 
   test("the chat's folder is listed, and its images served for thumbnails", async () => {
     server = await startServer();
-    const tab = await server.api<{ id: string }>("/api/apps", { method: "POST", json: { kind: "app" } });
+    const tab = await server.api<{ id: string }>("/api/apps", { method: "POST", json: {} });
     const shot = await server.api<{ path: string }>(`/api/apps/${tab.id}/attachments`, {
       method: "POST",
       json: { name: "shot.png", mime: "image/png", data: Buffer.from("png").toString("base64") },
@@ -281,7 +281,7 @@ describe("chat files over the API", () => {
     expect(page.headers.get("content-type")).toBe("application/octet-stream");
     expect(page.headers.get("content-disposition")).toContain("attachment");
     // Only the tab's own chat files.
-    const other = await server.api<{ id: string }>("/api/apps", { method: "POST", json: { kind: "app" } });
+    const other = await server.api<{ id: string }>("/api/apps", { method: "POST", json: {} });
     expect((await raw(shot.path, other.id)).status).toBe(404);
     expect((await raw(join(listed.dir, "..", "..", "..", "settings.json"))).status).toBe(404);
     expect((await raw(join(listed.dir, ".rune", "attachments"))).status).toBe(404);
