@@ -127,6 +127,8 @@ const bridge: RuneBridge = {
       onScreenPickDone: listen("rune:screen-pick-done"),
     },
     certificateProblem: (webContentsId, url) => ipcRenderer.invoke("rune:certificate-problem", webContentsId, url),
+    navigationHistory: (webContentsId) => ipcRenderer.invoke("rune:navigation-history", webContentsId),
+    restoreHistory: (token, history) => ipcRenderer.invoke("rune:restore-history", token, history),
     proceedAnyway: (webContentsId, url) => ipcRenderer.invoke("rune:certificate-proceed", webContentsId, url),
     setSearchEngine: (engine) => ipcRenderer.send("rune:search-engine", engine),
     headless: {

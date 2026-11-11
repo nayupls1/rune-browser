@@ -79,6 +79,20 @@ Going on is remembered for the site and that certificate in the workspace's sess
 (`certificate-error` in `main/web.ts`), and the address bar warns while it's open. Only the user can go on, from Rune
 Browser's window: pages and agents can't.
 
+**A page that crashes** (its process died: it crashed, ran out of memory or was killed) gets Chromium's sad tab instead
+of a blank page: "Aw, Snap!", "Something went wrong while displaying this webpage.", the error code (`SIGKILL`, `Out of
+Memory`, or Windows' `STATUS_ACCESS_VIOLATION`) and Reload (`describeCrash` in `shared/loadErrors.ts`). A tab that
+crashed while it wasn't on screen reloads by itself once it's shown, like Chrome, unless it crashed again within 30
+seconds of being reloaded: then it stays on the sad tab and lists what to try. The agent's page tools are told the page
+crashed instead of waiting for it, and its reload tool brings it back. Headless tabs that crash just close.
+
+**Back/forward history** comes back with the tab, like Chrome restores it: after a restart, when an unloaded tab is
+opened again, with Ctrl+Shift+T, when a tab moves to another window or is duplicated. Each tab keeps the address and
+title of its last 50 pages around the current one (`shared/tabHistory.ts`, saved with the tab: `PUT
+/api/apps/:id/history`), and the main process rebuilds them in the new page with Electron's
+`navigationHistory.restore` (`main/web.ts`), which loads the current one. Not the pages' own state (scroll position,
+forms) beyond what tab unloading keeps. Private windows save none.
+
 **The page's menu** (right click, `main/contextMenu.ts`) has Chromium's items for what was clicked: a link (open in a new
 tab, save, copy its address or text), an image, video or audio (open, save, copy it or its address), a field (spelling
 suggestions and Add to dictionary, undo, redo, cut, copy, paste, paste as plain text, emoji where the system has a

@@ -3,6 +3,7 @@
 import type { Settings } from "../../shared/settings";
 import type { Endpoint, EndpointHost } from "../../shared/endpoints";
 import type { Visit, VisitSuggestion } from "../../shared/visits";
+import type { TabHistory } from "../../shared/tabHistory";
 import type { GalleryResult, InstalledMod, Mod, ModExtension, ModReview } from "../../shared/mods";
 import type {
   ChatFile,
@@ -109,6 +110,10 @@ export const api = {
   duplicateApp: (id: string) => post<AppSummary>(`/api/apps/${id}/duplicate`),
   updatePage: (id: string, page: { url?: string; title?: string; favicon?: string | null }) =>
     request<AppSummary>(`/api/apps/${id}/page`, { method: "PATCH", body: JSON.stringify(page) }),
+  /** A web tab's back/forward history (shared/tabHistory.ts); private tabs keep none. */
+  tabHistory: (id: string) => request<{ history: TabHistory | null }>(`/api/apps/${id}/history`),
+  setTabHistory: (id: string, history: TabHistory | null) =>
+    request<void>(`/api/apps/${id}/history`, { method: "PUT", body: JSON.stringify({ history }) }),
 
   /** Starts an agent turn; its output arrives on the hub (topic app:<id>). */
   chat: (id: string, body: ChatRequest) => post<{ ok: true }>(`/api/apps/${id}/chat`, body),

@@ -2,6 +2,7 @@
 import { Context, Effect, Layer } from "effect";
 import { SqlClient } from "effect/sql";
 import type { AgentChoice, AppSummary, ChatMessage, ChatSummary, ProviderId } from "../../shared/api";
+import { trimHistory, type TabHistory } from "../../shared/tabHistory";
 import { hostOf } from "../../shared/web";
 import { isPrivateWindow } from "../../shared/windows";
 import { now, orDieAll, type OrDie } from "./Db";
@@ -25,7 +26,17 @@ interface AppRow {
   updated_at: string;
   chat_folder: string | null;
   window_id: string | null;
+  history: string | null;
 }
+
+const parseHistory = (json: string | null): TabHistory | null => {
+  if (!json) return null;
+  try {
+    return trimHistory(JSON.parse(json) as TabHistory);
+  } catch {
+    return null;
+  }
+};
 
 export interface AppRecord extends AppSummary {
   nameLocked: boolean;
@@ -158,6 +169,22 @@ export const make = Effect.gen(function* () {
         return yield* summary(id);
       }),
 
+    /** The tab's back/forward history (shared/tabHistory.ts), null if none is kept. */
+    history: (id: string) =>
+      sql<{ history: string | null }>`SELECT history FROM apps WHERE id = ${id}`.pipe(
+        Effect.map((rows) => parseHistory(rows[0]?.history ?? null)),
+      ),
+
+    /** Keeps the tab's back/forward history (trimmed); private tabs keep none. False for an unknown tab. */
+    setHistory: (id: string, history: TabHistory | null) =>
+      Effect.gen(function* () {
+        const r = yield* row(id);
+        if (!r) return false;
+        const kept = isPrivateWindow(r.window_id) ? null : trimHistory(history);
+        yield* sql`UPDATE apps SET history = ${kept ? JSON.stringify(kept) : null} WHERE id = ${id}`;
+        return true;
+      }),
+
     /** A rename by the user: page titles leave the name alone from now on. */
     rename: (id: string, name: string) =>
       sql`UPDATE apps SET name = ${name}, name_locked = 1, updated_at = ${sql.literal(now)} WHERE id = ${id}`.pipe(
@@ -245,14 +272,14 @@ export const make = Effect.gen(function* () {
 
     touch: (id: string) => touch(id).pipe(Effect.asVoid),
 
-    /** Copies a tab's name, icon, URL and agent settings (not its chat) to a new tab. */
+    /** Copies a tab's name, icon, URL, back/forward history and agent settings (not its chat) to a new tab. */
     duplicate: (id: string) =>
       Effect.gen(function* () {
         const r = yield* row(id);
         if (!r) return null;
         const copyId = crypto.randomUUID();
-        yield* sql`INSERT INTO apps (id, workspace_id, name, icon, url, favicon, provider, model, effort, position, window_id)
-          VALUES (${copyId}, ${r.workspace_id}, ${`${r.name} copy`}, ${r.icon}, ${r.url}, ${r.favicon}, ${r.provider}, ${r.model}, ${r.effort}, ${lastPosition(r.workspace_id)}, ${r.window_id})`;
+        yield* sql`INSERT INTO apps (id, workspace_id, name, icon, url, favicon, provider, model, effort, position, window_id, history)
+          VALUES (${copyId}, ${r.workspace_id}, ${`${r.name} copy`}, ${r.icon}, ${r.url}, ${r.favicon}, ${r.provider}, ${r.model}, ${r.effort}, ${lastPosition(r.workspace_id)}, ${r.window_id}, ${r.history})`;
         return (yield* summary(copyId))!;
       }),
 

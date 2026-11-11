@@ -1,7 +1,8 @@
 // A web tab's page that didn't load, like Chromium's error pages (shared/loadErrors.ts):
 // "This site can't be reached" with Reload, or for a certificate that isn't valid
 // "Your connection is not private" with Back to safety, and under Advanced what's
-// wrong and a way through to the site, at the user's own risk.
+// wrong and a way through to the site, at the user's own risk. A page that crashed gets
+// Chromium's sad tab ("Aw, Snap!") with its error code and Reload.
 import * as stylex from "@stylexjs/stylex";
 import { createResource, createSignal, For, Show } from "solid-js";
 import type { LoadError } from "../../shared/loadErrors";
@@ -21,6 +22,8 @@ export function LoadErrorPage(props: {
 }) {
   const [advanced, setAdvanced] = createSignal(false);
   const certificate = () => props.error.kind === "certificate";
+  const crash = () => props.error.kind === "crash";
+  const iconName = () => (certificate() ? "shield-alert" : crash() ? "face-slightly-frowning" : "cloud-off");
   const [problem] = createResource(
     () => (certificate() && props.contentsId !== null ? ([props.contentsId, props.url] as const) : null),
     ([id, url]) => window.rune.web.certificateProblem(id, url).catch(() => null),
@@ -35,11 +38,7 @@ export function LoadErrorPage(props: {
   return (
     <div {...stylex.attrs(styles.page, certificate() && styles.pageDanger)} data-load-error={props.error.kind}>
       <div {...stylex.attrs(styles.body)}>
-        <Icon
-          name={certificate() ? "shield-alert" : "cloud-off"}
-          size={56}
-          {...stylex.attrs(styles.icon, certificate() && styles.iconDanger)}
-        />
+        <Icon name={iconName()} size={56} {...stylex.attrs(styles.icon, certificate() && styles.iconDanger)} />
         <h1 {...stylex.attrs(styles.title)}>{props.error.title}</h1>
         <p {...stylex.attrs(styles.text)}>{props.error.message}</p>
         <Show when={props.error.tips?.length}>
@@ -50,7 +49,7 @@ export function LoadErrorPage(props: {
             </ul>
           </div>
         </Show>
-        <p {...stylex.attrs(styles.code)} data-load-error-code>
+        <p {...stylex.attrs(styles.code, crash() && styles.codeAsIs)} data-load-error-code>
           {props.error.code}
         </p>
         <div {...stylex.attrs(styles.buttons)}>
@@ -128,6 +127,8 @@ const styles = stylex.create({
   text: { margin: 0, color: colors.muted, fontSize: font.md, lineHeight: 1.6 },
   tips: { marginBlock: space.xs, paddingLeft: space.xl },
   code: { margin: 0, color: colors.muted, fontSize: font.xs, fontFamily: font.mono, textTransform: "uppercase" },
+  // "Error code: Out of Memory", as Chromium writes it.
+  codeAsIs: { textTransform: "none" },
   buttons: { display: "flex", gap: space.sm, marginTop: space.lg, alignSelf: "stretch", justifyContent: "flex-end" },
   advanced: {
     display: "flex",

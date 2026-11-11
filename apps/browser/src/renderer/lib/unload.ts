@@ -78,10 +78,16 @@ export async function unloadOtherTabs() {
 // For the e2e checks: run a sweep as if it were later, and wake a tab like an agent would.
 declare global {
   interface Window {
-    __runeTabs?: { sweep: (inMs: number) => Promise<string[]>; wake: (id: string) => Promise<string> };
+    __runeTabs?: {
+      sweep: (inMs: number) => Promise<string[]>;
+      wake: (id: string) => Promise<string>;
+      /** Runs code in a tab's page like the agent's page tools do. */
+      eval: (id: string, code: string) => Promise<unknown>;
+    };
   }
 }
 window.__runeTabs = {
   sweep: (inMs) => sweep(Date.now() + inMs),
   wake: async (id) => (await wakePage(id)).info().url,
+  eval: async (id, code) => pageOf(id)!.eval(code),
 };

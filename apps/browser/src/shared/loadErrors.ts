@@ -2,12 +2,14 @@
 // "Your connection is not private" for certificate errors (with a way through,
 // at your own risk), "This site can't be reached" and friends for the rest.
 // Electron leaves the page blank, so the tab draws these (components/LoadError.tsx).
+// A page whose process went away (it crashed, ran out of memory, was killed) gets
+// Chromium's sad tab: "Aw, Snap!" with the error code and Reload.
 
 export interface LoadError {
-  kind: "certificate" | "network";
+  kind: "certificate" | "network" | "crash";
   title: string;
   message: string;
-  /** Chromium's error code as it shows it ("NET::ERR_CERT_AUTHORITY_INVALID", "ERR_NAME_NOT_RESOLVED"). */
+  /** Chromium's error code as it shows it ("NET::ERR_CERT_AUTHORITY_INVALID", "ERR_NAME_NOT_RESOLVED", "SIGKILL"). */
   code: string;
   /** Certificate errors: what's wrong, shown under Advanced. */
   advanced?: string;
@@ -113,4 +115,93 @@ export function describeLoadError(code: number, description: string, url: string
         `The page at ${host} might be temporarily down or it may have moved.`,
       );
   }
+}
+
+// --- Crashed pages ("Aw, Snap!") -----------------------------------------------------------------------
+
+/** Why a page's process went away, as Electron says (`render-process-gone`). */
+export type CrashReason =
+  | "clean-exit"
+  | "abnormal-exit"
+  | "killed"
+  | "crashed"
+  | "oom"
+  | "launch-failed"
+  | "integrity-failure"
+  | "memory-eviction";
+
+/** Signals by number, as Chromium names them on Linux and macOS (where they differ, macOS's second). */
+const SIGNALS: Record<number, [string, string?]> = {
+  1: ["SIGHUP"],
+  2: ["SIGINT"],
+  3: ["SIGQUIT"],
+  4: ["SIGILL"],
+  5: ["SIGTRAP"],
+  6: ["SIGABRT"],
+  7: ["SIGBUS", "SIGEMT"],
+  8: ["SIGFPE"],
+  9: ["SIGKILL"],
+  10: ["SIGUSR1", "SIGBUS"],
+  11: ["SIGSEGV"],
+  12: ["SIGUSR2", "SIGSYS"],
+  13: ["SIGPIPE"],
+  14: ["SIGALRM"],
+  15: ["SIGTERM"],
+};
+
+/** Windows' exit codes, by the names Chromium shows ("Error code: STATUS_ACCESS_VIOLATION"). */
+const WINDOWS_STATUS: Record<number, string> = {
+  1: "RESULT_CODE_KILLED",
+  2: "RESULT_CODE_HUNG",
+  3: "RESULT_CODE_KILLED_BAD_MESSAGE",
+  0xc0000005: "STATUS_ACCESS_VIOLATION",
+  0x80000003: "STATUS_BREAKPOINT",
+  0xc0000409: "STATUS_STACK_BUFFER_OVERRUN",
+  0xc00000fd: "STATUS_STACK_OVERFLOW",
+  0xc0000374: "STATUS_HEAP_CORRUPTION",
+  0xc000001d: "STATUS_ILLEGAL_INSTRUCTION",
+  0xc0000142: "STATUS_DLL_INIT_FAILED",
+  0xc0000017: "STATUS_NO_MEMORY",
+  0xc0000602: "STATUS_FAIL_FAST_EXCEPTION",
+  0xc000041d: "STATUS_FATAL_USER_CALLBACK_EXCEPTION",
+  0xe0000008: "Out of Memory",
+};
+
+/** The error code Chromium's sad tab shows for a page's process that went away. */
+export function crashCode(reason: CrashReason, exitCode: number, platform: string): string {
+  if (reason === "oom" || reason === "memory-eviction") return "Out of Memory";
+  if (platform === "win32") {
+    const unsigned = exitCode >>> 0;
+    return (
+      WINDOWS_STATUS[unsigned] ??
+      (unsigned > 0xffff ? `0x${unsigned.toString(16).toUpperCase().padStart(8, "0")}` : String(exitCode))
+    );
+  }
+  // Linux and macOS report the signal that ended the process.
+  const signal = (reason === "killed" || reason === "crashed") && SIGNALS[exitCode];
+  if (signal) return (platform === "darwin" ? signal[1] : undefined) ?? signal[0];
+  return String(exitCode);
+}
+
+/**
+ * Chromium's sad tab for a page whose process went away; null when it simply ended (clean-exit:
+ * the tab closed or was unloaded). `again`: it went away again soon after a reload, so it lists
+ * what to try, like Chromium does then.
+ */
+export function describeCrash(
+  reason: CrashReason,
+  exitCode: number,
+  platform: string,
+  again = false,
+): LoadError | null {
+  if (reason === "clean-exit") return null;
+  return {
+    kind: "crash",
+    title: "Aw, Snap!",
+    message: "Something went wrong while displaying this webpage.",
+    code: `Error code: ${crashCode(reason, exitCode, platform)}`,
+    tips: again
+      ? ["Closing other tabs, extensions, or apps", "Restarting Rune Browser", "Restarting your computer"]
+      : undefined,
+  };
 }
