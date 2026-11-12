@@ -67,6 +67,9 @@ agents, which do much of the work here, but it's just as true for people.
   warning on the run and a section in its summary. Fix those rather than ignoring
   them. A test that fails twice still fails, and so do more than five failing test
   files at once. On Windows, CI doubles every e2e wait (`E2E_TIMEOUT_SCALE=2`).
+- **First-run setup:** anything that starts the app on a fresh profile (a new script, a check with a
+  profile of its own) sets `RUNE_SKIP_ONBOARDING=1`, or it opens on the setup instead of the browser
+  (see [Interface](interface.md#onboarding)).
 - **Windows:** paths in tests and tool output go through `node:path` (`join`,
   `relative`) or are normalized to `/`; don't compare against hand-written
   `a/b` paths built from `path.slice`, as they come out as `a\b` on Windows.

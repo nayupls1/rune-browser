@@ -31,6 +31,7 @@ import { reportFlaky } from "./lib/flaky";
 import { TIMEOUT_SCALE } from "./lib/cdp";
 import { base, type Mode } from "../src/shared/theme";
 import { fileUrl } from "../src/shared/web";
+import { PUSH_STEP } from "../src/shared/onboarding";
 
 const args = process.argv.slice(2);
 const withAgent = args.includes("--agent");
@@ -96,6 +97,8 @@ const electron = await launchElectron(
   {
     RUNE_USER_DATA_DIR: profile,
     RUNE_OFFSCREEN: visible ? undefined : "1",
+    // A throwaway profile: no first-run setup in the way (honored only by unpackaged builds).
+    RUNE_SKIP_ONBOARDING: "1",
     RUNE_BROWSER_DIRS: fixture.dirs,
     RUNE_EXTENSION_UPDATES: "0",
     RUNE_DOWNLOADS_DIR: downloadsDir,
@@ -7683,6 +7686,258 @@ try {
       for (const win of opened) win.close();
     }
   });
+
+  await check(
+    "first-run setup: a new profile walks through it (import, layout, default browser, agent); skipped, run again",
+    async () => {
+      // Its own fresh profile and instance, without RUNE_SKIP_ONBOARDING (the rest of the checks have it). Its settings
+      // say vertical tabs, like this profile's, so choosing horizontal ones is a change.
+      const setupProfile = mkdtempSync(join(tempDir, "rune-e2e-setup-"));
+      mkdirSync(join(setupProfile, "data"), { recursive: true });
+      {
+        const { Database } = await import("bun:sqlite");
+        const db = new Database(join(setupProfile, "data", "rune.sqlite"));
+        db.run("CREATE TABLE settings (id INTEGER PRIMARY KEY CHECK (id = 1), value TEXT NOT NULL)");
+        db.run(`INSERT INTO settings (id, value) VALUES (1, '{"tabs":{"layout":"vertical"}}')`);
+        db.close();
+      }
+      const freePort = () =>
+        new Promise<number>((resolve) => {
+          const srv = createServer().listen(0, "127.0.0.1", () => {
+            const { port } = srv.address() as { port: number };
+            srv.close(() => resolve(port));
+          });
+        });
+      const launch = async () => {
+        const debugPort = await freePort();
+        const proc = await launchElectron(
+          {
+            RUNE_USER_DATA_DIR: setupProfile,
+            RUNE_OFFSCREEN: "1",
+            RUNE_SKIP_ONBOARDING: undefined,
+            RUNE_BROWSER_DIRS: fixture.dirs,
+            RUNE_FIREFOX_DIRS: "",
+            RUNE_EXTENSION_UPDATES: "0",
+            RUNE_DOWNLOADS_DIR: downloadsDir,
+            RUNE_SEARCH_SUGGESTIONS_LOCAL_ONLY: "1",
+          },
+          [
+            "--ozone-platform=headless",
+            "--ozone-override-screen-size=1920,1080",
+            "--password-store=basic",
+            `--remote-debugging-port=${debugPort}`,
+            "--disable-backgrounding-occluded-windows",
+            "--disable-renderer-backgrounding",
+          ],
+        );
+        const win = await Page.connect(debugPort, 30_000 * TIMEOUT_SCALE);
+        await win.send("Runtime.enable");
+        await win.send("Page.enable");
+        win.acceptDialogs();
+        await win.send("Emulation.setDeviceMetricsOverride", {
+          width: 1200,
+          height: 800,
+          deviceScaleFactor: 1,
+          mobile: false,
+        });
+        await win.send("Emulation.setFocusEmulationEnabled", { enabled: true });
+        return { proc, win, debugPort };
+      };
+      const stop = async (instance: Awaited<ReturnType<typeof launch>>) => {
+        instance.win.close();
+        instance.proc.kill();
+        await instance.proc.exited;
+      };
+      const mainPage = page;
+      let instance = await launch();
+      page = instance.win;
+      const at = (step: string) =>
+        page!.waitFor(`document.querySelector("[data-onboarding]")?.dataset.onboarding === "${step}"`, {
+          label: `setup: ${step}`,
+          timeoutMs: 20_000,
+        });
+      /** The step in light and dark (the system's, which the theme follows). */
+      const shots = async (name: string) => {
+        await page!.eval(`new Promise((r) => setTimeout(r, 350))`); // the step's entrance
+        await shot(`onboarding-${name}-light.png`);
+        await page!.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "dark" }] });
+        await page!.eval(`new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))`);
+        await shot(`onboarding-${name}-dark.png`);
+        await page!.send("Emulation.setEmulatedMedia", { features: [] });
+      };
+      const settingsNow = () => apiCall<{ onboarding: string; browser: { fonts: { size: number } } }>("/api/settings");
+      try {
+        // 1. Bring your stuff: the fixture browser's profile, with all it has checked.
+        await at("import");
+        await page!.waitFor(`!!document.querySelector('[data-onboarding-profile="Work"]')`, {
+          label: "the fixture browser's profile",
+          timeoutMs: 20_000,
+        });
+        const offered = await page!.eval<string[]>(
+          `[...document.querySelectorAll("[data-onboarding-import]")].filter((l) => l.querySelector("input:checked")).map((l) => l.dataset.onboardingImport)`,
+        );
+        if (offered.join() !== "bookmarks,settings,extensions") throw new Error(`offered: ${offered.join()}`);
+        // The app behind can't be reached.
+        if (!(await page!.eval<boolean>(`document.querySelector("[data-app-root]").hasAttribute("inert")`)))
+          throw new Error("the app behind the setup isn't inert");
+        await shots("import");
+        await click("[data-onboarding-next]");
+        await page!
+          .waitFor(
+            `[...document.querySelectorAll("[data-onboarding-import]")].every((l) => l.dataset.state === "done")`,
+            { label: "everything imported", timeoutMs: 60_000 },
+          )
+          .catch(async (err) => {
+            const states = await page!.eval<string>(
+              `[...document.querySelectorAll("[data-onboarding-import]")].map((l) => l.dataset.onboardingImport + ": " + l.dataset.state + " " + l.innerText).join("; ")`,
+            );
+            throw new Error(`${err.message}: ${states}`);
+          });
+        await shot("onboarding-import-done-light.png");
+        const tree = JSON.stringify(await apiCall<unknown>("/api/bookmarks"));
+        if (!tree.includes("Chrome docs") || !tree.includes("Reading list")) throw new Error("bookmarks not imported");
+        const extensions = await page!.eval<{ name: string }[]>(
+          `window.rune.extensions.list().then((r) => r.extensions.map((e) => ({ name: e.name })))`,
+        );
+        if (!extensions.some((e) => e.name === fixture.name)) throw new Error("the extension wasn't imported");
+        await page!.waitFor(`document.querySelector("[data-onboarding-next]")?.textContent.includes("Continue")`, {
+          label: "Continue after the import",
+        });
+        await click("[data-onboarding-next]");
+
+        // 2. Layout: horizontal tabs, at once, without a reload.
+        await at("layout");
+        await page!.eval(`window.__setupNoReload = true`);
+        await click('[data-onboarding-layout="horizontal"]');
+        await page!.waitFor(`document.querySelector("[data-app-root]")?.dataset.tabLayout === "horizontal"`, {
+          label: "horizontal tabs behind the setup",
+        });
+        await shots("layout");
+        // Enter (off any button) is the step's main button.
+        await page!.eval(`document.querySelector("[data-onboarding] h1").focus(), true`);
+        await page!.eval(
+          `document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })), true`,
+        );
+
+        // 3. Default browser: runs from source can't be one; skipped.
+        await at("default");
+        await page!.waitFor(
+          `document.querySelector("[data-onboarding-default]")?.dataset.onboardingDefault === "unsupported"`,
+          { label: "default browser status" },
+        );
+        await shots("default");
+        await click("[data-onboarding-skip]");
+
+        // Notifications from closed tabs, once web push is there (shared/onboarding.ts).
+        if (PUSH_STEP) {
+          await at("push");
+          await shots("push");
+          await click("[data-onboarding-skip]");
+        }
+
+        // 4. Agent: skipped, "just a browser", which finishes it.
+        await at("agent");
+        await page!.waitFor(`document.querySelectorAll("[data-onboarding-agent]").length === 3`, {
+          label: "the agents",
+        });
+        await shots("agent");
+        // At a small window size it still fits (no rail, the footer on screen).
+        await page!.send("Emulation.setDeviceMetricsOverride", {
+          width: 560,
+          height: 520,
+          deviceScaleFactor: 1,
+          mobile: false,
+        });
+        await page!.waitFor(`innerWidth === 560`, { label: "small window" });
+        const fits = await page!.eval<boolean>(`(() => {
+          const f = document.querySelector("[data-onboarding-next]").getBoundingClientRect();
+          return f.bottom <= innerHeight && f.right <= innerWidth && getComputedStyle(document.querySelector('[data-onboarding] nav')).display === "none";
+        })()`);
+        await shot("onboarding-agent-small.png");
+        await page!.send("Emulation.setDeviceMetricsOverride", {
+          width: 1200,
+          height: 800,
+          deviceScaleFactor: 1,
+          mobile: false,
+        });
+        if (!fits) throw new Error("the setup doesn't fit a small window");
+        const skipText = await page!.eval<string>(`document.querySelector("[data-onboarding-skip]").textContent`);
+        if (!skipText.includes("just a browser")) throw new Error(`the agent step's skip says "${skipText}"`);
+        await click("[data-onboarding-skip]");
+        await page!.waitFor(`!document.querySelector("[data-onboarding]")`, { label: "setup done" });
+        if (!(await page!.eval<boolean>(`window.__setupNoReload === true`))) throw new Error("the window reloaded");
+        if (await page!.eval<boolean>(`document.querySelector("[data-app-root]").hasAttribute("inert")`))
+          throw new Error("the app stayed inert");
+        const saved = await waitForValue(async () => {
+          const s = await settingsNow();
+          return s.onboarding === "completed" ? s : undefined;
+        });
+        if (saved.browser.fonts.size !== 18)
+          throw new Error(`settings not imported (font size ${saved.browser.fonts.size})`);
+
+        // It doesn't come back on the next start.
+        await stop(instance);
+        instance = await launch();
+        page = instance.win;
+        await page!.waitFor(`document.querySelector("[data-app-root]")?.dataset.tabLayout === "horizontal"`, {
+          label: "the app after a restart",
+          timeoutMs: 30_000,
+        });
+        await page!.waitFor(`!!document.querySelector("[data-tab-strip]")`, { label: "the tab bar" });
+        await page!.eval(`new Promise((r) => setTimeout(r, 1000))`);
+        if (await page!.eval<boolean>(`!!document.querySelector("[data-onboarding]")`))
+          throw new Error("the setup came back after a restart");
+
+        // "Run setup again" (Settings → About) brings it back; "Skip setup" ends it.
+        await openSettingsAt("about");
+        await click("[data-run-setup]");
+        await at("import");
+        // Never in a private window, even while it's pending.
+        const privateId = await page!.eval<string>(`window.rune.window.open({ private: true })`);
+        const privateTarget = await waitForValue(async () => {
+          const list = (await (await fetch(`http://127.0.0.1:${instance.debugPort}/json`)).json()) as {
+            type: string;
+            url: string;
+          }[];
+          return list.find((t) => t.type === "page" && t.url.includes(`window=${privateId}`));
+        }, 20_000);
+        const privateWin = await Page.connect(instance.debugPort, 10_000, (t) => t.url === privateTarget.url);
+        try {
+          await privateWin.waitFor(
+            `!!document.querySelector("[data-app-root]") && document.querySelectorAll("nav li[data-app-id], [data-tab-strip] [data-app-id]").length > 0`,
+            {
+              label: "the private window",
+              timeoutMs: 20_000,
+            },
+          );
+          await privateWin.eval(`new Promise((r) => setTimeout(r, 800))`);
+          if (await privateWin.eval<boolean>(`!!document.querySelector("[data-onboarding]")`))
+            throw new Error("a private window shows the setup");
+          await privateWin.eval("setTimeout(() => window.rune.window.close(), 50), true");
+        } finally {
+          privateWin.close();
+        }
+        await click("[data-onboarding-skip-all]");
+        await page!.waitFor(`!document.querySelector("[data-onboarding]")`, { label: "setup skipped" });
+        await waitForValue(async () => ((await settingsNow()).onboarding === "skipped" ? true : undefined));
+        // Escape skips it too.
+        await click("[data-run-setup]");
+        await at("import");
+        await page!.eval(`window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })), true`);
+        await page!.waitFor(`!document.querySelector("[data-onboarding]")`, { label: "setup skipped with Escape" });
+        await waitForValue(async () => ((await settingsNow()).onboarding === "skipped" ? true : undefined));
+        return "imported bookmarks, settings and an extension; horizontal tabs without a reload; default browser and agent skipped; not after a restart nor in a private window; run again, skipped (button, Escape)";
+      } finally {
+        page = mainPage;
+        await stop(instance).catch(() => {});
+        try {
+          rmSync(setupProfile, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
+        } catch {
+          // Windows may hold a file a moment longer.
+        }
+      }
+    },
+  );
 
   await check("no uncaught errors in the renderer", async () => {
     // Expected noise from Electron itself isn't an app bug.

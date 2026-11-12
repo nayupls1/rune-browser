@@ -83,6 +83,7 @@ import { ProviderIcon } from "./ProviderIcon";
 import { setFullAccess } from "../lib/access";
 import { Button, EmptyState, Input, Select } from "./ui";
 import { toast } from "./Toast";
+import { runSetupAgain } from "../lib/onboarding";
 
 /**
  * Settings: a sidebar of categories on the left (with a search above it), the chosen one on the right.
@@ -797,7 +798,7 @@ function NetworkSection() {
   );
 }
 
-const defaultBrowserText: Record<"default" | Extract<DefaultBrowserStatus, { how: string }>["how"], string> = {
+export const defaultBrowserText: Record<"default" | Extract<DefaultBrowserStatus, { how: string }>["how"], string> = {
   default: "Rune Browser is your default browser: links and web files from other apps open here, in new tabs.",
   direct: "Links and web pages from other apps (email, chat, documents, the terminal) open in another browser.",
   confirm:
@@ -863,6 +864,19 @@ function AboutSection() {
   return (
     <>
       <UpdatesSection />
+      {/* First-run setup (components/Onboarding.tsx); private windows never show it. */}
+      <Show when={!window.rune.window.private}>
+        <Section title="Setup" anchor="setup">
+          <Row
+            label="Run setup again"
+            description="Bring things over from another browser, choose where the tabs go, the default browser and an agent."
+          >
+            <Button onClick={runSetupAgain} data-run-setup>
+              Run setup
+            </Button>
+          </Row>
+        </Section>
+      </Show>
       <Section title="This build" anchor="about">
         <dl {...stylex.attrs(styles.about)}>
           <dt {...stylex.attrs(styles.dt)}>Data folder</dt>

@@ -80,6 +80,8 @@ export async function startServer({ allowedOrigin, onExit }: ServerOptions): Pro
       RUNE_TOKEN: token,
       RUNE_PARENT: "electron",
       RUNE_DATA_DIR: join(app.getPath("userData"), "data"),
+      // Checks and scripts start throwaway profiles without the first-run setup; the packaged app always has it.
+      RUNE_SKIP_ONBOARDING: app.isPackaged ? "" : (process.env.RUNE_SKIP_ONBOARDING ?? ""),
     },
     // stdin stays piped so the server can detect when the app goes away. Its errors pass through
     // here, so the last of them can go into a crash report.

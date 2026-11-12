@@ -190,6 +190,8 @@ export async function launchRune(opts: LaunchOptions & { seedProfile?: (profile:
   const proc = await launchElectron(
     {
       RUNE_USER_DATA_DIR: profile,
+      // A throwaway profile: no first-run setup in the way (honored only by unpackaged builds).
+      RUNE_SKIP_ONBOARDING: "1",
       RUNE_EXTENSION_UPDATES: "0",
       // What the address bar checks type isn't sent to a real search engine for suggestions.
       RUNE_SEARCH_SUGGESTIONS_LOCAL_ONLY: "1",

@@ -226,7 +226,7 @@ export const settingsSections: SettingsSection[] = [
   { id: "mods", label: "Mods", icon: "puzzle", view: MODS_VIEW, group: "pages" },
   { id: "api-map", label: "API map", icon: "waypoints", group: "pages", keywords: "endpoints api network sites" },
   { id: "activity", label: "Activity", icon: "scroll-text", view: ACTIVITY_VIEW, group: "pages" },
-  { id: "about", label: "About", icon: "info", group: "about", keywords: "version update" },
+  { id: "about", label: "About", icon: "info", group: "about", keywords: "version update setup onboarding first run" },
   {
     id: "version",
     label: "Version",
