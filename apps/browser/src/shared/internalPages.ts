@@ -248,6 +248,7 @@ const chromiumSettings: Record<string, string> = {
   clearBrowserData: "browser-clear",
   content: "browser-sites",
   performance: "browser-performance",
+  system: "browser-system",
   search: "browser-search",
   searchEngines: "browser-search",
   defaultBrowser: "browser-default",

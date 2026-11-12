@@ -7769,7 +7769,11 @@ try {
       const settingsNow = () =>
         apiCall<{
           onboarding: string;
-          browser: { fonts: { size: number }; push: { service: string; server: string } };
+          browser: {
+            fonts: { size: number };
+            push: { service: string; server: string };
+            background: { keepRunning: boolean };
+          };
         }>("/api/settings");
       try {
         // 1. Bring your stuff: the fixture browser's profile, with all it has checked.
@@ -7841,6 +7845,21 @@ try {
           { label: "ntfy.sh, the default, chosen" },
         );
         await shots("push");
+        // Running in the background so they arrive (not offered on macOS, which keeps apps running anyway): checked
+        // by default, saved like the push choice.
+        const background = "[data-onboarding-background] input";
+        if (process.platform !== "darwin") {
+          if (!(await page!.eval<boolean>(`document.querySelector(${JSON.stringify(background)})?.checked === true`)))
+            throw new Error("keeping Rune running in the background isn't offered, checked");
+          await click(background);
+          await waitForValue(async () =>
+            (await settingsNow()).browser.background.keepRunning === false ? true : undefined,
+          );
+          await click(background);
+          await waitForValue(async () =>
+            (await settingsNow()).browser.background.keepRunning === true ? true : undefined,
+          );
+        }
         await click('[data-onboarding-push="custom"]');
         await page!.waitFor(`!!document.querySelector("[data-onboarding-push-server]")`, { label: "server field" });
         // Plain http only for this computer.
@@ -7863,6 +7882,8 @@ try {
         await click('[data-onboarding-push="off"]');
         if (await page!.eval<boolean>(`!!document.querySelector("[data-onboarding-push-server]")`))
           throw new Error("the server field stayed for off");
+        if (await page!.eval<boolean>(`!!document.querySelector("[data-onboarding-background]")`))
+          throw new Error("the background choice stayed for off");
         await waitForValue(async () => ((await settingsNow()).browser.push.service === "off" ? true : undefined));
         await click("[data-onboarding-next]");
 
@@ -7957,12 +7978,348 @@ try {
         await page!.eval(`window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })), true`);
         await page!.waitFor(`!document.querySelector("[data-onboarding]")`, { label: "setup skipped with Escape" });
         await waitForValue(async () => ((await settingsNow()).onboarding === "skipped" ? true : undefined));
-        return "imported bookmarks, settings and an extension; horizontal tabs without a reload; default browser skipped; push: own server checked, then off; agent skipped; not after a restart nor in a private window; run again, skipped (button, Escape)";
+        return "imported bookmarks, settings and an extension; horizontal tabs without a reload; default browser skipped; push: background choice saved, own server checked, then off; agent skipped; not after a restart nor in a private window; run again, skipped (button, Escape)";
       } finally {
         page = mainPage;
         await stop(instance).catch(() => {});
         try {
           rmSync(setupProfile, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
+        } catch {
+          // Windows may hold a file a moment longer.
+        }
+      }
+    },
+  );
+
+  await check(
+    "background: closing the last window keeps it running (push still delivered), opening again brings back its tabs; at login without a window; off: quits",
+    async () => {
+      // Its own profile and instance: push through a stand-in for ntfy, notifications allowed for the test site.
+      const bgProfile = mkdtempSync(join(tempDir, "rune-e2e-background-"));
+      const autostartDir = mkdtempSync(join(tempDir, "rune-e2e-autostart-"));
+      // A stand-in for ntfy: publishing, and one JSON stream for the topics.
+      const streams = new Set<{ topics: string[]; send: (line: string) => void }>();
+      const encoder = new TextEncoder();
+      let published = 0;
+      const ntfy = Bun.serve({
+        hostname: "127.0.0.1",
+        port: 0,
+        idleTimeout: 0,
+        async fetch(req) {
+          const url = new URL(req.url);
+          const parts = url.pathname.split("/").filter(Boolean);
+          const time = () => Math.floor(Date.now() / 1000);
+          if (req.method === "GET" && parts.length === 2 && parts[1] === "json") {
+            const topics = parts[0]!.split(",");
+            let entry: { topics: string[]; send: (line: string) => void } | undefined;
+            const body = new ReadableStream<Uint8Array>({
+              start(controller) {
+                entry = { topics, send: (line) => controller.enqueue(encoder.encode(`${line}\n`)) };
+                entry.send(JSON.stringify({ id: "open", time: time(), event: "open", topic: topics.join(",") }));
+                streams.add(entry);
+              },
+              cancel() {
+                if (entry) streams.delete(entry);
+              },
+            });
+            req.signal.addEventListener("abort", () => entry && streams.delete(entry));
+            return new Response(body, { headers: { "Content-Type": "application/x-ndjson" } });
+          }
+          if (req.method === "POST" && parts.length === 1) {
+            const topic = parts[0]!;
+            const m = {
+              id: `bg${++published}`,
+              time: time(),
+              event: "message",
+              topic,
+              message: Buffer.from(await req.arrayBuffer()).toString("base64"),
+              encoding: "base64",
+            };
+            for (const s of streams) if (s.topics.includes(topic)) s.send(JSON.stringify(m));
+            return Response.json(m);
+          }
+          return new Response("Not found", { status: 404 });
+        },
+      });
+      const ntfyUrl = `http://127.0.0.1:${ntfy.port}`;
+      // The site: a page that subscribes, and a worker that reports each push and shows a notification.
+      const reports: string[] = [];
+      const pushSite = Bun.serve({
+        hostname: "127.0.0.1",
+        port: 0,
+        fetch(req) {
+          const url = new URL(req.url);
+          if (url.pathname === "/report") {
+            reports.push(url.searchParams.get("what") ?? "");
+            return new Response("ok");
+          }
+          if (url.pathname === "/sw.js")
+            return new Response(
+              `self.addEventListener("install", () => self.skipWaiting());
+               self.addEventListener("activate", (e) => e.waitUntil(clients.claim()));
+               self.addEventListener("push", (e) => {
+                 const d = e.data.json();
+                 e.waitUntil(fetch("/report?what=" + encodeURIComponent("push " + d.title))
+                   .then(() => self.registration.showNotification(d.title, { body: d.body, tag: d.tag })));
+               });`,
+              { headers: { "Content-Type": "text/javascript" } },
+            );
+          return new Response(
+            `<!doctype html><meta charset="utf-8"><link rel="icon" href="data:,"><title>Background push</title><h1>Push</h1>
+             <script>
+               window.ready = navigator.serviceWorker.register("/sw.js").then(() => navigator.serviceWorker.ready);
+               window.subscribe = (key) => ready.then((r) => r.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key })).then((s) => JSON.parse(JSON.stringify(s)));
+             </script>`,
+            { headers: { "Content-Type": "text/html; charset=utf-8" } },
+          );
+        },
+      });
+      const siteHost = "bgpush.localhost";
+      const origin = `http://${siteHost}:${pushSite.port}`;
+      mkdirSync(join(bgProfile, "data"), { recursive: true });
+      {
+        const { Database } = await import("bun:sqlite");
+        const db = new Database(join(bgProfile, "data", "rune.sqlite"));
+        db.run("CREATE TABLE settings (id INTEGER PRIMARY KEY CHECK (id = 1), value TEXT NOT NULL)");
+        // Vertical tabs, like the main profile's (the checks find tabs in the sidebar).
+        const seeded = {
+          tabs: { layout: "vertical" },
+          browser: {
+            push: { service: "custom", server: ntfyUrl },
+            sites: { [siteHost]: { notifications: "allow" } },
+          },
+        };
+        db.run("INSERT INTO settings (id, value) VALUES (1, ?)", [JSON.stringify(seeded)]);
+        db.close();
+      }
+      const webpush = await import("web-push");
+      const vapid = webpush.generateVAPIDKeys();
+      const send = async (sub: { endpoint: string; keys: { p256dh: string; auth: string } }, payload: object) => {
+        const request = webpush.generateRequestDetails(sub, JSON.stringify(payload), {
+          vapidDetails: {
+            subject: "mailto:push@example.com",
+            publicKey: vapid.publicKey,
+            privateKey: vapid.privateKey,
+          },
+          TTL: 60,
+        });
+        const res = await fetch(request.endpoint, {
+          method: request.method,
+          headers: request.headers as Record<string, string>,
+          body: Uint8Array.from(request.body as Buffer),
+        });
+        if (!res.ok) throw new Error(`the push server answered ${res.status}`);
+      };
+
+      const freePort = () =>
+        new Promise<number>((resolve) => {
+          const srv = createServer().listen(0, "127.0.0.1", () => {
+            const { port } = srv.address() as { port: number };
+            srv.close(() => resolve(port));
+          });
+        });
+      const env = {
+        RUNE_USER_DATA_DIR: bgProfile,
+        RUNE_OFFSCREEN: "1",
+        RUNE_SKIP_ONBOARDING: "1",
+        RUNE_BROWSER_DIRS: fixture.dirs,
+        RUNE_EXTENSION_UPDATES: "0",
+        RUNE_DOWNLOADS_DIR: downloadsDir,
+        RUNE_SEARCH_SUGGESTIONS_LOCAL_ONLY: "1",
+        RUNE_PUSH_LOCAL_ONLY: "1",
+        // "Open at login" writes its autostart file here, never to the user's autostart folder.
+        RUNE_AUTOSTART_DIR: autostartDir,
+      };
+      const electronArgs = (debugPort: number) => [
+        "--ozone-platform=headless",
+        "--ozone-override-screen-size=1920,1080",
+        "--password-store=basic",
+        `--remote-debugging-port=${debugPort}`,
+        "--disable-backgrounding-occluded-windows",
+        "--disable-renderer-backgrounding",
+      ];
+      const targets = async (debugPort: number) =>
+        (await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json()) as { type: string; url: string }[];
+      const appWindows = async (debugPort: number) =>
+        (await targets(debugPort)).filter((t) => t.type === "page" && t.url.startsWith("app://"));
+      /** Rune Browser's window, once there is one. */
+      const connect = async (debugPort: number) => {
+        await waitForValue(async () => ((await appWindows(debugPort)).length ? true : undefined), 30_000);
+        const win = await Page.connect(debugPort, 30_000 * TIMEOUT_SCALE);
+        await win.send("Runtime.enable");
+        await win.send("Page.enable");
+        win.acceptDialogs();
+        await win.send("Emulation.setDeviceMetricsOverride", {
+          width: 1200,
+          height: 800,
+          deviceScaleFactor: 1,
+          mobile: false,
+        });
+        await win.send("Emulation.setFocusEmulationEnabled", { enabled: true });
+        await win
+          .waitFor(`!!document.querySelector("[data-sidebar-footer] [data-more-menu]")`, {
+            label: "the window",
+            timeoutMs: 30_000,
+          })
+          .catch(async (err) => {
+            const text = await win.eval<string>(`location.href + " " + document.body.innerText.slice(0, 300)`);
+            throw new Error(`${err.message} (${text})`);
+          });
+        return win;
+      };
+      const launch = async (extra: string[] = []) => {
+        const debugPort = await freePort();
+        const proc = await launchElectron(env, [...electronArgs(debugPort), ...extra]);
+        return { proc, debugPort };
+      };
+      /** Launching it again: the running one opens (this one hands over and quits). */
+      const launchAgain = async () => {
+        const again = await launch();
+        const code = await Promise.race([again.proc.exited, Bun.sleep(30_000 * TIMEOUT_SCALE).then(() => "timeout")]);
+        if (code !== 0) {
+          again.proc.kill();
+          throw new Error(`the second launch didn't hand over (${code})`);
+        }
+      };
+      const running = (proc: { exitCode: number | null }) => proc.exitCode === null;
+      /** The process exits within a while; false if it's still running. */
+      const exits = (proc: { exited: Promise<number> }, ms: number) =>
+        Promise.race([proc.exited.then(() => true), Bun.sleep(ms * TIMEOUT_SCALE).then(() => false)]);
+      const closeWindow = async () => {
+        await page!.eval("setTimeout(() => window.rune.window.close(), 50), true").catch(() => {});
+        page!.close();
+      };
+      const keepRunningToggle = `[data-search-label="Keep running in the background when Rune Browser is closed"] [role="switch"]`;
+      const loginToggle = `[data-search-label="Open at login"] [role="switch"]`;
+      type Saved = { browser: { background: { keepRunning: boolean; openAtLogin: boolean } } };
+      const savedBackground = async () => (await apiCall<Saved>("/api/settings")).browser.background;
+
+      const mainPage = page;
+      let instance = await launch();
+      try {
+        page = await connect(instance.debugPort);
+
+        // A site subscribes (notifications allowed in its settings: no prompt).
+        const { id: tabId } = await apiCall<{ id: string }>("/api/apps", {
+          method: "POST",
+          body: { url: `${origin}/` },
+        });
+        await page!.waitFor(`!!document.querySelector('nav li[data-app-id="${tabId}"]')`, {
+          label: "tab in the sidebar",
+        });
+        await click(`nav li[data-app-id="${tabId}"]`);
+        const tab = `[data-web-tab="${tabId}"]`;
+        await waitForValue(
+          async () => ((await inView<string>(tab, "typeof window.subscribe")) === "function" ? true : undefined),
+          20_000,
+        );
+        const sub = await waitForValue(
+          () =>
+            inView<{ endpoint: string; keys: { p256dh: string; auth: string } }>(
+              tab,
+              `subscribe(${JSON.stringify(vapid.publicKey)})`,
+            ),
+          20_000,
+        );
+        if (!sub.endpoint.startsWith(ntfyUrl)) throw new Error(`unexpected endpoint ${sub.endpoint}`);
+        await waitForValue(async () => (streams.size ? true : undefined), 20_000);
+
+        // Settings → General → System: on by default (push is on; macOS has only "Open at login"), which writes the
+        // autostart file on Linux (elsewhere a run from the repo never becomes a login item).
+        const isMac = process.platform === "darwin";
+        await openSettingsAt("browser-system");
+        await page!.waitFor(`!!document.querySelector(${JSON.stringify(loginToggle)})`, { label: "System" });
+        if (
+          !isMac &&
+          (await page!.eval<string>(`document.querySelector(${JSON.stringify(keepRunningToggle)})?.ariaChecked`)) !==
+            "true"
+        )
+          throw new Error("keep running isn't on by default");
+        await click(loginToggle);
+        await waitForValue(async () => ((await savedBackground()).openAtLogin ? true : undefined));
+        const autostart = join(autostartDir, "rune-browser.desktop");
+        if (process.platform === "linux") {
+          await waitForValue(async () => (existsSync(autostart) ? true : undefined));
+          const entry = readFileSync(autostart, "utf8");
+          if (!/^Exec=.* --background$/m.test(entry) || !entry.includes("X-Rune-Autostart=true"))
+            throw new Error(`the autostart file: ${entry}`);
+        }
+        await page!.eval(`document.querySelector('[data-section="browser-system"]').scrollIntoView(), true`);
+        await shot("settings-system.png");
+        await click(loginToggle);
+        await waitForValue(async () => ((await savedBackground()).openAtLogin ? undefined : true));
+        await waitForValue(async () => (!existsSync(autostart) ? true : undefined));
+        await click(`nav li[data-app-id="${tabId}"]`);
+
+        // Closing the last window: it keeps running, its tabs' pages are gone, a push still arrives.
+        await closeWindow();
+        await waitForValue(
+          async () => ((await appWindows(instance.debugPort)).length === 0 ? true : undefined),
+          20_000,
+        );
+        await Bun.sleep(2000);
+        if (!running(instance.proc)) throw new Error(`it quit (exit code ${instance.proc.exitCode})`);
+        const left = (await targets(instance.debugPort)).filter(
+          (t) => t.type === "webview" || (t.type === "page" && /^(https?|app):/.test(t.url)),
+        );
+        if (left.length) throw new Error(`pages left without a window: ${left.map((t) => t.url).join(", ")}`);
+        await send(sub, { title: "While closed", body: "Still delivered", tag: "bg" });
+        await waitForValue(async () => (reports.includes("push While closed") ? true : undefined), 30_000);
+
+        // Opening it again (launching it, as from the taskbar or a link): its window with its tabs.
+        await launchAgain();
+        page = await connect(instance.debugPort);
+        await page!.waitFor(`!!document.querySelector('nav li[data-app-id="${tabId}"]')`, {
+          label: "the tab back in the window",
+          timeoutMs: 20_000,
+        });
+        const shown = await page!.eval<{ title: string }[]>("window.rune.web.testNotifications()");
+        if (!shown.some((n) => n.title === "While closed")) throw new Error("the notification isn't there");
+
+        // Quitting for real (Ctrl+Q, the tray's Quit): it exits even so.
+        await page!.eval("setTimeout(() => window.rune.window.quit(), 50), true");
+        page!.close();
+        if (!(await exits(instance.proc, 20_000))) throw new Error("quitting didn't quit");
+        await waitForValue(async () => (streams.size === 0 ? true : undefined), 10_000);
+
+        // Started at login (in the background): no window, the push connection up; opening it brings the tabs.
+        instance = await launch(["--background"]);
+        await waitForValue(async () => (streams.size > 0 ? true : undefined), 30_000).catch(() => {
+          throw new Error("no push connection in the background");
+        });
+        await Bun.sleep(1500);
+        if ((await appWindows(instance.debugPort)).length) throw new Error("a window opened at login");
+        if (!running(instance.proc)) throw new Error("it quit at login");
+        await send(sub, { title: "After login", body: "", tag: "login" });
+        await waitForValue(async () => (reports.includes("push After login") ? true : undefined), 30_000);
+        await launchAgain();
+        page = await connect(instance.debugPort);
+        await page!.waitFor(`!!document.querySelector('nav li[data-app-id="${tabId}"]')`, {
+          label: "the tab in the window opened after login",
+          timeoutMs: 20_000,
+        });
+
+        // Turned off: closing the last window quits, as before (macOS keeps running anyway, like other Mac apps).
+        if (isMac)
+          return "kept running without windows or tab pages, push delivered, reopened with its tab; quit; at login: no window, push delivered, opened";
+        await openSettingsAt("browser-system");
+        await page!.waitFor(`!!document.querySelector(${JSON.stringify(keepRunningToggle)})`, { label: "System" });
+        await click(keepRunningToggle);
+        await waitForValue(async () => ((await savedBackground()).keepRunning === false ? true : undefined));
+        await closeWindow();
+        if (!(await exits(instance.proc, 20_000))) throw new Error("closing the last window didn't quit with it off");
+        return "kept running without windows or tab pages, push delivered, reopened with its tab; quit; at login: no window, push delivered, opened; off: quits; autostart file written and removed";
+      } finally {
+        page = mainPage;
+        if (running(instance.proc)) {
+          instance.proc.kill();
+          await instance.proc.exited;
+        }
+        ntfy.stop(true);
+        pushSite.stop(true);
+        try {
+          rmSync(bgProfile, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
+          rmSync(autostartDir, { recursive: true, force: true });
         } catch {
           // Windows may hold a file a moment longer.
         }

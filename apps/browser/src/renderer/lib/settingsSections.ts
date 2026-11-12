@@ -84,6 +84,14 @@ export const settingsSections: SettingsSection[] = [
     keywords: "memory saver unload idle tabs",
   },
   {
+    id: "browser-system",
+    label: "System",
+    icon: "monitor",
+    group: "browser",
+    parent: "general",
+    keywords: "background run keep running tray notifications closed open at login startup autostart",
+  },
+  {
     id: "browser-import",
     label: "Import",
     icon: "import",
@@ -104,7 +112,7 @@ export const settingsSections: SettingsSection[] = [
     label: "General",
     icon: "toggle-right",
     group: "browser",
-    keywords: "startup default browser search engine downloads languages performance import reset",
+    keywords: "startup default browser search engine downloads languages performance system background import reset",
   },
   {
     id: "appearance",

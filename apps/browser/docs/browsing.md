@@ -151,6 +151,9 @@ settings; cookies and site data stay per workspace. The renderer sends them to t
   suggestions and "Add to dictionary" in the context menu).
 - **Downloads:** the folder (files get a free name there, like Chrome's "file (1).pdf") or asking every time; see [Downloads](#downloads).
 - **Performance:** memory saver (unloading idle tabs) and closing unused tabs (tab cleanup), see Interface.
+- **System:** keep running in the background when Rune Browser is closed (on by default; it applies while
+  notifications from closed tabs are on) and open at login (off by default); see
+  [Interface](interface.md#windows). rune://settings/system opens it.
 - **Autofill and passwords:** Rune Browser has no password store of its own; a password manager extension does that.
 - **Import bookmarks and settings:** bookmarks through the bookmarks page's import (see [Bookmarks](#bookmarks)); settings
   from the Chromium-based browsers extension import finds, their Preferences: search
@@ -274,7 +277,11 @@ in `extension-preload/push.ts`):
   visit). A site's settings list its subscriptions, each removable.
 - **Rune Browser has to run** to receive: what's sent meanwhile waits on the server (12 hours on ntfy.sh) and arrives
   at the next start. ntfy.sh takes messages for a topic only while its subscriber was around in the last day, and
-  after four days without it, tells the site's server the subscription is gone.
+  after four days without it, tells the site's server the subscription is gone. So, like Chrome, it keeps running in
+  the background once its last window is closed (Windows and Linux; macOS apps do anyway), with a tray icon, and can
+  start that way at login: Settings → General → System, see [Interface](interface.md#windows). The push connection
+  and the service workers work without a window; a notification's click brings back the window closed last, with its
+  tabs. The main process reads the saved settings from the server at start, so push runs before (or without) a window.
 - **Settings → Privacy and security → Notifications from closed tabs:** through ntfy.sh (the default), through your
   own ntfy server (an https address; plain http only on this computer), or off. Off, `subscribe()` fails like Chrome
   without a push service ("push service not available"). A new profile's setup asks too

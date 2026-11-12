@@ -208,8 +208,25 @@ export const BrowserSettings = Schema.Struct({
     /** Your own ntfy server (service: "custom"); used once it's a valid address (`pushServerOf`). */
     server: Url.pipe(withDefault("")),
   }).pipe(withDefault({})),
+  /**
+   * Settings → General → System (Chrome's "Continue running background apps"). `keepRunning`: when the last window
+   * closes, Rune Browser keeps running without windows (`runsInBackground`), so notifications from closed tabs still
+   * arrive. `openAtLogin`: it starts in the background when you sign in to your computer.
+   */
+  background: Schema.Struct({
+    keepRunning: Schema.Boolean.pipe(withDefault(true)),
+    openAtLogin: Schema.Boolean.pipe(withDefault(false)),
+  }).pipe(withDefault({})),
 });
 export type BrowserSettings = typeof BrowserSettings.Type;
+
+/**
+ * Whether Rune Browser keeps running without windows: the setting is on and there's something to do in the
+ * background, notifications from closed tabs (push isn't off). Like Chrome, which keeps running only for its
+ * background apps.
+ */
+export const runsInBackground = (browser: Pick<BrowserSettings, "background" | "push">) =>
+  browser.background.keepRunning && browser.push.service !== "off";
 
 export const defaultBrowserSettings = (): BrowserSettings => Schema.decodeUnknownSync(BrowserSettings)({});
 

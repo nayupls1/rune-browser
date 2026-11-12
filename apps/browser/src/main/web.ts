@@ -56,6 +56,8 @@ export function setupWebTabs(
   windows: AppWindows,
   onApiCall?: (workspaceId: string, observation: Observation) => void,
   getServer: () => { url: string; token: string; ready: Promise<void> } | undefined = () => undefined,
+  /** The browser settings arrived or changed (main/background.ts). */
+  onSettings?: () => void,
 ) {
   /** Tells the window a page is in. */
   const sendTo = (contents: WebContents, channel: string, ...args: unknown[]) =>
@@ -88,7 +90,10 @@ export function setupWebTabs(
     isWebSession: (s) => webSessions.has(s),
     rulesChanged: () => extensions.rulesChanged(),
     sitesChanged: () => sitePermissions.sitesChanged(),
-    settingsChanged: () => push.settingsChanged(),
+    settingsChanged: () => {
+      push.settingsChanged();
+      onSettings?.();
+    },
     siteDataCleared: (workspaceIds, sites) => push.siteDataCleared(workspaceIds, sites),
   });
   setupSearchSuggestions({ windows, settings: () => browser.settings() });
@@ -635,6 +640,10 @@ export function setupWebTabs(
   return {
     /** A key pressed in the Rune Browser window: an extension's shortcut (for the workspace on screen) runs. */
     windowInput: (input: Input) => extensions.handleInput(null, input),
+    /** The browser settings in effect, whether they arrived, and the saved ones until a window sends them. */
+    settings: () => browser.settings(),
+    settingsReady: () => browser.settingsReady(),
+    seedSettings: (value: unknown) => browser.seed(value),
   };
 }
 

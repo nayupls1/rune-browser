@@ -78,7 +78,7 @@ Chromium's settings, by its own sections. Browser settings get their own part of
 | Extensions                     | Matched        | Settings → Extensions (rune://extensions)                                                                                                      |
 | About Chrome                   | Matched        | Settings → About: version, updates, release channel                                                                                            |
 | Accessibility                  | Different      | Follows the system's (screen readers, contrast, reduced motion); text size in Fonts and zoom; no Live Caption or image descriptions (Google's) |
-| System                         | Different      | Graphics acceleration switches are in rune://flags; the system's proxy settings apply; nothing runs after Rune Browser quits                   |
+| System                         | Different      | Settings → General → System: keeps running in the background (tray icon), open at login; GPU switches in rune://flags; system proxy            |
 | You and Google (sync, sign-in) | Not applicable | No Google account                                                                                                                              |
 
 ## Extension APIs
@@ -135,7 +135,7 @@ Keyboard shortcuts (rune://shortcuts).
 | History                                                   | Matched        | The pages you visited by day, searched and deleted, suggested by the address bar (Ctrl+H): see [Browsing](browsing.md#browsing-history)                                 |
 | Site permission prompts                                   | Matched        | Prompts in the tab, remembered in site settings, in use shown with Stop: see [Browsing](browsing.md#site-permission-prompts)                                            |
 | Push API (notifications from sites' service workers)      | Matched        | Through ntfy (ntfy.sh, or your own server), not Google's push service; same API and errors: see [Browsing](browsing.md#push-notifications)                              |
-| Notifications from closed tabs                            | Different      | While Rune Browser runs (it doesn't stay in the background once its windows close); what's sent meanwhile arrives at the next start                                     |
+| Notifications from closed tabs                            | Different      | While Rune Browser runs (it stays in the background once its windows close, like Chrome); what's sent after it quits arrives at the next start                          |
 | Password and autofill prompts                             | Different      | No password store of its own: password manager extensions fill and save passwords, addresses and cards                                                                  |
 | Task manager                                              | Matched        | Shift+Esc: rune://task-manager, a page rather than a window; memory, CPU and process ID, sortable, End process for tabs                                                 |
 | New windows, private windows                              | Matched        | Ctrl+N, Ctrl+Shift+N, moving tabs between windows: see [Interface](interface.md#windows)                                                                                |
