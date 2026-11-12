@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { Effect, ManagedRuntime } from "effect";
 import type { ImportCandidate } from "../src/shared/extensions";
-import { groupImportProfiles, onboardingSteps, PUSH_STEP, showsOnboarding } from "../src/shared/onboarding";
+import { groupImportProfiles, onboardingSteps, showsOnboarding } from "../src/shared/onboarding";
 import { decodeSettings } from "../src/shared/settings";
 import { readConfig } from "../src/server/Config";
 import { Settings } from "../src/server/db/Settings";
@@ -87,10 +87,8 @@ test("shown while pending, never in private windows or safe mode", () => {
   expect(showsOnboarding({ onboarding: "pending" }, { private: false, safeMode: true })).toBe(false);
 });
 
-test("the notifications step waits for web push", () => {
-  expect(PUSH_STEP).toBe(false);
-  expect(onboardingSteps()).toEqual(["import", "layout", "default", "agent"]);
-  expect(onboardingSteps(true)).toEqual(["import", "layout", "default", "push", "agent"]);
+test("the steps, notifications from closed tabs among them", () => {
+  expect(onboardingSteps()).toEqual(["import", "layout", "default", "push", "agent"]);
 });
 
 const extension = (id: string, over: Partial<ImportCandidate> = {}): ImportCandidate => ({

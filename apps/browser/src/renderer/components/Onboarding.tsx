@@ -20,7 +20,8 @@ import {
 import { Portal } from "solid-js/web";
 import type { ProviderId, ProviderStatus } from "../../shared/api";
 import type { BookmarkImportResult } from "../../shared/bookmarks";
-import { applyImport, describeImport, importParts, type ImportPart } from "../../shared/browser";
+import { applyImport, describeImport, importParts, type BrowserSettings, type ImportPart } from "../../shared/browser";
+import { NTFY_SH, validPushServer } from "../../shared/push";
 import type { DefaultBrowserStatus } from "../../shared/defaultBrowser";
 import type { InstallResult } from "../../shared/extensions";
 import {
@@ -708,33 +709,44 @@ function DefaultBrowserStep(props: StepProps) {
   );
 }
 
-// --- 4. Notifications from closed tabs (hidden: shared/onboarding.ts, PUSH_STEP) ------------------------
+// --- 4. Notifications from closed tabs -------------------------------------------------------------
 
+type PushService = BrowserSettings["push"]["service"];
+
+/** Web push (main/push.ts) as in Settings → Privacy and security → Notifications from closed tabs, the same setting. */
 function PushStep(props: StepProps) {
-  // TODO(push): read and save `settings().browser.push` once it exists; until then the choice isn't kept.
-  const [service, setService] = createSignal<"ntfy" | "custom" | "off">("ntfy");
-  const [server, setServer] = createSignal("");
   props.setActions({ primary: { label: "Continue", run: props.next } });
-  const options = [
-    ["ntfy", "Through ntfy.sh", "Recommended. A free, open-source service that passes the messages on.", "bell-ring"],
-    ["custom", "Through your own server", "An ntfy server you run yourself.", "server"],
+  const push = () => settings().browser.push;
+  // Saved through the renderer's settings: the main process runs the push connection and hears of them from here.
+  const setPush = (value: Partial<BrowserSettings["push"]>) =>
+    updateBrowser((b) => ({ ...b, push: { ...b.push, ...value } }));
+  const valid = () => validPushServer(push().server);
+  const options: [PushService, string, string, string][] = [
+    [
+      "ntfy",
+      "Through ntfy.sh",
+      `Recommended. The free public ntfy server, ${NTFY_SH.replace("https://", "")}.`,
+      "bell-ring",
+    ],
+    ["custom", "Through your own server", "An ntfy server you run, or a hosted one you trust.", "server"],
     ["off", "Off", "Sites can only notify you while their tab is open.", "bell-off"],
-  ] as const;
+  ];
   return (
     <>
       <StepHead ref={props.heading} title="Get notifications from sites even when their tab is closed?">
-        Chat, mail and calendars can tell you about new messages after you've closed them, like in other browsers.
+        Sites you allow to notify you (chat, mail, calendars) can do so after you've closed their tab. Rune has to be
+        running to receive them; what's sent meanwhile waits on ntfy for 12 hours and arrives when it starts.
       </StepHead>
       <div role="radiogroup" aria-label="Notifications from closed tabs" {...stylex.attrs(styles.choices)}>
         <For each={options}>
           {([value, title, detail, icon]) => {
-            const selected = () => service() === value;
+            const selected = () => push().service === value;
             return (
               <button
                 type="button"
                 role="radio"
                 aria-checked={selected()}
-                onClick={() => setService(value)}
+                onClick={() => setPush({ service: value })}
                 {...stylex.attrs(styles.choice, selected() && styles.choiceOn)}
                 data-onboarding-push={value}
               >
@@ -751,14 +763,24 @@ function PushStep(props: StepProps) {
           }}
         </For>
       </div>
-      <Show when={service() === "custom"}>
-        <Input
-          value={server()}
-          placeholder="https://ntfy.example.com"
-          onInput={(e) => setServer(e.currentTarget.value)}
-          aria-label="Your server"
-          spellcheck={false}
-        />
+      <Show when={push().service === "custom"}>
+        <label {...stylex.attrs(styles.field)}>
+          <span {...stylex.attrs(styles.itemTitle)}>Server address</span>
+          <Input
+            value={push().server}
+            placeholder="https://ntfy.example.com"
+            onInput={(e) => setPush({ server: e.currentTarget.value.slice(0, 2000) })}
+            spellcheck={false}
+            aria-invalid={!valid()}
+            data-onboarding-push-server
+            data-push-server-valid={valid() ? "" : undefined}
+          />
+          <span {...stylex.attrs(styles.itemDetail, invalidServer(push().server) && styles.danger)}>
+            {valid()
+              ? `Notifications go through ${valid()}.`
+              : "An https address (plain http only on this computer). Until then, nothing arrives."}
+          </span>
+        </label>
       </Show>
       <p {...stylex.attrs(styles.hint)}>
         <Icon name="lock" size={13} />
@@ -767,6 +789,9 @@ function PushStep(props: StepProps) {
     </>
   );
 }
+
+/** Something typed that isn't a valid address (an empty field isn't wrong yet). */
+const invalidServer = (text: string) => text.trim() !== "" && !validPushServer(text);
 
 // --- 5. Agent --------------------------------------------------------------------------------------
 
@@ -1055,6 +1080,7 @@ const styles = stylex.create({
   },
   lede: { margin: 0, maxWidth: "58ch", color: colors.muted, fontSize: font.md, lineHeight: 1.55 },
   quiet: { color: colors.muted },
+  field: { display: "flex", flexDirection: "column", gap: 6 },
   hint: {
     display: "flex",
     alignItems: "center",

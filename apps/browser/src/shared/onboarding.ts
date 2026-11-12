@@ -7,16 +7,8 @@ import type { Settings } from "./settings";
 
 export type OnboardingStep = "import" | "layout" | "default" | "push" | "agent";
 
-/**
- * Notifications from closed tabs (web push through ntfy.sh) aren't in Rune yet: the step is built but left out.
- * TODO(push): once the push setting lands (`browser.push: { service: "ntfy" | "custom" | "off", server?: string }` in
- * shared/browser.ts), drop this flag, show the step and save its choice there.
- */
-export const PUSH_STEP = false;
-
 /** The steps, in order. */
-export const onboardingSteps = (push = PUSH_STEP): OnboardingStep[] =>
-  push ? ["import", "layout", "default", "push", "agent"] : ["import", "layout", "default", "agent"];
+export const onboardingSteps = (): OnboardingStep[] => ["import", "layout", "default", "push", "agent"];
 
 /** Whether a window shows the setup: while it's pending, never in a private window or in safe mode. */
 export const showsOnboarding = (

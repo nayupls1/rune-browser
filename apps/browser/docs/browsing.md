@@ -277,7 +277,8 @@ in `extension-preload/push.ts`):
   after four days without it, tells the site's server the subscription is gone.
 - **Settings → Privacy and security → Notifications from closed tabs:** through ntfy.sh (the default), through your
   own ntfy server (an https address; plain http only on this computer), or off. Off, `subscribe()` fails like Chrome
-  without a push service ("push service not available").
+  without a push service ("push service not available"). A new profile's setup asks too
+  ([Interface](interface.md#onboarding)).
 - **Agents** get nothing of it: no tool, no keys, no subscriptions.
 
 ## Browsing history

@@ -31,7 +31,6 @@ import { reportFlaky } from "./lib/flaky";
 import { TIMEOUT_SCALE } from "./lib/cdp";
 import { base, type Mode } from "../src/shared/theme";
 import { fileUrl } from "../src/shared/web";
-import { PUSH_STEP } from "../src/shared/onboarding";
 
 const args = process.argv.slice(2);
 const withAgent = args.includes("--agent");
@@ -7688,7 +7687,7 @@ try {
   });
 
   await check(
-    "first-run setup: a new profile walks through it (import, layout, default browser, agent); skipped, run again",
+    "first-run setup: a new profile walks through it (import, layout, default browser, notifications, agent); skipped, run again",
     async () => {
       // Its own fresh profile and instance, without RUNE_SKIP_ONBOARDING (the rest of the checks have it). Its settings
       // say vertical tabs, like this profile's, so choosing horizontal ones is a change.
@@ -7720,6 +7719,8 @@ try {
             RUNE_EXTENSION_UPDATES: "0",
             RUNE_DOWNLOADS_DIR: downloadsDir,
             RUNE_SEARCH_SUGGESTIONS_LOCAL_ONLY: "1",
+            // Nothing goes to ntfy.sh (the default service): only servers on this computer.
+            RUNE_PUSH_LOCAL_ONLY: "1",
           },
           [
             "--ozone-platform=headless",
@@ -7765,7 +7766,11 @@ try {
         await shot(`onboarding-${name}-dark.png`);
         await page!.send("Emulation.setEmulatedMedia", { features: [] });
       };
-      const settingsNow = () => apiCall<{ onboarding: string; browser: { fonts: { size: number } } }>("/api/settings");
+      const settingsNow = () =>
+        apiCall<{
+          onboarding: string;
+          browser: { fonts: { size: number }; push: { service: string; server: string } };
+        }>("/api/settings");
       try {
         // 1. Bring your stuff: the fixture browser's profile, with all it has checked.
         await at("import");
@@ -7828,14 +7833,40 @@ try {
         await shots("default");
         await click("[data-onboarding-skip]");
 
-        // Notifications from closed tabs, once web push is there (shared/onboarding.ts).
-        if (PUSH_STEP) {
-          await at("push");
-          await shots("push");
-          await click("[data-onboarding-skip]");
-        }
+        // 4. Notifications from closed tabs: the setting as it is (ntfy.sh), your own server checked as it's typed,
+        // then off; saved through the renderer like Settings does (the main process runs the connection).
+        await at("push");
+        await page!.waitFor(
+          `document.querySelector('[data-onboarding-push="ntfy"]')?.getAttribute("aria-checked") === "true"`,
+          { label: "ntfy.sh, the default, chosen" },
+        );
+        await shots("push");
+        await click('[data-onboarding-push="custom"]');
+        await page!.waitFor(`!!document.querySelector("[data-onboarding-push-server]")`, { label: "server field" });
+        // Plain http only for this computer.
+        await type("[data-onboarding-push-server]", "http://ntfy.example.com");
+        await page!.waitFor(
+          `document.querySelector("[data-onboarding-push-server]").getAttribute("aria-invalid") === "true"`,
+          { label: "a plain http server refused" },
+        );
+        await page!.eval(`new Promise((r) => setTimeout(r, 300))`); // the cards' transitions
+        await shot("onboarding-push-custom-light.png");
+        await type("[data-onboarding-push-server]", "http://127.0.0.1:9/");
+        await page!.waitFor(
+          `document.querySelector("[data-onboarding-push-server]").dataset.pushServerValid !== undefined`,
+          { label: "a server on this computer accepted" },
+        );
+        await waitForValue(async () => {
+          const p = (await settingsNow()).browser.push;
+          return p.service === "custom" && p.server === "http://127.0.0.1:9/" ? true : undefined;
+        });
+        await click('[data-onboarding-push="off"]');
+        if (await page!.eval<boolean>(`!!document.querySelector("[data-onboarding-push-server]")`))
+          throw new Error("the server field stayed for off");
+        await waitForValue(async () => ((await settingsNow()).browser.push.service === "off" ? true : undefined));
+        await click("[data-onboarding-next]");
 
-        // 4. Agent: skipped, "just a browser", which finishes it.
+        // 5. Agent: skipped, "just a browser", which finishes it.
         await at("agent");
         await page!.waitFor(`document.querySelectorAll("[data-onboarding-agent]").length === 3`, {
           label: "the agents",
@@ -7926,7 +7957,7 @@ try {
         await page!.eval(`window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })), true`);
         await page!.waitFor(`!document.querySelector("[data-onboarding]")`, { label: "setup skipped with Escape" });
         await waitForValue(async () => ((await settingsNow()).onboarding === "skipped" ? true : undefined));
-        return "imported bookmarks, settings and an extension; horizontal tabs without a reload; default browser and agent skipped; not after a restart nor in a private window; run again, skipped (button, Escape)";
+        return "imported bookmarks, settings and an extension; horizontal tabs without a reload; default browser skipped; push: own server checked, then off; agent skipped; not after a restart nor in a private window; run again, skipped (button, Escape)";
       } finally {
         page = mainPage;
         await stop(instance).catch(() => {});
