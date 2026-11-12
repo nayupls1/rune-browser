@@ -26,6 +26,8 @@ import { api } from "./api";
 import { attachmentsOf, clearAttachments } from "./attachments";
 import { onConnected, reportTabs, watchTopic } from "./realtime";
 import { settings } from "./settings";
+import { forgetHistory, giveHistory, knownHistory } from "./tabHistory";
+import type { TabHistory } from "../../shared/tabHistory";
 
 export interface TabState {
   loaded: boolean;
@@ -264,6 +266,8 @@ function releaseFocus(id: string) {
  */
 function leaveWindow(id: string) {
   const index = workspaceTabs().findIndex((a) => a.id === id);
+  // The window it went to has it from the server.
+  forgetHistory(id);
   releaseFocus(id);
   setApps((list) => list.filter((a) => a.id !== id));
   setOpened(opened().filter((x) => x !== id));
@@ -290,6 +294,7 @@ function forgetApp(id: string) {
   setApps((list) => list.filter((a) => a.id !== id));
   setOpened(opened().filter((x) => x !== id));
   lastUsed.delete(id);
+  forgetHistory(id);
   watchers.get(id)?.();
   watchers.delete(id);
   setStates(produce((s) => void delete s[id]));
@@ -415,12 +420,17 @@ function showNewTab(app: AppSummary) {
  * In the current workspace unless another is given; a background tab opens
  * without being shown.
  */
-export async function newWebTab(url?: string, options: { workspaceId?: string; background?: boolean } = {}) {
+export async function newWebTab(
+  url?: string,
+  options: { workspaceId?: string; background?: boolean; history?: TabHistory | null } = {},
+) {
   const app = await api.createApp({
     url: url && /^(https?:\/\/|chrome-extension:\/\/|file:\/\/\/)/i.test(url) ? url : undefined,
     workspaceId: options.workspaceId ?? currentWorkspace()?.id,
     windowId,
   });
+  // A closed tab opened again: with its back/forward history.
+  if (options.history) giveHistory(app.id, options.history);
   if (!options.background) showNewTab(app);
   else {
     upsertApp(app);
@@ -522,7 +532,13 @@ export async function deleteApp(id: string) {
 }
 
 /** Web tabs closed lately in this window, newest last (Ctrl+Shift+T opens the last one again). */
-const recentlyClosed: { url: string; title: string; workspaceId: string; at: number }[] = [];
+const recentlyClosed: {
+  url: string;
+  title: string;
+  workspaceId: string;
+  at: number;
+  history: TabHistory | null;
+}[] = [];
 
 /** A workspace's web tabs closed lately in this window, newest first (chrome.sessions.getRecentlyClosed). */
 export const closedTabsOf = (workspaceId: string) =>
@@ -533,13 +549,19 @@ export async function restoreClosedTab(workspaceId: string, at: number | null) {
   const i = recentlyClosed.findLastIndex((c) => c.workspaceId === workspaceId && (at === null || c.at === at));
   if (i === -1) return null;
   const [closed] = recentlyClosed.splice(i, 1);
-  return newWebTab(closed!.url, { workspaceId: closed!.workspaceId });
+  return newWebTab(closed!.url, { workspaceId: closed!.workspaceId, history: closed!.history });
 }
 
 /** Remembers a closed tab for Ctrl+Shift+T. A private window doesn't remember what it closed: nothing of it is kept. */
 function rememberClosed(tab: AppSummary) {
   if (tab.url && !isPrivate)
-    recentlyClosed.push({ url: tab.url, title: tab.name, workspaceId: tab.workspaceId, at: Date.now() });
+    recentlyClosed.push({
+      url: tab.url,
+      title: tab.name,
+      workspaceId: tab.workspaceId,
+      at: Date.now(),
+      history: knownHistory(tab.id),
+    });
   if (recentlyClosed.length > 25) recentlyClosed.shift();
 }
 
@@ -591,6 +613,7 @@ export async function reopenClosedTab() {
   recentlyClosed.pop();
   await newWebTab(last.url, {
     workspaceId: workspaces.some((w) => w.id === last.workspaceId) ? last.workspaceId : currentWorkspace()?.id,
+    history: last.history,
   });
 }
 

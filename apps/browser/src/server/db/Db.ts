@@ -267,6 +267,8 @@ const migrate = (dataDir: string) =>
       ["window_id", "TEXT"],
       // When the user last had it on screen (tab cleanup closes tabs unused for long; null: since it was made).
       ["last_used_at", "TEXT"],
+      // Its back/forward history (shared/tabHistory.ts, JSON): null for private tabs, which keep nothing.
+      ["history", "TEXT"],
     ];
     for (const [name, type] of added) {
       if (!columns.has(name)) yield* sql.unsafe(`ALTER TABLE apps ADD COLUMN ${name} ${type}`);

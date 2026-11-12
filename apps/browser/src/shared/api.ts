@@ -17,6 +17,7 @@ import type {
 import type { FlagsInfo } from "./flags";
 import type { GpuReport, VersionInfo } from "./internalPages";
 import type { WorkspaceSettings } from "./settings";
+import type { TabHistory } from "./tabHistory";
 import type {
   PromptAnswer,
   ScreenPick,
@@ -260,6 +261,13 @@ export interface RuneBridge {
     onAudio: (fn: (event: { contentsId: number; audible: boolean }) => void) => () => void;
     /** Why a tab's page at `url` has no valid certificate (null: it's not that). */
     certificateProblem: (webContentsId: number, url: string) => Promise<CertificateProblem | null>;
+    /** A web tab's back/forward history as the page has it now (shared/tabHistory.ts); null if it's gone. */
+    navigationHistory: (webContentsId: number) => Promise<TabHistory | null>;
+    /**
+     * Has the next web tab created with `about:blank#rune-restore=<token>` start with this history instead of a
+     * page (main/web.ts); false if it can't (nothing to restore).
+     */
+    restoreHistory: (token: string, history: TabHistory) => Promise<boolean>;
     /** The user goes on to a site whose certificate isn't valid (until Rune Browser quits); false if it can't. */
     proceedAnyway: (webContentsId: number, url: string) => Promise<boolean>;
     /** The search engine Settings picked, for "Search … for" in a page's menu. */

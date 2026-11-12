@@ -606,6 +606,47 @@ const appRoutes = HttpRouter.addAll([
     ),
   ),
 
+  // A web tab's back/forward history (shared/tabHistory.ts), so it comes back after a restart or when it was
+  // unloaded. Private tabs keep none.
+  HttpRouter.route(
+    "GET",
+    "/api/apps/:id/history",
+    handle(
+      Effect.gen(function* () {
+        const apps = yield* Apps;
+        const id = yield* param("id");
+        if (!(yield* apps.get(id))) return yield* fail(404, "Not found");
+        return json({ history: yield* apps.history(id) });
+      }),
+    ),
+  ),
+  HttpRouter.route(
+    "PUT",
+    "/api/apps/:id/history",
+    handle(
+      Effect.gen(function* () {
+        const { history } = yield* decodeBody(
+          Schema.Struct({
+            history: Schema.NullOr(
+              Schema.Struct({
+                entries: Schema.Array(Schema.Struct({ url: str(8000), title: str(1000) })).check(
+                  Schema.isMaxLength(200),
+                ),
+                index: Schema.Int,
+              }),
+            ),
+          }),
+        );
+        const saved = yield* (yield* Apps).setHistory(
+          yield* param("id"),
+          history && { entries: history.entries.map((e) => ({ ...e })), index: history.index },
+        );
+        if (!saved) return yield* fail(404, "Not found");
+        return noContent;
+      }),
+    ),
+  ),
+
   // Moving a tab to another workspace: it gets that workspace's session and permissions.
   HttpRouter.route(
     "POST",

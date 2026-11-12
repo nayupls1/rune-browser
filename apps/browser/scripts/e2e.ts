@@ -133,6 +133,16 @@ const site = Bun.serve({
   async fetch(req) {
     const url = new URL(req.url);
     const path = url.pathname;
+    // Pages to go back and forth between (tabs keep their history across a restart).
+    if (/^\/hist\/\d+$/.test(path)) {
+      const n = path.slice(6);
+      return new Response(
+        `<!doctype html><link rel="icon" href="data:,"><title>History ${n}</title><h1>History ${n}</h1>`,
+        {
+          headers: { "Content-Type": "text/html" },
+        },
+      );
+    }
     // For headless tabs with logins: a first load that redirects to another site.
     if (path === "/redirect-other") return Response.redirect(`http://other.example:${url.port}/second`, 302);
     // Pages behind a sign-in (HTTP Basic): the fixture extension fills in /auth/extension, you /auth/you.
@@ -6177,6 +6187,175 @@ try {
       rmSync(certDir, { recursive: true, force: true });
     }
   });
+
+  /** Makes a web tab at one of the site's /hist/<n> pages, shows it and waits for the page. */
+  const historyTab = async (n: number) => {
+    const { id } = await apiCall<{ id: string }>("/api/apps", {
+      method: "POST",
+      body: { url: `${site.url.origin}/hist/${n}` },
+    });
+    await page!.waitFor(`!!document.querySelector('nav li[data-app-id="${id}"]')`, { label: "tab in the sidebar" });
+    await click(`nav li[data-app-id="${id}"]`);
+    await titleIs(`[data-web-tab="${id}"]`, `History ${n}`);
+    return id;
+  };
+  /** Waits until the page in the web tab `tab` has this title. */
+  const titleIs = (tab: string, title: string) =>
+    waitForValue(async () => ((await inView<string>(tab, "document.title")) === title ? true : undefined), 20_000);
+
+  await check("crashed tabs: Aw, Snap! with the error code, agents are told, Reload brings the page back", async () => {
+    const tabId = await historyTab(1);
+    const tab = `[data-web-tab="${tabId}"]`;
+    let other: string | undefined;
+    try {
+      // The page's process dies: chrome://kill ends it at once (chrome://crash would wait for its crash dump,
+      // which takes far longer than this allows on Linux CI).
+      await page!.eval(`document.querySelector('${tab} webview').loadURL("chrome://kill").catch(() => {}), true`);
+      await page!.waitFor(`document.querySelector('${tab} [data-load-error]')?.dataset.loadError === "crash"`, {
+        timeoutMs: 20_000,
+        label: "the sad tab",
+      });
+      // The crashed page's load can be reported as failed after the crash (on Linux CI it is): the sad tab stays.
+      await page!.eval(
+        `document.querySelector('${tab} webview').dispatchEvent(Object.assign(new Event("did-fail-load"), { errorCode: -2, errorDescription: "ERR_FAILED", validatedURL: "chrome://kill/", isMainFrame: true })), true`,
+      );
+      if ((await page!.eval(`document.querySelector('${tab} [data-load-error]')?.dataset.loadError`)) !== "crash")
+        throw new Error("a failed load reported after the crash replaced the sad tab");
+      const text = await page!.eval<string>(`document.querySelector('${tab} [data-load-error]').innerText`);
+      for (const words of ["Aw, Snap!", "Something went wrong while displaying this webpage.", "Error code: "])
+        if (!text.includes(words)) throw new Error(`the sad tab says: ${text}`);
+      const code = await page!.eval<string>(`document.querySelector('${tab} [data-load-error-code]').innerText`);
+      await closeAddress();
+      await shot("crashed-tab.png");
+      // The agent's page tools say the page crashed rather than waiting for it.
+      const told = await page!.eval<string>(
+        `Promise.race([window.__runeTabs.eval(${JSON.stringify(tabId)}, "1").then(() => "ran", (e) => String(e)), new Promise((r) => setTimeout(() => r("hung"), 5000))])`,
+      );
+      if (!told.includes("crashed")) throw new Error(`the agent's eval got: ${told}`);
+      // The address stays, and Reload brings the page back.
+      await page!.waitFor(`document.querySelector("[data-address]")?.value.includes("/hist/1")`, {
+        label: "the address kept",
+      });
+      await click(`${tab} [data-load-error-reload]`);
+      await page!.waitFor(`!document.querySelector('${tab} [data-load-error]')`, { label: "the sad tab gone" });
+      await titleIs(tab, "History 1");
+      if ((await page!.eval(`window.__runeTabs.eval(${JSON.stringify(tabId)}, "1 + 1")`)) !== 2)
+        throw new Error("the page doesn't run the agent's scripts after Reload");
+
+      // In the background: reloaded by itself once it's shown, like Chrome (a tab that wasn't reloaded lately).
+      other = await historyTab(3);
+      const bg = `[data-web-tab="${other}"]`;
+      await click(`nav li[data-app-id="${tabId}"]`);
+      const crashInBackground = async () => {
+        await page!.eval(`document.querySelector('${bg} webview').loadURL("chrome://kill").catch(() => {}), true`);
+        await page!.waitFor(`document.querySelector('${bg} [data-load-error]')?.dataset.loadError === "crash"`, {
+          timeoutMs: 20_000,
+          label: "the sad tab in the background",
+        });
+      };
+      await crashInBackground();
+      await click(`nav li[data-app-id="${other}"]`);
+      await page!.waitFor(`!document.querySelector('${bg} [data-load-error]')`, { label: "reloaded once shown" });
+      await titleIs(bg, "History 3");
+      // Crashing again right after: no more reloading by itself, and what to try.
+      await click(`nav li[data-app-id="${tabId}"]`);
+      await crashInBackground();
+      await click(`nav li[data-app-id="${other}"]`);
+      await Bun.sleep(500);
+      const again = await page!.eval<string>(`document.querySelector('${bg} [data-load-error]')?.innerText ?? ""`);
+      if (!again.includes("Aw, Snap!") || !again.includes("Restarting your computer"))
+        throw new Error(`crashing again soon after shows: ${again || "the page"}`);
+      await closeAddress();
+      await shot("crashed-tab-again.png");
+      return `"${code}", the agent told, reloaded; a background tab reloads once shown, but not when it crashes again`;
+    } finally {
+      await apiCall(`/api/apps/${tabId}`, { method: "DELETE" }).catch(() => {});
+      if (other) await apiCall(`/api/apps/${other}`, { method: "DELETE" }).catch(() => {});
+    }
+  });
+
+  await check(
+    "tab history: back/forward comes back after a restart, when an unloaded tab opens, and with Ctrl+Shift+T",
+    async () => {
+      const tabId = await historyTab(1);
+      const tab = `[data-web-tab="${tabId}"]`;
+      const li = (id: string) => `nav li[data-app-id="${id}"]`;
+      const made: string[] = [tabId];
+      /** The page's own back/forward length, and that the back button can go back. */
+      const canGoBack = async (t: string, length: number) => {
+        const got = await waitForValue(async () => {
+          const n = await inView<number>(t, "history.length");
+          return n === length ? n : undefined;
+        }, 15_000).catch(() => inView<number>(t, "history.length"));
+        if (got !== length) throw new Error(`the page has ${got} pages of history, not ${length}`);
+        await page!.waitFor(`!document.querySelector("[data-back]")?.disabled`, { label: "the back button on" });
+      };
+      try {
+        for (const n of [2, 3]) {
+          await inView(tab, `location.href = "/hist/${n}", true`);
+          await titleIs(tab, `History ${n}`);
+        }
+        // Kept with the tab on the server.
+        const saved = await waitForValue(async () => {
+          const r = await apiCall<{ history: { entries: { url: string; title: string }[]; index: number } | null }>(
+            `/api/apps/${tabId}/history`,
+          );
+          return r.history?.entries.length === 3 && r.history.index === 2 ? r.history : undefined;
+        });
+        if (saved.entries[0]!.title !== "History 1") throw new Error(`saved: ${JSON.stringify(saved)}`);
+
+        // A restart: a tab with its address and saved history, opened by a window that never had it (a copy of
+        // the tab is exactly that, made by the server).
+        const copy = await apiCall<{ id: string }>(`/api/apps/${tabId}/duplicate`, { method: "POST" });
+        made.push(copy.id);
+        const copyTab = `[data-web-tab="${copy.id}"]`;
+        await page!.waitFor(`!!document.querySelector('${li(copy.id)}')`, { label: "the restored tab" });
+        await click(li(copy.id));
+        await titleIs(copyTab, "History 3");
+        await canGoBack(copyTab, 3);
+        await closeAddress();
+        await shot("tab-history-restored.png");
+        await click("[data-back]");
+        await titleIs(copyTab, "History 2");
+        await inView(copyTab, "history.back(), true");
+        await titleIs(copyTab, "History 1");
+        await page!.waitFor(`!document.querySelector("[data-forward]")?.disabled`, { label: "the forward button on" });
+        await click("[data-forward]");
+        await titleIs(copyTab, "History 2");
+
+        // Unloaded, then opened again: the same history.
+        await page!.eval(`window.__runeTabs.sweep(4 * 3600_000)`);
+        await page!.waitFor(`!document.querySelector('${tab}')`, { label: "the first tab unloaded" });
+        await click(li(tabId));
+        await titleIs(tab, "History 3");
+        await canGoBack(tab, 3);
+
+        // Closed, then Ctrl+Shift+T: the same history.
+        await click(`${li(tabId)} [data-close-tab]`);
+        await page!.waitFor(`!document.querySelector('${li(tabId)}')`, { label: "closed" });
+        made.shift();
+        const before = await page!.eval<string[]>(
+          `[...document.querySelectorAll("nav li[data-app-id]")].map((li) => li.dataset.appId)`,
+        );
+        await page!.eval(
+          `window.dispatchEvent(new KeyboardEvent("keydown", { key: "T", ${mod}: true, shiftKey: true, bubbles: true })), true`,
+        );
+        const reopened = await page!.waitFor<string>(
+          `[...document.querySelectorAll("nav li[data-app-id]")].map((li) => li.dataset.appId).find((id) => !${JSON.stringify(before)}.includes(id))`,
+          { label: "reopened", timeoutMs: 20_000 },
+        );
+        made.push(reopened);
+        const reopenedTab = `[data-web-tab="${reopened}"]`;
+        await titleIs(reopenedTab, "History 3");
+        await canGoBack(reopenedTab, 3);
+        await click("[data-back]");
+        await titleIs(reopenedTab, "History 2");
+        return "3 pages back after a restart (back and forward buttons, history.back()), unloading and Ctrl+Shift+T";
+      } finally {
+        for (const id of made) await apiCall(`/api/apps/${id}`, { method: "DELETE" }).catch(() => {});
+      }
+    },
+  );
 
   await check(
     "bookmarks: the star and Ctrl+D, the bar and menu, address and command bar, the page, import from Chrome",

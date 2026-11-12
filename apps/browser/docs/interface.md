@@ -95,7 +95,8 @@ Tabs that haven't been on screen for a while are unloaded: their page closes and
 - **Never unloaded:** tabs on screen (in a split, all of its tabs), tabs whose agent is working or runs a background job, pages playing sound, and pinned tabs ("Keep loaded" in a tab's menu, saved with the tab: `PUT /api/apps/:id/pinned`).
 - **By hand:** "Unload" in a tab's menu, or "Unload other tabs" in the command bar.
 - **Background work:** an agent's page tools wake an unloaded tab in the background (`wakePage` in `lib/webtabs.ts`) and it stays loaded until it's idle again. The chat keeps streaming.
-- **Not kept:** a page's back/forward history, and anything only in its JavaScript memory. Extensions only see loaded tabs.
+- **Back and forward** work as before: the tab's history comes back with it (see Browsing, Back/forward history).
+- **Not kept:** anything only in the page's JavaScript memory. Extensions only see loaded tabs.
 
 ## Tab cleanup
 

@@ -42,6 +42,7 @@ import { chromeUserAgent } from "./userAgent";
 import { buildContextMenu } from "./contextMenu";
 import type { Observation } from "../shared/endpoints";
 import { insecureAction, type InsecurePolicy } from "../shared/insecure";
+import { hasHistory, trimHistory, type TabHistory } from "../shared/tabHistory";
 import type { AppWindows } from "./windows";
 
 const isWebUrl = (url: string) => /^https?:/i.test(url);
@@ -141,16 +142,59 @@ export function setupWebTabs(
     noDownloads: (contents) => headless.isHeadless(contents),
   });
 
+  // Back/forward history coming back (shared/tabHistory.ts): the tab asks for it first (rune:restore-history),
+  // then creates its webview at about:blank#rune-restore=<token>. That page isn't loaded: the guest starts
+  // empty (Electron loads `src` once it's attached, and history can only be restored before anything
+  // loaded), and gets the history once it's attached, which loads its current page.
+  const pendingRestores = new Map<string, { history: TabHistory; owner: number }>();
+  /** Set while a webview is being attached, for the guest created right after (web-contents-created). */
+  let nextRestore: TabHistory | null = null;
+  /** Guests waiting to be attached, with the history to restore. */
+  const restores = new Map<number, TabHistory>();
+  ipcMain.handle("rune:restore-history", (event, token: unknown, value: unknown) => {
+    if (!windows.isUi(event.sender) || typeof token !== "string" || !/^[\w-]{8,64}$/.test(token)) return false;
+    const history = trimHistory(value as TabHistory);
+    if (!hasHistory(history)) return false;
+    pendingRestores.set(token, { history, owner: event.sender.id });
+    // Not used (the tab closed first): forgotten.
+    setTimeout(() => pendingRestores.delete(token), 60_000);
+    return true;
+  });
+  ipcMain.handle("rune:navigation-history", (event, id: unknown) => {
+    const target = typeof id === "number" ? webContents.fromId(id) : undefined;
+    if (!target || target.getType() !== "webview" || target.hostWebContents !== event.sender) return null;
+    if (target.isDestroyed() || target.isCrashed()) return null;
+    const nav = target.navigationHistory;
+    return trimHistory({
+      entries: nav.getAllEntries().map(({ url, title }) => ({ url, title })),
+      index: nav.getActiveIndex(),
+    });
+  });
+
   app.on("web-contents-created", (_event, contents) => {
+    contents.on("did-attach-webview", (_e, guest) => {
+      const history = restores.get(guest.id);
+      if (!history) return;
+      restores.delete(guest.id);
+      // Fails like a load does (did-fail-load: the tab shows its error page).
+      guest.navigationHistory.restore(history).catch(() => {});
+    });
     contents.on("will-attach-webview", (event, prefs, params) => {
+      nextRestore = null;
       delete prefs.preload;
       prefs.nodeIntegration = false;
       prefs.nodeIntegrationInSubFrames = false;
       prefs.contextIsolation = true;
       prefs.sandbox = true;
       prefs.webSecurity = true;
-      const src = params.src ?? "";
       const partition = params.partition ?? "";
+      const token = /^about:blank#rune-restore=([\w-]+)$/.exec(params.src ?? "")?.[1];
+      const pending = token ? pendingRestores.get(token) : undefined;
+      if (token) {
+        pendingRestores.delete(token);
+        if (!pending || pending.owner !== contents.id) return event.preventDefault();
+      }
+      const src = pending ? pending.history.entries[pending.history.index]!.url : (params.src ?? "");
       const web =
         WEB_PARTITION_PATTERN.test(partition) &&
         (isWebUrl(src) ||
@@ -158,12 +202,28 @@ export function setupWebTabs(
           src === "about:blank" ||
           extensions.isExtensionPage(webSession(partition), src));
       if (!web) return event.preventDefault();
+      if (pending) {
+        const s = webSession(partition);
+        // Only pages a tab could open: websites, local files, the session's extension pages.
+        const ok = pending.history.entries.every(
+          (e) => isWebUrl(e.url) || isFileUrl(e.url) || extensions.isExtensionPage(s, e.url),
+        );
+        // Otherwise just the current page.
+        if (ok) {
+          delete params.src;
+          nextRestore = pending.history;
+        } else params.src = src;
+      }
       webSession(partition);
       browser.webPreferences(prefs);
       // Extension pages in iframes (password managers' fill-in menus…) get the extension APIs too.
       prefs.nodeIntegrationInSubFrames = true;
     });
-    if (contents.getType() === "webview") setupGuest(contents);
+    if (contents.getType() === "webview") {
+      if (nextRestore) restores.set(contents.id, nextRestore);
+      nextRestore = null;
+      setupGuest(contents);
+    }
   });
 
   function setupGuest(contents: WebContents) {

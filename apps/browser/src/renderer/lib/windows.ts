@@ -4,6 +4,7 @@
 import { toast } from "../components/Toast";
 import { api } from "./api";
 import { appById, apps, moveTab, windowId } from "./store";
+import { flushHistory } from "./tabHistory";
 
 const failed = (what: string) => (err: unknown) =>
   toast({ message: `${what} failed: ${err instanceof Error ? err.message : String(err)}`, kind: "error" });
@@ -23,7 +24,11 @@ export async function moveToNewWindow(tabIds: string[], at?: { x: number; y: num
 /** Moves tabs to another open window, which comes to the front. */
 export async function moveToWindow(tabIds: string[], target: string) {
   try {
-    for (const id of tabIds) await api.moveToWindow(id, target);
+    for (const id of tabIds) {
+      // The other window opens it with its back/forward history.
+      await flushHistory(id);
+      await api.moveToWindow(id, target);
+    }
     window.rune.window.focus(target);
   } catch (err) {
     failed("Moving the tab")(err);

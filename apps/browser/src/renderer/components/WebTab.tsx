@@ -2,9 +2,17 @@
 // picker and the website agent next to it. Web tabs stay mounted while you
 // switch tabs so pages keep their state. Pages load once the workspace's
 // extensions run (content scripts at document start), and extension pages
-// (options, ones an extension opened) are web tabs too.
+// (options, ones an extension opened) are web tabs too. A tab comes back with its
+// back/forward history (lib/tabHistory.ts), and a page that crashed shows Chromium's
+// sad tab ("Aw, Snap!") until it's reloaded.
 import * as stylex from "@stylexjs/stylex";
-import type { DidFailLoadEvent, PageFaviconUpdatedEvent, PageTitleUpdatedEvent, WebviewTag } from "electron";
+import type {
+  DidFailLoadEvent,
+  PageFaviconUpdatedEvent,
+  PageTitleUpdatedEvent,
+  RenderProcessGoneEvent,
+  WebviewTag,
+} from "electron";
 import { createEffect, createSignal, For, on, onCleanup, Show, untrack } from "solid-js";
 import { webPartition, type ElementInfo, type PageContext } from "../../shared/api";
 import { isExtensionUrl } from "../../shared/extensions";
@@ -63,7 +71,9 @@ import { PermissionPrompt, SiteStatusIcon, siteStatusTitle, siteUsage } from "./
 import { loadUsage } from "../lib/sitePermissions";
 import { FindBar, ZoomBadge } from "./FindBar";
 import { LoadErrorPage } from "./LoadError";
-import { describeLoadError, type LoadError } from "../../shared/loadErrors";
+import { describeCrash, describeLoadError, type LoadError } from "../../shared/loadErrors";
+import { hasHistory, trimHistory } from "../../shared/tabHistory";
+import { flushHistory, historyOf, rememberHistory } from "../lib/tabHistory";
 import { BookmarkStar } from "./Bookmarks";
 import { ADDRESS_ICON_SIZE, addressButton } from "./addressButton";
 import { applySiteZoom, foundInPage } from "../lib/pageTools";
@@ -71,6 +81,8 @@ import { siteForUrl } from "../lib/browser";
 
 /** How long an http:// page's HTTPS version may take to answer before the tab warns instead. */
 const UPGRADE_TIMEOUT_MS = 6_000;
+/** A page that crashes again this soon after it was reloaded from the sad tab isn't reloaded by itself. */
+const CRASH_AGAIN_MS = 30_000;
 
 const sameUrl = (a: string, b: string) => {
   try {
@@ -152,6 +164,8 @@ export function WebTab(props: { appId: string; active: boolean }) {
     });
 
   const requireReady = () => {
+    const gone = crashNote();
+    if (gone) throw new Error(gone);
     if (!webview || !ready) throw new Error("No page is open in this tab yet");
     return webview;
   };
@@ -294,17 +308,79 @@ export function WebTab(props: { appId: string; active: boolean }) {
     }),
   );
 
-  /** What the agent is told when the page it asked for is behind the warning. */
+  /** What the agent is told when the page it asked for is behind the warning, or crashed. */
   const blockedNote = () => {
     const warning = insecure();
     return warning
       ? `${warning.url} isn't secure (plain HTTP${warning.attempt ? ", no HTTPS version" : ""}): Rune Browser shows the user a warning instead, and only they can choose to open it.`
-      : undefined;
+      : crashNote();
   };
 
   const updateHistory = () => {
     if (webview && ready) setHistory({ back: webview.canGoBack(), forward: webview.canGoForward() });
   };
+
+  // --- Back/forward history kept with the tab (lib/tabHistory.ts) ---------------------------
+
+  let historyTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Reads the page's history a moment after it changed (the main process has it) and keeps it. */
+  const keepHistory = () => {
+    clearTimeout(historyTimer);
+    historyTimer = setTimeout(() => {
+      const id = contentsId();
+      if (id === null || !ready || crash()) return;
+      void window.rune.web
+        .navigationHistory(id)
+        .then((h) => h && rememberHistory(props.appId, h))
+        .catch(() => {});
+    }, 300);
+  };
+  onCleanup(() => {
+    clearTimeout(historyTimer);
+    void flushHistory(props.appId);
+  });
+
+  // --- Crashed page ("Aw, Snap!") ------------------------------------------------------------
+
+  /** The page's process went away: Chromium's sad tab is shown until it's reloaded. */
+  const crash = () => (loadError()?.kind === "crash" ? loadError() : undefined);
+  /** What the agent is told about a crashed page. */
+  const crashNote = () => {
+    const c = crash();
+    return c
+      ? `The page in this tab crashed ("${c.title}", ${c.code}). Reload it (the reload tool) or open another page to use it again.`
+      : undefined;
+  };
+  /** When it was last reloaded from the sad tab: crashing again soon after says what to try, and isn't reloaded by itself. */
+  let crashReloadedAt = 0;
+  /** It crashed while it wasn't on screen: reloaded once when it's shown, like Chrome does. */
+  let reloadWhenShown = false;
+  function reloadCrashed() {
+    reloadWhenShown = false;
+    crashReloadedAt = Date.now();
+    setLoadError();
+    webview?.reload();
+  }
+  function crashed(e: RenderProcessGoneEvent) {
+    const again = Date.now() - crashReloadedAt < CRASH_AGAIN_MS;
+    const error = describeCrash(e.details.reason, e.details.exitCode, window.rune.window.platform, again);
+    if (!error) return;
+    ready = false;
+    setLoading(false);
+    stopUpgrading();
+    setPickingIn(props.appId, false);
+    setLoadError({ ...error, url: currentUrl() });
+    reloadWhenShown = !props.active && !again;
+    // Whoever waits for the page (the agent) gets its answer: it's gone.
+    loaded();
+  }
+  createEffect(
+    on(
+      () => props.active,
+      (active) => active && reloadWhenShown && crash() && reloadCrashed(),
+      { defer: true },
+    ),
+  );
 
   function navigated(url: string, inPage: boolean) {
     setCurrentUrl(url);
@@ -591,6 +667,13 @@ export function WebTab(props: { appId: string; active: boolean }) {
       return info();
     },
     reload: async () => {
+      if (crash() && webview) {
+        const done = waitForLoad();
+        reloadCrashed();
+        await done;
+        await loadApplied;
+        return info();
+      }
       const view = requireReady();
       const done = waitForLoad();
       view.reload();
@@ -610,13 +693,15 @@ export function WebTab(props: { appId: string; active: boolean }) {
     pick,
     unpick,
     webContentsId: () => requireReady().getWebContentsId(),
-    // Nothing to wait for without an address.
+    // Nothing to wait for without an address (once its history is back, if it has one).
     whenLoaded: () =>
-      src()
-        ? Promise.race([firstLoad.then(() => loadApplied), new Promise<void>((r) => setTimeout(r, 15_000))])
-        : Promise.resolve(),
+      started.then(() =>
+        src()
+          ? Promise.race([firstLoad.then(() => loadApplied), new Promise<void>((r) => setTimeout(r, 15_000))])
+          : undefined,
+      ),
     saveState: async () => {
-      if (!webview || !ready) return null;
+      if (!webview || !ready || crash()) return null;
       return (
         ((await webview.executeJavaScript(captureScript).catch(() => null)) as SavedPage | null) ?? {
           url: currentUrl(),
@@ -629,7 +714,7 @@ export function WebTab(props: { appId: string; active: boolean }) {
     },
     busy: () => {
       try {
-        return !!webview && ready && webview.isCurrentlyAudible();
+        return !!webview && ready && !crash() && webview.isCurrentlyAudible();
       } catch {
         return false;
       }
@@ -649,10 +734,33 @@ export function WebTab(props: { appId: string; active: boolean }) {
     });
   }
 
-  if (initialUrl) open(initialUrl);
+  /**
+   * Opens the tab's page: with its back/forward history when it has one (after a restart, an unloaded tab,
+   * Ctrl+Shift+T), rebuilt by the main process in a fresh page; otherwise just the address.
+   */
+  async function start(url: string) {
+    const kept = trimHistory(await historyOf(props.appId), url);
+    // Something else was opened meanwhile, or the page needs the insecure-site checks first.
+    if (src()) return;
+    if (hasHistory(kept) && insecureAction(url, insecurePolicy()).kind === "allow") {
+      const token = crypto.randomUUID();
+      const ok = await window.rune.web.restoreHistory(token, kept).catch(() => false);
+      if (src()) return;
+      if (ok) return void setSrc(`about:blank#rune-restore=${token}`);
+    }
+    open(url);
+  }
+  // Not a blank tab meanwhile (no start page, no focused address bar).
+  const [starting, setStarting] = createSignal(!!initialUrl);
+  const started = initialUrl
+    ? start(initialUrl)
+        .catch(() => !src() && open(initialUrl))
+        .finally(() => setStarting(false))
+    : Promise.resolve();
 
   function attach(view: WebviewTag) {
     webview = view;
+    view.addEventListener("render-process-gone", crashed);
     view.addEventListener("did-start-loading", () => {
       setLoading(true);
       setLoadError();
@@ -675,9 +783,12 @@ export function WebTab(props: { appId: string; active: boolean }) {
       if (ready && title && title !== view.getURL() && !/^file:/i.test(view.getURL()))
         updatePage(props.appId, { title });
       updateHistory();
+      keepHistory();
       loaded();
     });
     view.addEventListener("did-fail-load", (e: DidFailLoadEvent) => {
+      // The page that crashed failing to load (it can be reported after the crash): the sad tab stays.
+      if (crash()) return loaded();
       // The HTTPS version of an http:// page didn't load: the page has none (or a broken one).
       if (e.isMainFrame && upgrading && e.errorCode !== -3) return warn(upgrading.from, upgrading.to);
       // -3 is an aborted load (e.g. a new navigation replaced it): no error.
@@ -704,10 +815,15 @@ export function WebTab(props: { appId: string; active: boolean }) {
       if (/^file:/i.test(e.url)) updatePage(props.appId, { title: fileNameOf(e.url) });
     });
     view.addEventListener("found-in-page", (e) => foundInPage(props.appId, e.result));
-    view.addEventListener("did-navigate-in-page", (e) => e.isMainFrame && navigated(e.url, true));
-    view.addEventListener("page-title-updated", (e: PageTitleUpdatedEvent) =>
-      updatePage(props.appId, { title: e.title }),
-    );
+    view.addEventListener("did-navigate-in-page", (e) => {
+      if (!e.isMainFrame) return;
+      navigated(e.url, true);
+      keepHistory();
+    });
+    view.addEventListener("page-title-updated", (e: PageTitleUpdatedEvent) => {
+      updatePage(props.appId, { title: e.title });
+      keepHistory();
+    });
     view.addEventListener("page-favicon-updated", (e: PageFaviconUpdatedEvent) =>
       updatePage(props.appId, { favicon: e.favicons.find((f) => /^https?:/.test(f)) ?? null }),
     );
@@ -753,7 +869,7 @@ export function WebTab(props: { appId: string; active: boolean }) {
   onCleanup(
     registerChrome(props.appId, {
       url: () => address(),
-      blank: () => !src(),
+      blank: () => !src() && !starting(),
       icon: addressIcon,
       notSecure,
       canBack: () => history().back,
@@ -764,6 +880,7 @@ export function WebTab(props: { appId: string; active: boolean }) {
       reload: () => {
         const warning = insecure();
         if (warning) open(warning.url);
+        else if (crash()) reloadCrashed();
         else webview?.reload();
       },
       stop: () => {
@@ -890,7 +1007,7 @@ export function WebTab(props: { appId: string; active: boolean }) {
           <Show
             when={src() && prepared()}
             fallback={
-              <Show when={!src()}>
+              <Show when={!src() && !starting()}>
                 <StartPage onGo={go} />
               </Show>
             }
@@ -934,7 +1051,9 @@ export function WebTab(props: { appId: string; active: boolean }) {
                 error={error}
                 url={error.url}
                 contentsId={contentsId()}
-                onReload={() => webview?.loadURL(error.url).catch(() => {})}
+                onReload={() =>
+                  error.kind === "crash" ? reloadCrashed() : webview?.loadURL(error.url).catch(() => {})
+                }
                 onBack={() => {
                   setLoadError();
                   if (webview?.canGoBack()) webview.goBack();
