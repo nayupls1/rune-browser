@@ -20,11 +20,13 @@ import { openCommandBar } from "./commands";
 import { searchEngine, settings, settingsLoaded } from "./settings";
 import {
   appById,
+  apps,
   closeTab,
   isTab,
   newWebTab,
   openTab,
   reopenClosedTab,
+  selectApp,
   selectedId,
   showWorkspace,
   toggleAgent,
@@ -403,6 +405,19 @@ onConnected(() => void loadPageChanges());
 
 // Links that want a new window (web pages, chat links).
 window.rune.web.onOpenTab((url, background) => void newWebTab(url, { background }));
+
+// A site's service worker after a click on its notification (main/push.ts): clients.openWindow() opens a tab in
+// the subscription's workspace (the one already showing that page, if there is one), client.focus() shows its tab.
+window.rune.web.onPushOpenTab(({ url, workspaceId }) => {
+  const open = apps.find((a) => a.workspaceId === workspaceId && a.url === url && isTab(a.id));
+  void (open ? selectApp(open.id) : newWebTab(url, { workspaceId })).catch((err) =>
+    console.warn("Opening a notification's page failed:", err),
+  );
+});
+window.rune.web.onPushFocusTab((contentsId) => {
+  const tabId = tabOfContents(contentsId);
+  if (tabId) void selectApp(tabId);
+});
 
 // Links and files from other apps (Rune Browser as the default browser: main/defaultBrowser.ts),
 // each in a new tab, in order (the last one shown).

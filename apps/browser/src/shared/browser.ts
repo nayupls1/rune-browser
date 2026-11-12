@@ -199,6 +199,15 @@ export const BrowserSettings = Schema.Struct({
     folder: Schema.String.check(Schema.isMaxLength(4000)).pipe(withDefault("")),
     ask: Schema.Boolean.pipe(withDefault(false)),
   }).pipe(withDefault({})),
+  /**
+   * Notifications from closed tabs (the Push API, see shared/push.ts): through ntfy.sh, through your own ntfy
+   * server (`server`, its https address; http only for this computer), or off.
+   */
+  push: Schema.Struct({
+    service: Schema.Literals(["ntfy", "custom", "off"]).pipe(withDefault("ntfy")),
+    /** Your own ntfy server (service: "custom"); used once it's a valid address (`pushServerOf`). */
+    server: Url.pipe(withDefault("")),
+  }).pipe(withDefault({})),
 });
 export type BrowserSettings = typeof BrowserSettings.Type;
 

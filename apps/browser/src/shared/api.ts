@@ -17,6 +17,7 @@ import type {
 import type { FlagsInfo } from "./flags";
 import type { GpuReport, ProcessInfo, VersionInfo } from "./internalPages";
 import type { WorkspaceSettings } from "./settings";
+import type { PushSubscriptionSummary } from "./push";
 import type { TabHistory } from "./tabHistory";
 import type {
   PromptAnswer,
@@ -167,6 +168,10 @@ export interface RuneBridge {
     siteData: (workspaceId: string) => Promise<{ site: string; cookies: number }[]>;
     /** Clears a site's cookies and data (its subdomains' too) in these workspaces. */
     clearSite: (workspaceIds: string[], site: string) => Promise<void>;
+    /** Sites' push subscriptions, for notifications from closed tabs (main/push.ts): no keys. */
+    pushSubscriptions: () => Promise<PushSubscriptionSummary[]>;
+    /** Deletes a push subscription (the site gets no more notifications through it). */
+    removePushSubscription: (id: string) => Promise<boolean>;
     /** The settings other browsers' profiles have (Import). */
     detectImports: () => Promise<{ key: string; browser: string; profile: string; found: ImportedBrowserSettings }[]>;
     /** The system's languages, spell check's dictionaries and the Downloads folder. */
@@ -287,6 +292,20 @@ export interface RuneBridge {
      * clicks the one with this label (null if it is disabled). Rejects when not offscreen.
      */
     testContextMenu: (click?: string) => Promise<{ label: string; enabled: boolean; checked?: boolean }[] | null>;
+    /**
+     * The e2e checks only (offscreen, where notifications aren't shown): the notifications sites' service workers
+     * show, after clicking or closing one by its id. Rejects when not offscreen.
+     */
+    testNotifications: (action?: {
+      click?: string;
+      close?: string;
+    }) => Promise<
+      { id: string; title: string; body: string; tag: string; origin: string; workspaceId: string }[] | null
+    >;
+    /** A site's service worker opens a window after a click on its notification: a tab in that workspace. */
+    onPushOpenTab: (fn: (event: { url: string; workspaceId: string }) => void) => () => void;
+    /** …or focuses a tab that shows one of its pages. */
+    onPushFocusTab: (fn: (contentsId: number) => void) => () => void;
     /** Headless tabs: pages the website agent loads in the background (main/headless.ts). */
     headless: {
       open: (request: HeadlessOpenRequest) => Promise<HeadlessPage>;
