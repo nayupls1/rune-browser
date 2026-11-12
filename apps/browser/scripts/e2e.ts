@@ -133,6 +133,59 @@ const feedPage = `<title>Feed</title><h1>Feed</h1><p id="status">Loading…</p><
     .then((d) => (document.getElementById("status").textContent = "Loaded " + d.items.length + " items"))
     .catch(() => (document.getElementById("status").textContent = "Failed to load"));
 </script>`;
+// Passkeys (on localhost: an IP address can't be a WebAuthn RP ID). register() makes a passkey and keeps its public
+// key; signIn() asks for any of the site's passkeys and checks the assertion like a server would (the challenge, the
+// origin, the signature over the authenticator data and the client data's hash).
+const passkeysPage = String.raw`<title>Passkeys page</title><h1>Passkeys</h1><p id="status">Signed out</p>
+<script>
+  const enc = new TextEncoder();
+  const b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  const unb64 = (s) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((s.length + 3) % 4)), (c) => c.charCodeAt(0));
+  const derToRaw = (der) => {
+    const out = new Uint8Array(64);
+    let i = der[1] & 0x80 ? 2 + (der[1] & 0x7f) : 2;
+    for (let k = 0; k < 2; k++) {
+      i++;
+      const len = der[i++];
+      let v = der.slice(i, i + len);
+      i += len;
+      while (v.length > 32 && v[0] === 0) v = v.slice(1);
+      out.set(v, k * 32 + 32 - v.length);
+    }
+    return out;
+  };
+  window.keys = {};
+  window.r = null;
+  const run = (p) => { window.r = null; p.then((v) => (window.r = v), (e) => (window.r = e.name)); return true; };
+  window.register = (name, extra = {}) => run(navigator.credentials.create({ publicKey: {
+    challenge: crypto.getRandomValues(new Uint8Array(32)),
+    rp: { name: "Passkeys page" },
+    user: { id: enc.encode(name), name: name + "@example.com", displayName: name[0].toUpperCase() + name.slice(1) },
+    pubKeyCredParams: [{ type: "public-key", alg: -7 }, { type: "public-key", alg: -257 }],
+    authenticatorSelection: Object.assign({ residentKey: "required", userVerification: "preferred" }, extra.selection || {}),
+    excludeCredentials: extra.exclude ? Object.keys(keys).filter((id) => keys[id].name === name).map((id) => ({ type: "public-key", id: unb64(id) })) : [],
+    timeout: 60000,
+  } }).then(async (c) => {
+    keys[c.id] = { name, key: await crypto.subtle.importKey("spki", c.response.getPublicKey(), { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]) };
+    document.getElementById("status").textContent = "Registered " + name;
+    return "registered " + name;
+  }));
+  window.signIn = () => {
+    const challenge = crypto.getRandomValues(new Uint8Array(32));
+    return run(navigator.credentials.get({ publicKey: { challenge, allowCredentials: [], userVerification: "preferred", timeout: 60000 } }).then(async (c) => {
+      const entry = keys[c.id];
+      if (!entry) return "credential " + c.id;
+      const client = JSON.parse(new TextDecoder().decode(c.response.clientDataJSON));
+      if (client.type !== "webauthn.get" || client.challenge !== b64(challenge) || client.origin !== location.origin) return "bad client data";
+      const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", c.response.clientDataJSON));
+      const signed = new Uint8Array([...new Uint8Array(c.response.authenticatorData), ...hash]);
+      if (!(await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, entry.key, derToRaw(new Uint8Array(c.response.signature)), signed))) return "bad signature";
+      const user = new TextDecoder().decode(c.response.userHandle);
+      document.getElementById("status").textContent = "Signed in as " + user;
+      return "signed in as " + user;
+    }));
+  };
+</script>`;
 const site = Bun.serve({
   hostname: "127.0.0.1",
   port: 0,
@@ -174,6 +227,10 @@ const site = Bun.serve({
          <video id="clip" src="/media/clip.webm" muted width="320" height="240" style="display:block"></video>`,
         { headers: { "Content-Type": "text/html; charset=utf-8" } },
       );
+    if (path === "/passkeys" || path === "/passkeys-extension")
+      return new Response(`<!doctype html><meta charset="utf-8"><link rel="icon" href="data:,">${passkeysPage}`, {
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      });
     // A page that takes a while (the address bar's loading spinner).
     if (path === "/slow") {
       await Bun.sleep(2500);
@@ -4709,6 +4766,175 @@ try {
       await run(`await chrome.userScripts.unregister();`);
       for (const tabId of [target.id, page_.id]) await apiCall(`/api/apps/${tabId}`, { method: "DELETE" });
       return `history (${history.urls.length} pages), closed and restored a tab, downloaded by-extension.txt, a site setting set and cleared, ${voices} voices, a user script, the debugger, MHTML, the side panel`;
+    },
+  );
+
+  await check(
+    "passkeys: registered and signed in with (Chromium's virtual authenticator), Rune's prompts, the agent refused, a password manager's",
+    async () => {
+      if (!webTabId) throw new Error("needs the web tab");
+      const tabId = webTabId;
+      const tab = `[data-web-tab="${tabId}"]`;
+      const inPage = <T>(code: string) => inView<T>(tab, code);
+      const local = site.url.origin.replace("127.0.0.1", "localhost");
+      // Windows shows its own dialog while a request waits (and Rune Browser doesn't); everywhere else, Rune Browser does.
+      const ownPrompt = process.platform !== "win32";
+      const open = async (path: string) => {
+        await inPage(`location.href = ${JSON.stringify(`${local}${path}`)}, true`);
+        await waitForValue(
+          async () =>
+            (await inPage<string>(`location.pathname === ${JSON.stringify(path)} && typeof window.signIn`)) ===
+            "function"
+              ? true
+              : undefined,
+          15_000,
+        );
+      };
+      const result = async () => {
+        const value = await waitForValue(async () => (await inPage<string | null>("window.r")) ?? undefined, 20_000);
+        await inPage("window.r = null, true");
+        return value;
+      };
+      const showing = (kind: string) =>
+        page!.waitFor(`document.querySelector('${tab} [data-passkey-prompt]')?.dataset.passkeyPrompt === "${kind}"`, {
+          label: `the passkey prompt (${kind})`,
+        });
+      const failed = (failure: string) =>
+        page!.waitFor(`!!document.querySelector('${tab} [data-passkey-failure="${failure}"]')`, {
+          label: `the passkey prompt saying why (${failure})`,
+        });
+      const gone = () =>
+        page!.waitFor(`!document.querySelector('${tab} [data-passkey-prompt]')`, { label: "no passkey prompt" });
+      const agentRunning = async (running: boolean) => {
+        await page!.eval(`window.__runeAgentRunning.set(${JSON.stringify(tabId)}, ${running}), true`);
+        // The window tells the main process (an IPC message): give it a moment.
+        await Bun.sleep(300);
+      };
+      await click(`nav li[data-app-id="${tabId}"]`);
+      await open("/passkeys");
+
+      // Chromium's virtual authenticator (DevTools' WebAuthn domain) stands in for a security key, without a touch at first.
+      const guest = await Page.connect(port, 10_000, (t) => t.type === "webview" && t.url.endsWith("/passkeys"));
+      try {
+        await guest.send("WebAuthn.enable", { enableUI: false });
+        const { authenticatorId } = await guest.send<{ authenticatorId: string }>("WebAuthn.addVirtualAuthenticator", {
+          options: {
+            protocol: "ctap2",
+            transport: "usb",
+            hasResidentKey: true,
+            hasUserVerification: true,
+            isUserVerified: true,
+            automaticPresenceSimulation: false,
+          },
+        });
+
+        // Waiting for a touch: "Insert your security key and touch it", with Cancel (the page gets Chromium's
+        // NotAllowedError, and nothing more is said: the user did it).
+        if (ownPrompt) {
+          await inPage(`register("ada")`);
+          await showing("waiting");
+          await shot("passkey-waiting.png");
+          await click(`${tab} [data-passkey-cancel]`);
+          const cancelled = await result();
+          if (cancelled !== "NotAllowedError") throw new Error(`cancelled, the page got ${cancelled}`);
+          await gone();
+        }
+
+        // Touched: two passkeys made on the key, for ada and bob.
+        await guest.send("WebAuthn.setAutomaticPresenceSimulation", { authenticatorId, enabled: true });
+        for (const name of ["ada", "bob"]) {
+          await inPage(`register(${JSON.stringify(name)})`);
+          const made = await result();
+          if (made !== `registered ${name}`) throw new Error(`registering ${name}: ${made}`);
+        }
+        await gone();
+        const { credentials } = await guest.send<{ credentials: { rpId: string; isResidentCredential: boolean }[] }>(
+          "WebAuthn.getCredentials",
+          { authenticatorId },
+        );
+        if (credentials.length !== 2 || !credentials.every((c) => c.rpId === "localhost" && c.isResidentCredential))
+          throw new Error(`the key holds ${JSON.stringify(credentials)}`);
+
+        // Signing in: the key has two accounts for the site, so Rune Browser asks which (Electron refuses without).
+        await inPage("signIn()");
+        await showing("account");
+        await page!.waitFor(
+          `document.querySelector('${tab} [data-passkey-prompt]').innerText.includes("bob@example.com")`,
+          { label: "the accounts' names" },
+        );
+        await shot("passkey-accounts.png");
+        await click(`${tab} [data-passkey-account="Bob"]`);
+        const signedIn = await result();
+        if (signedIn !== "signed in as bob") throw new Error(`signing in as bob: ${signedIn}`);
+        await gone();
+
+        // Already registered: the key refuses, and Rune Browser says why.
+        await inPage(`register("ada", { exclude: true })`);
+        const again = await result();
+        if (again !== "InvalidStateError") throw new Error(`registering ada again: ${again}`);
+        if (ownPrompt) {
+          await failed("registered");
+          await click(`${tab} [data-passkey-dismiss]`);
+          await gone();
+        }
+
+        // A passkey kept on this computer: there are none on Linux or macOS, so it's refused right away (Chromium
+        // would wait for one forever), with what to use instead.
+        if (ownPrompt) {
+          const started = Date.now();
+          await inPage(`register("carol", { selection: { authenticatorAttachment: "platform" } })`);
+          const platform = await result();
+          if (platform !== "NotAllowedError") throw new Error(`a passkey on this device: ${platform}`);
+          if (Date.now() - started > 5000 * TIMEOUT_SCALE) throw new Error("refused, but not right away");
+          await failed("platform");
+          await shot("passkey-no-platform.png");
+          await click(`${tab} [data-passkey-dismiss]`);
+          await gone();
+        }
+
+        // While the website agent works in the tab: refused before the key is asked (it would answer at once here),
+        // the tab says so with Take over, and the agent's page tools are told.
+        await agentRunning(true);
+        await inPage("signIn()");
+        const refused = await result();
+        if (refused !== "NotAllowedError") throw new Error(`with the agent working, the page got ${refused}`);
+        await failed("agent");
+        await shot("passkey-agent.png");
+        const told = await page!.eval<{ blocked?: string }>(
+          `window.__runeRpc("page.info", { tabId: ${JSON.stringify(tabId)} })`,
+        );
+        if (!told.blocked?.includes("passkey")) throw new Error(`the agent was told ${JSON.stringify(told)}`);
+        await click(`${tab} [data-passkey-take-over]`);
+        await gone();
+        await agentRunning(false);
+        await inPage("signIn()");
+        await showing("account");
+        await click(`${tab} [data-passkey-account="Ada"]`);
+        const back = await result();
+        if (back !== "signed in as ada") throw new Error(`once the agent stopped: ${back}`);
+
+        // A password manager extension's passkeys (its script replaces navigator.credentials in the page's world):
+        // it answers, and Rune Browser shows nothing.
+        await open("/passkeys-extension");
+        if ((await inPage<string | undefined>("document.documentElement.dataset.passkeyShimFirst")) === undefined)
+          throw new Error("the extension's script didn't run in the page's world");
+        await inPage("signIn()");
+        await waitForValue(async () =>
+          (await inPage<string | undefined>("document.documentElement.dataset.passkeyExtension")) === "asked"
+            ? true
+            : undefined,
+        );
+        if (!(await page!.eval<boolean>(`!document.querySelector('${tab} [data-passkey-prompt]')`)))
+          throw new Error("Rune Browser prompted for a request the extension answers");
+        const fromExtension = await result();
+        if (fromExtension !== "credential from-extension") throw new Error(`with the extension: ${fromExtension}`);
+        const shimFirst = await inPage<string>("document.documentElement.dataset.passkeyShimFirst");
+        await guest.send("WebAuthn.disable").catch(() => {});
+        return `${ownPrompt ? "waiting prompt cancelled, " : ""}two passkeys registered, the account picked and the signature checked, already registered${ownPrompt ? ", no passkey on this device" : ""}, refused while the agent works, a password manager's passkey (Rune's shim ran ${shimFirst === "true" ? "before" : "after"} its script)`;
+      } finally {
+        await agentRunning(false).catch(() => {});
+        guest.close();
+      }
     },
   );
 

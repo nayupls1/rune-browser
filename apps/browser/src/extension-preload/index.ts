@@ -1,9 +1,12 @@
 // Preload of web tab sessions, for service workers and frames. chrome-extension:// pages and workers get the
 // missing chrome.* APIs (see shim.ts; not Chromium's PDF viewer), websites' pages and workers the Push API
-// (see push.ts), each talking to the main process over IPC.
+// (see push.ts), websites' frames Rune Browser's prompts around passkeys (see passkeys.ts), each talking to
+// the main process over IPC.
 import { contextBridge, ipcRenderer } from "electron";
 import { BUILTIN_EXTENSION_ID, extensionIdOf, PERMISSIONS_WITHOUT_API } from "../shared/extensions";
+import { adjustedTimeout, NOT_ALLOWED_MESSAGE } from "../shared/passkeys";
 import { PUSH_ERRORS, SILENT_PUSH_MESSAGE, SUPPORTED_ENCODINGS } from "../shared/push";
+import { passkeyShim, type PasskeyBridge } from "./passkeys";
 import { pushShim, type PushBridge } from "./push";
 import { shim, type ShimBridge } from "./shim";
 
@@ -84,5 +87,27 @@ if (/^https?:/i.test(href())) {
     });
   } catch (err) {
     console.warn("Rune Browser's Push API didn't start:", err);
+  }
+}
+
+// Websites' frames: passkeys and security keys (WebAuthn) still go to Chromium; the main process (main/passkeys.ts)
+// hears when one starts and ends, to show its prompt, call it off, or refuse it while the website agent works.
+if (!worker && /^https?:/i.test(href())) {
+  const cancelled = new Set<(id: string) => void>();
+  ipcRenderer.on("passkeys:cancel", (_event, id: unknown) => {
+    if (typeof id === "string") for (const fn of cancelled) fn(id);
+  });
+  const bridge: PasskeyBridge = {
+    start: (info) => ipcRenderer.invoke("passkeys:start", info).catch(() => null),
+    end: (id, outcome) => ipcRenderer.send("passkeys:end", id, outcome),
+    onCancel: (fn) => void cancelled.add(fn),
+  };
+  try {
+    contextBridge.executeInMainWorld({
+      func: passkeyShim,
+      args: [bridge, { notAllowed: NOT_ALLOWED_MESSAGE, timeouts: [adjustedTimeout(0), adjustedTimeout()] }],
+    });
+  } catch (err) {
+    console.warn("Rune Browser's passkey prompts didn't start:", err);
   }
 }

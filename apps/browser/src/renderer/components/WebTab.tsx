@@ -69,6 +69,9 @@ import { OverridesPopover, overridesFor } from "./ResponseOverrides";
 import { SiteInfoPopover } from "./SiteInfo";
 import { PermissionPrompt, SiteStatusIcon, siteStatusTitle, siteUsage } from "./SitePermissions";
 import { loadUsage } from "../lib/sitePermissions";
+import { passkeyPromptFor, setAgentRunning } from "../lib/passkeys";
+import { PasskeyPrompt } from "./PasskeyPrompt";
+import { AGENT_PASSKEY_NOTE } from "../../shared/passkeys";
 import { FindBar, ZoomBadge } from "./FindBar";
 import { LoadErrorPage } from "./LoadError";
 import { describeCrash, describeLoadError, type LoadError } from "../../shared/loadErrors";
@@ -172,7 +175,7 @@ export function WebTab(props: { appId: string; active: boolean }) {
   const info = (): PageInfo => {
     const page =
       webview && ready ? { url: webview.getURL(), title: webview.getTitle() } : { url: currentUrl(), title: "" };
-    const blocked = blockedNote();
+    const blocked = blockedNote() ?? passkeyNote();
     return blocked ? { ...page, blocked } : page;
   };
   /** The page's address; "" before the webview's ready or after the tab closed, where getURL would throw. */
@@ -314,6 +317,11 @@ export function WebTab(props: { appId: string; active: boolean }) {
     return warning
       ? `${warning.url} isn't secure (plain HTTP${warning.attempt ? ", no HTTPS version" : ""}): Rune Browser shows the user a warning instead, and only they can choose to open it.`
       : crashNote();
+  };
+  /** The page asked for a passkey while the agent worked, and was refused (main/passkeys.ts). */
+  const passkeyNote = () => {
+    const prompt = passkeyPromptFor(contentsId());
+    return prompt?.kind === "failed" && prompt.failure === "agent" ? AGENT_PASSKEY_NOTE : undefined;
   };
 
   const updateHistory = () => {
@@ -603,6 +611,14 @@ export function WebTab(props: { appId: string; active: boolean }) {
     setActing(false);
     toast({ message: "You have the page. The agent stopped.", kind: "info" });
   };
+  // While the agent works in the tab, its page can't sign in with a passkey or security key (main/passkeys.ts).
+  createEffect(
+    on([contentsId, () => !!state()?.running], ([id, running], previous) => {
+      const [before] = previous ?? [null];
+      if (before !== null && before !== id) setAgentRunning(before, false);
+      if (id !== null) setAgentRunning(id, running);
+    }),
+  );
 
   async function act(action: BrowseAction) {
     const view = requireReady();
@@ -1026,6 +1042,7 @@ export function WebTab(props: { appId: string; active: boolean }) {
           </Show>
           <FindBar tabId={props.appId} />
           <PermissionPrompt contentsId={contentsId()} />
+          <PasskeyPrompt contentsId={contentsId()} onTakeOver={takeOver} />
           <Show when={marker()} keyed>
             {(m) => (
               <span {...stylex.attrs(styles.marker)} style={{ left: `${m.x}px`, top: `${m.y}px` }} data-agent-marker />

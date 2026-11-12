@@ -8,7 +8,8 @@
 // - something with consequences (buying, paying, sending, posting, deleting,
 //   entering card details) is confirmed every time (agent.confirm, never
 //   remembered), and the agent can ask for that itself (confirm_action);
-// - passwords are never typed: the user signs in themselves.
+// - passwords are never typed, and passkeys and security keys are refused while the
+//   agent works in the tab (main/passkeys.ts): the user signs in themselves.
 // The renderer shows what the agent does and lets the user take over.
 import { Effect, Schema } from "effect";
 import { hostOf } from "../../shared/web";

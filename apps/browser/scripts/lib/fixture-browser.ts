@@ -124,6 +124,17 @@ chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
 document.documentElement.dataset.crx = "ok";
 chrome.storage.local.get("greeting").then(({ greeting }) => (document.documentElement.dataset.greeting = greeting || "none"));
 `,
+  // Like a password manager's passkeys (Bitwarden's fido2-page-script, 1Password): navigator.credentials replaced in
+  // the page's own world, answering WebAuthn requests itself (after a moment, as after its own popup).
+  "passkeys.js": `
+document.documentElement.dataset.passkeyShimFirst = String(!!CredentialsContainer.prototype[Symbol.for("rune.passkeys")]);
+const browserGet = navigator.credentials.get.bind(navigator.credentials);
+navigator.credentials.get = (options) => {
+  if (!options || !options.publicKey) return browserGet(options);
+  document.documentElement.dataset.passkeyExtension = "asked";
+  return new Promise((resolve) => setTimeout(() => resolve({ id: "from-extension", type: "public-key" }), 1500));
+};
+`,
   "popup.html": `<!doctype html><meta charset="utf-8"><body style="width: 260px; height: 110px; margin: 12px; font: 14px sans-serif"><h1 style="font-size: 16px">Fixture popup</h1><p id="url">…</p><script src="popup.js"></script></body>`,
   "popup.js": `chrome.tabs.query({ active: true, currentWindow: true }).then((tabs) => (document.getElementById("url").textContent = (tabs[0] && tabs[0].url) || "none"));`,
   "options.html": `<!doctype html><meta charset="utf-8"><title>Fixture options</title><h1>Fixture options</h1>`,
@@ -234,7 +245,15 @@ export function writeFixtureBrowser(root: string): FixtureBrowser {
     host_permissions: ["http://127.0.0.1/*"],
     // Asked for when needed (chrome.permissions.request), and given or taken back in its details.
     optional_host_permissions: ["https://example.com/*"],
-    content_scripts: [{ matches: ["http://127.0.0.1/*"], js: ["content.js"], run_at: "document_start" }],
+    content_scripts: [
+      { matches: ["http://127.0.0.1/*"], js: ["content.js"], run_at: "document_start" },
+      {
+        matches: ["http://localhost/passkeys-extension*"],
+        js: ["passkeys.js"],
+        run_at: "document_start",
+        world: "MAIN",
+      },
+    ],
     declarative_net_request: { rule_resources: [{ id: "fixture", enabled: true, path: "rules.json" }] },
     commands: { bump: { suggested_key: { default: "Alt+Shift+Y" }, description: "Bump" } },
   };

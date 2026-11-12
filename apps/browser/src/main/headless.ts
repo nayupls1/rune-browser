@@ -275,6 +275,9 @@ export function setupHeadless(options: {
           void send(contents, "Page.handleJavaScriptDialog", { accept: false }).catch(() => {});
       });
       void send(contents, "Page.enable").catch(() => {});
+      // No passkeys or security keys (no sign-ins): DevTools' WebAuthn domain swaps the real authenticators for
+      // its virtual ones, of which there are none, so a page here can't ask the user's key (main/passkeys.ts).
+      void send(contents, "WebAuthn.enable", { enableUI: false }).catch(() => {});
       // DevTools only answers once the page has a renderer: after a first (blank) page.
       if (request.logins)
         entry.prepare = async () => {

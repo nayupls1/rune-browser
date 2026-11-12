@@ -130,6 +130,13 @@ const bridge: RuneBridge = {
       onScreenPick: listen("rune:screen-pick"),
       onScreenPickDone: listen("rune:screen-pick-done"),
     },
+    passkeys: {
+      pending: () => ipcRenderer.invoke("rune:passkeys-pending"),
+      reply: (requestId, reply) => ipcRenderer.send("rune:passkeys-reply", requestId, reply),
+      agentRunning: (webContentsId, running) => ipcRenderer.send("rune:passkeys-agent", webContentsId, running),
+      onPrompt: listen("rune:passkey-prompt"),
+      onPromptDone: listen("rune:passkey-prompt-done"),
+    },
     certificateProblem: (webContentsId, url) => ipcRenderer.invoke("rune:certificate-problem", webContentsId, url),
     navigationHistory: (webContentsId) => ipcRenderer.invoke("rune:navigation-history", webContentsId),
     restoreHistory: (token, history) => ipcRenderer.invoke("rune:restore-history", token, history),
