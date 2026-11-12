@@ -735,6 +735,8 @@ export function setupSitePermissions(options: Options) {
         console.warn("An extension's screen picker failed:", err);
         return null;
       }),
+    /** A site's notifications setting in normal windows (an answer just given counts): for push (main/push.ts). */
+    notificationSetting: (site: string) => settingFor(false, site, "notifications"),
     /** The browser settings' sites or defaults changed: answers just given are in them now. */
     sitesChanged() {
       recent.clear();

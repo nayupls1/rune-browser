@@ -89,6 +89,8 @@ export interface ExtensionsOptions {
   browserSettings?: () => BrowserSettings;
   /** The screen picker (chrome.desktopCapture). */
   pickDesktop?: BrowserApiEnv["pickDesktop"];
+  /** A website's service worker started (looked at once per start, for its scope): the Push API hooks it. */
+  onSiteWorker?: (s: Session, worker: Electron.ServiceWorkerMain) => void;
 }
 
 const UPDATE_INTERVAL = 5 * 60 * 60 * 1000;
@@ -352,7 +354,10 @@ export function setupExtensions(options: ExtensionsOptions) {
       if (runningStatus !== "starting" && runningStatus !== "running") return;
       const worker = s.serviceWorkers.getWorkerFromVersionID(versionId);
       if (!worker) return;
-      if (!extensionIdOf(worker.scope)) return void ignored.add(versionId);
+      if (!extensionIdOf(worker.scope)) {
+        ignored.add(versionId);
+        return options.onSiteWorker?.(s, worker);
+      }
       byVersion.set(versionId, worker);
       workerStatus(worker, runningStatus);
       const id = extensionIdOf(worker?.scope);

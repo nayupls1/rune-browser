@@ -18,6 +18,7 @@ import {
 } from "solid-js";
 import {
   applyImport,
+  coversHost,
   defaultBrowserSettings,
   describeImport,
   importParts,
@@ -33,6 +34,7 @@ import {
   type SiteDecision,
   type SiteSettingKey,
 } from "../../shared/browser";
+import { NTFY_SH, validPushServer } from "../../shared/push";
 import { clearRanges } from "../../shared/visits";
 import { api } from "../lib/api";
 import { setSiteSetting, siteShown, showSite, updateBrowser } from "../lib/browser";
@@ -94,6 +96,7 @@ export function PrivacySection() {
           </span>
         </Row>
       </Section>
+      <PushSection />
       <Section title="Cookies and site settings" anchor="browser-cookies">
         <Row
           label="Block third-party cookies"
@@ -121,6 +124,68 @@ export function PrivacySection() {
         </Row>
       </Section>
     </>
+  );
+}
+
+/**
+ * Notifications from closed tabs: web push (the Push API, main/push.ts) through ntfy.sh, your own ntfy server, or
+ * off. Sites' subscriptions are listed in their site settings.
+ */
+function PushSection() {
+  const push = () => browser().push;
+  const options: [BrowserSettings["push"]["service"], string, string][] = [
+    ["ntfy", "Through ntfy.sh", "The free public ntfy server (the default)."],
+    ["custom", "Through your own ntfy server", "One you run, or a hosted one you trust."],
+    ["off", "Off", "Sites can't send notifications once their tab is closed."],
+  ];
+  const valid = () => validPushServer(push().server);
+  return (
+    <Section title="Notifications from closed tabs" anchor="browser-push">
+      <p {...stylex.attrs(styles.note)}>
+        Sites you allow to notify you (Slack, Discord, GitHub…) can do so after their tab is closed, while Rune Browser
+        runs; what's sent meanwhile arrives at its next start. Messages are end-to-end encrypted: the server sees which
+        site sent one and when, never what it says.
+      </p>
+      <For each={options}>
+        {([service, label, description]) => (
+          <label {...stylex.attrs(styles.radioRow)}>
+            <input
+              type="radio"
+              name="push-service"
+              checked={push().service === service}
+              onChange={() => setPart("push", { service })}
+              {...stylex.attrs(styles.radio)}
+              data-push-service={service}
+            />
+            <span {...stylex.attrs(styles.radioText)}>
+              <span {...stylex.attrs(styles.rowLabel)}>{label}</span>
+              <span {...stylex.attrs(styles.muted)}>
+                {service === "ntfy" ? `${description} ${NTFY_SH}` : description}
+              </span>
+            </span>
+          </label>
+        )}
+      </For>
+      <Show when={push().service === "custom"}>
+        <Row
+          label="Server address"
+          description={
+            valid()
+              ? "Changing servers ends sites' subscriptions; they subscribe again on your next visit."
+              : "An https address (plain http only on this computer)."
+          }
+        >
+          <Input
+            value={push().server}
+            placeholder="https://ntfy.example.com"
+            onInput={(e) => setPart("push", { server: e.currentTarget.value.slice(0, 2000) })}
+            xstyle={styles.textInput}
+            data-push-server
+            data-push-server-valid={valid() ? "" : undefined}
+          />
+        </Row>
+      </Show>
+    </Section>
   );
 }
 
@@ -441,9 +506,14 @@ function SiteDetails(props: { site: string }) {
         </Row>
         <For each={siteSettingKeys}>
           {(key) => (
-            <Row label={siteSettings[key].label} description={siteSettings[key].about}>
-              <DecisionSelect site={props.site} setting={key} />
-            </Row>
+            <>
+              <Row label={siteSettings[key].label} description={siteSettings[key].about}>
+                <DecisionSelect site={props.site} setting={key} />
+              </Row>
+              <Show when={key === "notifications"}>
+                <SitePushSubscriptions site={props.site} />
+              </Show>
+            </>
           )}
         </For>
         <Row label="" description="Settings change on the next load of the site's pages.">
@@ -453,6 +523,43 @@ function SiteDetails(props: { site: string }) {
         </Row>
       </Section>
     </div>
+  );
+}
+
+/** A site's push subscriptions (notifications from closed tabs), each removable. */
+function SitePushSubscriptions(props: { site: string }) {
+  const [subs, { refetch }] = createResource(() => window.rune.browser.pushSubscriptions());
+  const mine = () => (subs() ?? []).filter((s) => coversHost(props.site, new URL(s.origin).hostname));
+  const workspaceName = (id: string) => workspaces.find((w) => w.id === id)?.name ?? "A deleted workspace";
+  const remove = async (id: string) => {
+    await window.rune.browser.removePushSubscription(id);
+    await refetch();
+  };
+  return (
+    <Show when={mine().length > 0}>
+      <Row label="Notifications from closed tabs" description="The site can notify you while its tab is closed." wide>
+        <div {...stylex.attrs(styles.list)} data-site-push>
+          <For each={mine()}>
+            {(sub) => (
+              <div {...stylex.attrs(styles.listRow)} data-site-push-subscription={sub.origin}>
+                <span {...stylex.attrs(styles.listText)}>
+                  {sub.origin} <span {...stylex.attrs(styles.muted)}>· {workspaceName(sub.workspaceId)}</span>
+                </span>
+                <button
+                  type="button"
+                  title="Remove"
+                  onClick={() => void remove(sub.id)}
+                  {...stylex.attrs(styles.iconButton)}
+                  data-site-push-remove
+                >
+                  <Icon name="x" size={14} />
+                </button>
+              </div>
+            )}
+          </For>
+        </div>
+      </Row>
+    </Show>
   );
 }
 

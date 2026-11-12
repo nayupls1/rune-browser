@@ -36,6 +36,7 @@ import { setupDownloads } from "./downloads";
 import { setupHeadless } from "./headless";
 import { setupNetwork } from "./network";
 import { setupOverrides } from "./overrides";
+import { setupPush } from "./push";
 import { setupSearchSuggestions } from "./searchSuggestions";
 import { setupShortcuts } from "./shortcuts";
 import { setupSitePermissions } from "./sitePermissions";
@@ -87,6 +88,8 @@ export function setupWebTabs(
     isWebSession: (s) => webSessions.has(s),
     rulesChanged: () => extensions.rulesChanged(),
     sitesChanged: () => sitePermissions.sitesChanged(),
+    settingsChanged: () => push.settingsChanged(),
+    siteDataCleared: (workspaceIds, sites) => push.siteDataCleared(workspaceIds, sites),
   });
   setupSearchSuggestions({ windows, settings: () => browser.settings() });
   const sitePermissions = setupSitePermissions({
@@ -104,6 +107,17 @@ export function setupWebTabs(
     downloads: () => downloads,
     browserSettings: () => browser.settings(),
     pickDesktop: (...args) => sitePermissions.pickForExtension(...args),
+    onSiteWorker: (s, worker) => push.hookWorker(s, worker),
+  });
+  // Web push for websites (the Push API, through ntfy): their pages and service workers call here.
+  const push = setupPush({
+    windows,
+    webSession: (workspaceId) => webSession(webPartition(workspaceId)),
+    workspaceOf: (s) => webSessions.get(s),
+    settings: () => browser.settings(),
+    settingsReady: () => browser.settingsReady(),
+    notificationSetting: (site) => sitePermissions.notificationSetting(site),
+    excluded: (contents) => headless.isHeadless(contents),
   });
   /** Websites, and the pages of the extensions running in that session. */
   const isTabUrl = (s: Electron.Session, url: string) => isWebUrl(url) || extensions.isExtensionPage(s, url);
@@ -534,6 +548,7 @@ export function setupWebTabs(
   ipcMain.handle("rune:clear-workspace", async (event, workspaceId: unknown) => {
     if (!windows.isUi(event.sender) || typeof workspaceId !== "string" || !/^[\w-]+$/.test(workspaceId)) return;
     const s = session.fromPartition(webPartition(workspaceId));
+    push.workspaceDeleted(workspaceId);
     await extensions.detach(s);
     await s.clearStorageData();
     await s.clearCache();

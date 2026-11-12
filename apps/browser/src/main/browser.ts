@@ -38,6 +38,10 @@ export interface BrowserOptions {
   rulesChanged: () => void;
   /** Sites' settings or the defaults changed (site permissions, main/sitePermissions.ts). */
   sitesChanged: () => void;
+  /** The settings arrived or changed (push, main/push.ts). */
+  settingsChanged?: () => void;
+  /** Sites' data (`sites`, with their subdomains; null: every site's) was cleared in these workspaces. */
+  siteDataCleared?: (workspaceIds: string[], sites: string[] | null) => void;
 }
 
 export interface BrowserProfileSettings {
@@ -49,6 +53,8 @@ export interface BrowserProfileSettings {
 
 export function setupBrowser(options: BrowserOptions) {
   let browser = defaultBrowserSettings();
+  /** The renderer sent the settings (until then, they're the defaults). */
+  let received = false;
   const sessions = new Set<Session>();
   const fromWindow = (sender: WebContents) => options.windows.isUi(sender);
   const validWorkspace = (id: unknown): id is string => typeof id === "string" && /^[\w-]+$/.test(id);
@@ -173,6 +179,7 @@ export function setupBrowser(options: BrowserOptions) {
   function update(next: BrowserSettings) {
     const before = browser;
     browser = next;
+    received = true;
     const changed = (pick: (b: BrowserSettings) => unknown) =>
       JSON.stringify(pick(before)) !== JSON.stringify(pick(next));
     if (changed((b) => b.languages)) for (const s of sessions) applyLanguages(s);
@@ -180,6 +187,7 @@ export function setupBrowser(options: BrowserOptions) {
     if (changed((b) => [b.defaults, b.sites])) options.sitesChanged();
     if (changed((b) => [b.fonts.size, b.fonts.fixedSize])) for (const c of guests()) void applyFontSizes(c);
     if (changed((b) => browserRulesToDnr(b, 1))) options.rulesChanged();
+    options.settingsChanged?.();
   }
 
   ipcMain.on("rune:browser-settings", (event, value: unknown) => {
@@ -246,6 +254,8 @@ export function setupBrowser(options: BrowserOptions) {
     const ranged = Array.isArray(w.origins);
     const origins = webOrigins(w.origins);
     const sites = new Set(origins.map((o) => siteOf(hostOf(o))).filter(Boolean));
+    // Site data includes service workers, and with them their push subscriptions.
+    if (parts.cookies) options.siteDataCleared?.(workspaceIds.filter(validWorkspace), ranged ? [...sites] : null);
     for (const id of workspaceIds.filter(validWorkspace)) {
       const s = options.webSession(id);
       if (ranged) {
@@ -276,6 +286,7 @@ export function setupBrowser(options: BrowserOptions) {
   /** Clears a site's cookies and other data (its subdomains' too) in the given workspaces. */
   ipcMain.handle("rune:browser-clear-site", async (event, workspaceIds: unknown, site: unknown) => {
     if (!fromWindow(event.sender) || !Array.isArray(workspaceIds) || typeof site !== "string") return;
+    options.siteDataCleared?.(workspaceIds.filter(validWorkspace), [siteOf(site)]);
     for (const id of workspaceIds.filter(validWorkspace))
       await clearSites(options.webSession(id), new Set([siteOf(site)]), { cookies: true, cache: true });
   });
@@ -306,6 +317,8 @@ export function setupBrowser(options: BrowserOptions) {
     trackGuest,
     /** The settings in effect (site permissions read their sites' settings). */
     settings: () => browser,
+    /** Whether the renderer sent the settings yet. */
+    settingsReady: () => received,
     /** The rules for the built-in extension, numbered from `firstId`. */
     rules: (firstId: number) => browserRulesToDnr(browser, firstId),
     /** Where downloads go (Settings → General → Downloads), made if it's missing. */

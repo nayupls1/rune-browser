@@ -70,6 +70,8 @@ const bridge: RuneBridge = {
     clearData: (workspaceIds, what) => ipcRenderer.invoke("rune:browser-clear-data", workspaceIds, what),
     siteData: (workspaceId) => ipcRenderer.invoke("rune:browser-site-data", workspaceId),
     clearSite: (workspaceIds, site) => ipcRenderer.invoke("rune:browser-clear-site", workspaceIds, site),
+    pushSubscriptions: () => ipcRenderer.invoke("rune:push-list"),
+    removePushSubscription: (id) => ipcRenderer.invoke("rune:push-remove", id),
     detectImports: () => ipcRenderer.invoke("rune:browser-import-detect"),
     info: () => ipcRenderer.invoke("rune:browser-info"),
   },
@@ -135,6 +137,9 @@ const bridge: RuneBridge = {
     setSearchEngine: (engine) => ipcRenderer.send("rune:search-engine", engine),
     searchSuggestions: (query) => ipcRenderer.invoke("rune:search-suggestions", query),
     testContextMenu: (click) => ipcRenderer.invoke("rune:test-context-menu", click),
+    testNotifications: (action) => ipcRenderer.invoke("rune:test-notifications", action),
+    onPushOpenTab: listen("rune:push-open-tab"),
+    onPushFocusTab: listen("rune:push-focus-tab"),
     headless: {
       open: (request) => ipcRenderer.invoke("rune:headless-open", request),
       navigate: (id, url, hosts) => ipcRenderer.invoke("rune:headless-navigate", id, url, hosts),
