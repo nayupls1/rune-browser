@@ -86,7 +86,7 @@ Chromium: web tabs are `<webview>` guests with a session per workspace
 recording and rules (`network.ts`), DevTools access for agents (`devtools.ts`),
 links from other apps and the default browser (`defaultBrowser.ts`, see
 [Browsing](browsing.md#web-tabs)), what the internal pages show and rune://flags applied at startup (`internals.ts`, `flags.ts`, see
-[Chromium parity](chromium-parity.md)), downloads (`downloads.ts`, with their list in `downloads.json` in the profile), and updates of the app itself (`updates.ts`, see [Releasing](releasing.md)).
+[Chromium parity](chromium-parity.md)), downloads (`downloads.ts`, with their list in `downloads.json` in the profile), web push for sites (`push.ts`: the push service the Push API needs, through ntfy, with the subscriptions and their sealed keys in `push.json` in the profile; see [Browsing](browsing.md#push-notifications)), and updates of the app itself (`updates.ts`, see [Releasing](releasing.md)).
 
 ## Data
 

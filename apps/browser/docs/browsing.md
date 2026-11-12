@@ -126,8 +126,9 @@ settings; cookies and site data stay per workspace. The renderer sends them to t
 (`main/browser.ts`), which puts them into effect in web tabs:
 
 - **Privacy and security:** the warning before insecure sites; the search engine's suggestions in the address bar
-  (on by default, like Chrome's "Autocomplete searches and URLs"; see [Search suggestions](#search-suggestions)); block
-  third-party cookies; send Do Not Track.
+  (on by default, like Chrome's "Autocomplete searches and URLs"; see [Search suggestions](#search-suggestions));
+  notifications from closed tabs (through ntfy.sh, your own ntfy server, or off; see
+  [Push notifications](#push-notifications)); block third-party cookies; send Do Not Track.
 - **Clear browsing data** (Ctrl+Shift+Delete, macOS Cmd+Shift+Backspace; rune://settings/clearBrowserData): browsing
   history, download history (the files stay), cookies and other site data, and the cache, for the last hour, 24
   hours, 7 days, 4 weeks or all time, of this workspace or all of them. Extensions keep their data, like in Chrome.
@@ -235,6 +236,49 @@ optional suggestions URL with `%s`. Settings → Privacy and security → Addres
   sent. That's stricter than Chrome, which sends http:// addresses.
 - **Private windows** get them too, like Chrome's incognito windows: the session they go through has nothing that ties
   them to you, and what's typed would go to the same engine on Enter anyway.
+
+## Push notifications
+
+Sites like Slack, Discord, X or GitHub notify you with the Push API, also once their tab is closed: they subscribe
+with `pushManager.subscribe()`, their server sends messages to the subscription's endpoint, and their service worker
+shows a notification for each. Chrome's push service is Google's; Electron has none, so Rune Browser is one, through
+[ntfy](https://ntfy.sh) (its UnifiedPush support). From the site's side it works like Chrome (`main/push.ts`, the API
+in `extension-preload/push.ts`):
+
+- **The API:** in pages and service workers, `subscribe`, `getSubscription`, `permissionState` and
+  `supportedContentEncodings` (`aes128gcm`, `aesgcm`), and `PushSubscription`'s `endpoint`, `expirationTime` (null),
+  `options`, `getKey`, `toJSON` and `unsubscribe`, with Chrome's errors word for word (`PUSH_ERRORS` in
+  `shared/push.ts`): `userVisibleOnly` must be true, an `applicationServerKey` is needed, another key than the
+  subscription's is an `InvalidStateError`, and so on. `subscribe()` asks for the notifications permission like Chrome
+  (the [site permission prompt](#site-permission-prompts)); a service worker can't ask, and is refused. Private windows
+  are refused like Chrome's incognito, and keep nothing.
+- **One topic each:** a subscription gets its own key pair and auth secret, and its own ntfy topic (`up` and 12 random
+  letters and digits, the form ntfy.sh charges to the subscriber, Rune Browser, rather than to the site's server); its
+  endpoint is `https://ntfy.sh/<topic>?up=1`. One connection to the server follows every topic, comes back after a
+  break (waiting longer each time), and asks for what was sent in between.
+- **End-to-end encrypted:** sites encrypt each message for the subscription (RFC 8291's `aes128gcm`, at most 4 KB).
+  The keys never leave the main process: they're in `push.json` in the profile, the private parts sealed with the key
+  from the OS keychain (`main/sealKey.ts`). A message that doesn't decrypt is dropped: anybody can post to a topic,
+  only the site knows the auth secret. ntfy sees which site sent something and when, never what. Older servers that
+  still send `aesgcm` can't reach Rune Browser: that encoding's salt and key are in headers ntfy doesn't pass on.
+- **Delivery:** a message wakes the site's service worker (started if it isn't running, kept alive while it works) with
+  a `push` event and its `PushMessageData` (`json()`, `text()`, `arrayBuffer()`, `blob()`, `bytes()`), `waitUntil()`
+  included, if the site's notifications are still allowed. What it shows with `registration.showNotification()` is a
+  notification of Rune Browser's, with the site's name (`getNotifications()` and `close()` work); a click on one is a
+  `notificationclick` in the worker, closing it a `notificationclose`. For a few seconds after a click the worker may
+  `clients.openWindow()` (a tab in the subscription's workspace, or the tab already showing that page) or `focus()` one
+  of its tabs.
+- **Per workspace,** like logins. A subscription goes when the site unsubscribes, its notifications permission is
+  taken back (or reset), its data is cleared (Clear browsing data, or its site settings), its service worker is gone,
+  its workspace is deleted, or push is turned off or moved to another server (sites subscribe again on your next
+  visit). A site's settings list its subscriptions, each removable.
+- **Rune Browser has to run** to receive: what's sent meanwhile waits on the server (12 hours on ntfy.sh) and arrives
+  at the next start. ntfy.sh takes messages for a topic only while its subscriber was around in the last day, and
+  after four days without it, tells the site's server the subscription is gone.
+- **Settings → Privacy and security → Notifications from closed tabs:** through ntfy.sh (the default), through your
+  own ntfy server (an https address; plain http only on this computer), or off. Off, `subscribe()` fails like Chrome
+  without a push service ("push service not available").
+- **Agents** get nothing of it: no tool, no keys, no subscriptions.
 
 ## Browsing history
 
