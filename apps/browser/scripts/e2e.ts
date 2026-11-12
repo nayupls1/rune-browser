@@ -103,6 +103,8 @@ const electron = await launchElectron(
     RUNE_HEADLESS_TEST_HOSTS: "headless.example,other.example",
     // What the checks type never goes to a real search engine for suggestions (only the fake one's).
     RUNE_SEARCH_SUGGESTIONS_LOCAL_ONLY: "1",
+    // Sites' push subscriptions never go through ntfy.sh: only through the local stand-in of the push check.
+    RUNE_PUSH_LOCAL_ONLY: "1",
   },
   [
     ...(visible ? [] : ["--ozone-platform=headless", "--ozone-override-screen-size=1920,1080"]),
@@ -5996,6 +5998,439 @@ try {
       void engine.stop(true);
     }
   });
+
+  await check(
+    "web push: subscribe with a prompt and Chrome's errors, a push shows a notification, its click opens and focuses the tab",
+    async () => {
+      await page!.waitFor(`!!${currentWorkspaceName}`, { label: "workspace loaded" });
+      // A stand-in for ntfy (publish, and one JSON stream for several topics, with `since`), like ntfy.sh it refuses
+      // UnifiedPush messages for a topic nobody ever listened to.
+      type Message = { id: string; time: number; event: "message"; topic: string; message: string; encoding: string };
+      const messages: Message[] = [];
+      const streams = new Set<{ topics: string[]; send: (line: string) => void }>();
+      const listened = new Set<string>();
+      let connections = 0;
+      const encoder = new TextEncoder();
+      const ntfy = Bun.serve({
+        hostname: "127.0.0.1",
+        port: 0,
+        idleTimeout: 0,
+        async fetch(req) {
+          const url = new URL(req.url);
+          const parts = url.pathname.split("/").filter(Boolean);
+          if (req.method === "GET" && parts.length === 2 && parts[1] === "json") {
+            const topics = parts[0]!.split(",");
+            connections++;
+            for (const t of topics) listened.add(t);
+            const since = Number(url.searchParams.get("since") ?? NaN);
+            const time = () => Math.floor(Date.now() / 1000);
+            let entry: { topics: string[]; send: (line: string) => void } | undefined;
+            const body = new ReadableStream<Uint8Array>({
+              start(controller) {
+                entry = { topics, send: (line) => controller.enqueue(encoder.encode(`${line}\n`)) };
+                entry.send(JSON.stringify({ id: "open", time: time(), event: "open", topic: topics.join(",") }));
+                if (Number.isFinite(since))
+                  for (const m of messages)
+                    if (topics.includes(m.topic) && m.time >= since) entry.send(JSON.stringify(m));
+                streams.add(entry);
+              },
+              cancel() {
+                if (entry) streams.delete(entry);
+              },
+            });
+            req.signal.addEventListener("abort", () => entry && streams.delete(entry));
+            return new Response(body, { headers: { "Content-Type": "application/x-ndjson" } });
+          }
+          if ((req.method === "POST" || req.method === "PUT") && parts.length === 1) {
+            const topic = parts[0]!;
+            if (url.searchParams.get("up") === "1" && !listened.has(topic))
+              return Response.json({ code: 50701, http: 507, error: "no subscriber" }, { status: 507 });
+            const m: Message = {
+              id: `m${messages.length + 1}`,
+              time: Math.floor(Date.now() / 1000),
+              event: "message",
+              topic,
+              message: Buffer.from(await req.arrayBuffer()).toString("base64"),
+              encoding: "base64",
+            };
+            messages.push(m);
+            for (const s of streams) if (s.topics.includes(topic)) s.send(JSON.stringify(m));
+            return Response.json(m);
+          }
+          return new Response("Not found", { status: 404 });
+        },
+      });
+      const ntfyUrl = `http://127.0.0.1:${ntfy.port}`;
+      const openTopics = () => [...streams].flatMap((s) => s.topics);
+
+      // The site: a page that subscribes, and a service worker that shows a notification for each push and opens
+      // (or focuses) the page it names when the notification is clicked. What the worker saw comes to /report.
+      const reports: string[] = [];
+      const pushSite = Bun.serve({
+        hostname: "127.0.0.1",
+        port: 0,
+        fetch(req) {
+          const url = new URL(req.url);
+          if (url.pathname === "/report") {
+            reports.push(url.searchParams.get("what") ?? "");
+            return new Response("ok");
+          }
+          if (url.pathname === "/sw.js")
+            return new Response(
+              `self.addEventListener("install", () => self.skipWaiting());
+               self.addEventListener("activate", (e) => e.waitUntil(clients.claim()));
+               const report = (what) => fetch("/report?what=" + encodeURIComponent(what));
+               self.addEventListener("push", (e) => {
+                 const d = e.data.json();
+                 const bytes = e.data.bytes ? e.data.bytes().length : -1;
+                 e.waitUntil(report("push " + d.title + " " + (e.data.text() === JSON.stringify(d)) + " " + e.data.arrayBuffer().byteLength + " " + bytes + " " + (e.data.blob() instanceof Blob))
+                   .then(() => self.registration.showNotification(d.title, { body: d.body, tag: d.tag, data: { url: d.url } }))
+                   .then(() => self.registration.getNotifications({ tag: d.tag }))
+                   .then((list) => report("listed " + list.length + " " + list[0].data.url)));
+               });
+               self.addEventListener("notificationclick", (e) => {
+                 e.notification.close();
+                 e.waitUntil((async () => {
+                   const url = e.notification.data.url;
+                   const open = (await clients.matchAll({ type: "window", includeUncontrolled: true })).find((c) => c.url === url);
+                   if (open) { await open.focus(); await report("focused"); }
+                   else { const c = await clients.openWindow(url); await report("opened " + (c ? c.url : "null")); }
+                 })().catch((err) => report("click failed " + err.message)));
+               });
+               self.addEventListener("message", (e) => e.waitUntil((async () => {
+                 const s = await self.registration.pushManager.getSubscription();
+                 const state = await self.registration.pushManager.permissionState({ userVisibleOnly: true });
+                 let opened = "";
+                 try { await clients.openWindow("/inbox"); opened = "opened"; } catch (err) { opened = err.name; }
+                 e.source.postMessage({ endpoint: s && s.endpoint, state, opened });
+               })()));`,
+              { headers: { "Content-Type": "text/javascript" } },
+            );
+          return new Response(
+            `<!doctype html><meta charset="utf-8"><link rel="icon" href="data:,"><title>Push site ${url.pathname}</title><h1>Push</h1>
+             <script>
+               window.ready = navigator.serviceWorker.register("/sw.js").then(() => navigator.serviceWorker.ready);
+               window.run = (fn) => { window.r = null; fn().then((v) => (window.r = { ok: v === undefined ? null : v }), (e) => (window.r = { error: e.name + ": " + e.message })); return true; };
+               window.subscribe = (options) => run(async () => JSON.parse(JSON.stringify(await (await ready).pushManager.subscribe(options))));
+               window.fromWorker = () => run(async () => { const reg = await ready; return new Promise((resolve) => { navigator.serviceWorker.onmessage = (e) => resolve(e.data); reg.active.postMessage("check"); }); });
+             </script>`,
+            { headers: { "Content-Type": "text/html; charset=utf-8" } },
+          );
+        },
+      });
+      // A name of its own (*.localhost is this computer, and a secure context): a site with no settings yet.
+      const origin = `http://push.localhost:${pushSite.port}`;
+      const webpush = await import("web-push");
+      const vapid = webpush.generateVAPIDKeys();
+      // What the site's server sends (encrypted with aes128gcm, signed with VAPID), posted to the endpoint (web-push
+      // itself only speaks https, and the stand-in is plain http).
+      const send = async (sub: { endpoint: string; keys: { p256dh: string; auth: string } }, payload: object) => {
+        const request = webpush.generateRequestDetails(sub, JSON.stringify(payload), {
+          vapidDetails: {
+            subject: "mailto:push@example.com",
+            publicKey: vapid.publicKey,
+            privateKey: vapid.privateKey,
+          },
+          TTL: 60,
+        });
+        const res = await fetch(request.endpoint, {
+          method: request.method,
+          headers: request.headers as Record<string, string>,
+          body: Uint8Array.from(request.body as Buffer),
+        });
+        if (!res.ok) throw new Error(`the push server answered ${res.status}`);
+      };
+      const notifications = () =>
+        page!.eval<{ id: string; title: string; origin: string }[]>("window.rune.web.testNotifications()");
+      const choose = (selector: string, value: string) =>
+        page!.eval(`(() => {
+          const el = document.querySelector(${JSON.stringify(selector)});
+          el.value = ${JSON.stringify(value)};
+          el.dispatchEvent(new Event("change", { bubbles: true }));
+          return true;
+        })()`);
+      type Saved = { browser: { push: { service: string; server: string } } };
+      const savedPush = async () => (await apiCall<Saved>("/api/settings")).browser.push;
+      const subscriptions = () =>
+        page!.eval<{ id: string; origin: string; workspaceId: string }[]>("window.rune.browser.pushSubscriptions()");
+      const opened: string[] = [];
+      try {
+        // Settings → Privacy and security: your own ntfy server (the stand-in).
+        await openSettingsAt("browser-privacy");
+        await page!.waitFor(`!!document.querySelector('[data-push-service="custom"]')`, { label: "push settings" });
+        await click('[data-push-service="custom"]');
+        await page!.waitFor(`!!document.querySelector("[data-push-server]")`, { label: "server address field" });
+        await type("[data-push-server]", "ftp://nope");
+        if (
+          await page!.eval<boolean>(
+            `document.querySelector("[data-push-server]").dataset.pushServerValid !== undefined`,
+          )
+        )
+          throw new Error("an ftp address counted as a valid server");
+        await type("[data-push-server]", ntfyUrl);
+        await page!.waitFor(`document.querySelector("[data-push-server]").dataset.pushServerValid !== undefined`, {
+          label: "the address accepted",
+        });
+        await page!.eval(`document.querySelector('[data-section="browser-push"]').scrollIntoView(), true`);
+        await shot("settings-push.png");
+        await waitForValue(async () => ((await savedPush()).server === ntfyUrl ? true : undefined));
+        // The main process applies a changed server once it stops changing.
+        await Bun.sleep(1500);
+
+        const { id: tabId } = await apiCall<{ id: string }>("/api/apps", {
+          method: "POST",
+          body: { url: `${origin}/` },
+        });
+        opened.push(tabId);
+        await page!.waitFor(`!!document.querySelector('nav li[data-app-id="${tabId}"]')`, {
+          label: "tab in the sidebar",
+        });
+        await click(`nav li[data-app-id="${tabId}"]`);
+        const tab = `[data-web-tab="${tabId}"]`;
+        const inPage = <T>(code: string) => inView<T>(tab, code);
+        await waitForValue(
+          async () => ((await inPage<string>("typeof window.subscribe")) === "function" ? true : undefined),
+          20_000,
+        );
+        await waitForValue(async () => ((await inPage<boolean>("ready.then(() => true)")) ? true : undefined), 20_000);
+        const result = () =>
+          waitForValue(
+            async () => (await inPage<{ ok?: unknown; error?: string } | null>("window.r")) ?? undefined,
+            20_000,
+          );
+        const subscribeWith = async (options: string) => {
+          await inPage(`subscribe(${options})`);
+          return result();
+        };
+        const key = JSON.stringify(vapid.publicKey);
+
+        // Chrome's errors for bad options, before anything is asked.
+        const errors = [
+          [
+            `{ userVisibleOnly: true }`,
+            "AbortError: Registration failed - missing applicationServerKey, and manifest empty or missing",
+          ],
+          [
+            `{ userVisibleOnly: true, applicationServerKey: "not base64!" }`,
+            "InvalidCharacterError: The provided applicationServerKey is not encoded as base64url without padding.",
+          ],
+          [
+            `{ userVisibleOnly: true, applicationServerKey: new Uint8Array(10) }`,
+            "InvalidAccessError: The provided applicationServerKey is not valid.",
+          ],
+        ];
+        for (const [options, expected] of errors) {
+          const got = await subscribeWith(options!);
+          if (got.error !== expected)
+            throw new Error(`subscribe(${options}) gave ${JSON.stringify(got)}, not ${expected}`);
+        }
+        if (
+          (await inPage<string>(`ready.then((r) => r.pushManager.permissionState({ userVisibleOnly: true }))`)) !==
+          "prompt"
+        )
+          throw new Error("before deciding, permissionState isn't prompt");
+        if ((await inPage<string>("PushManager.supportedContentEncodings.join()")) !== "aes128gcm,aesgcm")
+          throw new Error("supportedContentEncodings isn't Chrome's");
+
+        // Subscribing asks for the notifications permission, like Chrome.
+        await inPage(`subscribe({ userVisibleOnly: true, applicationServerKey: ${key} })`);
+        await page!.waitFor(
+          `document.querySelector('${tab} [data-permission-prompt]')?.dataset.permissionPrompt === "notifications"`,
+          { label: "the notifications prompt" },
+        );
+        await click(`${tab} [data-permission-answer="allow"]`);
+        const first = await result();
+        const sub = first.ok as { endpoint: string; expirationTime: null; keys: { p256dh: string; auth: string } };
+        if (!sub?.endpoint) throw new Error(`subscribing failed: ${JSON.stringify(first)}`);
+        const topic = sub.endpoint.slice(ntfyUrl.length + 1).replace(/\?up=1$/, "");
+        if (
+          !sub.endpoint.startsWith(`${ntfyUrl}/up`) ||
+          !/^up[A-Za-z0-9]{12}$/.test(topic) ||
+          !sub.endpoint.endsWith("?up=1")
+        )
+          throw new Error(`unexpected endpoint ${sub.endpoint}`);
+        if (sub.expirationTime !== null || !sub.keys.p256dh || !sub.keys.auth)
+          throw new Error(`incomplete: ${JSON.stringify(sub)}`);
+        const subscriptionOptions = await inPage<string>(
+          `ready.then((r) => r.pushManager.getSubscription()).then((s) => s.options.userVisibleOnly + " " + s.options.applicationServerKey.byteLength + " " + s.getKey("auth").byteLength + " " + (s instanceof PushSubscription))`,
+        );
+        if (subscriptionOptions !== "true 65 16 true")
+          throw new Error(`the subscription's options: ${subscriptionOptions}`);
+
+        // Allowed now: silent pushes are refused (Chrome's error), another key too; the same key gives the same one.
+        const silent = await subscribeWith(`{ userVisibleOnly: false, applicationServerKey: ${key} }`);
+        if (silent.error !== "NotAllowedError: Registration failed - permission denied")
+          throw new Error(`userVisibleOnly: false gave ${JSON.stringify(silent)}`);
+        const other = webpush.generateVAPIDKeys().publicKey;
+        const mismatch = await subscribeWith(
+          `{ userVisibleOnly: true, applicationServerKey: ${JSON.stringify(other)} }`,
+        );
+        if (
+          !mismatch.error?.startsWith(
+            "InvalidStateError: Registration failed - A subscription with a different applicationServerKey",
+          )
+        )
+          throw new Error(`another key gave ${JSON.stringify(mismatch)}`);
+        const again = await subscribeWith(`{ userVisibleOnly: true, applicationServerKey: ${key} }`);
+        if ((again.ok as { endpoint?: string })?.endpoint !== sub.endpoint)
+          throw new Error("the same key made another subscription");
+        // The worker sees the same subscription, and can't open windows without a click.
+        await inPage("fromWorker()");
+        const worker = (await result()).ok as { endpoint: string; state: string; opened: string };
+        if (worker?.endpoint !== sub.endpoint || worker.state !== "granted" || worker.opened !== "InvalidAccessError")
+          throw new Error(`in the service worker: ${JSON.stringify(worker)}`);
+        // One connection follows the topic.
+        await waitForValue(async () => (openTopics().includes(topic) ? true : undefined));
+
+        // A push from the site's server: the worker gets it (PushMessageData) and shows a notification.
+        const pushed = (title: string) =>
+          waitForValue(async () => (await notifications()).find((n) => n.title === title), 20_000);
+        await send(sub, { title: "Hello from push", body: "A new message", url: `${origin}/inbox`, tag: "msg" });
+        const hello = await pushed("Hello from push");
+        if (hello.origin !== origin) throw new Error(`the notification is from ${hello.origin}`);
+        await waitForValue(async () => (reports.some((r) => r.startsWith("listed")) ? true : undefined));
+        const seen = reports.find((r) => r.startsWith("push "));
+        if (!seen?.match(/^push Hello from push true \d+ \d+ true$/)) throw new Error(`the push event's data: ${seen}`);
+        if (!reports.includes(`listed 1 ${origin}/inbox`)) throw new Error(`getNotifications: ${reports.join(" | ")}`);
+
+        // Anybody can post to the topic, but what isn't encrypted for the subscription is dropped.
+        await fetch(sub.endpoint, { method: "POST", body: crypto.getRandomValues(new Uint8Array(200)) });
+        await send(sub, { title: "Second push", body: "", url: `${origin}/inbox`, tag: "second" });
+        await pushed("Second push");
+        if ((await notifications()).length !== 2)
+          throw new Error(`a forged message showed: ${JSON.stringify(await notifications())}`);
+
+        // A click: the worker's notificationclick opens the page it names in a new tab of the workspace...
+        await page!.eval(`window.rune.web.testNotifications({ click: ${JSON.stringify(hello.id)} })`);
+        await waitForValue(
+          async () => (reports.some((r) => r.startsWith("opened") || r.startsWith("click failed")) ? true : undefined),
+          20_000,
+        );
+        if (!reports.includes(`opened ${origin}/inbox`)) throw new Error(`after the click: ${reports.join(" | ")}`);
+        const inboxTab = await waitForValue(async () => {
+          const apps = await apiCall<{ id: string; url: string | null }[]>("/api/apps");
+          return apps.find((a) => a.url === `${origin}/inbox`)?.id;
+        });
+        opened.push(inboxTab);
+        await page!.waitFor(
+          `document.querySelector('nav li[data-app-id="${inboxTab}"]')?.matches('[aria-current], [data-selected], .selected') || document.querySelector('[data-web-tab="${inboxTab}"]')?.checkVisibility()`,
+          { label: "the opened tab shown" },
+        );
+        // ...and once it's open, a click on the next one focuses it.
+        await click(`nav li[data-app-id="${tabId}"]`);
+        const second = (await notifications()).find((n) => n.title === "Second push")!;
+        await page!.eval(`window.rune.web.testNotifications({ click: ${JSON.stringify(second.id)} })`);
+        await waitForValue(async () => (reports.includes("focused") ? true : undefined), 20_000);
+        await page!.waitFor(`!!document.querySelector('[data-web-tab="${inboxTab}"]')?.checkVisibility()`, {
+          label: "the focused tab shown",
+        });
+
+        // The tabs closed: the next push still wakes the worker and shows its notification.
+        for (const id of opened.splice(0)) await apiCall(`/api/apps/${id}`, { method: "DELETE" });
+        await page!.waitFor(`!document.querySelector('nav li[data-app-id="${tabId}"]')`, { label: "tab closed" });
+        await send(sub, { title: "While closed", body: "", url: `${origin}/inbox`, tag: "closed" });
+        await pushed("While closed");
+
+        // Listed in the site's settings, removable there.
+        const { id: tab2 } = await apiCall<{ id: string }>("/api/apps", {
+          method: "POST",
+          body: { url: `${origin}/` },
+        });
+        opened.push(tab2);
+        await page!.waitFor(`!!document.querySelector('nav li[data-app-id="${tab2}"]')`, {
+          label: "tab in the sidebar",
+        });
+        await click(`nav li[data-app-id="${tab2}"]`);
+        const tab2Sel = `[data-web-tab="${tab2}"]`;
+        const inPage2 = <T>(code: string) => inView<T>(tab2Sel, code);
+        await waitForValue(
+          async () =>
+            (await inPage2<boolean>("typeof ready === 'object' && ready.then(() => true)")) ? true : undefined,
+          20_000,
+        );
+        if ((await subscriptions()).filter((s) => s.origin === origin).length !== 1) throw new Error("not listed once");
+        await openSettingsAt("browser-sites");
+        await page!.waitFor(`!!document.querySelector('[data-site-row="push.localhost"]')`, {
+          label: "the site in All sites",
+        });
+        await click('[data-site-row="push.localhost"]');
+        await page!.waitFor(`!!document.querySelector('[data-site-push-subscription="${origin}"]')`, {
+          label: "the site's push subscription",
+        });
+        await page!.eval(`document.querySelector("[data-site-push]").scrollIntoView({ block: "center" }), true`);
+        await shot("settings-site-push.png");
+        await click("[data-site-push-remove]");
+        await page!.waitFor(`!document.querySelector('[data-site-push-subscription]')`, { label: "removed" });
+        await waitForValue(async () => (!openTopics().includes(topic) ? true : undefined));
+
+        // Subscribed again (allowed: no prompt), then unsubscribed by the site: gone, its topic dropped.
+        await click(`nav li[data-app-id="${tab2}"]`);
+        const run2 = async (code: string) => {
+          await inPage2(`run(async () => ${code})`);
+          return waitForValue(
+            async () => (await inPage2<{ ok?: unknown; error?: string } | null>("window.r")) ?? undefined,
+            20_000,
+          );
+        };
+        const resub = await run2(
+          `JSON.parse(JSON.stringify(await (await ready).pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: ${key} })))`,
+        );
+        const endpoint2 = (resub.ok as { endpoint?: string })?.endpoint;
+        if (!endpoint2 || endpoint2 === sub.endpoint) throw new Error(`subscribing again: ${JSON.stringify(resub)}`);
+        const topic2 = endpoint2.slice(ntfyUrl.length + 1).replace(/\?up=1$/, "");
+        const unsub = await run2(`(await (await ready).pushManager.getSubscription()).unsubscribe()`);
+        if (unsub.ok !== true) throw new Error(`unsubscribe: ${JSON.stringify(unsub)}`);
+        if ((await run2(`(await ready).pushManager.getSubscription()`)).ok !== null)
+          throw new Error("still subscribed");
+        await waitForValue(async () => (!openTopics().includes(topic2) ? true : undefined));
+
+        // Subscribed once more, then the notifications permission taken back (the address's site settings): gone.
+        const third = await run2(
+          `(await (await ready).pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: ${key} })).endpoint`,
+        );
+        if (typeof third.ok !== "string") throw new Error(`subscribing a third time: ${JSON.stringify(third)}`);
+        const bar = chromeFor(tab2Sel);
+        await click(`${bar} [data-site-info-button]`);
+        await page!.waitFor(`!!document.querySelector('[data-site-info] [data-site-info-setting="notifications"]')`, {
+          label: "the site's settings",
+        });
+        await choose('[data-site-info] [data-site-info-setting="notifications"]', "block");
+        await page!.eval(
+          `document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })), true`,
+        );
+        await waitForValue(async () => ((await subscriptions()).some((s) => s.origin === origin) ? undefined : true));
+        await click(`${bar} [data-site-info-button]`);
+        await page!.waitFor(`!!document.querySelector('[data-site-info] [data-site-info-setting="notifications"]')`, {
+          label: "the site's settings",
+        });
+        await choose('[data-site-info] [data-site-info-setting="notifications"]', "allow");
+        await page!.eval(
+          `document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })), true`,
+        );
+
+        // Push turned off: subscribe() fails like Chrome without a push service.
+        await openSettingsAt("browser-privacy");
+        await click('[data-push-service="off"]');
+        await waitForValue(async () => ((await savedPush()).service === "off" ? true : undefined));
+        await Bun.sleep(1500);
+        await click(`nav li[data-app-id="${tab2}"]`);
+        const off = await run2(
+          `(await ready).pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: ${key} })`,
+        );
+        if (off.error !== "AbortError: Registration failed - push service not available")
+          throw new Error(`with push off: ${JSON.stringify(off)}`);
+        if ((await subscriptions()).length) throw new Error("subscriptions are left with push off");
+        return `${connections} connection(s) to the server, ${messages.length} messages`;
+      } finally {
+        for (const id of opened) await apiCall(`/api/apps/${id}`, { method: "DELETE" }).catch(() => {});
+        // Back to the default (which the e2e run never reaches: only local servers are used).
+        await openSettingsAt("browser-privacy").catch(() => {});
+        await click('[data-push-service="ntfy"]').catch(() => {});
+        void ntfy.stop(true);
+        void pushSite.stop(true);
+      }
+    },
+  );
 
   await check(
     "tab cleanup: tabs unused for long close after they sleep; ones in use stay; History and Ctrl+Shift+T bring them back",

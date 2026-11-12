@@ -193,6 +193,8 @@ export async function launchRune(opts: LaunchOptions & { seedProfile?: (profile:
       RUNE_EXTENSION_UPDATES: "0",
       // What the address bar checks type isn't sent to a real search engine for suggestions.
       RUNE_SEARCH_SUGGESTIONS_LOCAL_ONLY: "1",
+      // Nor do sites' push subscriptions go through ntfy.sh.
+      RUNE_PUSH_LOCAL_ONLY: "1",
       RUNE_BROWSER_DIRS: "",
       RUNE_DOWNLOADS_DIR: downloads,
     },
