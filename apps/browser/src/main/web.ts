@@ -36,6 +36,7 @@ import { setupDownloads } from "./downloads";
 import { setupHeadless } from "./headless";
 import { setupNetwork } from "./network";
 import { setupOverrides } from "./overrides";
+import { setupPasskeys } from "./passkeys";
 import { setupPush } from "./push";
 import { setupSearchSuggestions } from "./searchSuggestions";
 import { setupShortcuts } from "./shortcuts";
@@ -152,6 +153,13 @@ export function setupWebTabs(
     windows,
     webSession: (workspaceId) => webSession(webPartition(workspaceId)),
     userAgent: webUserAgent(),
+  });
+
+  // Passkeys and security keys: Rune Browser's prompts around Chromium's WebAuthn, and the agent kept out of it.
+  const passkeys = setupPasskeys({
+    windows,
+    workspaceOf: (s) => webSessions.get(s),
+    isHeadless: (contents) => headless.isHeadless(contents),
   });
 
   const downloads = setupDownloads({
@@ -433,6 +441,7 @@ export function setupWebTabs(
           : partition.slice(WEB_PARTITION.length + 1),
     );
     askForPermissions(s);
+    passkeys.attach(s);
     void extensions.attach(s);
     // A plain Chrome user agent: some sites turn away unknown browsers. Google's
     // sign-in gets Electron's instead (see signInRule).

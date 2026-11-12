@@ -15,6 +15,7 @@ import type {
   InstallResult,
 } from "./extensions";
 import type { FlagsInfo } from "./flags";
+import type { PasskeyPrompt, PasskeyReply } from "./passkeys";
 import type { GpuReport, ProcessInfo, VersionInfo } from "./internalPages";
 import type { WorkspaceSettings } from "./settings";
 import type { PushSubscriptionSummary } from "./push";
@@ -262,6 +263,16 @@ export interface RuneBridge {
       onNotice: (fn: (notice: SystemPermissionNotice) => void) => () => void;
       onScreenPick: (fn: (request: ScreenPickRequest) => void) => () => void;
       onScreenPickDone: (fn: (requestId: string) => void) => () => void;
+    };
+    /** Passkeys and security keys: Rune Browser's prompts around a page's WebAuthn requests (main/passkeys.ts). */
+    passkeys: {
+      /** Prompts showing in this window's tabs (after it reloaded). */
+      pending: () => Promise<PasskeyPrompt[]>;
+      reply: (requestId: string, reply: PasskeyReply) => void;
+      /** Whether the website agent is working in a tab: its requests are refused meanwhile. */
+      agentRunning: (webContentsId: number, running: boolean) => void;
+      onPrompt: (fn: (prompt: PasskeyPrompt) => void) => () => void;
+      onPromptDone: (fn: (requestId: string) => void) => () => void;
     };
     /** Which http:// pages web tabs open without a warning (shared/insecure.ts). */
     setInsecurePolicy: (policy: { enabled: boolean; allowed: readonly string[] }) => void;

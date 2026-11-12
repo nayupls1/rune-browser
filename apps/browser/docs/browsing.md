@@ -23,7 +23,7 @@ open page and saves changes that apply on every visit. It gets only the page too
 
 - **Every action names its element first** (by selector, visible text or a point on a screenshot; `lib/browse.ts` finds it in the page), so Rune Browser can check it before anything happens.
 - **Your OK per site:** acting on a site with your session asks once per site (`agent.browse`, rememberable in Settings → Agent permissions).
-- **Confirmation every time** for what has consequences: clicking or submitting something that buys, pays, books, sends, posts, subscribes or deletes, submitting a form that takes card details, and typing card details (`agent.confirm`, never remembered). The agent asks for anything else with consequences itself (`confirm_action`). Passwords are never typed: you sign in yourself.
+- **Confirmation every time** for what has consequences: clicking or submitting something that buys, pays, books, sends, posts, subscribes or deletes, submitting a form that takes card details, and typing card details (`agent.confirm`, never remembered). The agent asks for anything else with consequences itself (`confirm_action`). Passwords are never typed, and passkeys and security keys are refused while it works in the tab ([Passkeys and security keys](#passkeys-and-security-keys)): you sign in yourself.
 - **Visible:** a marker shows where it clicks or types, and a banner says the agent is using the page, with **Take over**, which stops it.
 - **Files:** what it finds can go into files in the chat's folder, which show as chips in the chat (see [Concepts](concepts.md#agents)).
 - **Limits:** the checks read the element's text, name and form, so a site that labels "Buy" as an icon only can slip past the confirmation (the agent is told to use `confirm_action` then). `run_js` can still change a page directly; it's meant for exploring.
@@ -287,6 +287,67 @@ in `extension-preload/push.ts`):
   without a push service ("push service not available"). A new profile's setup asks too
   ([Interface](interface.md#onboarding)).
 - **Agents** get nothing of it: no tool, no keys, no subscriptions.
+
+## Passkeys and security keys
+
+Sites like GitHub, Google or a bank sign in with WebAuthn (`navigator.credentials.create()`/`get()` with
+`publicKey`): a passkey, or a security key as a second factor. Chromium does the ceremony in Rune Browser as in
+Chrome (the page's origin and RP ID rules, talking to the authenticator); what Electron lacks is Chrome's dialogs
+around it and some of its authenticators, so Rune Browser adds prompts of its own (`main/passkeys.ts`, shown by
+`components/PasskeyPrompt.tsx`, the rules and words in `shared/passkeys.ts`):
+
+- **Touch your key:** while a request waits for a security key, a prompt at the top of the tab says what for
+  ("Sign in to github.com with a security key", "Create a passkey for … on a security key") and "Insert your
+  security key and touch it", with **Cancel** (the page gets `NotAllowedError`, as when you cancel Chrome's dialog).
+  Not on Windows, whose own dialog does that. The page's shim (`extension-preload/passkeys.ts`, in websites' frames)
+  tells the main process when a request starts and ends; the request itself still goes to Chromium.
+- **Choosing an account:** a security key holding passkeys for the site gets a list of its accounts (the name and
+  user name the site gave them) to sign in with; one account is used right away. Electron asks for this
+  (`select-webauthn-account`) and refuses the sign-in when nothing answers, which before this prompt was every
+  passkey sign-in with a security key.
+- **Why it didn't work:** the prompt says so when the key wants its PIN (Electron can't ask for one, and says so in
+  the page's console), nothing answered before the page's timeout, the key is already registered for that account,
+  or the key refused. Without any authenticator Chromium waits on forever, past the page's timeout: the shim calls a
+  request off once Chromium's own timeout (the page's, between 10 seconds and 10 minutes) has passed.
+- **No passkeys on this device** outside Windows: a page asking for one kept on the computer
+  (`authenticatorAttachment: "platform"`) is refused right away, with what to use instead, rather than left waiting.
+  `isUserVerifyingPlatformAuthenticatorAvailable()` reads false there, so most sites don't offer it.
+- **Password managers:** Bitwarden, 1Password and the like provide passkeys by replacing `navigator.credentials`'
+  methods in the page's own world (a content script with `world: "MAIN"`), and that works in Rune Browser: what they
+  answer never reaches Chromium or Rune Browser's prompts, and what they hand on to the browser gets them.
+- **Agents never sign in:** while the website agent works in a tab (its turn is running), the page's requests are
+  refused before any authenticator is asked; the tab says so with **Take over**, and the agent's page tools are told
+  to ask you to sign in. In headless tabs (no sign-ins) they're refused too, and DevTools' WebAuthn domain keeps real
+  authenticators out of their reach (`main/headless.ts`). Agents have no tool for passkeys, and never see a
+  credential.
+
+| Authenticator                                                 | Linux                      | macOS                      | Windows                     |
+| ------------------------------------------------------------- | -------------------------- | -------------------------- | --------------------------- |
+| Security key over USB, touch only (2FA, passkeys without PIN) | Works, Rune's prompts      | Works, Rune's prompts      | Works, Windows' dialog      |
+| Security key that asks for its PIN                            | Doesn't: refused, says why | Doesn't: refused, says why | Works, Windows' dialog asks |
+| Security key over NFC or Bluetooth                            | Doesn't                    | Doesn't                    | Through Windows' dialog     |
+| Passkeys on this device (Windows Hello, Touch ID)             | None: refused, says why    | Doesn't: refused, says why | Works (Windows Hello)       |
+| Synced passkeys (iCloud Keychain, Google Password Manager)    | Doesn't                    | Doesn't                    | Doesn't (Google's)          |
+| A phone (hybrid, QR code)                                     | Doesn't                    | Doesn't                    | Windows 11's dialog         |
+| A password manager extension's passkeys                       | Works                      | Works                      | Works                       |
+
+What to use instead where it doesn't: a password manager extension's passkeys (Bitwarden, 1Password…), a security key
+without a PIN, Windows Hello on Windows, or the site's other ways to sign in. Why:
+
+- **PIN:** Electron's WebAuthn has no PIN entry ([electron#24573](https://github.com/electron/electron/issues/24573)):
+  a key that needs one is refused. Passkeys on a security key usually need it; a key used as a second factor only
+  needs a touch. Windows' dialog asks for the PIN itself.
+- **macOS:** Electron can use Touch ID (passkeys kept in the keychain, per workspace) and Apple's passkeys
+  (`app.configureWebAuthn`), but only for an app signed with Apple's entitlements, a keychain access group and a
+  provisioning profile for each site's associated domain. Rune Browser is signed ad hoc for now; and Apple's passkeys
+  for any website need its web browser entitlement, which Electron doesn't use.
+- **Phones, NFC, Bluetooth:** Chrome's QR code and its tunnel to the phone are Chrome's own code, not Electron's.
+  Linux and macOS get USB security keys only; on Linux, the key needs the usual udev rules (`hidraw` access).
+- **Windows** uses its own WebAuthn API and dialog for everything (Windows 10 1903 and later): Rune Browser shows no
+  prompt of its own there and the account choice is Windows'. Checked on Linux; Windows and macOS come from
+  Electron's and Chromium's source.
+- **Conditional requests** (passkeys offered as you type a username) wait quietly, as in a browser with no passkeys:
+  nothing in Rune Browser offers one, except a password manager extension.
 
 ## Browsing history
 

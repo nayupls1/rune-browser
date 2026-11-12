@@ -526,6 +526,14 @@ declare global {
 }
 window.__runeJobs = { show: (id, jobs) => states[id] && setStates(id, "jobs", reconcile(jobs, { key: "id" })) };
 
+// For the e2e checks: a tab's agent shown as working (what main/passkeys.ts refuses passkeys for), without an agent.
+declare global {
+  interface Window {
+    __runeAgentRunning?: { set: (id: string, running: boolean) => void };
+  }
+}
+window.__runeAgentRunning = { set: (id, running) => states[id] && setStates(id, { running }) };
+
 /** Stops one of the chat's background jobs; the chat gets it as it ends (a "jobs" event). */
 export async function stopJob(id: string, jobId: string) {
   const jobs = await api.stopJob(id, jobId);
