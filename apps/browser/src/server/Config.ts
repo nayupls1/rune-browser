@@ -18,6 +18,8 @@ export interface ServerConfigShape {
   readonly allowedOrigin: string;
   /** Required on API requests when set (Electron always sets one). */
   readonly token: string | null;
+  /** A new profile starts without first-run setup (RUNE_SKIP_ONBOARDING=1: checks and scripts; main/server.ts passes it only unpackaged). */
+  readonly skipOnboarding: boolean;
 }
 
 export class ServerConfig extends Context.Service<ServerConfig, ServerConfigShape>()("rune/ServerConfig") {}
@@ -36,6 +38,7 @@ export function readConfig(env: Record<string, string | undefined> = process.env
     url: `http://127.0.0.1:${port}`,
     allowedOrigin: env.RUNE_ALLOWED_ORIGIN ?? "http://localhost:5173",
     token: env.RUNE_TOKEN || null,
+    skipOnboarding: env.RUNE_SKIP_ONBOARDING === "1",
   };
 }
 

@@ -105,6 +105,11 @@ export const Settings = Schema.Struct({
     Schema.String.check(Schema.isMaxLength(100)),
     Schema.Array(Schema.String.check(Schema.isMaxLength(100))).check(Schema.isMaxLength(10)),
   ).pipe(withDefault({})),
+  /**
+   * First-run setup (components/Onboarding.tsx): pending shows it. New profiles are written pending (db/Db.ts);
+   * profiles from before it count as set up. "Run setup again" in Settings → About makes it pending again.
+   */
+  onboarding: Schema.Literals(["pending", "completed", "skipped"]).pipe(withDefault("completed")),
   mods: Schema.Struct({
     /** Galleries to browse mods from: URLs of JSON files listing mods ({ "mods": [...] } or an array). */
     galleries: Schema.Array(Schema.String.check(Schema.isMaxLength(2000)))

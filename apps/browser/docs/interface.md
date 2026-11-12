@@ -2,6 +2,21 @@
 
 [README](../../../README.md) · [Architecture](architecture.md) · [Concepts](concepts.md) · [Interface](interface.md) · [Browsing](browsing.md) · [Design system](design-system.md) · [Development](development.md) · [Benchmarks](benchmarks.md) · [Releasing](releasing.md)
 
+## Onboarding
+
+A new profile opens on a short setup first, over the whole window (in that window: it's Rune Browser's own page, not another one), so Rune works as a main browser from the first minute (`components/Onboarding.tsx`, the steps in `shared/onboarding.ts`). Each step can be skipped, and "Skip setup" in its top row, or Escape, ends it. Everything in it is also in Settings later.
+
+1. **Bring your stuff:** the browsers found on this computer, one card per profile with what it has: bookmarks, settings and extensions, found the way Import finds them (see [Browsing](browsing.md#bookmarks)). Everything it has is checked; Import brings it over at once (the extensions with their settings, if you like), and each kind says how it went.
+2. **Where your tabs go:** tabs on top or on the side, each drawn as a small window in the theme's colors, and the appearance (system, light or dark). Both apply at once, behind the setup too: nothing reloads.
+3. **Default browser:** whether Rune Browser is the default already, and "Make default" (the system's settings on Windows) if not, as in Settings → General.
+4. **Notifications from closed tabs:** through ntfy.sh (the default), your own ntfy server or off: the setting of Settings → Privacy and security → "Notifications from closed tabs" (`browser.push`, see [Browsing](browsing.md#push-notifications)), shown as it is and saved as you pick. Your own server's address is checked as you type (https, plain http only on this computer). Messages are end-to-end encrypted, and Rune has to be running to receive them; ntfy keeps what's sent meanwhile for 12 hours.
+5. **Agent:** Claude, Codex and OpenCode with their state (ready, not signed in, not installed) and how to sign in or install them; picking one that's ready makes it the default for new tabs. "Skip, just a browser" (or Finish without one) leaves the agent out. The plan shows ("Signed in (pro)"), never the account.
+
+- **When:** a profile Rune Browser starts for the first time (no tabs, workspaces or settings yet; `db/Db.ts` writes `onboarding: "pending"` into its settings). Profiles from before it count as set up. It ends as `completed` (walked to the end) or `skipped`, and doesn't come back after a restart. Settings → About → "Run setup again" shows it again.
+- **Never:** in private windows or safe mode.
+- **Keyboard:** the step's title takes the focus, Tab goes through its choices, Enter is the main button (Continue, Import, Make default, Finish), Escape skips the rest. The app behind it is `inert`, and the browser's shortcuts wait until it's done. At small window sizes the list of steps gives way to the progress line along the top.
+- **Checks and scripts** that start the app with a throwaway profile (e2e, `bun run bench`, the screenshots) set `RUNE_SKIP_ONBOARDING=1`, which starts a new profile as `skipped`; only unpackaged builds honor it (`main/server.ts`).
+
 ## Windows
 
 Rune Browser opens as many windows as you like, each with its own tabs (`main/windows.ts`, `shared/windows.ts`). Workspaces are shared: every window shows one of them, with that window's tabs in it.

@@ -54,6 +54,8 @@ const electron = await launchElectron(
   {
     RUNE_USER_DATA_DIR: profile,
     RUNE_OFFSCREEN: "1",
+    // A throwaway profile: no first-run setup in the way (honored only by unpackaged builds).
+    RUNE_SKIP_ONBOARDING: "1",
     RUNE_EXTENSION_UPDATES: "0",
     RUNE_BROWSER_DIRS: "",
     // The demo site is local: no proxy in between.

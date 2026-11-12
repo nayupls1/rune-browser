@@ -11,6 +11,7 @@ import { DownloadsPanel } from "./components/Downloads";
 import { ExtensionImportHost } from "./components/ExtensionImport";
 import { PermissionHost } from "./components/PermissionHost";
 import { ModReviewHost } from "./components/ModsPage";
+import { OnboardingHost } from "./components/Onboarding";
 import { SettingsShell } from "./components/SettingsPage";
 import { paneStyle, SplitChrome, SplitDropZones } from "./components/SplitView";
 import { visibleSplit, visibleTabs } from "./lib/splits";
@@ -147,6 +148,7 @@ export default function App() {
       <DownloadsPanel />
       <BookmarkEditor />
       <ToastHost />
+      <OnboardingHost />
       <div
         {...stylex.attrs(
           styles.column,

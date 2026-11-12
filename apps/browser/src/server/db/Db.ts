@@ -75,7 +75,7 @@ const dropApps = (dataDir: string) =>
     }
   });
 
-const migrate = (dataDir: string) =>
+const migrate = (dataDir: string, skipOnboarding = false) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     // A profile from before this start (its tables are there already), not a new one.
@@ -409,6 +409,13 @@ const migrate = (dataDir: string) =>
         `UPDATE settings SET value = json_set(value, '$.tabs.layout', 'vertical')
        WHERE id = 1 AND json_valid(value) AND json_type(value, '$.tabs.layout') IS NULL`,
       );
+    // A new profile gets the first-run setup (Settings' onboarding); existing ones count as set up. Scripts that start
+    // the app with a throwaway profile skip it (Config.ts).
+    else
+      yield* sql.unsafe(
+        `UPDATE settings SET value = json_set(value, '$.onboarding', '${skipOnboarding ? "skipped" : "pending"}')
+       WHERE id = 1 AND json_valid(value) AND json_type(value, '$.onboarding') IS NULL`,
+      );
   });
 
 export const layer = Layer.unwrap(
@@ -416,6 +423,6 @@ export const layer = Layer.unwrap(
     const config = yield* ServerConfig;
     const filename = join(config.dataDir, "rune.sqlite");
     const client = SqliteClient.layer({ filename });
-    return Layer.effectDiscard(migrate(config.dataDir)).pipe(Layer.provideMerge(client));
+    return Layer.effectDiscard(migrate(config.dataDir, config.skipOnboarding)).pipe(Layer.provideMerge(client));
   }),
 ).pipe(Layer.orDie);
