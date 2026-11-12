@@ -47,6 +47,8 @@ export interface AppWindows {
   isPrivate(win: BrowserWindow | undefined): boolean;
   /** Calls `fn` when a window gets the focus. */
   onFocus(fn: () => void): void;
+  /** "Open link in new window": a new window (private or not) whose only tab is the link. */
+  openLink(url: string, options: { private: boolean; workspaceId?: string }): Promise<string | null>;
 }
 
 interface Live {
@@ -283,7 +285,12 @@ export function createWindowManager(options: WindowManagerOptions) {
   }
 
   /** A new window: empty (it opens a new tab, unless it's for links), or with these tabs moved into it. */
-  async function openNew(isPrivate: boolean, tabIds: string[] = [], at?: { x: number; y: number }, newTab = true) {
+  async function openNew(
+    isPrivate: boolean,
+    tabIds: string[] = [],
+    at?: { x: number; y: number },
+    newTab: boolean | Exclude<WindowIntent, string | null> = true,
+  ) {
     // Rune Browser is quitting: nothing new opens (it would outlive the cleanup).
     if (quitting) return null;
     if (isPrivate) await privateCleared;
@@ -310,7 +317,7 @@ export function createWindowManager(options: WindowManagerOptions) {
     const bounds = current
       ? { width: savedOf(current).bounds.width, height: savedOf(current).bounds.height }
       : DEFAULT_BOUNDS;
-    open({ id, bounds, maximized: false }, moved || !newTab ? null : "new-tab", at);
+    open({ id, bounds, maximized: false }, moved || !newTab ? null : newTab === true ? "new-tab" : newTab, at);
     if (!isPrivate) save();
     await sync();
     return id;
@@ -358,6 +365,11 @@ export function createWindowManager(options: WindowManagerOptions) {
     },
     isPrivate: (win) => !!entryOf(win)?.private,
     onFocus: (fn) => void focusListeners.add(fn),
+    openLink: (url, o) =>
+      openNew(o.private, [], undefined, {
+        url,
+        ...(o.private || !o.workspaceId ? {} : { workspaceId: o.workspaceId }),
+      }),
   };
 
   const senderOf = (event: IpcMainEvent | IpcMainInvokeEvent) =>

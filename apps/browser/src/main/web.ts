@@ -40,7 +40,8 @@ import { setupSearchSuggestions } from "./searchSuggestions";
 import { setupShortcuts } from "./shortcuts";
 import { setupSitePermissions } from "./sitePermissions";
 import { chromeUserAgent } from "./userAgent";
-import { buildContextMenu } from "./contextMenu";
+import { buildContextMenu, mediaActionScript, type MediaAction } from "./contextMenu";
+import { setupTaskManager } from "./taskManager";
 import type { Observation } from "../shared/endpoints";
 import { insecureAction, type InsecurePolicy } from "../shared/insecure";
 import { hasHistory, trimHistory, type TabHistory } from "../shared/tabHistory";
@@ -125,6 +126,7 @@ export function setupWebTabs(
   });
 
   setupDevtools({ windows });
+  setupTaskManager({ windows, workspaceOf: (s) => webSessions.get(s) });
 
   // Headless tabs: pages the website agent reads in the background, with the workspace's logins if allowed.
   const headless = setupHeadless({
@@ -273,7 +275,42 @@ export function setupWebTabs(
       sendTo(contents, "rune:shortcut", { id: direction === "in" ? "zoom.in" : "zoom.out", contentsId: contents.id }),
     );
     contents.on("context-menu", (_event, params) => {
-      Menu.buildFromTemplate(contextMenu(contents, params)).popup({ window: windows.of(contents) });
+      const items = contextMenu(contents, params);
+      // Offscreen (the e2e checks) the menu isn't shown: the checks read and click it (rune:test-context-menu).
+      if (offscreen) return void (lastMenu = items);
+      Menu.buildFromTemplate(items).popup({ window: windows.of(contents) });
+    });
+  }
+
+  const offscreen = process.env.RUNE_OFFSCREEN === "1";
+  let lastMenu: MenuItemConstructorOptions[] = [];
+  if (offscreen)
+    ipcMain.handle("rune:test-context-menu", (event, click: unknown) => {
+      if (!windows.isUi(event.sender)) return null;
+      const item = typeof click === "string" ? lastMenu.find((i) => i.label === click) : undefined;
+      if (item) {
+        if (item.enabled === false) return null;
+        (item.click as (() => void) | undefined)?.();
+        lastMenu = [];
+        return [];
+      }
+      return lastMenu.map((i) => ({
+        label: i.type === "separator" ? "—" : (i.label ?? ""),
+        enabled: i.enabled !== false,
+        ...(i.type === "checkbox" ? { checked: i.checked === true } : {}),
+      }));
+    });
+
+  /** Loop, Show controls, Picture in picture: in the frame that was clicked, at the point (in CSS pixels). */
+  function mediaAction(contents: WebContents, params: ContextMenuParams, action: MediaAction) {
+    const frame = params.frame;
+    if (!frame || frame.isDestroyed()) return;
+    const zoom = contents.getZoomFactor() || 1;
+    const point = frame.parent ? null : { x: params.x / zoom, y: params.y / zoom };
+    const src = /^(https?|blob):/i.test(params.srcURL) ? params.srcURL : "";
+    // Picture in picture needs a user gesture: the click on the menu item is one.
+    frame.executeJavaScript(mediaActionScript(action, point, src), true).catch((err) => {
+      console.warn("The video's menu item failed:", err);
     });
   }
 
@@ -294,8 +331,18 @@ export function setupWebTabs(
 
   function contextMenu(contents: WebContents, params: ContextMenuParams): MenuItemConstructorOptions[] {
     const history = contents.navigationHistory;
+    const workspaceId = webSessions.get(contents.session);
+    const isPrivate = workspaceId === PRIVATE_WORKSPACE;
     return buildContextMenu(params, {
       openTab: (url, background) => openTab(contents, url, background),
+      // Like Chrome: a new window of the page's profile (its workspace here), or a private one, which starts
+      // fresh (no referrer, no logins: only the address goes over).
+      openWindow: (url, toPrivate) =>
+        isTabUrl(contents.session, url) &&
+        void windows.openLink(url, toPrivate ? { private: true } : { private: isPrivate, workspaceId }),
+      isPrivate,
+      media: (action) => mediaAction(contents, params, action),
+      copyVideoFrame: () => params.frame?.copyVideoFrameAt(params.x, params.y),
       openExternal: (url) => void shell.openExternal(url),
       copyText: (text) => clipboard.writeText(text),
       // "Save link as…", "Save image as…": they ask where to save (main/downloads.ts).

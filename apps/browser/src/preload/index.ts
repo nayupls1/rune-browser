@@ -51,6 +51,8 @@ const bridge: RuneBridge = {
     flags: () => ipcRenderer.invoke("rune:internals-flags"),
     setFlag: (id, value) => ipcRenderer.invoke("rune:internals-set-flag", id, value),
     resetFlags: () => ipcRenderer.invoke("rune:internals-reset-flags"),
+    processes: () => ipcRenderer.invoke("rune:task-manager-list"),
+    endProcess: (pid) => ipcRenderer.invoke("rune:task-manager-end", pid),
   },
   updates: {
     get: () => ipcRenderer.invoke("rune:updates-get"),
@@ -132,6 +134,7 @@ const bridge: RuneBridge = {
     proceedAnyway: (webContentsId, url) => ipcRenderer.invoke("rune:certificate-proceed", webContentsId, url),
     setSearchEngine: (engine) => ipcRenderer.send("rune:search-engine", engine),
     searchSuggestions: (query) => ipcRenderer.invoke("rune:search-suggestions", query),
+    testContextMenu: (click) => ipcRenderer.invoke("rune:test-context-menu", click),
     headless: {
       open: (request) => ipcRenderer.invoke("rune:headless-open", request),
       navigate: (id, url, hosts) => ipcRenderer.invoke("rune:headless-navigate", id, url, hosts),

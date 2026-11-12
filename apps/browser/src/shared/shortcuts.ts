@@ -247,6 +247,8 @@ export const shortcutDefs: ShortcutDef[] = [
   { id: "open.settings", label: "Settings", category: "Browser", keys: ["Mod+,"], page: "page" },
   { id: "open.extensions", label: "Extensions", category: "Browser", keys: [], page: "page" },
   { id: "open.shortcuts", label: "Keyboard shortcuts", category: "Browser", keys: ["Mod+/"], page: "page" },
+  // Chrome on macOS has no keys for it (Window → Task Manager).
+  { id: "open.task-manager", label: "Task manager", category: "Browser", keys: ["Shift+Esc"], mac: [], page: "page" },
 
   // --- Rune Browser's own
   { id: "app.command-bar", label: "Command bar", category: "Rune Browser", keys: ["Mod+K"], page: "page" },

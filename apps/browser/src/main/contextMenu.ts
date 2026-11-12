@@ -6,8 +6,19 @@ import type { ContextMenuParams, MenuItemConstructorOptions } from "electron";
 
 export type EditCommand = "undo" | "redo" | "cut" | "copy" | "paste" | "pasteAndMatchStyle" | "selectAll";
 
+/** What the video and audio items do to the element that was clicked (mediaActionScript). */
+export type MediaAction =
+  { kind: "loop"; on: boolean } | { kind: "controls"; on: boolean } | { kind: "pip"; on: boolean };
+
 export interface MenuActions {
   openTab: (url: string, background: boolean) => void;
+  /** "Open link in new window" (a private one from a private window) and "Open link in private window". */
+  openWindow: (url: string, isPrivate: boolean) => void;
+  /** The page is in a private window: its links can't go to another private window, they're in one. */
+  isPrivate: boolean;
+  /** Loop, Show controls, Picture in picture on the video or audio that was clicked. */
+  media: (action: MediaAction) => void;
+  copyVideoFrame: () => void;
   /** In the system's default browser. */
   openExternal: (url: string) => void;
   copyText: (text: string) => void;
@@ -89,6 +100,9 @@ export function buildContextMenu(params: ContextMenuParams, a: MenuActions): Men
   if (link) {
     groups.push([
       { label: "Open link in new tab", click: () => a.openTab(link, true) },
+      { label: "Open link in new window", click: () => a.openWindow(link, a.isPrivate) },
+      // Chrome's "Open link in incognito window", grayed out in one.
+      { label: "Open link in private window", enabled: !a.isPrivate, click: () => a.openWindow(link, true) },
       { label: "Open link in default browser", click: () => a.openExternal(link) },
       separator,
       { label: "Save link as…", click: () => a.download(link) },
@@ -106,13 +120,49 @@ export function buildContextMenu(params: ContextMenuParams, a: MenuActions): Men
       { label: "Copy image", click: () => a.copyImageAt(params.x, params.y) },
       { label: "Copy image address", click: () => a.copyText(src) },
     ]);
-  } else if ((media === "video" || media === "audio") && src) {
+  } else if (media === "video" || media === "audio") {
+    // Chrome's (AppendMediaItems, AppendVideoItems): the element's state as checkboxes, then its address.
     const kind = media;
-    groups.push([
-      { label: `Open ${kind} in new tab`, click: () => a.openTab(src, true) },
-      { label: `Save ${kind} as…`, enabled: params.mediaFlags.canSave, click: () => a.download(src) },
-      { label: `Copy ${kind} address`, click: () => a.copyText(src) },
-    ]);
+    const f = params.mediaFlags;
+    groups.push(
+      [
+        {
+          label: "Loop",
+          type: "checkbox",
+          checked: f.isLooping,
+          enabled: !f.inError,
+          click: () => a.media({ kind: "loop", on: !f.isLooping }),
+        },
+        {
+          label: "Show controls",
+          type: "checkbox",
+          checked: f.isControlsVisible,
+          enabled: f.canToggleControls,
+          click: () => a.media({ kind: "controls", on: !f.isControlsVisible }),
+        },
+      ],
+      [
+        ...(src
+          ? [
+              { label: `Open ${kind} in new tab`, click: () => a.openTab(src, true) },
+              { label: `Save ${kind} as…`, enabled: f.canSave, click: () => a.download(src) },
+              { label: `Copy ${kind} address`, click: () => a.copyText(src) },
+            ]
+          : []),
+        ...(kind === "video"
+          ? [
+              { label: "Copy video frame", enabled: !f.inError, click: a.copyVideoFrame },
+              {
+                label: "Picture in picture",
+                type: "checkbox" as const,
+                checked: f.isShowingPictureInPicture,
+                enabled: f.canShowPictureInPicture,
+                click: () => a.media({ kind: "pip", on: !f.isShowingPictureInPicture }),
+              },
+            ]
+          : []),
+      ],
+    );
   }
 
   if (params.isEditable) {
@@ -179,4 +229,37 @@ export function buildContextMenu(params: ContextMenuParams, a: MenuActions): Men
   groups.push(a.extensionItems);
   groups.push([{ label: "Inspect", click: () => a.inspect(params.x, params.y), ...a.keys("page.inspect") }]);
   return joined(groups);
+}
+
+/**
+ * The script a video or audio item runs in the frame that was clicked: the media element at the
+ * point (in the frame's CSS pixels; null in a subframe, whose offset isn't known), else the one
+ * playing `src`, else the frame's only one. Only numbers, booleans and a JSON string go in: the
+ * page decides nothing about what runs. It resolves to whether it found the element.
+ */
+export function mediaActionScript(action: MediaAction, point: { x: number; y: number } | null, src: string) {
+  const at =
+    point && Number.isFinite(point.x) && Number.isFinite(point.y)
+      ? `document.elementsFromPoint(${Math.round(point.x)}, ${Math.round(point.y)}).find(isMedia)`
+      : "undefined";
+  const on = action.on === true;
+  const act =
+    action.kind === "loop"
+      ? `el.loop = ${on}; return true;`
+      : action.kind === "controls"
+        ? `el.controls = ${on}; return true;`
+        : on
+          ? `return el instanceof HTMLVideoElement ? el.requestPictureInPicture().then(() => true) : false;`
+          : `return document.pictureInPictureElement ? document.exitPictureInPicture().then(() => true) : false;`;
+  return `(() => {
+  const isMedia = (e) => e instanceof HTMLMediaElement;
+  let el = ${at};
+  if (!el) {
+    const all = [...document.querySelectorAll("video, audio")];
+    const src = ${JSON.stringify(src)};
+    el = (src && all.find((m) => m.currentSrc === src)) || (all.length === 1 ? all[0] : undefined);
+  }
+  if (!el) return false;
+  ${act}
+})()`;
 }

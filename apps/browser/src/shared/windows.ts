@@ -39,8 +39,11 @@ export interface WindowsFile {
 /** How many closed windows can be reopened; older ones are forgotten, with their tabs. */
 export const CLOSED_WINDOWS_MAX = 10;
 
-/** What a window was opened for: a new tab (Ctrl+N), the startup setting (the first window at launch), or its tabs. */
-export type WindowIntent = "new-tab" | "startup" | null;
+/**
+ * What a window was opened for: a new tab (Ctrl+N), the startup setting (the first window at launch), a link
+ * ("Open link in new window": a tab of its own, in the workspace it came from), or its tabs.
+ */
+export type WindowIntent = "new-tab" | "startup" | { url: string; workspaceId?: string } | null;
 
 export const DEFAULT_BOUNDS: WindowBounds = { width: 1100, height: 750 };
 

@@ -28,6 +28,7 @@ export const VERSION_VIEW = "version";
 export const GPU_VIEW = "gpu";
 export const FLAGS_VIEW = "flags";
 export const URLS_VIEW = "rune-urls";
+export const TASK_MANAGER_VIEW = "task-manager";
 
 export const internalPages: InternalPage[] = [
   {
@@ -61,6 +62,12 @@ export const internalPages: InternalPage[] = [
     title: "Flags",
     description: "Experimental Chromium features to turn on or off.",
     target: { view: FLAGS_VIEW },
+  },
+  {
+    host: "task-manager",
+    title: "Task manager",
+    description: "Rune Browser's processes (the browser, the GPU, each tab, extensions) with their memory and CPU.",
+    target: { view: TASK_MANAGER_VIEW },
   },
   {
     host: "rune-urls",
@@ -359,3 +366,78 @@ export function flattenGpuInfo(info: unknown, prefix = ""): [string, string][] {
       : String(info);
   return [[prefix, value]];
 }
+
+// --- rune://task-manager -----------------------------------------------------------------------
+
+/** What a process runs, like the rows of Chrome's task manager. */
+export type TaskKind = "browser" | "gpu" | "utility" | "window" | "tab" | "extension" | "devtools" | "page" | "other";
+
+/** One thing a process runs: a tab, an extension's page, a window of Rune Browser's… */
+export interface TaskInfo {
+  kind: TaskKind;
+  title: string;
+  /** Web tabs and extension pages. */
+  url?: string;
+  /** Web tabs: their webContents (the renderer finds the tab by it), favicon and workspace. */
+  contentsId?: number;
+  favicon?: string | null;
+  workspaceId?: string;
+}
+
+/** One process (main/taskManager.ts). */
+export interface ProcessInfo {
+  pid: number;
+  /** What it is: the first of its tasks, or what Chromium says it is. */
+  kind: TaskKind;
+  tasks: TaskInfo[];
+  /** Memory footprint, in bytes: private memory where the OS says (Windows), otherwise the working set. */
+  memory: number;
+  /** Percent of one CPU core since the last snapshot. */
+  cpu: number;
+  /** "End process": only for processes that run web tabs and nothing else. */
+  canEnd: boolean;
+}
+
+export type TaskSortKey = "task" | "memory" | "cpu" | "pid";
+
+const kindOrder: TaskKind[] = ["browser", "gpu", "window", "tab", "extension", "page", "devtools", "utility", "other"];
+
+/** The name a process goes by in the list: its first task's ("Tab: Example"), like Chrome's rows. */
+export function taskLabel(task: TaskInfo): string {
+  switch (task.kind) {
+    case "browser":
+    case "gpu":
+    case "other":
+      return task.title;
+    case "utility":
+      return `Utility: ${task.title}`;
+    case "window":
+      return "Rune Browser window";
+    case "tab":
+      return `Tab: ${task.title}`;
+    case "extension":
+      return `Extension: ${task.title}`;
+    case "devtools":
+      return `DevTools: ${task.title}`;
+    case "page":
+      return `Background page: ${task.title}`;
+  }
+}
+
+/** Sorted like a click on a column header: by name (the browser and GPU first), memory, CPU or process ID. */
+export function sortProcesses(list: ProcessInfo[], key: TaskSortKey, descending: boolean): ProcessInfo[] {
+  const name = (p: ProcessInfo) => (p.tasks[0] ? taskLabel(p.tasks[0]) : "");
+  const compare = (a: ProcessInfo, b: ProcessInfo) => {
+    if (key === "memory") return a.memory - b.memory;
+    if (key === "cpu") return a.cpu - b.cpu;
+    if (key === "pid") return a.pid - b.pid;
+    return kindOrder.indexOf(a.kind) - kindOrder.indexOf(b.kind) || name(a).localeCompare(name(b));
+  };
+  return [...list].sort((a, b) => (descending ? -1 : 1) * compare(a, b) || a.pid - b.pid);
+}
+
+/** "152,300K", like Chrome's Memory footprint column. */
+export const formatMemory = (bytes: number) => `${Math.round(bytes / 1024).toLocaleString("en-US")}K`;
+
+/** "0.3", like Chrome's CPU column. */
+export const formatCpu = (percent: number) => (Number.isFinite(percent) ? percent.toFixed(1) : "0.0");

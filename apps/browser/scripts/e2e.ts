@@ -160,6 +160,16 @@ const site = Bun.serve({
         headers: { "Content-Type": "text/html" },
       });
     }
+    // A two-second video (VP8, 64×48) for the video's right-click menu.
+    if (path === "/media/clip.webm") return new Response(clipWebm, { headers: { "Content-Type": "video/webm" } });
+    if (path === "/media")
+      return new Response(
+        `<!doctype html><meta charset="utf-8"><link rel="icon" href="data:,"><title>Media page</title><h1>Media</h1>
+         <p><a id="link" href="/second">a link to the second page</a></p>
+         <video id="decoy" src="/media/clip.webm" muted width="160" height="120" style="display:block"></video>
+         <video id="clip" src="/media/clip.webm" muted width="320" height="240" style="display:block"></video>`,
+        { headers: { "Content-Type": "text/html; charset=utf-8" } },
+      );
     // A page that takes a while (the address bar's loading spinner).
     if (path === "/slow") {
       await Bun.sleep(2500);
@@ -293,6 +303,14 @@ const site = Bun.serve({
     });
   },
 });
+
+/** A two-second blue video (ffmpeg -f lavfi -i color=c=0x3366cc:s=64x48:d=2:r=5 -c:v libvpx). */
+const clipWebm = Uint8Array.from(
+  atob(
+    "GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibUKHgQJChYECGFOAZwEAAAAAAALZEU2bdLpNu4tTq4QVSalmU6yBoU27i1OrhBZUrmtTrIHYTbuMU6uEElTDZ1OsggEeTbuMU6uEHFO7a1OsggLD7AEAAAAAAABZAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVSalmsirXsYMPQkBNgI1MYXZmNjAuMTYuMTAwV0GNTGF2ZjYwLjE2LjEwMESJiECfQAAAAAAAFlSua8GuAQAAAAAAADjXgQFzxYgy3mrQDSWU7JyBACK1nIN1bmSIgQCGhVZfVlA4g4EBI+ODhAvrwgDgibCBQLqBMJqBAhJUw2f8c3OgY8CAZ8iaRaOHRU5DT0RFUkSHjUxhdmY2MC4xNi4xMDBzc9ZjwItjxYgy3mrQDSWU7GfIoUWjh0VOQ09ERVJEh5RMYXZjNjAuMzEuMTAyIGxpYnZweGfIoUWjiERVUkFUSU9ORIeTMDA6MDA6MDIuMDAwMDAwMDAwAB9DtnVBHueBAKPCgQAAgFADAJ0BKkAAMAAARwiFhYiFhIgCAgJ1qgP4AgcI1WeZjzfSAP75Ns//rzL68y+vMv+vMv/u837eb9vN/vyAo5aBAMgA0QEAARAQABgAGFgv9AAIjAAAo5aBAZAA0QEAARAQABgAGFgv9AAIjAAAo5aBAlgA0QEAARAQABgAGFgv9AAIjAAAo5aBAyAA0QEAARAQABgAGFgv9AAIjAAAo5aBA+gA0QEAARAQABgAGFgv9AAIjAAAo5aBBLAA0QEAARAQABgAGFgv9AAIjAAAo5WBBXgAsQEAARAQFGAAYWC/0AAiMACjloEGQADRAQABEBAAGAAYWC/0AAiMAACjloEHCADRAQABEBAAGAAYWC/0AAiMAAAcU7trkbuPs4EAt4r3gQHxggGf8IED",
+  ),
+  (c) => c.charCodeAt(0),
+);
 
 /** A one-page PDF saying `text`. */
 function minimalPdf(text: string) {
@@ -6747,6 +6765,296 @@ try {
       return "star, Ctrl+D, popover, bar, menu, suggestions, command bar, import, drag, rename, search, delete";
     },
   );
+
+  await check(
+    "page menu: a link in a new or private window; a video's Loop, Show controls, Picture in picture",
+    async () => {
+      const mainId = await page!.eval<string>("window.rune.window.id");
+      const count = await page!.eval<number>(`document.querySelectorAll("nav li").length`);
+      await newTab();
+      const tabId = await page!.waitFor<string>(
+        `document.querySelectorAll("nav li").length === ${count + 1} && document.querySelector("nav li:last-of-type").dataset.appId`,
+        { label: "web tab" },
+      );
+      const tab = `[data-web-tab="${tabId}"]`;
+      await page!.waitFor(`!!document.querySelector('${chromeFor(tab)} [data-address]')`, { label: "address bar" });
+      await page!.eval(`(() => {
+        const input = document.querySelector('${chromeFor(tab)} [data-address]');
+        input.value = "${site.url.origin}/media";
+        input.dispatchEvent(new InputEvent("input", { bubbles: true }));
+        input.form.requestSubmit();
+        return true;
+      })()`);
+      await page!.waitFor(
+        `document.querySelector('nav li[data-app-id="${tabId}"]')?.innerText.includes("Media page")`,
+        {
+          timeoutMs: 20_000,
+          label: "media page",
+        },
+      );
+      const inPage = <T>(code: string) =>
+        page!.eval<T>(`document.querySelector('${tab} webview').executeJavaScript(${JSON.stringify(code)})`);
+      await waitForValue(
+        async () => ((await inPage<number>(`document.getElementById("clip").readyState`)) >= 1 ? true : undefined),
+        15_000,
+      ).catch(() => {
+        throw new Error("the video didn't load");
+      });
+
+      type Item = { label: string; enabled: boolean; checked?: boolean };
+      /** Right-clicks an element of the page (real input, through the guest's DevTools) and reads the menu it got. */
+      const menuAt = async (guest: Page, selector: string, win: Page = page!) => {
+        const at = await guest.eval<{ x: number; y: number }>(
+          `(() => { const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()`,
+        );
+        for (const type of ["mousePressed", "mouseReleased"])
+          await guest.send("Input.dispatchMouseEvent", { type, ...at, button: "right", clickCount: 1 });
+        return waitForValue(async () => {
+          const items = await win.eval<Item[] | null>("window.rune.web.testContextMenu()");
+          return items?.length ? items : undefined;
+        }).catch(() => {
+          throw new Error(`no menu for ${selector}`);
+        });
+      };
+      const pick = (items: Item[], label: string) => {
+        const item = items.find((i) => i.label === label);
+        if (!item) throw new Error(`no "${label}" in ${items.map((i) => i.label).join(", ")}`);
+        return item;
+      };
+      const choose = async (label: string, win: Page = page!) => {
+        if ((await win.eval<unknown>(`window.rune.web.testContextMenu(${JSON.stringify(label)})`)) === null)
+          throw new Error(`"${label}" can't be clicked`);
+      };
+      const windowTabs = async (windowId: string) =>
+        (
+          await apiCall<{ id: string; url: string; windowId: string | null; workspaceId: string }[]>("/api/apps")
+        ).filter((t) => t.windowId === windowId);
+      /** The page of a window opened since, once it has loaded. */
+      const openedWindow = async (match: (id: string) => boolean, label: string) => {
+        const target = await waitForValue(async () => {
+          const list = (await (await fetch(`http://127.0.0.1:${port}/json`)).json()) as { type: string; url: string }[];
+          return list.find((t) => {
+            const id =
+              t.type === "page" && t.url.startsWith("app://") ? new URL(t.url).searchParams.get("window") : null;
+            return !!id && id !== mainId && match(id);
+          });
+        }, 20_000).catch(() => {
+          throw new Error(`no ${label} opened`);
+        });
+        const win = await Page.connect(port, 10_000, (t) => t.url === target.url);
+        await win.waitFor(`!!document.querySelector("[data-sidebar-footer] [data-more-menu]")`, {
+          label: `${label} to load`,
+        });
+        return { win, id: new URL(target.url).searchParams.get("window")! };
+      };
+      const closeWindow = (win: Page) => win.eval("setTimeout(() => window.rune.window.close(), 50), true");
+
+      const guest = await Page.connect(port, 10_000, (t) => t.type === "webview" && t.url.endsWith("/media"));
+      const opened: Page[] = [];
+      try {
+        // A video: Loop and Show controls reflect the element, and act on it; Picture in picture.
+        let items = await menuAt(guest, "#clip");
+        const labels = items.map((i) => i.label);
+        for (const label of [
+          "Loop",
+          "Show controls",
+          "Open video in new tab",
+          "Copy video address",
+          "Picture in picture",
+        ])
+          pick(items, label);
+        if (labels.indexOf("Loop") > labels.indexOf("Open video in new tab"))
+          throw new Error(`Loop comes after the video's address: ${labels.join(", ")}`);
+        if (pick(items, "Loop").checked !== false || pick(items, "Show controls").checked !== false)
+          throw new Error(`a fresh video's checkboxes: ${JSON.stringify(items.slice(0, 2))}`);
+        await choose("Loop");
+        await waitForValue(async () =>
+          (await inPage<boolean>(`document.getElementById("clip").loop`)) ? true : undefined,
+        );
+        // The video that was clicked, not another one playing the same address.
+        if (await inPage<boolean>(`document.getElementById("decoy").loop`))
+          throw new Error("Loop went to another video");
+        items = await menuAt(guest, "#clip");
+        if (pick(items, "Loop").checked !== true) throw new Error("Loop isn't checked on a looping video");
+        await choose("Show controls");
+        await waitForValue(async () =>
+          (await inPage<boolean>(`document.getElementById("clip").controls`)) ? true : undefined,
+        );
+        items = await menuAt(guest, "#clip");
+        if (pick(items, "Show controls").checked !== true) throw new Error("Show controls isn't checked");
+        await choose("Loop");
+        await waitForValue(async () =>
+          (await inPage<boolean>(`document.getElementById("clip").loop`)) ? undefined : true,
+        );
+        items = await menuAt(guest, "#clip");
+        if (!pick(items, "Picture in picture").enabled) throw new Error("Picture in picture is disabled");
+        await choose("Picture in picture");
+        await waitForValue(
+          async () =>
+            (await inPage<string>(`document.pictureInPictureElement?.id ?? ""`)) === "clip" ? true : undefined,
+          10_000,
+        ).catch(() => {
+          throw new Error("the video didn't go picture in picture");
+        });
+        items = await menuAt(guest, "#clip");
+        if (pick(items, "Picture in picture").checked !== true) throw new Error("Picture in picture isn't checked");
+        await choose("Picture in picture");
+        await waitForValue(async () =>
+          (await inPage<boolean>(`!!document.pictureInPictureElement`)) ? undefined : true,
+        );
+        await shot("context-menu-video.png");
+
+        // A link: in a new window (of the same workspace), and in a private window.
+        items = await menuAt(guest, "#link");
+        const linkLabels = items.map((i) => i.label);
+        const expected = ["Open link in new tab", "Open link in new window", "Open link in private window"];
+        if (linkLabels.slice(0, 3).join("|") !== expected.join("|"))
+          throw new Error(`the link's menu starts with ${linkLabels.slice(0, 4).join(", ")}`);
+        await choose("Open link in new window");
+        const normal = await openedWindow((id) => id.startsWith("w-"), "window for the link");
+        opened.push(normal.win);
+        const workspace = (await apiCall<{ id: string; workspaceId: string }[]>("/api/apps")).find(
+          (t) => t.id === tabId,
+        )!.workspaceId;
+        const normalTab = await waitForValue(async () => {
+          const [t] = await windowTabs(normal.id);
+          return t?.url.endsWith("/second") ? t : undefined;
+        }).catch(() => {
+          throw new Error("the new window has no tab with the link");
+        });
+        if (normalTab.workspaceId !== workspace)
+          throw new Error(`the link opened in workspace ${normalTab.workspaceId}, not ${workspace}`);
+        await normal.win.waitFor(`document.querySelectorAll("nav li[data-app-id]").length === 1`, {
+          label: "the link as the new window's only tab",
+        });
+
+        await menuAt(guest, "#link");
+        await choose("Open link in private window");
+        const priv = await openedWindow((id) => id.startsWith("private-"), "private window for the link");
+        opened.push(priv.win);
+        await waitForValue(async () => {
+          const [t] = await windowTabs(priv.id);
+          return t?.url.endsWith("/second") ? true : undefined;
+        }).catch(() => {
+          throw new Error("the private window has no tab with the link");
+        });
+        await priv.win.waitFor(
+          `document.querySelector("webview")?.getAttribute("partition") === "persist:private-web"`,
+          {
+            label: "the link's tab in the private session",
+          },
+        );
+
+        // From a private window: a new window is private too, and there's no other private window to open.
+        await closeWindow(normal.win);
+        await apiCall(`/api/apps/${tabId}`, { method: "DELETE" });
+        const [privTab] = await windowTabs(priv.id);
+        await priv.win.eval(
+          `window.__runeRpc("page.navigate", { tabId: ${JSON.stringify(privTab!.id)}, url: ${JSON.stringify(`${site.url.origin}/media`)} })`,
+        );
+        const privGuest = await Page.connect(port, 20_000, (t) => t.type === "webview" && t.url.endsWith("/media"));
+        opened.push(privGuest);
+        await privGuest.waitFor(`!!document.getElementById("link")`, { label: "the private window's page" });
+        items = await menuAt(privGuest, "#link", priv.win);
+        if (pick(items, "Open link in private window").enabled)
+          throw new Error("a private window offers another private window");
+        await choose("Open link in new window", priv.win);
+        const privAgain = await openedWindow(
+          (id) => id.startsWith("private-") && id !== priv.id,
+          "private window from a private window",
+        );
+        opened.push(privAgain.win);
+        await closeWindow(privAgain.win);
+        await closeWindow(priv.win);
+        return "video: Loop, Show controls, Picture in picture; link: new window (same workspace), private window, private from private";
+      } finally {
+        guest.close();
+        for (const win of opened) win.close();
+      }
+    },
+  );
+
+  await check("task manager: Shift+Esc lists the processes, sorted, refreshed; End process crashes a tab", async () => {
+    const count = await page!.eval<number>(`document.querySelectorAll("nav li").length`);
+    await newTab();
+    const tabId = await page!.waitFor<string>(
+      `document.querySelectorAll("nav li").length === ${count + 1} && document.querySelector("nav li:last-of-type").dataset.appId`,
+      { label: "web tab" },
+    );
+    const tab = `[data-web-tab="${tabId}"]`;
+    await page!.waitFor(`!!document.querySelector('${chromeFor(tab)} [data-address]')`, { label: "address bar" });
+    await page!.eval(`(() => {
+      const input = document.querySelector('${chromeFor(tab)} [data-address]');
+      input.value = "${site.url.origin}/second";
+      input.dispatchEvent(new InputEvent("input", { bubbles: true }));
+      input.form.requestSubmit();
+      return true;
+    })()`);
+    await page!.waitFor(`document.querySelector('nav li[data-app-id="${tabId}"]')?.innerText.includes("Second page")`, {
+      timeoutMs: 20_000,
+      label: "a page",
+    });
+    const pidOfTab = await page!.eval<number>(
+      `window.rune.internals.processes().then((list) => list.find((p) => p.tasks.some((t) => t.contentsId === document.querySelector('${tab} webview').getWebContentsId()))?.pid ?? 0)`,
+    );
+    if (!pidOfTab) throw new Error("the tab's process isn't listed");
+
+    // Shift+Esc, like Chrome.
+    await page!.eval(
+      `window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", shiftKey: true, bubbles: true })), true`,
+    );
+    await page!.waitFor(`!!document.querySelector('[data-internal-page="task-manager"] [data-task-pid]')`, {
+      label: "rune://task-manager",
+    });
+    await addressShows("rune://task-manager");
+    const kinds = await page!.eval<string[]>(
+      `[...document.querySelectorAll("[data-task-kind]")].map((r) => r.dataset.taskKind)`,
+    );
+    for (const kind of ["browser", "window", "tab"])
+      if (!kinds.includes(kind)) throw new Error(`no ${kind} process in ${kinds.join(", ")}`);
+    const row = `[data-task-pid="${pidOfTab}"]`;
+    const rowText = await page!.eval<string>(`document.querySelector('${row}')?.innerText ?? ""`);
+    if (!rowText.includes("Tab: Second page")) throw new Error(`the tab's row: ${rowText}`);
+    if (
+      !/[1-9][\d,]*K/.test(await page!.eval<string>(`document.querySelector('${row} [data-task-memory]').textContent`))
+    )
+      throw new Error("the tab's memory isn't shown");
+
+    // Sorted by memory, biggest first.
+    await click('[data-task-sort="memory"]');
+    await page!.waitFor(
+      `(() => { const m = [...document.querySelectorAll("[data-task-memory]")].map((e) => Number(e.textContent.replace(/[^\\d]/g, ""))); return m.length > 2 && m.every((v, i) => i === 0 || m[i - 1] >= v); })()`,
+      { label: "rows sorted by memory" },
+    );
+    // Refreshed: a new page in a tab shows up without reloading the list.
+    await page!.eval(`document.querySelector('${tab} webview').executeJavaScript("document.title = 'Renamed page'")`);
+    await page!.waitFor(`document.querySelector('${row}')?.innerText.includes("Renamed page")`, {
+      label: "the list refreshed",
+      timeoutMs: 8_000,
+    });
+    await shot("task-manager.png");
+
+    // The browser can't be ended; the tab's process can.
+    await click('[data-task-kind="browser"]');
+    if (await page!.eval<boolean>(`!document.querySelector("[data-task-end]").disabled`))
+      throw new Error("End process is offered for the browser");
+    await click(row);
+    await page!.waitFor(`!document.querySelector("[data-task-end]").disabled`, { label: "End process for the tab" });
+    await click("[data-task-end]");
+    await page!.waitFor(`!document.querySelector('${row}')`, { label: "the tab's process gone", timeoutMs: 10_000 });
+    await page!.waitFor(`document.querySelector('${tab} webview')?.isCrashed?.() !== false`, {
+      label: "the tab crashed",
+    });
+
+    // chrome://task-manager is the same page.
+    await enterAddress("chrome://task-manager");
+    await page!.waitFor(`!!document.querySelector('[data-internal-page="task-manager"]')`, {
+      label: "chrome://task-manager",
+    });
+    await addressShows("rune://task-manager");
+    await apiCall(`/api/apps/${tabId}`, { method: "DELETE" });
+    return "browser, windows and tabs with memory and CPU, sorted by memory, refreshed, End process";
+  });
 
   await check("windows: new and private windows, tabs moved out and back, a closed window reopened", async () => {
     const mainId = await page!.eval<string>("window.rune.window.id");
