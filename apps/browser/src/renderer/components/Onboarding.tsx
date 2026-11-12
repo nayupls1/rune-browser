@@ -721,6 +721,8 @@ function PushStep(props: StepProps) {
   const setPush = (value: Partial<BrowserSettings["push"]>) =>
     updateBrowser((b) => ({ ...b, push: { ...b.push, ...value } }));
   const valid = () => validPushServer(push().server);
+  const setBackground = (keepRunning: boolean) =>
+    updateBrowser((b) => ({ ...b, background: { ...b.background, keepRunning } }));
   const options: [PushService, string, string, string][] = [
     [
       "ntfy",
@@ -779,6 +781,22 @@ function PushStep(props: StepProps) {
             {valid()
               ? `Notifications go through ${valid()}.`
               : "An https address (plain http only on this computer). Until then, nothing arrives."}
+          </span>
+        </label>
+      </Show>
+      {/* Running in the background (main/background.ts): macOS keeps apps running without windows anyway. */}
+      <Show when={push().service !== "off" && window.rune.window.platform !== "darwin"}>
+        <label {...stylex.attrs(styles.item)} data-onboarding-background>
+          <Checkbox
+            checked={settings().browser.background.keepRunning}
+            onChange={(e) => setBackground(e.currentTarget.checked)}
+          />
+          <span {...stylex.attrs(styles.itemText)}>
+            <span {...stylex.attrs(styles.itemTitle)}>Keep Rune running in the background so they arrive</span>
+            <span {...stylex.attrs(styles.itemDetail)}>
+              When you close its last window, Rune stays in the system tray until you quit it there. Settings → General
+              → System has this too.
+            </span>
           </span>
         </label>
       </Show>

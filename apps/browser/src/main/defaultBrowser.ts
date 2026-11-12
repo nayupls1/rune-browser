@@ -18,6 +18,7 @@ import {
   WINDOWS_REGISTERED_NAME,
   type DefaultBrowserStatus,
 } from "../shared/defaultBrowser";
+import { BACKGROUND_ARG } from "./autostart";
 import { appImageDesktopEntry, desktopExecArg, linksFromArgs, webLink, withoutLinks } from "./links";
 import { defaultFor, mimeappsFiles, withDefault, xdgDirs } from "./mimeapps";
 import type { AppWindows } from "./windows";
@@ -54,7 +55,8 @@ export const restartArgs = () => withoutLinks(process.argv.slice(1), process.cwd
  * private one): the ones it was started with once that window is ready, later
  * ones right away (a second launch, macOS' open-url and open-file events).
  * `showWindow` brings up a normal window when there's none (macOS keeps running
- * without one, and only private windows may be open).
+ * without one, and so do Windows and Linux in the background, main/background.ts;
+ * or only private windows are open).
  */
 export function setupLinks(options: { windows: AppWindows; showWindow: () => void }) {
   const pending = linksFromArgs(process.argv, process.cwd(), isFile);
@@ -86,7 +88,10 @@ export function setupLinks(options: { windows: AppWindows; showWindow: () => voi
   app.on("second-instance", (_event, argv, cwd, data) => {
     const launch = data as Partial<LaunchData> | null;
     const args = Array.isArray(launch?.argv) ? launch.argv.filter((a) => typeof a === "string") : argv;
-    open(linksFromArgs(args, typeof launch?.cwd === "string" ? launch.cwd : cwd, isFile));
+    const links = linksFromArgs(args, typeof launch?.cwd === "string" ? launch.cwd : cwd, isFile);
+    // Started at login while it runs already: nothing to open.
+    if (!links.length && args.includes(BACKGROUND_ARG)) return;
+    open(links);
   });
   // macOS hands links and files over as events (also the ones it's started with).
   app.on("open-url", (event, url) => {

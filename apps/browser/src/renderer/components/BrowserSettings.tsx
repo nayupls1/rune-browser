@@ -143,8 +143,8 @@ function PushSection() {
     <Section title="Notifications from closed tabs" anchor="browser-push">
       <p {...stylex.attrs(styles.note)}>
         Sites you allow to notify you (Slack, Discord, GitHub…) can do so after their tab is closed, while Rune Browser
-        runs; what's sent meanwhile arrives at its next start. Messages are end-to-end encrypted: the server sees which
-        site sent one and when, never what it says.
+        runs (also in the background: General → System); what's sent after it quits arrives at its next start. Messages
+        are end-to-end encrypted: the server sees which site sent one and when, never what it says.
       </p>
       <For each={options}>
         {([service, label, description]) => (
@@ -1136,6 +1136,49 @@ export function PerformanceSection() {
   );
 }
 
+// --- System -------------------------------------------------------------------------------------
+
+/**
+ * Running in the background (main/background.ts), like Chrome's Settings → System: closing the last window leaves
+ * Rune Browser running so notifications from closed tabs still arrive, and it can start that way at login. macOS
+ * keeps apps running without windows anyway, so only "Open at login" is there.
+ */
+export function SystemSection() {
+  const background = () => browser().background;
+  const pushOff = () => browser().push.service === "off";
+  const isMac = window.rune.window.platform === "darwin";
+  const tray = window.rune.window.platform === "win32" ? "the notification area" : "the system tray";
+  return (
+    <Section title="System" anchor="browser-system">
+      <Show when={!isMac}>
+        <Row
+          label="Keep running in the background when Rune Browser is closed"
+          description={
+            pushOff()
+              ? "Nothing needs it while notifications from closed tabs are off (Privacy and security): closing the last window quits."
+              : `So notifications from closed tabs still arrive. Rune Browser stays in ${tray}, without its windows and tabs, until you quit it there.`
+          }
+        >
+          <Toggle
+            checked={background().keepRunning}
+            onChange={(keepRunning) => setPart("background", { keepRunning })}
+          />
+        </Row>
+      </Show>
+      <Row
+        label="Open at login"
+        description={
+          isMac
+            ? "Starts Rune Browser in the background when you sign in to your Mac, without a window."
+            : "Starts Rune Browser in the background when you sign in to your computer, without a window."
+        }
+      >
+        <Toggle checked={background().openAtLogin} onChange={(openAtLogin) => setPart("background", { openAtLogin })} />
+      </Row>
+    </Section>
+  );
+}
+
 // --- Autofill and passwords ---------------------------------------------------------------------
 
 export function AutofillSection() {
@@ -1307,6 +1350,9 @@ export function BrowserSection(props: { section: string }) {
       </Match>
       <Match when={props.section === "browser-performance"}>
         <PerformanceSection />
+      </Match>
+      <Match when={props.section === "browser-system"}>
+        <SystemSection />
       </Match>
       <Match when={props.section === "browser-autofill"}>
         <AutofillSection />

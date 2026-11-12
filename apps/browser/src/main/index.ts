@@ -5,6 +5,8 @@ import { isAbsolute, join, normalize, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { systemOpenAction } from "../shared/web";
 import { apiMapReporter } from "./apiMap";
+import { BACKGROUND_ARG } from "./autostart";
+import { launchedInBackground, setupBackground, type BackgroundControl } from "./background";
 import { describeExitCode, redactPaths } from "./crashReport";
 import { setupCrashReports } from "./crashes";
 import { claimSingleInstance, restartArgs, setupLinks } from "./defaultBrowser";
@@ -89,6 +91,9 @@ protocol.registerSchemesAsPrivileged([
 
 let server: ServerHandle | undefined;
 let web: ReturnType<typeof setupWebTabs> | undefined;
+let background: BackgroundControl | undefined;
+/** Started in the background: the crash dialog of the last run waits for the first window. */
+let checkPreviousRunLater = false;
 
 // Safe mode: the renderer leaves out the theme and site customizations, so
 // whatever broke the UI can be undone in History. rune://flags are left out too.
@@ -99,7 +104,8 @@ const appliedFlags = applyFlags(safeMode);
 applyDefaultFeatures();
 
 function relaunch(safe: boolean) {
-  const args = restartArgs().filter((a) => a !== "--safe-mode");
+  // A restart opens its window (whether it was started in the background or not).
+  const args = restartArgs().filter((a) => a !== "--safe-mode" && a !== BACKGROUND_ARG);
   app.relaunch({ args: safe ? [...args, "--safe-mode"] : args });
   app.quit();
 }
@@ -206,6 +212,11 @@ function serverStopped(exit: { code: number | null; signal: string | null; stder
 /** What every window gets besides its page (windows.ts): links stay in Rune Browser, crashes and safe mode. */
 function setupWindow(win: BrowserWindow) {
   guardWindow(win, rendererOrigin, (input) => web?.windowInput(input) ?? false);
+  background?.track(win, windows.isPrivate(win));
+  if (checkPreviousRunLater && !windows.isPrivate(win)) {
+    checkPreviousRunLater = false;
+    crashes.checkPreviousRun(win);
+  }
   // The window's page crashed (out of memory, a GPU or renderer bug): it comes back, a few times at most.
   let pageCrashes: number[] = [];
   win.webContents.on("render-process-gone", (_event, details) => {
@@ -239,7 +250,18 @@ app.whenReady().then(async () => {
     windows,
     apiMapReporter(() => server),
     () => server,
+    () => background?.settingsChanged(),
   );
+  const webTabs = web;
+  background = setupBackground({
+    settings: () => webTabs.settings(),
+    settingsReady: () => webTabs.settingsReady(),
+    icon: join(distDir, "electron", process.platform === "win32" ? "icon.ico" : "icon.png"),
+    offscreen: process.env.RUNE_OFFSCREEN === "1",
+    open: () => {
+      if (server) manager.activate();
+    },
+  });
   setupUpdates(windows);
   setupInternals({ windows, appliedFlags, safeMode });
 
@@ -260,17 +282,34 @@ app.whenReady().then(async () => {
   }
   server.ready.catch(failedToStart);
 
-  await manager.start(server);
+  // The saved browser settings, for what runs before (or without) a window: push, background mode.
+  const handle = server;
+  const savedSettings = handle.ready
+    .then(() => fetch(`${handle.url}/api/settings`, { headers: { Authorization: `Bearer ${handle.token}` } }))
+    .then((res) => (res.ok ? (res.json() as Promise<{ browser?: unknown }>) : null))
+    .then((saved) => web?.seedSettings(saved?.browser))
+    .catch((err) => console.warn("Couldn't read the saved settings:", err));
+  // Started at login: in the background, without a window, if that's on (else as usual).
+  let hidden = false;
+  if (launchedInBackground()) {
+    await savedSettings;
+    hidden = background.keepsRunning();
+  }
+
+  await manager.start(server, { hidden });
+  if (hidden) background.startHidden();
   const first = windows.current();
   if (first) crashes.checkPreviousRun(first);
+  else checkPreviousRunLater = true;
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0 && server) manager.activate();
   });
 });
 
+// Windows and Linux quit with their last window, unless Rune Browser keeps running in the background (background.ts).
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
+  if (process.platform !== "darwin" && !background?.allClosed()) app.quit();
 });
 
 app.on("will-quit", () => server?.stop());

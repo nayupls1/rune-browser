@@ -12,8 +12,8 @@
 // unsubscribes, its notifications permission isn't "allow" anymore, its data is cleared, its workspace is
 // deleted, or push is turned off (or moved to another server).
 //
-// Rune Browser has to run to receive: what's sent meanwhile waits on the ntfy server (12 hours on ntfy.sh) and
-// arrives at the next start (`since`).
+// Rune Browser has to run to receive (it keeps running without windows by default, main/background.ts): what's
+// sent meanwhile waits on the ntfy server (12 hours on ntfy.sh) and arrives at the next start (`since`).
 import {
   app,
   ipcMain,
@@ -518,7 +518,8 @@ export function setupPush(options: PushOptions) {
   function openWindow(caller: Caller, url: string) {
     const win = windows.current("normal");
     if (!win) {
-      void windows.openLink(url, { private: false, workspaceId: caller.workspaceId });
+      // None open (running in the background, main/background.ts): the window closed last comes back with it.
+      void windows.openLink(url, { private: false, workspaceId: caller.workspaceId, restore: true });
       return;
     }
     if (win.isMinimized()) win.restore();

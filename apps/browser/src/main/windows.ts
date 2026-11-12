@@ -47,8 +47,11 @@ export interface AppWindows {
   isPrivate(win: BrowserWindow | undefined): boolean;
   /** Calls `fn` when a window gets the focus. */
   onFocus(fn: () => void): void;
-  /** "Open link in new window": a new window (private or not) whose only tab is the link. */
-  openLink(url: string, options: { private: boolean; workspaceId?: string }): Promise<string | null>;
+  /**
+   * "Open link in new window": a new window (private or not) whose only tab is the link. `restore` (a click on a
+   * notification): with no normal window open, the one closed last comes back with its tabs and the link in a new one.
+   */
+  openLink(url: string, options: { private: boolean; workspaceId?: string; restore?: boolean }): Promise<string | null>;
 }
 
 interface Live {
@@ -119,6 +122,8 @@ export function createWindowManager(options: WindowManagerOptions) {
   let closed: SavedWindow[] = [];
   /** The last normal window, closed with no other one left: it opens again at the next start (or on macOS's activate). */
   let lastSession: SavedWindow | null = null;
+  /** Started in the background (main/background.ts): the windows to open when Rune Browser is opened. */
+  let deferred: SavedWindow[] = [];
   let quitting = false;
   let server: ServerHandle | undefined;
   /** Windows being opened (their tabs move first): the server must not take those tabs away meanwhile. */
@@ -145,7 +150,8 @@ export function createWindowManager(options: WindowManagerOptions) {
     clearTimeout(saveTimer);
     saveTimer = undefined;
     const open = [...live.values()].filter((w) => !w.private).map(savedOf);
-    writeJson(file, { version: 1, open: open.length ? open : lastSession ? [lastSession] : [], closed });
+    const kept = deferred.length ? deferred : lastSession ? [lastSession] : [];
+    writeJson(file, { version: 1, open: open.length ? open : kept, closed });
   }
   const saveSoon = () => {
     clearTimeout(saveTimer);
@@ -158,7 +164,7 @@ export function createWindowManager(options: WindowManagerOptions) {
     // What's open is read when the request goes out: a window opened meanwhile is in it.
     const body = () => ({
       open: [...new Set([...(open?.() ?? [...live.values()].map((w) => w.id)), ...opening])],
-      closed: [...closed.map((w) => w.id), ...(lastSession ? [lastSession.id] : [])],
+      closed: [...closed.map((w) => w.id), ...(lastSession ? [lastSession.id] : []), ...deferred.map((w) => w.id)],
       forget,
     });
     syncing = syncing.then(() =>
@@ -308,10 +314,11 @@ export function createWindowManager(options: WindowManagerOptions) {
       opening.delete(id);
     }
     if (tabIds.length && !moved) return null;
-    if (!isPrivate && lastSession) {
-      // The window kept for the next start is just a closed window now.
-      closed = [lastSession, ...closed];
+    if (!isPrivate && (lastSession || deferred.length)) {
+      // The windows kept for the next start are just closed windows now.
+      closed = [...deferred, ...(lastSession ? [lastSession] : []), ...closed];
       lastSession = null;
+      deferred = [];
     }
     const current = entryOf(BrowserWindow.getFocusedWindow() ?? undefined);
     const bounds = current
@@ -324,7 +331,7 @@ export function createWindowManager(options: WindowManagerOptions) {
   }
 
   /** Opens a closed window again, with its tabs (the one closed last, if none is named). */
-  async function reopen(id?: string) {
+  async function reopen(id?: string, intent: WindowIntent = null) {
     if (quitting) return false;
     const target = id ? closed.find((w) => w.id === id) : closed[0];
     const fromSession = !target && lastSession && (!id || lastSession.id === id) ? lastSession : null;
@@ -332,10 +339,32 @@ export function createWindowManager(options: WindowManagerOptions) {
     if (!saved) return false;
     closed = closed.filter((w) => w !== saved);
     if (fromSession) lastSession = null;
-    open(saved, null);
+    open(saved, intent);
     save();
     await sync();
     return true;
+  }
+
+  /**
+   * With no normal window open: the windows Rune Browser started in the background with, else the one closed last
+   * (with their tabs), else a new one (with a new tab if `newTab`). The first one gets `intent` (a link to open).
+   */
+  async function bringBack(intent: WindowIntent, newTab: boolean) {
+    if (quitting || [...live.values()].some((w) => !w.private)) return null;
+    if (deferred.length) {
+      const list = deferred;
+      deferred = [];
+      // The first one does what the startup setting says (unless it's opened for a link).
+      list.forEach((w, i) => open(w, i === 0 ? (intent ?? "startup") : null));
+      save();
+      await sync();
+      return list[0]!.id;
+    }
+    if (lastSession) {
+      const id = lastSession.id;
+      return (await reopen(id, intent)) ? id : null;
+    }
+    return openNew(false, [], undefined, intent && typeof intent === "object" ? intent : newTab);
   }
 
   // --- IPC ---------------------------------------------------------------------------------------
@@ -365,11 +394,11 @@ export function createWindowManager(options: WindowManagerOptions) {
     },
     isPrivate: (win) => !!entryOf(win)?.private,
     onFocus: (fn) => void focusListeners.add(fn),
-    openLink: (url, o) =>
-      openNew(o.private, [], undefined, {
-        url,
-        ...(o.private || !o.workspaceId ? {} : { workspaceId: o.workspaceId }),
-      }),
+    openLink(url, o) {
+      const intent = { url, ...(o.private || !o.workspaceId ? {} : { workspaceId: o.workspaceId }) };
+      if (o.restore && !o.private && ![...live.values()].some((w) => !w.private)) return bringBack(intent, false);
+      return openNew(o.private, [], undefined, intent);
+    },
   };
 
   const senderOf = (event: IpcMainEvent | IpcMainInvokeEvent) =>
@@ -473,7 +502,7 @@ export function createWindowManager(options: WindowManagerOptions) {
      * meanwhile, and wait for `serverReady` (the server up and told which windows there are, so tabs are
      * where they belong) before asking it anything.
      */
-    async start(handle: ServerHandle) {
+    async start(handle: ServerHandle, startup: { hidden?: boolean } = {}) {
       server = handle;
       const saved = parseWindowsFile(readJson(file));
       // The startup setting only decides between several windows: with one (or none) it opens either way.
@@ -486,22 +515,27 @@ export function createWindowManager(options: WindowManagerOptions) {
       privateCleared = clearPrivate();
       const plan = startupPlan(saved, onStartup);
       closed = plan.closed;
-      void sync(plan.forget, () => plan.open.map((w) => w.id)).then(windowsReady);
+      // In the background (at login): the windows open when Rune Browser does (`bringBack`); their tabs are kept.
+      if (startup.hidden) deferred = plan.open;
+      void sync(plan.forget, () => (startup.hidden ? [] : plan.open.map((w) => w.id))).then(windowsReady);
       // The first window does what the startup setting says (a new tab, the startup pages).
-      plan.open.forEach((saved, i) => open(saved, i === 0 ? "startup" : null));
+      if (!startup.hidden) plan.open.forEach((saved, i) => open(saved, i === 0 ? "startup" : null));
       save();
     },
-    /** macOS's dock icon with no window open: the last one comes back, or a new one. */
+    /**
+     * Opening Rune Browser with no window open (macOS's dock icon, the tray icon, launching it again): the last
+     * window comes back, or a new one.
+     */
     activate() {
-      if (live.size) return;
-      if (lastSession) void reopen(lastSession.id);
-      else void openNew(false);
+      const normal = [...live.values()].find((w) => !w.private && !w.win.isDestroyed());
+      if (!normal) return void bringBack(null, true);
+      if (normal.win.isMinimized()) normal.win.restore();
+      if (!options.offscreen) normal.win.show();
+      normal.win.focus();
     },
     /** A normal window for links from other apps when none is open: the last one comes back, or an empty one. */
     showNormal() {
-      if ([...live.values()].some((w) => !w.private)) return;
-      if (lastSession) void reopen(lastSession.id);
-      else void openNew(false, [], undefined, false);
+      void bringBack(null, false);
     },
     reopen,
   };

@@ -319,6 +319,18 @@ export function setupBrowser(options: BrowserOptions) {
     settings: () => browser,
     /** Whether the renderer sent the settings yet. */
     settingsReady: () => received,
+    /**
+     * The settings as saved (the server's), until a window sends them: with no window open (started in the
+     * background), push and the rest still go by them.
+     */
+    seed(value: unknown) {
+      if (received) return;
+      try {
+        update(decode(value ?? {}));
+      } catch (err) {
+        console.warn("Ignoring invalid saved browser settings:", err);
+      }
+    },
     /** The rules for the built-in extension, numbered from `firstId`. */
     rules: (firstId: number) => browserRulesToDnr(browser, firstId),
     /** Where downloads go (Settings → General → Downloads), made if it's missing. */
