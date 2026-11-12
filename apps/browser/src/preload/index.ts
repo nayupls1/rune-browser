@@ -131,6 +131,7 @@ const bridge: RuneBridge = {
     restoreHistory: (token, history) => ipcRenderer.invoke("rune:restore-history", token, history),
     proceedAnyway: (webContentsId, url) => ipcRenderer.invoke("rune:certificate-proceed", webContentsId, url),
     setSearchEngine: (engine) => ipcRenderer.send("rune:search-engine", engine),
+    searchSuggestions: (query) => ipcRenderer.invoke("rune:search-suggestions", query),
     headless: {
       open: (request) => ipcRenderer.invoke("rune:headless-open", request),
       navigate: (id, url, hosts) => ipcRenderer.invoke("rune:headless-navigate", id, url, hosts),

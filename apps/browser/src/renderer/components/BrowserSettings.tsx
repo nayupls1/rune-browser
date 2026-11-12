@@ -81,6 +81,19 @@ export function PrivacySection() {
       <Section title="Security" anchor="browser-security">
         <InsecureRows />
       </Section>
+      <Section title="Address bar" anchor="browser-address-bar">
+        <Row
+          label="Autocomplete searches"
+          description="Sends what you type in the address bar to your search engine, without your cookies, to show its suggestions. Never addresses, passwords, files or local addresses."
+        >
+          <span data-search-suggestions-setting>
+            <Toggle
+              checked={browser().privacy.searchSuggestions}
+              onChange={(searchSuggestions) => setPart("privacy", { searchSuggestions })}
+            />
+          </span>
+        </Row>
+      </Section>
       <Section title="Cookies and site settings" anchor="browser-cookies">
         <Row
           label="Block third-party cookies"
@@ -486,6 +499,22 @@ export function SearchSection() {
             onInput={(e) => setPart("search", { url: e.currentTarget.value.slice(0, 2000) })}
             xstyle={styles.textInput}
             data-search-url
+          />
+        </Row>
+        <Row
+          label="Suggestions URL (optional)"
+          description={
+            isSearchUrl(search().suggestUrl)
+              ? "The address bar shows its suggestions (OpenSearch JSON) as you type."
+              : "With %s in place of the words, the address bar shows its suggestions as you type."
+          }
+        >
+          <Input
+            value={search().suggestUrl}
+            placeholder="https://en.wikipedia.org/w/api.php?action=opensearch&search=%s"
+            onInput={(e) => setPart("search", { suggestUrl: e.currentTarget.value.slice(0, 2000) })}
+            xstyle={styles.textInput}
+            data-search-suggest-url
           />
         </Row>
       </Show>

@@ -101,6 +101,8 @@ const electron = await launchElectron(
     RUNE_DOWNLOADS_DIR: downloadsDir,
     // The test site's name for headless tabs may resolve to it (127.0.0.1); local-name.example may not.
     RUNE_HEADLESS_TEST_HOSTS: "headless.example,other.example",
+    // What the checks type never goes to a real search engine for suggestions (only the fake one's).
+    RUNE_SEARCH_SUGGESTIONS_LOCAL_ONLY: "1",
   },
   [
     ...(visible ? [] : ["--ozone-platform=headless", "--ozone-override-screen-size=1920,1080"]),
@@ -5802,6 +5804,179 @@ try {
     for (const t of await apiCall<{ id: string; name: string }[]>("/api/apps"))
       if (t.name === "Act page") await apiCall(`/api/apps/${t.id}`, { method: "DELETE" });
     return "suggested and switched (closing an empty new tab), tile, closed and reopened a tab";
+  });
+
+  await check("address bar: the search engine's suggestions, picked with the keyboard; what's never sent", async () => {
+    await page!.waitFor(`!!${currentWorkspaceName}`, { label: "workspace loaded" });
+    // A fake search engine: its suggestions (OpenSearch JSON, with a cookie it tries to set) and its results.
+    const asked: { q: string; cookie: string | null }[] = [];
+    const bidiOverride = String.fromCharCode(0x202e);
+    const engine = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch(req) {
+        const url = new URL(req.url);
+        const q = url.searchParams.get("q") ?? "";
+        if (url.pathname === "/suggest") {
+          asked.push({ q, cookie: req.headers.get("cookie") });
+          const words = ["forecast", "radar", "tomorrow"].map((w) => `${q} ${w}`);
+          return new Response(JSON.stringify([q, [q, ...words, 42, `odd${bidiOverride}text`]]), {
+            headers: { "Content-Type": "application/json", "Set-Cookie": "tracker=suggest-cookie; Path=/" },
+          });
+        }
+        return new Response(`<!doctype html><title>Fake results</title><h1>Results for ${q.replace(/</g, "")}</h1>`, {
+          headers: { "Content-Type": "text/html; charset=utf-8" },
+        });
+      },
+    });
+    const origin = `http://127.0.0.1:${engine.port}`;
+    type Saved = { browser: { search: { engine: string }; privacy: { searchSuggestions: boolean } } };
+    const savedBrowser = async () => (await apiCall<Saved>("/api/settings")).browser;
+    const engineBefore = (await savedBrowser()).search.engine;
+    const choose = (selector: string, value: string) =>
+      page!.eval(`(() => {
+        const el = document.querySelector(${JSON.stringify(selector)});
+        el.value = ${JSON.stringify(value)};
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+        return true;
+      })()`);
+    const { id: tabId } = await apiCall<{ id: string }>("/api/apps", {
+      method: "POST",
+      body: { url: `${site.url.origin}/` },
+    });
+    try {
+      // A custom engine with its suggestions URL (Settings → General → Search engine).
+      await openSettingsAt("browser-search");
+      await choose("[data-search-engine]", "custom");
+      await page!.waitFor(`!!document.querySelector("[data-search-suggest-url]")`, { label: "custom engine fields" });
+      await type("[data-search-name]", "Fake");
+      await type("[data-search-url]", `${origin}/search?q=%s`);
+      await type("[data-search-suggest-url]", `${origin}/suggest?q=%s`);
+      await shot("settings-search-suggest-url.png");
+      await waitForValue(async () => ((await savedBrowser()).search.engine === "custom" ? true : undefined));
+
+      await page!.waitFor(`!!document.querySelector('nav li[data-app-id="${tabId}"]')`, {
+        label: "tab in the sidebar",
+      });
+      await click(`nav li[data-app-id="${tabId}"]`);
+      const address = `${chromeFor(`[data-web-tab="${tabId}"]`)} [data-address]`;
+      await page!.waitFor(`!!document.querySelector('${address}')`, { label: "address bar" });
+      const typeAddress = (text: string) =>
+        page!.eval(`(() => {
+          const input = document.querySelector('${address}');
+          input.focus();
+          input.value = ${JSON.stringify(text)};
+          input.dispatchEvent(new InputEvent("input", { bubbles: true }));
+          return true;
+        })()`);
+      const closeAddress = () =>
+        page!.eval(
+          `document.querySelector('${address}').dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })), true`,
+        );
+      const rows = () =>
+        page!.eval<string[]>(
+          `[...document.querySelectorAll("[data-suggestions] [data-suggestion]")].map((b) => b.dataset.suggestion)`,
+        );
+
+      // Typing asks the engine; its suggestions come after the rest, each once, without what's typed, what isn't
+      // text, or bidi overrides.
+      await typeAddress("zebra");
+      await page!.waitFor(`!!document.querySelector('[data-suggestion="suggest:zebra radar"]')`, {
+        label: "the engine's suggestions",
+      });
+      const shown = await rows();
+      const engineRows = shown.filter((k) => k.startsWith("suggest:"));
+      const expected = ["suggest:zebra forecast", "suggest:zebra radar", "suggest:zebra tomorrow", "suggest:odd text"];
+      if (JSON.stringify(engineRows) !== JSON.stringify(expected))
+        throw new Error(`suggestions: ${JSON.stringify(shown)}`);
+      if (shown.indexOf("search") > shown.indexOf(expected[0]!)) throw new Error(`order: ${JSON.stringify(shown)}`);
+      await shot("address-search-suggestions.png");
+      // No cookies sent, though the engine set one.
+      await typeAddress("zebras");
+      await page!.waitFor(`!!document.querySelector('[data-suggestion="suggest:zebras radar"]')`, {
+        label: "suggestions for more typed",
+      });
+      if (asked.some((a) => a.cookie)) throw new Error(`a cookie was sent: ${JSON.stringify(asked)}`);
+
+      // The arrow keys reach one; Enter searches for it.
+      await typeAddress("zebra");
+      await page!.waitFor(`!!document.querySelector('[data-suggestion="suggest:zebra forecast"]')`, {
+        label: "suggestions again",
+      });
+      const index = (await rows()).indexOf("suggest:zebra radar");
+      for (let i = 0; i < index; i++)
+        await page!.eval(
+          `document.querySelector('${address}').dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })), true`,
+        );
+      await page!.waitFor(
+        `document.querySelector('[data-suggestion="suggest:zebra radar"]')?.getAttribute("aria-selected") === "true"`,
+        { label: "the suggestion picked with the arrow keys" },
+      );
+      await page!.eval(`document.querySelector('${address}').form.requestSubmit(), true`);
+      await page!.waitFor(
+        `document.querySelector('nav li[data-app-id="${tabId}"]')?.innerText.includes("Fake results")`,
+        {
+          timeoutMs: 20_000,
+          label: "searched for the suggestion",
+        },
+      );
+      const searched = await waitForValue(async () => {
+        const tab = (await apiCall<{ id: string; url: string | null }[]>("/api/apps")).find((t) => t.id === tabId);
+        return tab?.url?.startsWith(`${origin}/search`) ? tab.url : undefined;
+      });
+      if (new URL(searched).searchParams.get("q") !== "zebra radar") throw new Error(`searched: ${searched}`);
+
+      // What's never sent: credentials, local addresses, files, rune:// pages, addresses with a path.
+      const sentBefore = asked.length;
+      for (const text of [
+        "user:hunter2@example.com",
+        "localhost:3000",
+        "192.168.1.20",
+        "file:///etc/passwd",
+        "rune://settings",
+        "example.com/account?id=7",
+      ]) {
+        await typeAddress(text);
+        await Bun.sleep(400);
+        const leaked = (await rows()).filter((k) => k.startsWith("suggest:"));
+        if (leaked.length) throw new Error(`suggestions for ${text}: ${JSON.stringify(leaked)}`);
+      }
+      if (asked.length !== sentBefore) throw new Error(`sent: ${JSON.stringify(asked.slice(sentBefore))}`);
+      await closeAddress();
+
+      // Off in Settings → Privacy and security: nothing is asked.
+      await openSettingsAt("browser-privacy");
+      await page!.waitFor(`!!document.querySelector('[data-search-suggestions-setting] [role="switch"]')`, {
+        label: "the switch",
+      });
+      await shot("settings-search-suggestions.png");
+      await click('[data-search-suggestions-setting] [role="switch"]');
+      await waitForValue(async () => ((await savedBrowser()).privacy.searchSuggestions === false ? true : undefined));
+      await click(`nav li[data-app-id="${tabId}"]`);
+      await page!.waitFor(`!!document.querySelector('${address}')`, { label: "address bar" });
+      const sentOn = asked.length;
+      await typeAddress("giraffe");
+      await page!.waitFor(`!!document.querySelector('[data-suggestions] [data-suggestion="search"]')`, {
+        label: "suggestions",
+      });
+      await Bun.sleep(500);
+      if (asked.length !== sentOn || (await rows()).some((k) => k.startsWith("suggest:")))
+        throw new Error("asked the engine with suggestions off");
+      await closeAddress();
+      return `${sentOn} requests, no cookies; picked one with the keyboard and searched; none for credentials, local addresses, files, rune:// or with suggestions off`;
+    } finally {
+      // Back as it was: suggestions on, the engine before.
+      await openSettingsAt("browser-privacy");
+      if (!(await savedBrowser()).privacy.searchSuggestions) {
+        await click('[data-search-suggestions-setting] [role="switch"]');
+        await waitForValue(async () => ((await savedBrowser()).privacy.searchSuggestions ? true : undefined));
+      }
+      await openSettingsAt("browser-search");
+      await choose("[data-search-engine]", engineBefore);
+      await waitForValue(async () => ((await savedBrowser()).search.engine === engineBefore ? true : undefined));
+      await apiCall(`/api/apps/${tabId}`, { method: "DELETE" });
+      void engine.stop(true);
+    }
   });
 
   await check(

@@ -11,14 +11,43 @@ const withDefault = <S extends Schema.Top>(value: S["Encoded"]) =>
 
 // --- Search engine -----------------------------------------------------------------------------
 
+/**
+ * The engines Settings offers: where a search goes, and where the address bar asks for the engine's
+ * suggestions as you type (`suggest`, each answering with OpenSearch JSON: `[query, [suggestion…]]`;
+ * see shared/searchSuggestions.ts).
+ */
 export const searchEngines = {
-  duckduckgo: { label: "DuckDuckGo", url: "https://duckduckgo.com/?q=%s" },
-  google: { label: "Google", url: "https://www.google.com/search?q=%s" },
-  bing: { label: "Bing", url: "https://www.bing.com/search?q=%s" },
-  brave: { label: "Brave Search", url: "https://search.brave.com/search?q=%s" },
-  kagi: { label: "Kagi", url: "https://kagi.com/search?q=%s" },
-  ecosia: { label: "Ecosia", url: "https://www.ecosia.org/search?q=%s" },
-  startpage: { label: "Startpage", url: "https://www.startpage.com/do/search?q=%s" },
+  duckduckgo: {
+    label: "DuckDuckGo",
+    url: "https://duckduckgo.com/?q=%s",
+    suggest: "https://duckduckgo.com/ac/?q=%s&type=list",
+  },
+  google: {
+    label: "Google",
+    url: "https://www.google.com/search?q=%s",
+    suggest: "https://www.google.com/complete/search?client=chrome&ie=utf-8&oe=utf-8&q=%s",
+  },
+  bing: {
+    label: "Bing",
+    url: "https://www.bing.com/search?q=%s",
+    suggest: "https://www.bing.com/osjson.aspx?query=%s",
+  },
+  brave: {
+    label: "Brave Search",
+    url: "https://search.brave.com/search?q=%s",
+    suggest: "https://search.brave.com/api/suggest?q=%s",
+  },
+  kagi: { label: "Kagi", url: "https://kagi.com/search?q=%s", suggest: "https://kagi.com/api/autosuggest?q=%s" },
+  ecosia: {
+    label: "Ecosia",
+    url: "https://www.ecosia.org/search?q=%s",
+    suggest: "https://ac.ecosia.org/autocomplete?q=%s&type=list",
+  },
+  startpage: {
+    label: "Startpage",
+    url: "https://www.startpage.com/do/search?q=%s",
+    suggest: "https://www.startpage.com/osuggestions?q=%s",
+  },
 } as const;
 export type SearchEngineId = keyof typeof searchEngines;
 
@@ -106,6 +135,8 @@ export const BrowserSettings = Schema.Struct({
     /** The custom engine (engine: "custom"). */
     name: Schema.String.check(Schema.isMaxLength(100)).pipe(withDefault("")),
     url: Url.pipe(withDefault("")),
+    /** Where the custom engine's suggestions come from (OpenSearch JSON, %s for the words); "": none. */
+    suggestUrl: Url.pipe(withDefault("")),
   }).pipe(withDefault({})),
   startup: Schema.Struct({
     /** continue: the tabs you had; newTab: a new tab on top of them; pages: these pages. */
@@ -115,6 +146,8 @@ export const BrowserSettings = Schema.Struct({
   privacy: Schema.Struct({
     thirdPartyCookies: Schema.Literals(["allow", "block"]).pipe(withDefault("allow")),
     doNotTrack: Schema.Boolean.pipe(withDefault(false)),
+    /** The address bar asks the search engine for suggestions as you type (Chrome's "Autocomplete searches and URLs"). */
+    searchSuggestions: Schema.Boolean.pipe(withDefault(true)),
   }).pipe(withDefault({})),
   /** Every site's default for each setting. */
   defaults: Schema.Struct({
@@ -176,6 +209,19 @@ export function searchEngineOf(browser: Pick<BrowserSettings, "search">): { labe
   const { engine, name, url } = browser.search;
   if (engine !== "custom") return searchEngines[engine];
   return isSearchUrl(url) ? { label: name.trim() || hostLabel(url), url: url.trim() } : searchEngines.duckduckgo;
+}
+
+/**
+ * Where the address bar asks the search engine in use for suggestions (%s for the words), or null: turned
+ * off, or an engine without one (a custom engine without a usable suggest URL).
+ */
+export function suggestUrlOf(browser: Pick<BrowserSettings, "search" | "privacy">): string | null {
+  if (!browser.privacy.searchSuggestions) return null;
+  const { engine, url, suggestUrl } = browser.search;
+  if (engine !== "custom") return searchEngines[engine].suggest;
+  // A custom engine without a usable search URL searches with DuckDuckGo, and so suggests with it.
+  if (!isSearchUrl(url)) return searchEngines.duckduckgo.suggest;
+  return isSearchUrl(suggestUrl) ? suggestUrl.trim() : null;
 }
 
 const hostLabel = (url: string) => {
@@ -579,9 +625,15 @@ export function browserSettingsFromChrome(prefs: unknown): ImportedBrowserSettin
     const known = (Object.keys(searchEngines) as SearchEngineId[]).find(
       (id) => hostLabel(searchEngines[id].url) === host,
     );
+    const suggestUrl = str(get(searchData, "suggestions_url"));
     out.search = known
-      ? { engine: known, name: "", url: "" }
-      : { engine: "custom", name: str(get(searchData, "short_name"))?.slice(0, 100) ?? "", url: search };
+      ? { engine: known, name: "", url: "", suggestUrl: "" }
+      : {
+          engine: "custom",
+          name: str(get(searchData, "short_name"))?.slice(0, 100) ?? "",
+          url: search,
+          suggestUrl: (suggestUrl && searchUrlFrom(suggestUrl)) || "",
+        };
   }
 
   const restore = num(get(prefs, "session.restore_on_startup"));

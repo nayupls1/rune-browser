@@ -144,7 +144,7 @@ describe("rules", () => {
   test("blocked JavaScript, images, third-party cookies and Do Not Track", () => {
     const b = withSites(
       { "js-off.com": { javascript: "block" }, "pics-off.com": { images: "block" } },
-      { privacy: { thirdPartyCookies: "block", doNotTrack: true } },
+      { privacy: { thirdPartyCookies: "block", doNotTrack: true, searchSuggestions: true } },
     );
     const rules = browserRulesToDnr(b, 10);
     expect(rules.map((r) => r.id)).toEqual([10, 11, 12, 13, 14]);
@@ -230,15 +230,23 @@ describe("search engine", () => {
     expect(searchEngineOf({ search: { ...b.search, engine: "google" } }).label).toBe("Google");
     expect(
       searchEngineOf({
-        search: { engine: "custom", name: "Wiki", url: "https://en.wikipedia.org/w/index.php?search=%s" },
+        search: {
+          engine: "custom",
+          name: "Wiki",
+          url: "https://en.wikipedia.org/w/index.php?search=%s",
+          suggestUrl: "",
+        },
       }),
     ).toEqual({ label: "Wiki", url: "https://en.wikipedia.org/w/index.php?search=%s" });
     expect(
-      searchEngineOf({ search: { engine: "custom", name: "", url: "https://search.example.org/?q=%s" } }).label,
+      searchEngineOf({
+        search: { engine: "custom", name: "", url: "https://search.example.org/?q=%s", suggestUrl: "" },
+      }).label,
     ).toBe("search.example.org");
-    expect(searchEngineOf({ search: { engine: "custom", name: "Broken", url: "https://example.org/" } }).label).toBe(
-      "DuckDuckGo",
-    );
+    expect(
+      searchEngineOf({ search: { engine: "custom", name: "Broken", url: "https://example.org/", suggestUrl: "" } })
+        .label,
+    ).toBe("DuckDuckGo");
   });
 });
 
@@ -287,6 +295,7 @@ describe("import from a Chromium profile", () => {
       engine: "custom",
       name: "Wikipedia",
       url: "https://en.wikipedia.org/w/index.php?search=%s&",
+      suggestUrl: "",
     });
     expect(found.startup).toEqual({ mode: "pages", pages: ["https://news.example.com/"] });
     expect(found.privacy).toEqual({ thirdPartyCookies: "block", doNotTrack: true });
@@ -312,7 +321,19 @@ describe("import from a Chromium profile", () => {
       browserSettingsFromChrome({
         default_search_provider_data: { template_url_data: { url: "{google:baseURL}search?q={searchTerms}" } },
       }).search,
-    ).toEqual({ engine: "google", name: "", url: "" });
+    ).toEqual({ engine: "google", name: "", url: "", suggestUrl: "" });
+    // A custom engine's suggestions come along.
+    expect(
+      browserSettingsFromChrome({
+        default_search_provider_data: {
+          template_url_data: {
+            short_name: "Wiki",
+            url: "https://en.wikipedia.org/w/index.php?search={searchTerms}",
+            suggestions_url: "https://en.wikipedia.org/w/api.php?action=opensearch&search={searchTerms}",
+          },
+        },
+      }).search?.suggestUrl,
+    ).toBe("https://en.wikipedia.org/w/api.php?action=opensearch&search=%s");
     expect(browserSettingsFromChrome({})).toEqual({});
     expect(browserSettingsFromChrome(null)).toEqual({});
   });
@@ -366,7 +387,10 @@ describe("settings", () => {
   test("the server saves and returns them", async () => {
     const settings = defaultSettings();
     const browser = withSiteSetting(
-      { ...settings.browser, search: { engine: "custom", name: "Wiki", url: "https://en.wikipedia.org/?search=%s" } },
+      {
+        ...settings.browser,
+        search: { engine: "custom", name: "Wiki", url: "https://en.wikipedia.org/?search=%s", suggestUrl: "" },
+      },
       "example.com",
       "camera",
       "allow",

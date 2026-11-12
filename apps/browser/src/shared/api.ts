@@ -272,6 +272,11 @@ export interface RuneBridge {
     proceedAnyway: (webContentsId: number, url: string) => Promise<boolean>;
     /** The search engine Settings picked, for "Search … for" in a page's menu. */
     setSearchEngine: (engine: { label: string; url: string }) => void;
+    /**
+     * The search engine's suggestions for what's typed in the address bar (main/searchSuggestions.ts):
+     * none when they're off or it mustn't be sent. A newer call cancels the one before it ([]).
+     */
+    searchSuggestions: (query: string) => Promise<string[]>;
     /** Headless tabs: pages the website agent loads in the background (main/headless.ts). */
     headless: {
       open: (request: HeadlessOpenRequest) => Promise<HeadlessPage>;

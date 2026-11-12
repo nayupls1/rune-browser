@@ -125,7 +125,7 @@ export const settingsSections: SettingsSection[] = [
     label: "Privacy and security",
     icon: "shield",
     group: "browser",
-    keywords: "cookies third-party do not track https http insecure not secure",
+    keywords: "cookies third-party do not track https http insecure not secure autocomplete search suggestions",
   },
   {
     id: "browser-clear",

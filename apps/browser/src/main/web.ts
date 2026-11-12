@@ -36,6 +36,7 @@ import { setupDownloads } from "./downloads";
 import { setupHeadless } from "./headless";
 import { setupNetwork } from "./network";
 import { setupOverrides } from "./overrides";
+import { setupSearchSuggestions } from "./searchSuggestions";
 import { setupShortcuts } from "./shortcuts";
 import { setupSitePermissions } from "./sitePermissions";
 import { chromeUserAgent } from "./userAgent";
@@ -86,6 +87,7 @@ export function setupWebTabs(
     rulesChanged: () => extensions.rulesChanged(),
     sitesChanged: () => sitePermissions.sitesChanged(),
   });
+  setupSearchSuggestions({ windows, settings: () => browser.settings() });
   const sitePermissions = setupSitePermissions({
     windows,
     workspaceOf: (s) => webSessions.get(s),
